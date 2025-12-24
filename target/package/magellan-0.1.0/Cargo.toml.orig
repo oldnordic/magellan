@@ -1,0 +1,30 @@
+[package]
+name = "magellan"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/feanor/magellan"
+readme = "README.md"
+description = "A dumb, deterministic codebase mapping tool for Rust projects"
+keywords = ["code-indexing", "code-analysis", "ast", "source-code"]
+categories = ["development-tools", "command-line-utilities"]
+
+[[bin]]
+name = "magellan"
+path = "src/main.rs"
+
+[dependencies]
+notify = "7.0"
+anyhow = "1.0"
+thiserror = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tree-sitter = "0.22"
+tree-sitter-rust = "0.21"
+sha2 = "0.10"
+hex = "0.4"
+signal-hook = "0.3"
+sqlitegraph = "0.2.10"
+
+[dev-dependencies]
+tempfile = "3.10"

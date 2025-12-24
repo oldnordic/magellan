@@ -1,0 +1,14 @@
+/home/feanor/Projects/magellan/target/debug/deps/tree_sitter-aa23b4570056a9c2.d: /home/feanor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tree-sitter-0.22.6/binding_rust/lib.rs /home/feanor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tree-sitter-0.22.6/binding_rust/ffi.rs /home/feanor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tree-sitter-0.22.6/binding_rust/util.rs /home/feanor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tree-sitter-0.22.6/binding_rust/./README.md /home/feanor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tree-sitter-0.22.6/binding_rust/./bindings.rs /home/feanor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tree-sitter-0.22.6/binding_rust/../src/array.h /home/feanor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tree-sitter-0.22.6/binding_rust/../src/parser.h /home/feanor/Projects/magellan/target/debug/build/tree-sitter-d51280401dba354e/out/stdlib-symbols.txt
+
+/home/feanor/Projects/magellan/target/debug/deps/libtree_sitter-aa23b4570056a9c2.rmeta: /home/feanor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tree-sitter-0.22.6/binding_rust/lib.rs /home/feanor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tree-sitter-0.22.6/binding_rust/ffi.rs /home/feanor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tree-sitter-0.22.6/binding_rust/util.rs /home/feanor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tree-sitter-0.22.6/binding_rust/./README.md /home/feanor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tree-sitter-0.22.6/binding_rust/./bindings.rs /home/feanor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tree-sitter-0.22.6/binding_rust/../src/array.h /home/feanor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tree-sitter-0.22.6/binding_rust/../src/parser.h /home/feanor/Projects/magellan/target/debug/build/tree-sitter-d51280401dba354e/out/stdlib-symbols.txt
+
+/home/feanor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tree-sitter-0.22.6/binding_rust/lib.rs:
+/home/feanor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tree-sitter-0.22.6/binding_rust/ffi.rs:
+/home/feanor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tree-sitter-0.22.6/binding_rust/util.rs:
+/home/feanor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tree-sitter-0.22.6/binding_rust/./README.md:
+/home/feanor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tree-sitter-0.22.6/binding_rust/./bindings.rs:
+/home/feanor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tree-sitter-0.22.6/binding_rust/../src/array.h:
+/home/feanor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tree-sitter-0.22.6/binding_rust/../src/parser.h:
+/home/feanor/Projects/magellan/target/debug/build/tree-sitter-d51280401dba354e/out/stdlib-symbols.txt:
+
+# env-dep:OUT_DIR=/home/feanor/Projects/magellan/target/debug/build/tree-sitter-d51280401dba354e/out
