@@ -44,7 +44,7 @@ fn test_struct_definition() {
     assert_eq!(facts.len(), 1, "Should extract one struct");
     let fact = &facts[0];
 
-    assert_eq!(fact.kind, SymbolKind::Struct);
+    assert_eq!(fact.kind, SymbolKind::Class);  // Rust struct → Class (language-agnostic)
     assert_eq!(fact.name, Some("MyStruct".to_string()));
 }
 
@@ -70,7 +70,7 @@ fn test_trait_definition() {
     assert_eq!(facts.len(), 1, "Should extract one trait");
     let fact = &facts[0];
 
-    assert_eq!(fact.kind, SymbolKind::Trait);
+    assert_eq!(fact.kind, SymbolKind::Interface);  // Rust trait → Interface (language-agnostic)
     assert_eq!(fact.name, Some("MyTrait".to_string()));
 }
 
@@ -139,7 +139,7 @@ fn test_multiple_symbols() {
         "Should contain function"
     );
     assert!(
-        kinds.contains(&&SymbolKind::Struct),
+        kinds.contains(&&SymbolKind::Class),  // Rust struct → Class (language-agnostic)
         "Should contain struct"
     );
     assert!(
@@ -147,7 +147,7 @@ fn test_multiple_symbols() {
         "Should contain enum"
     );
     assert!(
-        kinds.contains(&&SymbolKind::Trait),
+        kinds.contains(&&SymbolKind::Interface),  // Rust trait → Interface (language-agnostic)
         "Should contain trait"
     );
     assert!(

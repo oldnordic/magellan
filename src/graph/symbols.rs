@@ -4,11 +4,10 @@
 
 use anyhow::Result;
 use sqlitegraph::{NodeId, NodeSpec, EdgeSpec, SqliteGraphBackend, BackendDirection, NeighborQuery, GraphBackend};
-use std::path::PathBuf;
 use std::rc::Rc;
 
 use crate::graph::schema::SymbolNode;
-use crate::ingest::{SymbolFact, SymbolKind};
+use crate::ingest::SymbolFact;
 
 /// Symbol operations for CodeGraph
 pub struct SymbolOps {
@@ -23,6 +22,10 @@ impl SymbolOps {
             kind: format!("{:?}", fact.kind),
             byte_start: fact.byte_start,
             byte_end: fact.byte_end,
+            start_line: fact.start_line,
+            start_col: fact.start_col,
+            end_line: fact.end_line,
+            end_col: fact.end_col,
         };
 
         let name = fact.name.clone().unwrap_or_else(|| {
@@ -71,37 +74,5 @@ impl SymbolOps {
         }
 
         Ok(())
-    }
-
-    /// Convert a symbol node to SymbolFact
-    pub fn symbol_fact_from_node(&self, node_id: i64, file_path: PathBuf) -> Result<Option<SymbolFact>> {
-        let node = self.backend.get_node(node_id)?;
-
-        let symbol_node: Option<SymbolNode> = serde_json::from_value(node.data)
-            .ok();
-
-        let symbol_node = match symbol_node {
-            Some(n) => n,
-            None => return Ok(None),
-        };
-
-        let kind = match symbol_node.kind.as_str() {
-            "Function" => SymbolKind::Function,
-            "Struct" => SymbolKind::Struct,
-            "Enum" => SymbolKind::Enum,
-            "Trait" => SymbolKind::Trait,
-            "Method" => SymbolKind::Method,
-            "Module" => SymbolKind::Module,
-            "Unknown" => SymbolKind::Unknown,
-            _ => SymbolKind::Unknown,
-        };
-
-        Ok(Some(SymbolFact {
-            file_path,
-            kind,
-            name: symbol_node.name,
-            byte_start: symbol_node.byte_start,
-            byte_end: symbol_node.byte_end,
-        }))
     }
 }

@@ -6,10 +6,13 @@ pub mod graph;
 pub mod indexer;
 pub mod ingest;
 pub mod references;
+pub mod verify;
 pub mod watcher;
 
-pub use graph::CodeGraph;
+pub use graph::{CodeGraph, ScanProgress};
 pub use indexer::{run_indexer, run_indexer_n};
 pub use ingest::{Parser, SymbolFact, SymbolKind};
-pub use references::ReferenceFact;
+pub use ingest::detect::{Language, detect_language};
+pub use references::{ReferenceFact, CallFact};
+pub use verify::{VerifyReport, verify_graph};
 pub use watcher::{EventType, FileEvent, FileSystemWatcher, WatcherConfig};

@@ -2,19 +2,49 @@
 
 ## Project Status
 
-**Phase:** 6.2 - Operational Hardening (COMPLETE)
-**Last Updated:** 2025-12-24
-**Current State:** Phases 0-6.2 complete
-**Feature Status:** FEATURE FROZEN - No new features planned beyond Phase 6.2
+**Current Version:** 0.3.0
+**Last Updated:** 2025-12-30
+**Current State:** Multi-language support complete (7 languages)
+**Feature Status:** Stable - See CHANGELOG.md for version history
 
-**Module Layout:**
+**Module Layout (v0.3.0):**
 ```
-src/graph/
-  ├── mod.rs       (249 LOC) - Public CodeGraph API
-  ├── schema.rs    (29 LOC)  - Node/edge types
-  ├── files.rs     (161 LOC) - FileOps (crate-private)
-  ├── symbols.rs   (107 LOC) - SymbolOps (crate-private)
-  └── references.rs (138 LOC) - ReferenceOps (crate-private)
+src/
+├── main.rs              # CLI entry point
+├── lib.rs               # Public API
+├── watcher.rs           # Filesystem watcher
+├── indexer.rs           # Event coordination
+├── references.rs        # Reference/Call fact types
+├── verify.rs            # Database verification logic
+├── ingest/
+│   ├── mod.rs           # Parser dispatcher & Rust parser
+│   ├── detect.rs        # Language detection (7 languages)
+│   ├── c.rs             # C parser
+│   ├── cpp.rs           # C++ parser
+│   ├── java.rs          # Java parser
+│   ├── javascript.rs    # JavaScript parser
+│   ├── typescript.rs    # TypeScript parser
+│   └── python.rs        # Python parser
+├── query_cmd.rs         # Query command
+├── find_cmd.rs          # Find command
+├── refs_cmd.rs          # Refs command
+├── verify_cmd.rs        # Verify CLI handler
+├── watch_cmd.rs         # Watch CLI handler
+└── graph/
+    ├── mod.rs           # CodeGraph API
+    ├── schema.rs        # Node/edge types
+    ├── files.rs         # File operations
+    ├── symbols.rs       # Symbol operations
+    ├── references.rs    # Reference node operations
+    ├── calls.rs         # Call edge operations
+    ├── call_ops.rs      # Call node operations
+    ├── ops.rs           # Graph indexing operations
+    ├── query.rs         # Query operations
+    ├── count.rs         # Count operations
+    ├── export.rs        # JSON export
+    ├── scan.rs          # Scanning operations
+    ├── freshness.rs     # Freshness checking
+    └── tests.rs         # Graph tests
 ```
 
 ---
@@ -567,31 +597,114 @@ test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 - Output: "files: {n}\nsymbols: {n}\nreferences: {n}"
 - tests/status_tests.rs (58 LOC) - runs --status and verifies counts
 
-**Phase 6.2 Complete - FEATURE FROZEN:**
+**Phase 6.2 Complete:**
 - All 37 tests passing (5 watcher + 12 parser + 5 graph + 4 reference + 4 indexer + 1 CLI + 2 schema + 1 signal + 1 error + 1 status + 1 graph_schema)
 - cargo check passes
 - All files under 300 LOC limit
-- **MAGELLAN IS FEATURE FROZEN**
-- No new features planned beyond Phase 6.2
+
+**Current State (v0.3.0):**
 - Magellan is a dumb, deterministic codebase mapping tool
+- Multi-language support: Rust, Python, C, C++, Java, JavaScript, TypeScript
 - Magellan does NOT:
   - Perform semantic analysis
   - Build LSP servers or language features
   - Use async runtimes
   - Use background thread pools
   - Use config files
-  - Perform initial full scans (requires events to trigger)
-  - Handle non-.rs files
   - Provide web APIs or network services
-  - Implement advanced query features
+  - Cross-file symbol resolution (planned for future)
 - Magellan DOES:
-  - Watch directories for .rs file changes
-  - Extract AST-level facts (functions, structs, enums, traits, modules, impls)
+  - Watch directories for source file changes (7 languages)
+  - Extract AST-level facts (functions, classes, methods, enums, modules, etc.)
   - Extract symbol references (calls and type references)
+  - Build call graphs for all 7 languages
   - Persist facts to sqlitegraph database
   - Index files on Create/Modify events
   - Delete files on Delete events
   - Handle permission errors gracefully
   - Respond to SIGINT/SIGTERM for clean shutdown
-  - Report status via --status flag
+  - Report status via `status` command
+
+---
+
+### Database Freshness Safeguards (2025-12-28)
+**Status:** ✅ Complete
+**Description:** Add timestamp tracking and verification to detect stale databases
+**Deliverables:**
+
+#### Task 1: Timestamp Tracking ✅
+- ✅ Extended FileNode schema with `last_indexed_at: i64` and `last_modified: i64`
+- ✅ src/graph/files.rs - Added `now()`, `get_file_mtime()` helpers
+- ✅ Modified `find_or_create_file_node()` to capture timestamps
+- ✅ tests/timestamp_tests.rs (4 tests) - TDD approach
+**Verification:**
+- [x] test_file_node_includes_timestamps ✅
+- [x] test_timestamps_update_on_reindex ✅
+- [x] test_last_modified_captured_from_filesystem ✅
+- [x] test_file_node_json_serialization ✅
+
+#### Task 2: magellan verify Command ✅
+- ✅ src/verify.rs (175 LOC) - verify_graph() function
+- ✅ VerifyReport {missing, new, modified, stale}
+- ✅ src/main.rs - Added Verify command variant
+- ✅ src/verify_cmd.rs (51 LOC) - CLI handler
+- ✅ tests/verify_tests.rs (5 tests) - TDD approach
+- ✅ Added `all_file_nodes()` public method to CodeGraph
+**Verification:**
+- [x] test_verify_clean_database ✅
+- [x] test_verify_detects_deleted_files ✅
+- [x] test_verify_detects_new_files ✅
+- [x] test_verify_detects_modified_files ✅
+- [x] test_verify_detects_stale_files ✅
+**Test Results:**
+```
+running 5 tests
+test result: ok. 5 passed; 0 failed
+```
+
+#### Task 3: Pre-Query Staleness Warning ✅
+- ✅ src/graph/freshness.rs (151 LOC) - freshness checking module
+- ✅ FreshnessStatus struct with `is_stale()`, `minutes_since_index()`, `warning_message()`
+- ✅ `check_freshness(graph: &CodeGraph) -> Result<FreshnessStatus>`
+- ✅ STALE_THRESHOLD_SECS constant (300 seconds = 5 minutes)
+- ✅ Added `all_file_nodes_readonly()` for read-only access
+- ✅ tests/freshness_tests.rs (5 tests) - TDD approach
+- ✅ Re-exported via src/graph/mod.rs
+**Verification:**
+- [x] test_fresh_database_no_warning ✅
+- [x] test_stale_database_produces_warning ✅
+- [x] test_empty_database_no_warning ✅
+- [x] test_warning_includes_time_difference ✅
+- [x] test_freshness_threshold_constant ✅
+**Test Results:**
+```
+running 5 tests
+test result: ok. 5 passed; 0 failed
+```
+
+**Final Verification:**
+- [x] All 80 tests pass (7 freshness module + 5 freshness_tests + 68 existing)
+- [x] cargo check passes (zero warnings in new code)
+- [x] All files under 300 LOC:
+  - freshness.rs: 151 LOC
+  - files.rs: 240 LOC
+  - mod.rs: 286 LOC
+  - verify.rs: 175 LOC
+  - verify_cmd.rs: 51 LOC
+- [x] Binary built and installed to `/home/feanor/.local/bin/magellan`
+
+**Files Modified:**
+- src/graph/schema.rs - Added timestamp fields to FileNode
+- src/graph/files.rs - Timestamp capture helpers, read-only API
+- src/graph/mod.rs - Added freshness module, re-exports
+- src/verify.rs - NEW (175 LOC)
+- src/verify_cmd.rs - NEW (51 LOC)
+- src/main.rs - Added Verify command
+- src/lib.rs - Exported verify module
+- tests/timestamp_tests.rs - NEW (166 LOC)
+- tests/verify_tests.rs - NEW (158 LOC)
+- tests/freshness_tests.rs - NEW (160 LOC)
+- docs/DATABASE_FRESHNESS_PLAN.md - NEW (396 LOC)
+
+**Plan:** docs/DATABASE_FRESHNESS_PLAN.md - Complete design document
 

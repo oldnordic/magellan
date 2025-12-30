@@ -1,21 +1,45 @@
+pub mod c;
+pub mod cpp;
+pub mod detect;
+pub mod java;
+pub mod javascript;
+pub mod python;
+pub mod typescript;
+
+// Re-exports from detect module
+pub use detect::{Language, detect_language};
+
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// Kind of symbol extracted from source code
+///
+/// Language-agnostic symbol kinds that map across multiple programming languages.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum SymbolKind {
-    /// Function definition (fn)
+    /// Function definition
     Function,
-    /// Struct definition (struct)
-    Struct,
-    /// Enum definition (enum)
-    Enum,
-    /// Trait definition (trait)
-    Trait,
-    /// Method inside an impl block
+    /// Method inside a class/impl block
     Method,
-    /// Module declaration (mod)
+    /// Class or struct-like type definition
+    /// Covers: Rust struct, Python class, Java class, C++ class, JS/TS class
+    Class,
+    /// Interface or trait definition
+    /// Covers: Rust trait, Java interface, TypeScript interface
+    Interface,
+    /// Enum definition
+    Enum,
+    /// Module or package declaration
+    /// Covers: Rust mod, Python module, Java package, JS/TS module
     Module,
+    /// Union definition (C/C++)
+    Union,
+    /// Namespace definition
+    /// Covers: C++ namespace, TypeScript namespace
+    Namespace,
+    /// Type alias
+    /// Covers: TypeScript type, Rust type alias
+    TypeAlias,
     /// Unknown symbol type
     Unknown,
 }
@@ -35,6 +59,14 @@ pub struct SymbolFact {
     pub byte_start: usize,
     /// Byte offset where symbol ends in file
     pub byte_end: usize,
+    /// Line where symbol starts (1-indexed)
+    pub start_line: usize,
+    /// Column where symbol starts (0-indexed, bytes)
+    pub start_col: usize,
+    /// Line where symbol ends (1-indexed)
+    pub end_line: usize,
+    /// Column where symbol ends (0-indexed, bytes)
+    pub end_col: usize,
 }
 
 /// Parser that extracts symbol facts from Rust source code
@@ -115,10 +147,10 @@ impl Parser {
 
         let symbol_kind = match kind {
             "function_item" => SymbolKind::Function,
-            "struct_item" => SymbolKind::Struct,
+            "struct_item" => SymbolKind::Class,     // Rust struct → Class (language-agnostic)
             "enum_item" => SymbolKind::Enum,
-            "trait_item" => SymbolKind::Trait,
-            "impl_item" => SymbolKind::Unknown, // impl blocks have no name in v0
+            "trait_item" => SymbolKind::Interface,  // Rust trait → Interface (language-agnostic)
+            "impl_item" => SymbolKind::Unknown,     // impl blocks have no name in v0
             "mod_item" => SymbolKind::Module,
             _ => return None, // Not a symbol we track
         };
@@ -132,6 +164,10 @@ impl Parser {
             name,
             byte_start: node.start_byte() as usize,
             byte_end: node.end_byte() as usize,
+            start_line: node.start_position().row + 1, // tree-sitter is 0-indexed
+            start_col: node.start_position().column,
+            end_line: node.end_position().row + 1,
+            end_col: node.end_position().column,
         })
     }
 
@@ -172,6 +208,10 @@ mod tests {
             name: Some("test_fn".to_string()),
             byte_start: 0,
             byte_end: 100,
+            start_line: 1,
+            start_col: 0,
+            end_line: 3,
+            end_col: 1,
         };
 
         let json = serde_json::to_string(&fact).unwrap();

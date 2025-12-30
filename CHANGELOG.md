@@ -1,142 +1,154 @@
 # Changelog
 
-All notable changes to Magellan will be documented in this file.
+Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
+Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-## [Unreleased]
+## [0.3.0] - 2025-12-30
 
 ### Added
-- **Graceful Shutdown** - Signal handling for SIGINT/SIGTERM
-  - Magellan now responds cleanly to termination signals
-  - Prints "SHUTDOWN" message before exiting
-  - Uses `signal-hook` crate for cross-platform signal handling
-  - Changed event loop from blocking to polling with 100ms sleep interval
-
-- **Error Reporting** - Deterministic error handling
-  - File read errors now log "ERROR {path} {reason}" and continue processing
-  - Index errors log "ERROR {path} {reason}" and continue
-  - Process no longer crashes on permission errors or malformed files
-  - No retries, no backoff, no panics - deterministic behavior
-
-- **Status Snapshot** - `--status` flag for database inspection
-  - `magellan watch --status` prints counts and exits immediately
-  - Shows total files, symbols, and references in database
-  - Useful for monitoring indexing progress
-  - New CodeGraph API methods: `count_files()`, `count_symbols()`, `count_references()`
+- **Multi-language reference extraction** - Reference extraction now works for all 7 supported languages (Rust, Python, C, C++, Java, JavaScript, TypeScript)
+- **Multi-language call graph indexing** - Call graph extraction now works for all 7 supported languages
+- Language-specific `extract_references()` methods for Python, C, C++, Java, JavaScript, TypeScript parsers
+- Language-specific `extract_calls()` methods for Python, C, C++, Java, JavaScript, TypeScript parsers
+- Language dispatch in `src/graph/references.rs` for reference extraction
+- Language dispatch in `src/graph/call_ops.rs` for call extraction
+- Proper span filtering to exclude self-references in all language parsers
 
 ### Changed
-- **Event Loop Architecture** - Migrated from blocking to polling
-  - Changed from `recv_event()` (blocking) to `try_recv_event()` (non-blocking)
-  - Enables periodic shutdown flag checking
-  - 100ms sleep interval balances responsiveness with CPU usage
-  - Required for graceful signal handling
+- Removed Rust-only restriction from call indexing in `src/graph/ops.rs`
+- Reference extraction now uses proper symbol spans for filtering (was using placeholders)
+- Call extraction now uses proper symbol information (was using placeholders)
+- Rename refactoring (via codemcp) now works for Python, C, C++, Java, JavaScript, TypeScript
 
 ### Fixed
-- **Database File Indexing** - Fixed bug where magellan indexed its own database
-  - Added hardcoded filter to skip non-.rs files
-  - Prevents indexing of `.db` and `.db-journal` files
-  - Eliminates infinite indexing loops
+- Reference extraction bug where byte offsets were not stored in edge data (codemcp rename fix)
+- Self-reference filtering bug where references within defining span were incorrectly counted
+- Call graph indexing was only working for Rust - now works for all languages
 
 ### Technical
-- **Dependencies**
-  - Added `signal-hook = "0.3"` for Unix signal handling
+- Each language parser now implements `extract_references()` and `extract_calls()`
+- Language dispatch pattern implemented in both reference and call indexing
+- All parsers extract symbols first to get proper span information for reference filtering
 
-- **Test Coverage**
-  - `tests/signal_tests.rs` (81 LOC) - Verifies graceful shutdown
-  - `tests/error_tests.rs` (86 LOC) - Verifies error handling
-  - `tests/status_tests.rs` (58 LOC) - Verifies status reporting
-  - All 37 tests passing across 12 test suites
+## [0.2.3] - 2025-12-28
 
-- **File Size Limits**
-  - `src/main.rs`: 236 LOC (within 300 LOC limit)
-  - All test files under 250 LOC limit
-  - Modular graph structure maintained
+### Added
+- `--root` option to `query`, `find`, and `refs` commands for explicit relative path resolution
+- Users can now run: `magellan query --db mag.db --root /path/to/project --file src/lib.rs`
+- Resolves relative paths against explicit root directory (NO guessing from current directory)
+- New test: `test_query_with_relative_path_explicit_root` proving TDD compliance
+
+### Changed
+- `--root` is optional: if omitted, relative paths resolve from current working directory
+- All CLI query commands now accept both absolute and relative file paths
+
+### Technical
+- Refactored `resolve_path()` helper function shared across query, find, and refs commands
+- No warnings - clean compilation with proper path resolution
+
+## [0.2.2] - 2025-12-28
+
+### Fixed
+- CLI query commands now accept relative file paths (previously required absolute paths)
+- `magellan query --file src/lib.rs` now works from within the project directory
+- `magellan find --name foo --path src/main.rs` now resolves relative paths correctly
+- `magellan refs --name bar --path src/lib.rs` now resolves relative paths correctly
+
+## [0.2.1] - 2025-12-28
+
+### Changed
+- Updated README to reflect multi-language support
+- Updated README to reflect new CLI query commands
+- Updated MANUAL.md with current command reference
+
+## [0.2.0] - 2025-12-28
+
+### Added
+
+**Multi-language Support**
+- C parser - .c, .h files (tree-sitter-c)
+- C++ parser - .cpp, .cc, .cxx, .hpp files (tree-sitter-cpp)
+- Java parser - .java files (tree-sitter-java)
+- JavaScript parser - .js, .mjs files (tree-sitter-javascript)
+- TypeScript parser - .ts, .tsx files (tree-sitter-typescript)
+- Python parser - .py files (tree-sitter-python)
+- Language detection by file extension
+- Parser dispatcher for language-specific extraction
+
+**CLI Query Commands**
+- `magellan query --db <FILE> --file <PATH> [--kind <KIND>]` - List symbols in a file
+- `magellan find --db <FILE> --name <NAME> [--path <PATH>]` - Find symbol by name
+- `magellan refs --db <FILE> --name <NAME> --path <PATH> [--direction <in|out>]` - Show call references
+- `magellan files --db <FILE>` - List all indexed files
+- Case-insensitive symbol kind filtering
+- Multi-file symbol search
+- Incoming/outgoing call graph traversal
+
+**New Modules**
+- `src/ingest/c.rs` - C language parser
+- `src/ingest/cpp.rs` - C++ language parser
+- `src/ingest/java.rs` - Java language parser
+- `src/ingest/javascript.rs` - JavaScript language parser
+- `src/ingest/typescript.rs` - TypeScript language parser
+- `src/ingest/python.rs` - Python language parser
+- `src/ingest/detect.rs` - Language detection by file extension
+- `src/query_cmd.rs` - Query command implementation
+- `src/find_cmd.rs` - Find command implementation
+- `src/refs_cmd.rs` - Refs command implementation
+
+**Tests**
+- `tests/cli_query_tests.rs` - 15 tests for CLI query commands
+- `tests/language_parser_tests.rs` - 159 tests for multi-language parsers
+- Total: 174+ tests across 27+ test suites
+
+### Changed
+
+- SymbolKind enum now includes: Function, Method, Class, Interface, Enum, Module, Union, Namespace, TypeAlias, Unknown
+- Updated symbol kind mapping for language-agnostic representation
+- Ingest module split into language-specific parsers
+- All modules remain under 300 LOC limit
+
+### Technical
+
+- Added tree-sitter language grammars: c, cpp, java, javascript, typescript, python
+- Language detection based on file extension mapping
+- Unified symbol kind extraction across all languages
+
+## [0.1.1] - 2025-12-28
+
+### Added
+
+- `magellan status --db <FILE>` - Database statistics command
+- `magellan verify --root <DIR> --db <FILE>` - Database freshness checking
+- `magellan export --db <FILE>` - JSON export command
+- `--scan-initial` flag - Scan directory on startup
+- Timestamp tracking on File nodes (last_indexed_at, last_modified)
+- Freshness checking module
+
+### Fixed
+
+- Duplicate File node bug on database reopen
+
+### Changed
+
+- Command structure: separated subcommands instead of flags
+- Database Schema: FileNode now includes timestamps
 
 ## [0.1.0] - 2025-12-24
 
 ### Added
-- **Core Magellan Binary** - Runnable codebase mapping tool
-  - `magellan watch --root <DIR> --db <FILE> [--debounce-ms <N>]`
-  - Watches directories for .rs file changes using notify crate
-  - Extracts AST-level facts: functions, structs, enums, traits, modules, impls
-  - Extracts symbol references: function calls and type references
-  - Persists facts to sqlitegraph database
-  - Real-time indexing on file Create/Modify/Delete events
 
-- **Tree-sitter Parsing** - Rust source code analysis
-  - Uses tree-sitter-rust grammar (v0.21)
-  - Pure function extraction: `extract_symbols(path, source) → Vec<SymbolFact>`
-  - Extracts name, kind, and byte spans for all symbols
-  - Handles syntax errors gracefully without crashing
-
-- **Reference Extraction** - Symbol cross-referencing
-  - Extracts all identifier and scoped_identifier references
-  - Matches references by name (acceptable collision rate)
-  - Excludes references within symbol's own defining span
-  - Creates REFERENCE nodes with REFERENCES edges in graph
-
-- **Graph Persistence** - Sqlitegraph integration
-  - File nodes with SHA-256 content hashing
-  - Symbol nodes with byte spans
-  - Reference nodes with source locations
-  - Idempotent re-indexing with automatic cleanup
-  - In-memory file index for fast lookups
-
-- **Modular Architecture**
-  - `src/graph/mod.rs` (249 LOC) - Public CodeGraph API
-  - `src/graph/schema.rs` (29 LOC) - Node labels and edge types
-  - `src/graph/files.rs` (161 LOC) - File operations
-  - `src/graph/symbols.rs` (107 LOC) - Symbol operations
-  - `src/graph/references.rs` (138 LOC) - Reference operations
-  - All modules under 300 LOC limit
-
-### Performance
-- SHA-256 hashing for content change detection
-- In-memory HashMap for O(1) file lookups
-- Efficient tree-sitter parsing with AST queries
-- Debounced file events (500ms default)
-
-### Limitations
-- No initial full scan (requires filesystem events to trigger indexing)
-- Only processes .rs files (hardcoded filter)
-- No async runtimes or background thread pools
-- No config files
-- No semantic analysis (AST-level only)
-- No LSP features or language integrations
-
-### Testing
-- 37 tests across 12 test suites
-- Integration tests for all core functionality
-- Process spawning tests for binary validation
-- Error injection tests for robustness verification
-- Full test suite runs in <5 seconds
+- Core Magellan Binary - Rust-only codebase mapping tool
+- Tree-sitter parsing for Rust source code
+- Reference extraction (function calls, type references)
+- Graph persistence via sqlitegraph
+- Graceful signal handling (SIGINT/SIGTERM)
+- Error reporting with continued processing
 
 ---
 
-## Feature Freeze Notice
+**Project Status:** Stable
 
-**Magellan is feature frozen as of Phase 6.2.**
+Magellan is a deterministic codebase mapping tool. It does NOT perform semantic analysis, build LSP servers, use async runtimes, or provide web APIs.
 
-Magellan is a **dumb, deterministic codebase mapping tool**. It does NOT:
-- Perform semantic analysis
-- Build LSP servers or language features
-- Use async runtimes or background thread pools
-- Use config files
-- Perform initial full scans
-- Handle non-.rs files
-- Provide web APIs or network services
-
-Magellan DOES:
-- Watch directories for .rs file changes
-- Extract AST-level facts (functions, structs, enums, traits, modules, impls)
-- Extract symbol references (calls and type references)
-- Persist facts to sqlitegraph database
-- Index files on Create/Modify events
-- Delete files on Delete events
-- Handle permission errors gracefully
-- Respond to SIGINT/SIGTERM for clean shutdown
-- Report status via --status flag
-
-No new features are planned beyond Phase 6.2.
+It DOES watch directories for source file changes, extract AST-level facts, and persist to a graph database.

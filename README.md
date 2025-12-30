@@ -1,302 +1,309 @@
 # Magellan
 
-**A dumb, deterministic codebase mapping tool for Rust projects.**
-
-Magellan watches your Rust source files, extracts AST-level facts, and builds a searchable graph database of symbols and references. No semantic analysis, no magic—just deterministic, observable data extraction.
+A deterministic codebase mapping tool. Watches source files, extracts AST-level facts, and builds a searchable graph database of symbols and references.
 
 ## What Magellan Does
 
-- **Watches** directories for `.rs` file changes (Create/Modify/Delete)
-- **Extracts** AST-level facts: functions, structs, enums, traits, modules, impl blocks
-- **Tracks** symbol references: function calls and type references
-- **Persists** everything to a sqlitegraph database
-- **Handles** errors gracefully—keeps running even when files are unreadable
-- **Shuts down** cleanly on SIGINT/SIGTERM with status reporting
+- Watches directories for file changes (Create/Modify/Delete)
+- Extracts AST-level facts: functions, classes, methods, enums, modules
+- Tracks symbol references: function calls and type references (7 languages)
+- Builds call graphs: caller → callee relationships (7 languages)
+- Persists everything to a sqlitegraph database
+- Handles errors gracefully - keeps running even when files are unreadable
+- Shuts down cleanly on SIGINT/SIGTERM
 
 ## What Magellan Does NOT Do
 
-Magellan is intentionally limited:
-- ❌ No semantic analysis or type checking
-- ❌ No LSP server or language features
-- ❌ No async runtimes or background thread pools
-- ❌ No config files
-- ❌ No initial full scans (requires events to trigger)
-- ❌ No non-Rust file support
-- ❌ No web APIs or network services
+- No semantic analysis or type checking
+- No LSP server or language features
+- No async runtimes or background thread pools
+- No config files
+- No web APIs or network services
+- No automatic database cleanup
 
 ## Installation
 
-### From Source
-
 ```bash
-# Clone the repository
-git clone <repository-url>
+git clone https://github.com/feanor/magellan
 cd magellan
-
-# Build the binary
 cargo build --release
 
-# The binary will be at target/release/magellan
+# Binary will be at target/release/magellan
 ```
 
 ### Requirements
 
-- Rust 1.70+ (2021 edition)
+- Rust 1.70+
 - Linux/macOS (signal handling uses Unix signals)
 - SQLite 3 (via sqlitegraph dependency)
 
 ## Quick Start
 
 ```bash
-# Start watching a project
-magellan watch --root /path/to/rust/project --db /path/to/magellan.db
+# Start watching a project with initial scan
+magellan watch --root /path/to/project --db /path/to/magellan.db --scan-initial
 
-# In another terminal, check status
-magellan watch --root /path/to/rust/project --db /path/to/magellan.db --status
+# Check status
+magellan status --db /path/to/magellan.db
 
-# Magellan will now:
-# 1. Watch for .rs file changes
-# 2. Extract symbols and references
-# 3. Store them in magellan.db
-# 4. Log each event: "MODIFY src/lib.rs symbols=5 refs=3"
+# List all indexed files
+magellan files --db /path/to/magellan.db
+
+# Query symbols in a file
+magellan query --db /path/to/magellan.db --file /path/to/file.rs
+
+# Find a symbol by name
+magellan find --db /path/to/magellan.db --name main
+
+# Show call references
+magellan refs --db /path/to/magellan.db --name main --path /path/to/file.rs --direction out
+
+# Export to JSON
+magellan export --db /path/to/magellan.db > codegraph.json
 ```
 
-## Usage
+## Commands
 
-### Basic Command
+### watch
 
 ```bash
-magellan watch --root <DIR> --db <FILE> [--debounce-ms <N>]
+magellan watch --root <DIR> --db <FILE> [--debounce-ms <N>] [--scan-initial]
 ```
 
-**Arguments:**
-- `--root <DIR>` - Directory to watch recursively (required)
-- `--db <FILE>` - Path to sqlitegraph database (required)
-- `--debounce-ms <N>` - Debounce delay in milliseconds (default: 500)
-- `--status` - Print counts and exit immediately (optional)
+Watch a directory for source file changes and index them into the database.
 
-**Examples:**
+| Argument | Description |
+|----------|-------------|
+| `--root <DIR>` | Directory to watch recursively (required) |
+| `--db <FILE>` | Path to sqlitegraph database (required) |
+| `--debounce-ms <N>` | Debounce delay in milliseconds (default: 500) |
+| `--scan-initial` | Scan directory for source files on startup |
+
+### status
 
 ```bash
-# Watch current directory
-magellan watch --root . --db ./magellan.db
-
-# Watch with custom debounce
-magellan watch --root ./src --db ./cache/magellan.db --debounce-ms 1000
-
-# Check database status
-magellan watch --root . --db ./magellan.db --status
-# Output:
-# files: 42
-# symbols: 387
-# references: 1241
+magellan status --db <FILE>
 ```
 
-### Output Format
+Show database statistics.
 
-**Normal Operation:**
 ```
-Magellan watching: /path/to/project
-Database: /path/to/magellan.db
-CREATE src/main.rs symbols=2 refs=0
-MODIFY src/lib.rs symbols=5 refs=3
-DELETE src/old.rs
-ERROR src/permission_denied.rs Permission denied (os error 13)
+$ magellan status --db ./magellan.db
+files: 30
+symbols: 349
+references: 262
 ```
 
-**Shutdown:**
-```
-SHUTDOWN
+### files
+
+```bash
+magellan files --db <FILE>
 ```
 
-**Status:**
+List all indexed files.
+
 ```
-files: 42
-symbols: 387
-references: 1241
+$ magellan files --db ./magellan.db
+30 indexed files:
+  /path/to/src/main.rs
+  /path/to/src/lib.rs
+  ...
 ```
+
+### query
+
+```bash
+magellan query --db <FILE> --file <PATH> [--kind <KIND>]
+```
+
+List symbols in a file, optionally filtered by kind.
+
+| Argument | Description |
+|----------|-------------|
+| `--db <FILE>` | Path to database (required) |
+| `--file <PATH>` | File path to query (required) |
+| `--kind <KIND>` | Filter by symbol kind (optional) |
+
+Valid kinds: Function, Method, Class, Interface, Enum, Module, Union, Namespace, TypeAlias
+
+```
+$ magellan query --db ./magellan.db --file src/main.rs --kind Function
+/path/to/src/main.rs:
+  Line   13: Function     print_usage
+  Line   64: Function     parse_args
+```
+
+### find
+
+```bash
+magellan find --db <FILE> --name <NAME> [--path <PATH>]
+```
+
+Find a symbol by name.
+
+| Argument | Description |
+|----------|-------------|
+| `--db <FILE>` | Path to database (required) |
+| `--name <NAME>` | Symbol name to find (required) |
+| `--path <PATH>` | Limit search to specific file (optional) |
+
+```
+$ magellan find --db ./magellan.db --name main
+Found "main":
+  File:     /path/to/src/main.rs
+  Kind:     Function
+  Location: Line 229, Column 0
+```
+
+### refs
+
+```bash
+magellan refs --db <FILE> --name <NAME> --path <PATH> [--direction <in|out>]
+```
+
+Show incoming or outgoing calls for a symbol.
+
+| Argument | Description |
+|----------|-------------|
+| `--db <FILE>` | Path to database (required) |
+| `--name <NAME>` | Symbol name (required) |
+| `--path <PATH>` | File path containing the symbol (required) |
+| `--direction <in|out>` | Show incoming (in) or outgoing (out) calls (default: in) |
+
+```
+$ magellan refs --db ./magellan.db --name parse_args --path src/main.rs --direction in
+Calls TO "parse_args":
+  From: main (Function) at /path/to/src/main.rs:237
+```
+
+### verify
+
+```bash
+magellan verify --root <DIR> --db <FILE>
+```
+
+Compare database state vs filesystem and report differences.
+
+Exit codes: 0 = up to date, 1 = issues found
+
+### export
+
+```bash
+magellan export --db <FILE>
+```
+
+Export all graph data to JSON format.
+
+## Supported Languages
+
+| Language | Extensions | Parser |
+|----------|------------|--------|
+| Rust | .rs | tree-sitter-rust |
+| C | .c, .h | tree-sitter-c |
+| C++ | .cpp, .cc, .cxx, .hpp, .h | tree-sitter-cpp |
+| Java | .java | tree-sitter-java |
+| JavaScript | .js, .mjs | tree-sitter-javascript |
+| TypeScript | .ts, .tsx | tree-sitter-typescript |
+| Python | .py | tree-sitter-python |
 
 ## Database Schema
 
-Magellan stores data in a sqlitegraph database with the following structure:
-
 **Nodes:**
-- `File` - `{ path: String, hash: String }`
-- `Symbol` - `{ name: String, kind: String, byte_start: usize, byte_end: usize }`
-- `Reference` - `{ file: String, byte_start: usize, byte_end: usize }`
+- `File` - path, hash, timestamps
+- `Symbol` - name, kind, byte spans, line/column
+- `Reference` - file, referenced symbol, location
+- `Call` - file, caller, callee, location
 
 **Edges:**
-- `DEFINES` - File → Symbol (which file defines this symbol)
-- `REFERENCES` - Reference → Symbol (what symbol is referenced)
+- `DEFINES` - File -> Symbol
+- `REFERENCES` - Reference -> Symbol
+- `CALLS` - Symbol -> Symbol
 
 **Symbol Kinds:**
-- Function
-- Struct
-- Enum
-- Trait
-- Module
-- Impl
+Function, Method, Class, Interface, Enum, Module, Union, Namespace, TypeAlias, Unknown
 
 ## Error Handling
 
-Magellan is designed to be resilient:
+Magellan continues processing even when individual files fail:
 
-**Permission Errors:**
-```
-ERROR /path/to/file.rs Permission denied (os error 13)
-```
-- Logs the error
-- Continues processing other files
-- No crash, no retry
-
-**Syntax Errors:**
-- Files with invalid Rust syntax are skipped
-- No symbols extracted from malformed files
-- Watcher continues running
-
-**Missing Files:**
-- Files deleted during processing are handled gracefully
-- ENOENT errors are silently skipped
-- No crashes on race conditions
-
-## Signal Handling
-
-**SIGINT (Ctrl+C) / SIGTERM:**
-- Prints "SHUTDOWN"
-- Exits cleanly
-- Database is properly closed
-- No data loss
+- Permission errors are logged and skipped
+- Files with invalid syntax are skipped
+- Database write errors cause exit (requires manual intervention)
 
 ## Architecture
 
 ```
-magellan/
-├── src/
-│   ├── main.rs              # Binary entry point (236 LOC)
-│   ├── lib.rs               # Public API exports
-│   ├── watcher.rs           # Filesystem event watcher (156 LOC)
-│   ├── ingest.rs            # Tree-sitter parser (184 LOC)
-│   ├── indexer.rs           # Event coordination (125 LOC)
-│   ├── references.rs        # Reference extraction (171 LOC)
-│   └── graph/
-│       ├── mod.rs           # CodeGraph API (306 LOC)
-│       ├── schema.rs        # Node/edge types (29 LOC)
-│       ├── files.rs         # File operations (161 LOC)
-│       ├── symbols.rs       # Symbol operations (107 LOC)
-│       └── references.rs    # Reference operations (138 LOC)
-└── tests/
-    ├── cli_smoke_tests.rs   # Binary tests (72 LOC)
-    ├── signal_tests.rs      # Signal handling tests (81 LOC)
-    ├── error_tests.rs       # Error handling tests (86 LOC)
-    ├── status_tests.rs      # Status flag tests (58 LOC)
-    └── ...
+src/
+├── main.rs              # CLI entry point
+├── lib.rs               # Public API
+├── watcher.rs           # Filesystem watcher
+├── indexer.rs           # Event coordination
+├── references.rs        # Reference/Call fact types
+├── verify.rs            # Database verification logic
+├── ingest/
+│   ├── mod.rs           # Parser dispatcher & Rust parser
+│   ├── detect.rs        # Language detection
+│   ├── c.rs             # C parser
+│   ├── cpp.rs           # C++ parser
+│   ├── java.rs          # Java parser
+│   ├── javascript.rs    # JavaScript parser
+│   ├── typescript.rs    # TypeScript parser
+│   └── python.rs        # Python parser
+├── query_cmd.rs         # Query command
+├── find_cmd.rs          # Find command
+├── refs_cmd.rs          # Refs command
+├── verify_cmd.rs        # Verify CLI handler
+├── watch_cmd.rs         # Watch CLI handler
+└── graph/
+    ├── mod.rs           # CodeGraph API
+    ├── schema.rs        # Node/edge types
+    ├── files.rs         # File operations
+    ├── symbols.rs       # Symbol operations
+    ├── references.rs    # Reference node operations
+    ├── calls.rs         # Call edge operations
+    ├── call_ops.rs      # Call node operations
+    ├── ops.rs           # Graph indexing operations
+    ├── query.rs         # Query operations
+    ├── count.rs         # Count operations
+    ├── export.rs        # JSON export
+    ├── scan.rs          # Scanning operations
+    ├── freshness.rs     # Freshness checking
+    └── tests.rs         # Graph tests
 ```
 
 ## Testing
 
 ```bash
-# Run all tests
 cargo test
-
-# Run specific test suite
-cargo test --test cli_smoke_tests
-cargo test --test signal_tests
-cargo test --test error_tests
-cargo test --test status_tests
-
-# Run with output
-cargo test -- --nocapture
 ```
 
-**Test Coverage:**
-- 37 tests across 12 test suites
-- Unit tests for parsing, graph operations
-- Integration tests for indexer, watcher
-- Process tests for binary (signals, errors, status)
-- All tests pass in <5 seconds
+Test coverage: 172+ tests across 25+ test suites. All tests pass in <15 seconds.
 
-## Performance
+## Current Status
 
-**Indexing Speed:**
-- ~1000 lines/sec on modern hardware
-- SHA-256 hashing for content change detection
-- In-memory HashMap for O(1) file lookups
+**Version:** 0.3.0
+**Status:** Stable
 
-**Database Size:**
-- ~1KB per symbol (including metadata)
-- ~500B per reference
-- Typical Rust project: 100-1000 symbols, 500-5000 references
+**Features:**
+- Symbol extraction for 7 languages ✅
+- Reference extraction for 7 languages ✅ (NEW)
+- Call graph indexing for 7 languages ✅ (NEW)
+- Rename refactoring support (via codemcp) for 7 languages ✅ (NEW)
 
-**Memory Usage:**
-- ~50MB base RSS
-- ~10MB per 1000 files indexed
-- Grows with project size
-
-## Limitations
-
-**By Design:**
-- Only processes `.rs` files
-- No initial full scan (waits for events)
-- AST-level only (no semantic analysis)
-- No cross-crate resolution
-- No macro expansion tracking
-
-**Technical:**
-- Single-threaded event processing
+**Known Limitations:**
+- Name-based reference matching (has false positives)
+- No cross-crate/cross-file resolution
 - No incremental parsing
-- No query optimization
-- No indexing heuristics
-
-## Contributing
-
-Magellan is **feature frozen**. No new features are planned.
-
-**Bug Reports:**
-- Open an issue with reproduction steps
-- Include `magellan --status` output
-- Attach test case if possible
-
-**Patches:**
-- Must pass all existing tests
-- Must maintain LOC limits (≤300 per file)
-- Must follow existing code style
-- No new features without explicit approval
+- Single-threaded event processing
 
 ## License
 
-```
-Magellan - Dumb, deterministic codebase mapping tool
-Copyright (C) 2025  Feanor
+GPL-3.0-or-later
 
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
+## Dependencies
 
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <https://www.gnu.org/licenses/>.
-```
-
-**SPDX-License-Identifier: GPL-3.0-or-later**
-
-## Acknowledgments
-
-Built with:
-- [notify](https://github.com/notify-rs/notify) - Filesystem watching
-- [tree-sitter](https://tree-sitter.github.io/) - AST parsing
-- [tree-sitter-rust](https://github.com/tree-sitter/tree-sitter-rust) - Rust grammar
-- [sqlitegraph](https://github.com/synbit/sqlitegraph) - Graph persistence
-- [signal-hook](https://github.com/vorner/signal-hook) - Signal handling
-
-## Version
-
-**Current Version:** 0.1.0
-**Release Date:** 2025-12-24
-**Status:** Feature Frozen
-
-See [CHANGELOG.md](CHANGELOG.md) for version history.
+- notify - Filesystem watching
+- tree-sitter - AST parsing
+- sqlitegraph - Graph persistence
+- signal-hook - Signal handling
+- walkdir - Directory scanning

@@ -29,7 +29,7 @@ fn test_round_trip_symbols_in_file() {
     // Verify each symbol type
     let kinds: Vec<_> = symbols.iter().map(|s| &s.kind).collect();
     assert!(kinds.contains(&&SymbolKind::Function));
-    assert!(kinds.contains(&&SymbolKind::Struct));
+    assert!(kinds.contains(&&SymbolKind::Class));  // Rust struct → Class (language-agnostic)
     assert!(kinds.contains(&&SymbolKind::Enum));
     assert!(kinds.contains(&&SymbolKind::Module));
 }

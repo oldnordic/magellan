@@ -16,7 +16,7 @@ Magellan:
 
 - Watches files for changes
 - Parses source code using tree-sitter
-- Extracts symbols (functions, structs, enums, traits, methods, modules)
+- Extracts symbols (functions, classes, interfaces, enums, methods, modules, namespaces, type aliases, unions)
 - Extracts references (calls, type usage, imports)
 - Stores facts in sqlitegraph
 - Answers queries:
@@ -59,14 +59,17 @@ Magellan:
 - `DEFINES (File → Symbol)`
 - `REFERENCES (Symbol → Symbol)`
 
-**SymbolKind enum:**
+**SymbolKind enum** (language-agnostic):
 
 - Function
-- Struct
-- Enum
-- Trait
 - Method
-- Module
+- Class (covers: Rust struct, Python class, Java class, C++ class, JS/TS class)
+- Interface (covers: Rust trait, Java interface, TypeScript interface)
+- Enum
+- Module (covers: Rust mod, Python module, Java package, JS ES module)
+- Union (C/C++ union)
+- Namespace (covers: C++ namespace, TypeScript namespace)
+- TypeAlias (covers: TypeScript type, Rust type alias)
 - Unknown
 
 ---
@@ -100,8 +103,8 @@ Magellan guarantees:
 ## Scope (Frozen)
 
 **Current version:** v0
-**Supported language:** Rust (only)
-**Symbol types:** functions, structs, enums, traits, methods, modules
+**Supported languages:** Rust, Python, C, C++, Java, JavaScript, TypeScript
+**Symbol types:** functions, methods, classes, interfaces, enums, modules, namespaces, type aliases, unions
 **Reference types:** calls, type usage, imports
 
 No additional features without explicit scope change.

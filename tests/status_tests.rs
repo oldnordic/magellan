@@ -3,7 +3,7 @@
 //! Tests that magellan watch --status prints correct counts.
 
 use std::fs;
-use std::process::{Command, Stdio};
+use std::process::Command;
 use tempfile::TempDir;
 
 #[test]
@@ -36,16 +36,13 @@ fn test_status_flag_prints_counts() {
         graph.index_references(&path_str, &source).unwrap();
     }
 
-    // Run magellan watch --status
+    // Run magellan status --db
     let output = Command::new(&bin_path)
-        .arg("watch")
-        .arg("--root")
-        .arg(&root_path)
+        .arg("status")
         .arg("--db")
         .arg(&db_path)
-        .arg("--status")
         .output()
-        .expect("Failed to execute magellan watch --status");
+        .expect("Failed to execute magellan status");
 
     // Verify output contains counts
     let stdout = String::from_utf8_lossy(&output.stdout);

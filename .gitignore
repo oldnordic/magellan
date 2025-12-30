@@ -27,3 +27,6 @@ test*.db
 # Temporary files
 tmp/
 temp/
+
+# FastEmbed cache
+.fastembed_cache/

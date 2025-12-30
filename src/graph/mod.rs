@@ -1,27 +1,25 @@
 //! Graph persistence layer using sqlitegraph
-//!
-//! Modular structure with separate files for:
-//! - schema: node/edge type definitions
-//! - files: file node operations
-//! - symbols: symbol node operations
-//! - references: reference node operations
-
-mod schema;
-mod files;
-mod symbols;
-mod references;
+mod schema; mod files; mod symbols; mod references;
+mod call_ops; mod calls; mod count; mod ops; mod scan; mod query; mod export;
+mod freshness;
+#[cfg(test)] mod tests;
 
 use anyhow::Result;
-use sqlitegraph::{BackendDirection, NeighborQuery, SqliteGraphBackend, GraphBackend};
+use sqlitegraph::SqliteGraphBackend;
 use std::collections::HashMap;
 use std::path::Path;
 use std::rc::Rc;
 
-use crate::ingest::Parser;
-use crate::references::ReferenceFact;
+use crate::references::{ReferenceFact, CallFact};
 
 // Re-export public types
-pub use schema::{FileNode, SymbolNode, ReferenceNode};
+pub use schema::{FileNode, SymbolNode, ReferenceNode, CallNode};
+pub use freshness::{FreshnessStatus, check_freshness, STALE_THRESHOLD_SECS};
+
+/// Progress callback for scan_directory
+///
+/// Receives (current_count, total_count) as scanning progresses
+pub type ScanProgress = dyn Fn(usize, usize) + Send + Sync;
 
 /// Graph database wrapper for Magellan
 ///
@@ -35,6 +33,9 @@ pub struct CodeGraph {
 
     /// Reference operations module
     references: references::ReferenceOps,
+
+    /// Call operations module
+    calls: call_ops::CallOps,
 }
 
 impl CodeGraph {
@@ -49,17 +50,26 @@ impl CodeGraph {
         // Directly create SqliteGraph and wrap in SqliteGraphBackend
         let sqlite_graph = sqlitegraph::SqliteGraph::open(db_path)?;
         let backend = Rc::new(SqliteGraphBackend::from_graph(sqlite_graph));
+
+        // Build initial file_index from database (lazy initialization)
         let file_index = HashMap::new();
+        let mut files = files::FileOps {
+            backend: Rc::clone(&backend),
+            file_index,
+        };
+
+        // Populate file_index with existing File nodes from database
+        files.rebuild_file_index()?;
 
         Ok(Self {
-            files: files::FileOps {
-                backend: Rc::clone(&backend),
-                file_index,
-            },
+            files,
             symbols: symbols::SymbolOps {
                 backend: Rc::clone(&backend),
             },
             references: references::ReferenceOps {
+                backend: Rc::clone(&backend),
+            },
+            calls: call_ops::CallOps {
                 backend,
             },
         })
@@ -74,6 +84,7 @@ impl CodeGraph {
     /// 4. Parse symbols from source code
     /// 5. Insert new Symbol nodes
     /// 6. Create DEFINES edges from File to each Symbol
+    /// 7. Index calls (CALLS edges)
     ///
     /// # Arguments
     /// * `path` - File path
@@ -82,25 +93,7 @@ impl CodeGraph {
     /// # Returns
     /// Number of symbols indexed
     pub fn index_file(&mut self, path: &str, source: &[u8]) -> Result<usize> {
-        let hash = self.files.compute_hash(source);
-
-        // Step 1: Find or create file node
-        let file_id = self.files.find_or_create_file_node(path, &hash)?;
-
-        // Step 2: Delete all existing symbols for this file
-        self.symbols.delete_file_symbols(file_id)?;
-
-        // Step 3: Parse symbols from source
-        let mut parser = Parser::new()?;
-        let symbol_facts = parser.extract_symbols(std::path::PathBuf::from(path), source);
-
-        // Step 4: Insert new symbol nodes and DEFINES edges
-        for fact in &symbol_facts {
-            let symbol_id = self.symbols.insert_symbol_node(fact)?;
-            self.symbols.insert_defines_edge(file_id, symbol_id)?;
-        }
-
-        Ok(symbol_facts.len())
+        ops::index_file(self, path, source)
     }
 
     /// Delete a file and all derived data from the graph
@@ -115,21 +108,7 @@ impl CodeGraph {
     /// # Arguments
     /// * `path` - File path to delete
     pub fn delete_file(&mut self, path: &str) -> Result<()> {
-        let file_id = match self.files.find_file_node(path)? {
-            Some(id) => id,
-            None => return Ok(()), // File doesn't exist, nothing to delete
-        };
-
-        // Delete all symbols for this file
-        self.symbols.delete_file_symbols(file_id)?;
-
-        // Delete the file node using underlying SqliteGraph
-        self.files.backend.graph().delete_entity(file_id.as_i64())?;
-
-        // Remove from in-memory index
-        self.files.file_index.remove(path);
-
-        Ok(())
+        ops::delete_file(self, path)
     }
 
     /// Query all symbols defined in a file
@@ -140,31 +119,23 @@ impl CodeGraph {
     /// # Returns
     /// Vector of SymbolFact for all symbols in the file
     pub fn symbols_in_file(&mut self, path: &str) -> Result<Vec<crate::ingest::SymbolFact>> {
-        let file_id = match self.files.find_file_node(path)? {
-            Some(id) => id,
-            None => return Ok(Vec::new()),
-        };
+        query::symbols_in_file(self, path)
+    }
 
-        let path_buf = std::path::PathBuf::from(path);
-
-        // Query neighbors via DEFINES edges
-        let neighbor_ids = self.files.backend.neighbors(
-            file_id.as_i64(),
-            NeighborQuery {
-                direction: BackendDirection::Outgoing,
-                edge_type: Some("DEFINES".to_string()),
-            },
-        )?;
-
-        // Convert each neighbor node ID to SymbolFact
-        let mut symbols = Vec::new();
-        for symbol_node_id in neighbor_ids {
-            if let Ok(Some(fact)) = self.files.symbol_fact_from_node(symbol_node_id, path_buf.clone()) {
-                symbols.push(fact);
-            }
-        }
-
-        Ok(symbols)
+    /// Query symbols defined in a file, optionally filtered by kind
+    ///
+    /// # Arguments
+    /// * `path` - File path
+    /// * `kind` - Optional symbol kind filter (None returns all symbols)
+    ///
+    /// # Returns
+    /// Vector of SymbolFact matching the kind filter
+    pub fn symbols_in_file_with_kind(
+        &mut self,
+        path: &str,
+        kind: Option<crate::ingest::SymbolKind>,
+    ) -> Result<Vec<crate::ingest::SymbolFact>> {
+        query::symbols_in_file_with_kind(self, path, kind)
     }
 
     /// Query the node ID of a specific symbol by file path and symbol name
@@ -180,32 +151,7 @@ impl CodeGraph {
     /// This is a minimal query helper for testing. It reuses existing graph queries
     /// and maintains determinism. No new indexes or caching.
     pub fn symbol_id_by_name(&mut self, path: &str, name: &str) -> Result<Option<i64>> {
-        let file_id = match self.files.find_file_node(path)? {
-            Some(id) => id,
-            None => return Ok(None),
-        };
-
-        // Query neighbors via DEFINES edges
-        let neighbor_ids = self.files.backend.neighbors(
-            file_id.as_i64(),
-            NeighborQuery {
-                direction: BackendDirection::Outgoing,
-                edge_type: Some("DEFINES".to_string()),
-            },
-        )?;
-
-        // Find symbol with matching name
-        for symbol_node_id in neighbor_ids {
-            if let Ok(node) = self.files.backend.get_node(symbol_node_id) {
-                if let Ok(symbol_node) = serde_json::from_value::<schema::SymbolNode>(node.data) {
-                    if symbol_node.name.as_ref().map(|n| n == name).unwrap_or(false) {
-                        return Ok(Some(symbol_node_id));
-                    }
-                }
-            }
-        }
-
-        Ok(None)
+        query::symbol_id_by_name(self, path, name)
     }
 
     /// Index references for a file into the graph
@@ -223,35 +169,7 @@ impl CodeGraph {
     /// # Returns
     /// Number of references indexed
     pub fn index_references(&mut self, path: &str, source: &[u8]) -> Result<usize> {
-        // Get file node ID
-        let file_id = match self.files.find_file_node(path)? {
-            Some(id) => id,
-            None => return Ok(0), // No file, no references
-        };
-
-        // Get all symbols for this file
-        let symbol_ids = self.files.backend.neighbors(
-            file_id.as_i64(),
-            NeighborQuery {
-                direction: BackendDirection::Outgoing,
-                edge_type: Some("DEFINES".to_string()),
-            },
-        )?;
-
-        // Build map: symbol name -> node ID
-        let mut symbol_name_to_id: HashMap<String, i64> = HashMap::new();
-        for symbol_id in symbol_ids {
-            if let Ok(node) = self.files.backend.get_node(symbol_id) {
-                if let Ok(symbol_node) = serde_json::from_value::<schema::SymbolNode>(node.data.clone()) {
-                    if let Some(name) = symbol_node.name {
-                        symbol_name_to_id.insert(name, symbol_id);
-                    }
-                }
-            }
-        }
-
-        // Index references using ReferenceOps
-        self.references.index_references(path, source, &symbol_name_to_id)
+        query::index_references(self, path, source)
     }
 
     /// Query all references to a specific symbol
@@ -262,65 +180,113 @@ impl CodeGraph {
     /// # Returns
     /// Vector of ReferenceFact for all references to the symbol
     pub fn references_to_symbol(&mut self, symbol_id: i64) -> Result<Vec<ReferenceFact>> {
-        self.references.references_to_symbol(symbol_id)
+        query::references_to_symbol(self, symbol_id)
+    }
+
+    /// Index calls for a file into the graph
+    ///
+    /// # Behavior
+    /// 1. Get file node ID
+    /// 2. Get all symbols for this file
+    /// 3. Extract calls from source
+    /// 4. Insert Call nodes and CALLS edges
+    ///
+    /// # Arguments
+    /// * `path` - File path
+    /// * `source` - File contents as bytes
+    ///
+    /// # Returns
+    /// Number of calls indexed
+    pub fn index_calls(&mut self, path: &str, source: &[u8]) -> Result<usize> {
+        calls::index_calls(self, path, source)
+    }
+
+    /// Query all calls FROM a specific symbol (forward call graph)
+    ///
+    /// # Arguments
+    /// * `path` - File path containing the symbol
+    /// * `name` - Symbol name
+    ///
+    /// # Returns
+    /// Vector of CallFact for all calls from this symbol
+    pub fn calls_from_symbol(&mut self, path: &str, name: &str) -> Result<Vec<CallFact>> {
+        calls::calls_from_symbol(self, path, name)
+    }
+
+    /// Query all calls TO a specific symbol (reverse call graph)
+    ///
+    /// # Arguments
+    /// * `path` - File path containing the symbol
+    /// * `name` - Symbol name
+    ///
+    /// # Returns
+    /// Vector of CallFact for all calls to this symbol
+    pub fn callers_of_symbol(&mut self, path: &str, name: &str) -> Result<Vec<CallFact>> {
+        calls::callers_of_symbol(self, path, name)
     }
 
     /// Count total number of files in the graph
     pub fn count_files(&self) -> Result<usize> {
-        Ok(self.files.backend.entity_ids()?
-            .into_iter()
-            .filter(|id| {
-                self.files.backend.get_node(*id)
-                    .map(|n| n.kind == "File")
-                    .unwrap_or(false)
-            })
-            .count())
+        count::count_files(self)
     }
 
     /// Count total number of symbols in the graph
     pub fn count_symbols(&self) -> Result<usize> {
-        Ok(self.symbols.backend.entity_ids()?
-            .into_iter()
-            .filter(|id| {
-                self.symbols.backend.get_node(*id)
-                    .map(|n| n.kind == "Symbol")
-                    .unwrap_or(false)
-            })
-            .count())
+        count::count_symbols(self)
     }
 
     /// Count total number of references in the graph
     pub fn count_references(&self) -> Result<usize> {
-        Ok(self.references.backend.entity_ids()?
-            .into_iter()
-            .filter(|id| {
-                self.references.backend.get_node(*id)
-                    .map(|n| n.kind == "Reference")
-                    .unwrap_or(false)
-            })
-            .count())
+        count::count_references(self)
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+    /// Scan a directory and index all Rust files found
+    ///
+    /// # Behavior
+    /// 1. Walk directory recursively
+    /// 2. Find all .rs files
+    /// 3. Index each file (symbols + references)
+    /// 4. Report progress via callback
+    ///
+    /// # Arguments
+    /// * `dir_path` - Directory to scan
+    /// * `progress` - Optional callback for progress reporting (current, total)
+    ///
+    /// # Returns
+    /// Number of files indexed
+    ///
+    /// # Guarantees
+    /// - Only .rs files are processed
+    /// - Files are indexed in sorted order for determinism
+    /// - Non-.rs files are silently skipped
+    pub fn scan_directory(&mut self, dir_path: &Path, progress: Option<&ScanProgress>) -> Result<usize> {
+        scan::scan_directory(self, dir_path, progress)
+    }
 
-    #[test]
-    fn test_hash_computation() {
-        let graph = CodeGraph::open(":memory:").unwrap();
-        let source = b"fn test() {}";
-        let hash = graph.files.compute_hash(source);
+    /// Export all graph data to JSON format
+    ///
+    /// # Returns
+    /// JSON string containing all files, symbols, references, and calls
+    pub fn export_json(&mut self) -> Result<String> {
+        export::export_json(self)
+    }
 
-        // SHA-256 hash should be 64 hex characters
-        assert_eq!(hash.len(), 64);
+    /// Get the FileNode for a given file path
+    ///
+    /// # Arguments
+    /// * `path` - File path to query
+    ///
+    /// # Returns
+    /// Option<FileNode> with file metadata including timestamps, or None if not found
+    pub fn get_file_node(&mut self, path: &str) -> Result<Option<FileNode>> {
+        self.files.get_file_node(path)
+    }
 
-        // Same input should produce same hash
-        let hash2 = graph.files.compute_hash(source);
-        assert_eq!(hash, hash2);
-
-        // Different input should produce different hash
-        let hash3 = graph.files.compute_hash(b"different content");
-        assert_ne!(hash, hash3);
+    /// Get all FileNodes from the database
+    ///
+    /// # Returns
+    /// HashMap of file path -> FileNode for all files in the database
+    pub fn all_file_nodes(&mut self) -> Result<std::collections::HashMap<String, FileNode>> {
+        self.files.all_file_nodes()
     }
 }
