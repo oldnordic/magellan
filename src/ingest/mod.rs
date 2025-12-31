@@ -173,6 +173,13 @@ impl Parser {
 
     /// Extract name from a symbol node
     fn extract_name(&self, node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
+        let kind = node.kind();
+
+        // For impl_item, extract the struct name being implemented
+        if kind == "impl_item" {
+            return self.extract_impl_name(node, source);
+        }
+
         // For most items, the name is in a child named "identifier" or "type_identifier"
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -185,8 +192,25 @@ impl Parser {
             }
         }
 
-        // Some symbols (like impl blocks) may not have names
         None
+    }
+
+    /// Extract the struct name from an impl_item node
+    ///
+    /// Handles:
+    /// - `impl StructName { }` -> returns "StructName"
+    /// - `impl Trait for StructName { }` -> returns "StructName"
+    ///
+    /// In tree-sitter Rust grammar:
+    /// - Inherent impl: `impl StructName` -> has `type:` field pointing to StructName
+    /// - Trait impl: `impl Trait for StructName` -> has `trait:` field (Trait) and `type:` field (StructName)
+    /// The `type:` field ALWAYS contains the struct name being implemented.
+    fn extract_impl_name(&self, node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
+        // Access the 'type' field which always contains the struct name
+        let type_node = node.child_by_field_name("type")?;
+
+        let name_bytes = &source[type_node.start_byte() as usize..type_node.end_byte() as usize];
+        std::str::from_utf8(name_bytes).ok().map(|s| s.to_string())
     }
 }
 
@@ -220,5 +244,61 @@ mod tests {
         assert_eq!(fact.file_path, deserialized.file_path);
         assert_eq!(fact.kind, deserialized.kind);
         assert_eq!(fact.name, deserialized.name);
+    }
+
+    #[test]
+    fn test_extract_impl_name_inherent() {
+        let source = b"impl MyStruct { pub fn new() -> Self { Self } }";
+        let mut parser = Parser::new().unwrap();
+        let tree = parser.parser.parse(&source[..], None).unwrap();
+        let root = tree.root_node();
+
+        // Find the impl_item node
+        let mut cursor = root.walk();
+        let impl_node = root.children(&mut cursor).find(|n: &tree_sitter::Node| n.kind() == "impl_item").unwrap();
+
+        let name = parser.extract_name(&impl_node, source);
+        assert_eq!(name, Some("MyStruct".to_string()));
+    }
+
+    #[test]
+    fn test_extract_impl_name_trait_impl() {
+        let source = b"impl Default for MyStruct { fn default() -> Self { Self } }";
+        let mut parser = Parser::new().unwrap();
+        let tree = parser.parser.parse(&source[..], None).unwrap();
+        let root = tree.root_node();
+
+        // Find the impl_item node
+        let mut cursor = root.walk();
+        let impl_node = root.children(&mut cursor).find(|n: &tree_sitter::Node| n.kind() == "impl_item").unwrap();
+
+        let name = parser.extract_name(&impl_node, source);
+        assert_eq!(name, Some("MyStruct".to_string()));
+    }
+
+    #[test]
+    fn test_extract_impl_name_both() {
+        let content = r#"
+pub struct MyStruct { pub value: i32 }
+
+impl MyStruct {
+    pub fn new() -> Self { Self { value: 42 } }
+}
+
+impl Default for MyStruct {
+    fn default() -> Self { Self { value: 0 } }
+}
+"#;
+
+        let mut parser = Parser::new().unwrap();
+        let facts = parser.extract_symbols(PathBuf::from("/test.rs"), content.as_bytes());
+
+        // Should find: struct, inherent impl, trait impl
+        let impl_facts: Vec<_> = facts.iter().filter(|f| f.kind == SymbolKind::Unknown).collect();
+
+        // Both impls should have MyStruct as their name
+        assert_eq!(impl_facts.len(), 2);
+        assert_eq!(impl_facts[0].name, Some("MyStruct".to_string()));
+        assert_eq!(impl_facts[1].name, Some("MyStruct".to_string()));
     }
 }
