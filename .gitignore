@@ -31,3 +31,6 @@ temp/
 # FastEmbed cache
 .fastembed_cache/
 .codemcp/
+
+# Local context notes
+MAGELLAN_CONTEXT.md
