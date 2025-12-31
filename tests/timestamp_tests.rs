@@ -36,7 +36,8 @@ fn test_file_node_includes_timestamps() {
     let after_index = now_secs();
 
     // Query the file node and verify timestamps exist
-    let file_node = graph.get_file_node("test.rs")
+    let file_node = graph
+        .get_file_node("test.rs")
         .unwrap()
         .expect("File node should exist");
 
@@ -62,7 +63,7 @@ fn test_file_node_includes_timestamps() {
             "last_modified should be >= before_index"
         );
         assert!(
-            file_node.last_modified <= after_index + 1,  // Allow 1 second tolerance
+            file_node.last_modified <= after_index + 1, // Allow 1 second tolerance
             "last_modified should be <= after_index + 1"
         );
     }
@@ -79,7 +80,8 @@ fn test_timestamps_update_on_reindex() {
     let mut graph = CodeGraph::open(&db_path).unwrap();
     graph.index_file("test.rs", source1).unwrap();
 
-    let first_index_time = graph.get_file_node("test.rs")
+    let first_index_time = graph
+        .get_file_node("test.rs")
         .unwrap()
         .expect("File node should exist")
         .last_indexed_at;
@@ -91,7 +93,8 @@ fn test_timestamps_update_on_reindex() {
     let source2 = b"fn test() { println!(\"changed\"); }";
     graph.index_file("test.rs", source2).unwrap();
 
-    let second_index_time = graph.get_file_node("test.rs")
+    let second_index_time = graph
+        .get_file_node("test.rs")
         .unwrap()
         .expect("File node should exist")
         .last_indexed_at;
@@ -128,7 +131,8 @@ fn test_last_modified_captured_from_filesystem() {
     let mut graph = CodeGraph::open(&db_path).unwrap();
     graph.index_file(&path_str, source).unwrap();
 
-    let file_node = graph.get_file_node(&path_str)
+    let file_node = graph
+        .get_file_node(&path_str)
         .unwrap()
         .expect("File node should exist");
 

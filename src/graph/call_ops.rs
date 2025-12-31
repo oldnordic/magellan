@@ -3,19 +3,21 @@
 //! Handles call node CRUD operations and CALLS/CALLER edge management.
 
 use anyhow::Result;
-use sqlitegraph::{NodeId, NodeSpec, EdgeSpec, SqliteGraphBackend, BackendDirection, NeighborQuery, GraphBackend};
+use sqlitegraph::{
+    BackendDirection, EdgeSpec, GraphBackend, NeighborQuery, NodeId, NodeSpec, SqliteGraphBackend,
+};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 
 use crate::graph::schema::CallNode;
-use crate::ingest::{detect::Language, detect_language, Parser};
 use crate::ingest::c::CParser;
 use crate::ingest::cpp::CppParser;
 use crate::ingest::java::JavaParser;
 use crate::ingest::javascript::JavaScriptParser;
 use crate::ingest::python::PythonParser;
 use crate::ingest::typescript::TypeScriptParser;
+use crate::ingest::{detect::Language, detect_language, Parser};
 use crate::references::CallFact;
 
 /// Call operations for CodeGraph
@@ -83,7 +85,8 @@ impl CallOps {
         let symbol_facts: Vec<crate::ingest::SymbolFact> = symbol_facts
             .into_iter()
             .filter(|fact| {
-                fact.name.as_ref()
+                fact.name
+                    .as_ref()
                     .map(|name| symbol_ids.contains_key(name))
                     .unwrap_or(false)
             })

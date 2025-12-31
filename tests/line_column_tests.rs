@@ -26,7 +26,10 @@ fn test_symbol_fact_contains_line_column_spans() {
 
     // Verify values are correct (function starts at line 1, column 0)
     assert_eq!(func.start_line, 1, "Function should start at line 1");
-    assert_eq!(func.start_col, 0, "Function should start at column 0 (0-indexed)");
+    assert_eq!(
+        func.start_col, 0,
+        "Function should start at column 0 (0-indexed)"
+    );
 }
 
 #[test]

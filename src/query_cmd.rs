@@ -2,9 +2,30 @@
 //!
 //! Lists symbols in a file, optionally filtered by kind.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use magellan::{CodeGraph, SymbolKind};
 use std::path::PathBuf;
+
+const QUERY_EXPLAIN_TEXT: &str = r#"Query Selector Cheatsheet
+--------------------------------
+Selectors:
+Required selectors:
+  --file <path>            Absolute or root-relative path to inspect.
+
+Optional filters:
+  --kind <kind>            function|method|struct|trait|enum|mod|type_alias|union|namespace.
+  --symbol <name>          Limit output to a specific symbol (case-sensitive).
+  --show-extent            With --symbol, print byte + line/column ranges.
+
+Related helpers:
+  magellan refs --name <symbol> --path <file>      Show incoming/outgoing references.
+  magellan find --name <symbol>                    Locate symbol across files.
+  magellan find --list-glob \"test_*\"             Preview glob sets before bulk edits.
+
+Examples:
+  magellan query --db mag.db --file src/main.rs --kind function
+  magellan query --db mag.db --file src/lib.rs --symbol main --show-extent
+  magellan find  --db mag.db --list-glob \"handler_*\""#;
 
 /// Parse a string into a SymbolKind (case-insensitive)
 ///
@@ -88,54 +109,104 @@ fn resolve_path(file_path: &PathBuf, root: &Option<PathBuf>) -> String {
     }
 }
 
-/// Run the query command
-///
-/// # Arguments
-/// * `db_path` - Path to the sqlitegraph database
-/// * `file_path` - Path to the file to query (relative or absolute)
-/// * `root` - Optional root directory for resolving relative paths
-/// * `kind_str` - Optional symbol kind filter string
-///
-/// # Displays
-/// Human-readable list of symbols in the file
 pub fn run_query(
     db_path: PathBuf,
-    file_path: PathBuf,
+    file_path: Option<PathBuf>,
     root: Option<PathBuf>,
     kind_str: Option<String>,
+    explain: bool,
+    symbol: Option<String>,
+    show_extent: bool,
 ) -> Result<()> {
+    if explain {
+        println!("{}", QUERY_EXPLAIN_TEXT);
+        return Ok(());
+    }
+
+    if show_extent && symbol.is_none() {
+        anyhow::bail!("--show-extent requires --symbol <name>");
+    }
+
     let mut graph = CodeGraph::open(&db_path)?;
 
     // Parse kind filter if provided
     let kind_filter = match kind_str {
-        Some(ref s) => {
-            match parse_symbol_kind(s) {
-                Some(k) => Some(k),
-                None => {
-                    anyhow::bail!("Unknown symbol kind: '{}'. Valid kinds: function, method, class, interface, enum, module, union, namespace, typealias", s);
-                }
+        Some(ref s) => match parse_symbol_kind(s) {
+            Some(k) => Some(k),
+            None => {
+                anyhow::bail!("Unknown symbol kind: '{}'. Valid kinds: function, method, class, interface, enum, module, union, namespace, typealias", s);
             }
-        }
+        },
         None => None,
     };
 
-    // Resolve file path (with explicit root if provided)
+    let file_path = file_path.context("--file is required unless --explain is used")?;
+
     let path_str = resolve_path(&file_path, &root);
+    let mut symbols = graph.symbols_in_file_with_kind(&path_str, kind_filter)?;
 
-    let symbols = graph.symbols_in_file_with_kind(&path_str, kind_filter)?;
+    if let Some(ref symbol_name) = symbol {
+        symbols.retain(|s| s.name.as_deref() == Some(symbol_name.as_str()));
+    }
 
-    // Print results
     println!("{}:", path_str);
 
     if symbols.is_empty() {
         println!("  (no symbols found)");
-    } else {
-        for symbol in &symbols {
-            let kind_str = format_symbol_kind(&symbol.kind);
-            let name = symbol.name.as_deref().unwrap_or("(unnamed)");
-            println!("  Line {:4}: {:12} {}", symbol.start_line, kind_str, name);
+        match symbol {
+            Some(ref sym) => println!(
+                "  Hint: verify the symbol name or run `magellan find --list-glob \"{}\"`.",
+                sym
+            ),
+            None => println!("  Hint: run `magellan query --explain` for selector syntax."),
+        }
+        return Ok(());
+    }
+
+    for symbol in &symbols {
+        let kind_str = format_symbol_kind(&symbol.kind);
+        let name = symbol.name.as_deref().unwrap_or("(unnamed)");
+        println!(
+            "  Line {:4}: {:12} {:<} [{}]",
+            symbol.start_line, kind_str, name, symbol.kind_normalized
+        );
+    }
+
+    if show_extent {
+        if let Some(ref symbol_name) = symbol {
+            let mut extents = graph.symbol_extents(&path_str, symbol_name)?;
+            if extents.is_empty() {
+                println!("  (no extent info found for '{}')", symbol_name);
+                return Ok(());
+            }
+            println!();
+            println!("Symbol Extents for '{}':", symbol_name);
+            extents.sort_by(|(_, a), (_, b)| {
+                a.start_line
+                    .cmp(&b.start_line)
+                    .then_with(|| a.start_col.cmp(&b.start_col))
+            });
+            for (node_id, fact) in extents {
+                print_extent_block(node_id, &fact);
+            }
         }
     }
 
     Ok(())
+}
+
+fn print_extent_block(node_id: i64, symbol: &magellan::SymbolFact) {
+    let name = symbol.name.as_deref().unwrap_or("(unnamed)");
+    println!("  Node ID: {}", node_id);
+    println!(
+        "    {} [{}] at {}",
+        name,
+        symbol.kind_normalized,
+        symbol.file_path.to_string_lossy()
+    );
+    println!("    Byte Range: {}..{}", symbol.byte_start, symbol.byte_end);
+    println!(
+        "    Line Range: {}:{} -> {}:{}",
+        symbol.start_line, symbol.start_col, symbol.end_line, symbol.end_col
+    );
 }

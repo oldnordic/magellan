@@ -3,7 +3,7 @@
 //! Handles call indexing and query operations for CALLS edges.
 
 use anyhow::Result;
-use sqlitegraph::{NeighborQuery, BackendDirection, GraphBackend};
+use sqlitegraph::{BackendDirection, GraphBackend, NeighborQuery};
 use std::collections::HashMap;
 
 use crate::graph::schema::SymbolNode;

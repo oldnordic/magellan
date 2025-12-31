@@ -29,7 +29,7 @@ fn test_round_trip_symbols_in_file() {
     // Verify each symbol type
     let kinds: Vec<_> = symbols.iter().map(|s| &s.kind).collect();
     assert!(kinds.contains(&&SymbolKind::Function));
-    assert!(kinds.contains(&&SymbolKind::Class));  // Rust struct → Class (language-agnostic)
+    assert!(kinds.contains(&&SymbolKind::Class)); // Rust struct → Class (language-agnostic)
     assert!(kinds.contains(&&SymbolKind::Enum));
     assert!(kinds.contains(&&SymbolKind::Module));
 }
@@ -49,20 +49,34 @@ fn test_idempotent_reindex() {
 
     // Re-index with same content
     let count2 = graph.index_file(path, source_v1).unwrap();
-    assert_eq!(count2, 1, "Re-index with same content should still return 1 symbol");
+    assert_eq!(
+        count2, 1,
+        "Re-index with same content should still return 1 symbol"
+    );
 
     // Query should still return 1 symbol
     let symbols = graph.symbols_in_file(path).unwrap();
-    assert_eq!(symbols.len(), 1, "Should have exactly 1 symbol after re-index");
+    assert_eq!(
+        symbols.len(),
+        1,
+        "Should have exactly 1 symbol after re-index"
+    );
 
     // Re-index with different content
     let source_v2 = b"fn func_a() {} fn func_b() {}";
     let count3 = graph.index_file(path, source_v2).unwrap();
-    assert_eq!(count3, 2, "Re-index with new content should create 2 symbols");
+    assert_eq!(
+        count3, 2,
+        "Re-index with new content should create 2 symbols"
+    );
 
     // Query should return 2 symbols now
     let symbols = graph.symbols_in_file(path).unwrap();
-    assert_eq!(symbols.len(), 2, "Should have 2 symbols after content update");
+    assert_eq!(
+        symbols.len(),
+        2,
+        "Should have 2 symbols after content update"
+    );
 }
 
 #[test]
@@ -79,7 +93,11 @@ fn test_delete_file_cleanup() {
 
     // Verify symbols exist
     let symbols_before = graph.symbols_in_file(path).unwrap();
-    assert_eq!(symbols_before.len(), 1, "Should have 1 symbol before delete");
+    assert_eq!(
+        symbols_before.len(),
+        1,
+        "Should have 1 symbol before delete"
+    );
 
     // Delete the file
     graph.delete_file(path).unwrap();
@@ -96,15 +114,9 @@ fn test_multiple_files_independent() {
     let mut graph = CodeGraph::open(&db_path).unwrap();
 
     // Index multiple files
-    graph
-        .index_file("file_a.rs", b"fn func_a() {}")
-        .unwrap();
-    graph
-        .index_file("file_b.rs", b"fn func_b() {}")
-        .unwrap();
-    graph
-        .index_file("file_c.rs", b"struct StructC;")
-        .unwrap();
+    graph.index_file("file_a.rs", b"fn func_a() {}").unwrap();
+    graph.index_file("file_b.rs", b"fn func_b() {}").unwrap();
+    graph.index_file("file_c.rs", b"struct StructC;").unwrap();
 
     // Each file should have its own symbols
     let symbols_a = graph.symbols_in_file("file_a.rs").unwrap();
@@ -122,9 +134,21 @@ fn test_multiple_files_independent() {
     let symbols_b_after = graph.symbols_in_file("file_b.rs").unwrap();
     let symbols_c_after = graph.symbols_in_file("file_c.rs").unwrap();
 
-    assert_eq!(symbols_a_after.len(), 1, "file_a.rs should still have 1 symbol");
-    assert_eq!(symbols_b_after.len(), 0, "file_b.rs should have 0 symbols after delete");
-    assert_eq!(symbols_c_after.len(), 1, "file_c.rs should still have 1 symbol");
+    assert_eq!(
+        symbols_a_after.len(),
+        1,
+        "file_a.rs should still have 1 symbol"
+    );
+    assert_eq!(
+        symbols_b_after.len(),
+        0,
+        "file_b.rs should have 0 symbols after delete"
+    );
+    assert_eq!(
+        symbols_c_after.len(),
+        1,
+        "file_c.rs should still have 1 symbol"
+    );
 }
 
 #[test]

@@ -96,9 +96,11 @@ impl JavaScriptParser {
         // Try to extract name
         let name = self.extract_name(node, source);
 
+        let normalized_kind = symbol_kind.normalized_key().to_string();
         Some(SymbolFact {
             file_path: file_path.clone(),
             kind: symbol_kind,
+            kind_normalized: normalized_kind,
             name,
             byte_start: node.start_byte() as usize,
             byte_end: node.end_byte() as usize,
@@ -196,9 +198,9 @@ impl JavaScriptParser {
         let text = std::str::from_utf8(text_bytes).ok()?;
 
         // Find if this matches any symbol
-        let referenced_symbol = symbols.iter().find(|s| {
-            s.name.as_ref().map(|n| n == text).unwrap_or(false)
-        })?;
+        let referenced_symbol = symbols
+            .iter()
+            .find(|s| s.name.as_ref().map(|n| n == text).unwrap_or(false))?;
 
         // Check if reference is OUTSIDE the symbol's defining span
         let ref_start = node.start_byte() as usize;
@@ -256,7 +258,14 @@ impl JavaScriptParser {
             .collect();
 
         // Walk tree and find calls
-        self.walk_tree_for_calls(&root_node, source, &file_path, &symbol_map, &functions, &mut calls);
+        self.walk_tree_for_calls(
+            &root_node,
+            source,
+            &file_path,
+            &symbol_map,
+            &functions,
+            &mut calls,
+        );
 
         calls
     }
@@ -271,14 +280,7 @@ impl JavaScriptParser {
         _functions: &[&SymbolFact],
         calls: &mut Vec<CallFact>,
     ) {
-        self.walk_tree_for_calls_with_caller(
-            node,
-            source,
-            file_path,
-            symbol_map,
-            None,
-            calls,
-        );
+        self.walk_tree_for_calls_with_caller(node, source, file_path, symbol_map, None, calls);
     }
 
     /// Walk tree-sitter tree and extract function calls, tracking current function
@@ -294,12 +296,13 @@ impl JavaScriptParser {
         let kind = node.kind();
 
         // Track which function we're inside (if any)
-        let caller: Option<&SymbolFact> = if kind == "function_declaration" || kind == "function_definition" {
-            self.extract_function_name(node, source)
-                .and_then(|name| symbol_map.get(&name).copied())
-        } else {
-            current_caller
-        };
+        let caller: Option<&SymbolFact> =
+            if kind == "function_declaration" || kind == "function_definition" {
+                self.extract_function_name(node, source)
+                    .and_then(|name| symbol_map.get(&name).copied())
+            } else {
+                current_caller
+            };
 
         // If we have a caller and this is a call, extract the call
         if kind == "call_expression" {
@@ -312,12 +315,7 @@ impl JavaScriptParser {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             self.walk_tree_for_calls_with_caller(
-                &child,
-                source,
-                file_path,
-                symbol_map,
-                caller,
-                calls,
+                &child, source, file_path, symbol_map, caller, calls,
             );
         }
     }
@@ -389,7 +387,11 @@ impl JavaScriptParser {
     }
 
     /// Extract member expression property name (for obj.method() calls)
-    fn extract_member_expression_name(&self, node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
+    fn extract_member_expression_name(
+        &self,
+        node: &tree_sitter::Node,
+        source: &[u8],
+    ) -> Option<String> {
         // For member_expression obj.prop, we want 'prop'
         let mut cursor = node.walk();
         let children: Vec<_> = node.children(&mut cursor).collect();
@@ -435,7 +437,10 @@ mod tests {
         // Should extract class and constructor method (flat structure)
         assert!(facts.len() >= 1);
 
-        let classes: Vec<_> = facts.iter().filter(|f| f.kind == SymbolKind::Class).collect();
+        let classes: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Class)
+            .collect();
         assert_eq!(classes.len(), 1);
         assert_eq!(classes[0].name, Some("MyClass".to_string()));
     }
@@ -449,7 +454,10 @@ mod tests {
         // Should extract class and method (flat structure)
         assert!(facts.len() >= 2);
 
-        let methods: Vec<_> = facts.iter().filter(|f| f.kind == SymbolKind::Method).collect();
+        let methods: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Method)
+            .collect();
         assert_eq!(methods.len(), 1);
         assert_eq!(methods[0].name, Some("myMethod".to_string()));
     }
@@ -507,14 +515,22 @@ export function baz() {}
         // Should extract: foo, Bar, method1, method2, baz
         assert!(facts.len() >= 5);
 
-        let functions: Vec<_> =
-            facts.iter().filter(|f| f.kind == SymbolKind::Function).collect();
+        let functions: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Function)
+            .collect();
         assert_eq!(functions.len(), 2); // foo and baz
 
-        let classes: Vec<_> = facts.iter().filter(|f| f.kind == SymbolKind::Class).collect();
+        let classes: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Class)
+            .collect();
         assert_eq!(classes.len(), 1); // Bar
 
-        let methods: Vec<_> = facts.iter().filter(|f| f.kind == SymbolKind::Method).collect();
+        let methods: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Method)
+            .collect();
         assert_eq!(methods.len(), 2); // method1 and method2
     }
 
@@ -535,7 +551,10 @@ export function baz() {}
 
         // Should handle gracefully - return empty (tree-sitter may still parse partial)
         // We don't crash
-        assert!(facts.len() < 10, "Syntax error should not produce many symbols");
+        assert!(
+            facts.len() < 10,
+            "Syntax error should not produce many symbols"
+        );
     }
 
     #[test]

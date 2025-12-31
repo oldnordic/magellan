@@ -87,15 +87,19 @@ enum Command {
     },
     Query {
         db_path: PathBuf,
-        file_path: PathBuf,
+        file_path: Option<PathBuf>,
         root: Option<PathBuf>,
         kind: Option<String>,
+        explain: bool,
+        symbol: Option<String>,
+        show_extent: bool,
     },
     Find {
         db_path: PathBuf,
-        name: String,
+        name: Option<String>,
         root: Option<PathBuf>,
         path: Option<PathBuf>,
+        glob_pattern: Option<String>,
     },
     Refs {
         db_path: PathBuf,
@@ -225,6 +229,9 @@ fn parse_args() -> Result<Command> {
             let mut file_path: Option<PathBuf> = None;
             let mut root: Option<PathBuf> = None;
             let mut kind: Option<String> = None;
+            let mut explain = false;
+            let mut symbol: Option<String> = None;
+            let mut show_extent = false;
 
             let mut i = 2;
             while i < args.len() {
@@ -257,6 +264,21 @@ fn parse_args() -> Result<Command> {
                         kind = Some(args[i + 1].clone());
                         i += 2;
                     }
+                    "--explain" => {
+                        explain = true;
+                        i += 1;
+                    }
+                    "--symbol" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--symbol requires an argument"));
+                        }
+                        symbol = Some(args[i + 1].clone());
+                        i += 2;
+                    }
+                    "--show-extent" => {
+                        show_extent = true;
+                        i += 1;
+                    }
                     _ => {
                         return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
                     }
@@ -264,15 +286,28 @@ fn parse_args() -> Result<Command> {
             }
 
             let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
-            let file_path = file_path.ok_or_else(|| anyhow::anyhow!("--file is required"))?;
+            if !explain && file_path.is_none() {
+                return Err(anyhow::anyhow!(
+                    "--file is required unless --explain is set"
+                ));
+            }
 
-            Ok(Command::Query { db_path, file_path, root, kind })
+            Ok(Command::Query {
+                db_path,
+                file_path,
+                root,
+                kind,
+                explain,
+                symbol,
+                show_extent,
+            })
         }
         "find" => {
             let mut db_path: Option<PathBuf> = None;
             let mut name: Option<String> = None;
             let mut root: Option<PathBuf> = None;
             let mut path: Option<PathBuf> = None;
+            let mut glob_pattern: Option<String> = None;
 
             let mut i = 2;
             while i < args.len() {
@@ -305,6 +340,13 @@ fn parse_args() -> Result<Command> {
                         path = Some(PathBuf::from(&args[i + 1]));
                         i += 2;
                     }
+                    "--list-glob" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--list-glob requires an argument"));
+                        }
+                        glob_pattern = Some(args[i + 1].clone());
+                        i += 2;
+                    }
                     _ => {
                         return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
                     }
@@ -312,9 +354,19 @@ fn parse_args() -> Result<Command> {
             }
 
             let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
-            let name = name.ok_or_else(|| anyhow::anyhow!("--name is required"))?;
+            if glob_pattern.is_some() && name.is_some() {
+                return Err(anyhow::anyhow!(
+                    "Use either --name or --list-glob, not both"
+                ));
+            }
 
-            Ok(Command::Find { db_path, name, root, path })
+            Ok(Command::Find {
+                db_path,
+                name,
+                root,
+                path,
+                glob_pattern,
+            })
         }
         "refs" => {
             let mut db_path: Option<PathBuf> = None;
@@ -371,7 +423,13 @@ fn parse_args() -> Result<Command> {
             let name = name.ok_or_else(|| anyhow::anyhow!("--name is required"))?;
             let path = path.ok_or_else(|| anyhow::anyhow!("--path is required"))?;
 
-            Ok(Command::Refs { db_path, name, root, path, direction })
+            Ok(Command::Refs {
+                db_path,
+                name,
+                root,
+                path,
+                direction,
+            })
         }
         "files" => {
             let mut db_path: Option<PathBuf> = None;
@@ -431,7 +489,6 @@ fn parse_args() -> Result<Command> {
         _ => Err(anyhow::anyhow!("Unknown command: {}", command)),
     }
 }
-
 
 fn run_status(db_path: PathBuf) -> Result<()> {
     let graph = CodeGraph::open(&db_path)?;
@@ -495,21 +552,43 @@ fn main() -> ExitCode {
             }
             ExitCode::SUCCESS
         }
-        Ok(Command::Query { db_path, file_path, root, kind }) => {
-            if let Err(e) = query_cmd::run_query(db_path, file_path, root, kind) {
+        Ok(Command::Query {
+            db_path,
+            file_path,
+            root,
+            kind,
+            explain,
+            symbol,
+            show_extent,
+        }) => {
+            if let Err(e) =
+                query_cmd::run_query(db_path, file_path, root, kind, explain, symbol, show_extent)
+            {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
             ExitCode::SUCCESS
         }
-        Ok(Command::Find { db_path, name, root, path }) => {
-            if let Err(e) = find_cmd::run_find(db_path, name, root, path) {
+        Ok(Command::Find {
+            db_path,
+            name,
+            root,
+            path,
+            glob_pattern,
+        }) => {
+            if let Err(e) = find_cmd::run_find(db_path, name, root, path, glob_pattern) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
             ExitCode::SUCCESS
         }
-        Ok(Command::Refs { db_path, name, root, path, direction }) => {
+        Ok(Command::Refs {
+            db_path,
+            name,
+            root,
+            path,
+            direction,
+        }) => {
             if let Err(e) = refs_cmd::run_refs(db_path, name, root, path, direction) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);

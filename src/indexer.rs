@@ -6,7 +6,7 @@
 use anyhow::Result;
 use std::path::PathBuf;
 
-use crate::{CodeGraph, FileSystemWatcher, WatcherConfig, FileEvent};
+use crate::{CodeGraph, FileEvent, FileSystemWatcher, WatcherConfig};
 
 /// Handle a single file event, updating the graph appropriately.
 ///

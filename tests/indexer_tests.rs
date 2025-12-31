@@ -29,10 +29,7 @@ fn write_and_sync(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 /// processes the file after it is fully written.
 fn touch_and_sync(path: &Path) -> std::io::Result<()> {
     use std::fs::OpenOptions;
-    let mut file = OpenOptions::new()
-        .write(true)
-        .append(true)
-        .open(path)?;
+    let mut file = OpenOptions::new().write(true).append(true).open(path)?;
     std::io::Write::write_all(&mut file, b"\n")?;
     file.sync_all()?;
     Ok(())
@@ -53,7 +50,9 @@ fn test_create_event_indexes_file() {
     let placeholder_source = b"";
     fs::write(&file_path, placeholder_source).unwrap();
     let mut graph = CodeGraph::open(&db_path).unwrap();
-    graph.index_file(&file_path.to_string_lossy().to_string(), placeholder_source).unwrap();
+    graph
+        .index_file(&file_path.to_string_lossy().to_string(), placeholder_source)
+        .unwrap();
 
     // Spawn file writer thread (modifies file after watcher starts with stable content)
     let file_path_clone = file_path.clone();
@@ -73,7 +72,11 @@ fn test_create_event_indexes_file() {
     let symbols = graph.symbols_in_file(&path_str).unwrap();
 
     // Should have 2 symbols (foo, bar) after the modify
-    assert_eq!(symbols.len(), 2, "Should index 2 symbols after MODIFY: foo, bar");
+    assert_eq!(
+        symbols.len(),
+        2,
+        "Should index 2 symbols after MODIFY: foo, bar"
+    );
 
     // Verify: References were indexed
     let foo_id = graph.symbol_id_by_name(&path_str, "foo").unwrap();
@@ -118,7 +121,11 @@ fn test_modify_event_reindexes_file() {
     let foo_id = graph.symbol_id_by_name(&path_str, "foo").unwrap();
     let foo_id = foo_id.expect("foo symbol should exist");
     let references = graph.references_to_symbol(foo_id).unwrap();
-    assert_eq!(references.len(), 1, "Should have 1 reference to foo after re-index");
+    assert_eq!(
+        references.len(),
+        1,
+        "Should have 1 reference to foo after re-index"
+    );
 }
 
 #[test]
@@ -152,7 +159,11 @@ fn test_delete_event_removes_file_data() {
     let mut graph = CodeGraph::open(&db_path).unwrap();
     let path_str = file_path.to_string_lossy().to_string();
     let symbols = graph.symbols_in_file(&path_str).unwrap();
-    assert_eq!(symbols.len(), 0, "Should have 0 symbols after file deletion");
+    assert_eq!(
+        symbols.len(),
+        0,
+        "Should have 0 symbols after file deletion"
+    );
 }
 
 #[test]

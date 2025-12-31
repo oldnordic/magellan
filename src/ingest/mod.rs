@@ -7,7 +7,7 @@ pub mod python;
 pub mod typescript;
 
 // Re-exports from detect module
-pub use detect::{Language, detect_language};
+pub use detect::{detect_language, Language};
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -44,6 +44,24 @@ pub enum SymbolKind {
     Unknown,
 }
 
+impl SymbolKind {
+    /// Return the normalized string key for this symbol kind (used for CLI/JSON)
+    pub fn normalized_key(&self) -> &'static str {
+        match self {
+            SymbolKind::Function => "fn",
+            SymbolKind::Method => "method",
+            SymbolKind::Class => "struct",
+            SymbolKind::Interface => "trait",
+            SymbolKind::Enum => "enum",
+            SymbolKind::Module => "mod",
+            SymbolKind::Union => "union",
+            SymbolKind::Namespace => "namespace",
+            SymbolKind::TypeAlias => "type_alias",
+            SymbolKind::Unknown => "unknown",
+        }
+    }
+}
+
 /// A fact about a symbol extracted from source code
 ///
 /// Pure data structure. No behavior. No semantic analysis.
@@ -53,6 +71,8 @@ pub struct SymbolFact {
     pub file_path: PathBuf,
     /// Kind of symbol
     pub kind: SymbolKind,
+    /// Canonical kind string (fn/struct/enum/...) derived during ingest
+    pub kind_normalized: String,
     /// Symbol name (if any - some symbols like impl blocks may not have names)
     pub name: Option<String>,
     /// Byte offset where symbol starts in file
@@ -147,10 +167,10 @@ impl Parser {
 
         let symbol_kind = match kind {
             "function_item" => SymbolKind::Function,
-            "struct_item" => SymbolKind::Class,     // Rust struct → Class (language-agnostic)
+            "struct_item" => SymbolKind::Class, // Rust struct → Class (language-agnostic)
             "enum_item" => SymbolKind::Enum,
-            "trait_item" => SymbolKind::Interface,  // Rust trait → Interface (language-agnostic)
-            "impl_item" => SymbolKind::Unknown,     // impl blocks have no name in v0
+            "trait_item" => SymbolKind::Interface, // Rust trait → Interface (language-agnostic)
+            "impl_item" => SymbolKind::Unknown,    // impl blocks have no name in v0
             "mod_item" => SymbolKind::Module,
             _ => return None, // Not a symbol we track
         };
@@ -158,9 +178,11 @@ impl Parser {
         // Try to extract name
         let name = self.extract_name(node, source);
 
+        let normalized_kind = symbol_kind.normalized_key().to_string();
         Some(SymbolFact {
             file_path: file_path.clone(),
             kind: symbol_kind,
+            kind_normalized: normalized_kind,
             name,
             byte_start: node.start_byte() as usize,
             byte_end: node.end_byte() as usize,
@@ -185,7 +207,8 @@ impl Parser {
         for child in node.children(&mut cursor) {
             match child.kind() {
                 "identifier" | "type_identifier" => {
-                    let name_bytes = &source[child.start_byte() as usize..child.end_byte() as usize];
+                    let name_bytes =
+                        &source[child.start_byte() as usize..child.end_byte() as usize];
                     return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
                 }
                 _ => {}
@@ -229,6 +252,7 @@ mod tests {
         let fact = SymbolFact {
             file_path: PathBuf::from("/test/file.rs"),
             kind: SymbolKind::Function,
+            kind_normalized: SymbolKind::Function.normalized_key().to_string(),
             name: Some("test_fn".to_string()),
             byte_start: 0,
             byte_end: 100,
@@ -255,7 +279,10 @@ mod tests {
 
         // Find the impl_item node
         let mut cursor = root.walk();
-        let impl_node = root.children(&mut cursor).find(|n: &tree_sitter::Node| n.kind() == "impl_item").unwrap();
+        let impl_node = root
+            .children(&mut cursor)
+            .find(|n: &tree_sitter::Node| n.kind() == "impl_item")
+            .unwrap();
 
         let name = parser.extract_name(&impl_node, source);
         assert_eq!(name, Some("MyStruct".to_string()));
@@ -270,7 +297,10 @@ mod tests {
 
         // Find the impl_item node
         let mut cursor = root.walk();
-        let impl_node = root.children(&mut cursor).find(|n: &tree_sitter::Node| n.kind() == "impl_item").unwrap();
+        let impl_node = root
+            .children(&mut cursor)
+            .find(|n: &tree_sitter::Node| n.kind() == "impl_item")
+            .unwrap();
 
         let name = parser.extract_name(&impl_node, source);
         assert_eq!(name, Some("MyStruct".to_string()));
@@ -294,7 +324,10 @@ impl Default for MyStruct {
         let facts = parser.extract_symbols(PathBuf::from("/test.rs"), content.as_bytes());
 
         // Should find: struct, inherent impl, trait impl
-        let impl_facts: Vec<_> = facts.iter().filter(|f| f.kind == SymbolKind::Unknown).collect();
+        let impl_facts: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Unknown)
+            .collect();
 
         // Both impls should have MyStruct as their name
         assert_eq!(impl_facts.len(), 2);

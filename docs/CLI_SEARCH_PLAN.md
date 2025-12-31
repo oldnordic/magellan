@@ -462,6 +462,35 @@ tests/integration_tests.rs:15: fn test_database()
 
 ---
 
+## 8. Roadmap Items (Needed before codemcp upgrades)
+
+Feedback from codemcp (`docs/pr5.md`) and local testing introduced the following CLI + query upgrades. Each item keeps Magellan predictable while exposing richer metadata.
+
+1. **`--explain-query` Flag** *(Status: ✅ implemented via `magellan query --explain` in `src/query_cmd.rs`)*  
+   - *Goal*: Print cheat sheet describing `name`, `references:symbol`, `file:path`, and glob syntax so agents stop guessing.
+   - *Implementation*: Add the flag handler that dumps the supported selectors + examples generated from `graph::query`.
+
+2. **Normalized Symbol Kind Metadata** *(Status: ✅ persisted through `SymbolFact.kind_normalized` and JSON export)*  
+   - *Goal*: codemcp should infer `kind` (fn/struct/enum/trait/const/static/mod) without user input.
+   - *Implementation*: Extend `graph::symbols::SymbolFact` with `kind_normalized` derived at ingest time; persist to `graph_entities.data`; update CLI output + JSON to include the normalized type.
+
+3. **`symbol_extent` API** *(Status: ✅ exposed via `CodeGraph::symbol_extents` and `magellan query --symbol ... --show-extent`)*  
+   - *Goal*: codemcp needs byte ranges + line spans to implement `read_symbol`.
+   - *Implementation*: New query `symbol_extent --symbol <name> --file <path>` returning file path, byte_start/end, start/end line/col; reuse `graph::symbols::lookup_symbol`.
+
+4. **Glob-Based Symbol Search** *(Status: ✅ `magellan find --list-glob` returns deterministic node IDs using `globset`)*  
+   - *Goal*: Bulk renames require enumerating `test_*` style sets before Splice runs.
+   - *Implementation*: Teach `find` to accept glob patterns (backed by `globset`). Add `--list-glob <pattern>` that resolves to symbol IDs and prints them deterministically.
+
+5. **Call to Action for codemcp**
+   - Once the above ship, codemcp can:
+     - Drop mandatory `kind` parameter in `refactor_rename`.
+     - Provide inline query usage hints.
+     - Implement `read_symbol` tool using `symbol_extent`.
+     - Build `bulk_rename` wrappers on top of glob support.
+
+---
+
 ## 9. Success Criteria
 
 - [ ] All Phase 1 queries working

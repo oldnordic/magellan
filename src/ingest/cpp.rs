@@ -97,9 +97,11 @@ impl CppParser {
         // Try to extract name
         let name = self.extract_name(node, source, kind);
 
+        let normalized_kind = symbol_kind.normalized_key().to_string();
         Some(SymbolFact {
             file_path: file_path.clone(),
             kind: symbol_kind,
+            kind_normalized: normalized_kind,
             name,
             byte_start: node.start_byte() as usize,
             byte_end: node.end_byte() as usize,
@@ -145,11 +147,14 @@ impl CppParser {
         for child in node.children(&mut cursor) {
             match child.kind() {
                 "identifier" | "type_identifier" => {
-                    let name_bytes = &source[child.start_byte() as usize..child.end_byte() as usize];
+                    let name_bytes =
+                        &source[child.start_byte() as usize..child.end_byte() as usize];
                     return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
                 }
                 // Skip certain nodes to find the identifier within
-                "function_declarator" | "parameter_list" | "field_declaration_list"
+                "function_declarator"
+                | "parameter_list"
+                | "field_declaration_list"
                 | "template_parameter_list" => {
                     if let Some(name) = self.find_name_recursive(&child, source) {
                         return Some(name);
@@ -211,9 +216,9 @@ impl CppParser {
         let text_bytes = &source[node.start_byte() as usize..node.end_byte() as usize];
         let text = std::str::from_utf8(text_bytes).ok()?;
 
-        let referenced_symbol = symbols.iter().find(|s| {
-            s.name.as_ref().map(|n| n == text).unwrap_or(false)
-        })?;
+        let referenced_symbol = symbols
+            .iter()
+            .find(|s| s.name.as_ref().map(|n| n == text).unwrap_or(false))?;
 
         let ref_start = node.start_byte() as usize;
         if ref_start < referenced_symbol.byte_end {
@@ -257,7 +262,14 @@ impl CppParser {
             .filter(|s| s.kind == SymbolKind::Function)
             .collect();
 
-        self.walk_tree_for_calls(&root_node, source, &file_path, &symbol_map, &functions, &mut calls);
+        self.walk_tree_for_calls(
+            &root_node,
+            source,
+            &file_path,
+            &symbol_map,
+            &functions,
+            &mut calls,
+        );
         calls
     }
 
@@ -299,7 +311,9 @@ impl CppParser {
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            self.walk_tree_for_calls_with_caller(&child, source, file_path, symbol_map, caller, calls);
+            self.walk_tree_for_calls_with_caller(
+                &child, source, file_path, symbol_map, caller, calls,
+            );
         }
     }
 
@@ -402,7 +416,10 @@ mod tests {
         // Should extract namespace and nested class (flat structure)
         assert!(facts.len() >= 1);
 
-        let namespaces: Vec<_> = facts.iter().filter(|f| f.kind == SymbolKind::Namespace).collect();
+        let namespaces: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Namespace)
+            .collect();
         assert_eq!(namespaces.len(), 1);
         assert_eq!(namespaces[0].name, Some("MyNamespace".to_string()));
     }
@@ -426,7 +443,10 @@ mod tests {
         let facts = parser.extract_symbols(PathBuf::from("test.cpp"), source);
 
         // Should extract both namespaces (flat structure)
-        let namespaces: Vec<_> = facts.iter().filter(|f| f.kind == SymbolKind::Namespace).collect();
+        let namespaces: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Namespace)
+            .collect();
         assert_eq!(namespaces.len(), 2);
     }
 
@@ -449,15 +469,23 @@ namespace Baz {
         // Flat extraction: foo, Bar, Baz, Nested
         assert!(facts.len() >= 4);
 
-        let functions: Vec<_> = facts.iter().filter(|f| f.kind == SymbolKind::Function).collect();
+        let functions: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Function)
+            .collect();
         assert_eq!(functions.len(), 1);
         assert_eq!(functions[0].name, Some("foo".to_string()));
 
-        let classes: Vec<_> = facts.iter().filter(|f| f.kind == SymbolKind::Class).collect();
+        let classes: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Class)
+            .collect();
         assert_eq!(classes.len(), 2); // Bar and Nested (flat extraction)
 
-        let namespaces: Vec<_> =
-            facts.iter().filter(|f| f.kind == SymbolKind::Namespace).collect();
+        let namespaces: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Namespace)
+            .collect();
         assert_eq!(namespaces.len(), 1);
         assert_eq!(namespaces[0].name, Some("Baz".to_string()));
     }
@@ -479,7 +507,10 @@ namespace Baz {
 
         // Should handle gracefully - return empty (tree-sitter may still parse partial)
         // We don't crash
-        assert!(facts.len() < 10, "Syntax error should not produce many symbols");
+        assert!(
+            facts.len() < 10,
+            "Syntax error should not produce many symbols"
+        );
     }
 
     #[test]

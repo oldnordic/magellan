@@ -4,10 +4,7 @@
 
 use anyhow::Result;
 use sha2::{Digest, Sha256};
-use sqlitegraph::{
-    GraphBackend, NodeId, NodeSpec,
-    SqliteGraphBackend,
-};
+use sqlitegraph::{GraphBackend, NodeId, NodeSpec, SqliteGraphBackend};
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -36,7 +33,10 @@ impl FileOps {
     fn get_file_mtime(path: &str) -> i64 {
         std::fs::metadata(path)
             .and_then(|m| m.modified())
-            .and_then(|t| t.duration_since(UNIX_EPOCH).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)))
+            .and_then(|t| {
+                t.duration_since(UNIX_EPOCH)
+                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+            })
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0)
     }
@@ -59,8 +59,8 @@ impl FileOps {
             let node = self.backend.get_node(id.as_i64())?;
 
             // Parse existing FileNode, update hash and timestamps, serialize back
-            let mut file_node: FileNode = serde_json::from_value(node.data.clone())
-                .unwrap_or_else(|_| FileNode {
+            let mut file_node: FileNode =
+                serde_json::from_value(node.data.clone()).unwrap_or_else(|_| FileNode {
                     path: path.to_string(),
                     hash: hash.to_string(),
                     last_indexed_at: now,
@@ -130,7 +130,8 @@ impl FileOps {
 
             if node.kind == "File" {
                 if let Ok(file_node) = serde_json::from_value::<FileNode>(node.data) {
-                    self.file_index.insert(file_node.path.clone(), NodeId::from(id));
+                    self.file_index
+                        .insert(file_node.path.clone(), NodeId::from(id));
                 }
             }
         }
@@ -176,9 +177,15 @@ impl FileOps {
             _ => SymbolKind::Unknown,
         };
 
+        let normalized_kind = match symbol_node.kind_normalized.clone() {
+            Some(value) => value,
+            None => kind.normalized_key().to_string(),
+        };
+
         Ok(Some(SymbolFact {
             file_path,
             kind,
+            kind_normalized: normalized_kind,
             name: symbol_node.name,
             byte_start: symbol_node.byte_start,
             byte_end: symbol_node.byte_end,

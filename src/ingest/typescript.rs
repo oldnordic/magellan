@@ -99,9 +99,11 @@ impl TypeScriptParser {
         // Try to extract name
         let name = self.extract_name(node, source, kind);
 
+        let normalized_kind = symbol_kind.normalized_key().to_string();
         Some(SymbolFact {
             file_path: file_path.clone(),
             kind: symbol_kind,
+            kind_normalized: normalized_kind,
             name,
             byte_start: node.start_byte() as usize,
             byte_end: node.end_byte() as usize,
@@ -113,7 +115,12 @@ impl TypeScriptParser {
     }
 
     /// Extract name from a symbol node.
-    fn extract_name(&self, node: &tree_sitter::Node, source: &[u8], node_kind: &str) -> Option<String> {
+    fn extract_name(
+        &self,
+        node: &tree_sitter::Node,
+        source: &[u8],
+        node_kind: &str,
+    ) -> Option<String> {
         // For namespace (internal_module), name is in "identifier" child
         if node_kind == "internal_module" {
             let mut cursor = node.walk();
@@ -211,9 +218,9 @@ impl TypeScriptParser {
         let text = std::str::from_utf8(text_bytes).ok()?;
 
         // Find if this matches any symbol
-        let referenced_symbol = symbols.iter().find(|s| {
-            s.name.as_ref().map(|n| n == text).unwrap_or(false)
-        })?;
+        let referenced_symbol = symbols
+            .iter()
+            .find(|s| s.name.as_ref().map(|n| n == text).unwrap_or(false))?;
 
         // Check if reference is OUTSIDE the symbol's defining span
         let ref_start = node.start_byte() as usize;
@@ -271,7 +278,14 @@ impl TypeScriptParser {
             .collect();
 
         // Walk tree and find calls
-        self.walk_tree_for_calls(&root_node, source, &file_path, &symbol_map, &functions, &mut calls);
+        self.walk_tree_for_calls(
+            &root_node,
+            source,
+            &file_path,
+            &symbol_map,
+            &functions,
+            &mut calls,
+        );
 
         calls
     }
@@ -286,14 +300,7 @@ impl TypeScriptParser {
         _functions: &[&SymbolFact],
         calls: &mut Vec<CallFact>,
     ) {
-        self.walk_tree_for_calls_with_caller(
-            node,
-            source,
-            file_path,
-            symbol_map,
-            None,
-            calls,
-        );
+        self.walk_tree_for_calls_with_caller(node, source, file_path, symbol_map, None, calls);
     }
 
     /// Walk tree-sitter tree and extract function calls, tracking current function
@@ -327,12 +334,7 @@ impl TypeScriptParser {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             self.walk_tree_for_calls_with_caller(
-                &child,
-                source,
-                file_path,
-                symbol_map,
-                caller,
-                calls,
+                &child, source, file_path, symbol_map, caller, calls,
             );
         }
     }
@@ -412,7 +414,8 @@ impl TypeScriptParser {
             // For member_expression, look for property_identifier
             for child in &children {
                 if child.kind() == "property_identifier" {
-                    let name_bytes = &source[child.start_byte() as usize..child.end_byte() as usize];
+                    let name_bytes =
+                        &source[child.start_byte() as usize..child.end_byte() as usize];
                     return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
                 }
             }
@@ -451,7 +454,10 @@ mod tests {
         // Should extract class and constructor method (flat structure)
         assert!(facts.len() >= 1);
 
-        let classes: Vec<_> = facts.iter().filter(|f| f.kind == SymbolKind::Class).collect();
+        let classes: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Class)
+            .collect();
         assert_eq!(classes.len(), 1);
         assert_eq!(classes[0].name, Some("MyClass".to_string()));
     }
@@ -498,8 +504,10 @@ mod tests {
         // Should extract namespace and nested class (flat structure)
         assert!(facts.len() >= 1);
 
-        let namespaces: Vec<_> =
-            facts.iter().filter(|f| f.kind == SymbolKind::Namespace).collect();
+        let namespaces: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Namespace)
+            .collect();
         assert_eq!(namespaces.len(), 1);
         assert_eq!(namespaces[0].name, Some("MyNamespace".to_string()));
     }
@@ -561,19 +569,28 @@ function foo(): void {}
         // Should extract: interface, method signature, type alias, enum, function
         assert!(facts.len() >= 4);
 
-        let interfaces: Vec<_> =
-            facts.iter().filter(|f| f.kind == SymbolKind::Interface).collect();
+        let interfaces: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Interface)
+            .collect();
         assert_eq!(interfaces.len(), 1);
 
-        let type_aliases: Vec<_> =
-            facts.iter().filter(|f| f.kind == SymbolKind::TypeAlias).collect();
+        let type_aliases: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::TypeAlias)
+            .collect();
         assert_eq!(type_aliases.len(), 1);
 
-        let enums: Vec<_> = facts.iter().filter(|f| f.kind == SymbolKind::Enum).collect();
+        let enums: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Enum)
+            .collect();
         assert_eq!(enums.len(), 1);
 
-        let functions: Vec<_> =
-            facts.iter().filter(|f| f.kind == SymbolKind::Function).collect();
+        let functions: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Function)
+            .collect();
         assert_eq!(functions.len(), 1);
     }
 
@@ -594,7 +611,10 @@ function foo(): void {}
 
         // Should handle gracefully - return empty (tree-sitter may still parse partial)
         // We don't crash
-        assert!(facts.len() < 10, "Syntax error should not produce many symbols");
+        assert!(
+            facts.len() < 10,
+            "Syntax error should not produce many symbols"
+        );
     }
 
     #[test]

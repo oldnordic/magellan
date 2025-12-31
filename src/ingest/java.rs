@@ -93,9 +93,11 @@ impl JavaParser {
         // Try to extract name
         let name = self.extract_name(node, source, kind);
 
+        let normalized_kind = symbol_kind.normalized_key().to_string();
         Some(SymbolFact {
             file_path: file_path.clone(),
             kind: symbol_kind,
+            kind_normalized: normalized_kind,
             name,
             byte_start: node.start_byte() as usize,
             byte_end: node.end_byte() as usize,
@@ -192,9 +194,9 @@ impl JavaParser {
         let text_bytes = &source[node.start_byte() as usize..node.end_byte() as usize];
         let text = std::str::from_utf8(text_bytes).ok()?;
 
-        let referenced_symbol = symbols.iter().find(|s| {
-            s.name.as_ref().map(|n| n == text).unwrap_or(false)
-        })?;
+        let referenced_symbol = symbols
+            .iter()
+            .find(|s| s.name.as_ref().map(|n| n == text).unwrap_or(false))?;
 
         let ref_start = node.start_byte() as usize;
         if ref_start < referenced_symbol.byte_end {
@@ -238,7 +240,14 @@ impl JavaParser {
             .filter(|s| s.kind == SymbolKind::Method)
             .collect();
 
-        self.walk_tree_for_calls(&root_node, source, &file_path, &symbol_map, &functions, &mut calls);
+        self.walk_tree_for_calls(
+            &root_node,
+            source,
+            &file_path,
+            &symbol_map,
+            &functions,
+            &mut calls,
+        );
         calls
     }
 
@@ -280,7 +289,9 @@ impl JavaParser {
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            self.walk_tree_for_calls_with_caller(&child, source, file_path, symbol_map, caller, calls);
+            self.walk_tree_for_calls_with_caller(
+                &child, source, file_path, symbol_map, caller, calls,
+            );
         }
     }
 
@@ -368,8 +379,10 @@ mod tests {
         // Should extract interface and method (flat structure)
         assert!(facts.len() >= 1);
 
-        let interfaces: Vec<_> =
-            facts.iter().filter(|f| f.kind == SymbolKind::Interface).collect();
+        let interfaces: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Interface)
+            .collect();
         assert_eq!(interfaces.len(), 1);
         assert_eq!(interfaces[0].name, Some("MyInterface".to_string()));
     }
@@ -394,7 +407,10 @@ mod tests {
         // Should extract class and method (flat structure)
         assert!(facts.len() >= 2);
 
-        let methods: Vec<_> = facts.iter().filter(|f| f.kind == SymbolKind::Method).collect();
+        let methods: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Method)
+            .collect();
         assert_eq!(methods.len(), 1);
         assert_eq!(methods[0].name, Some("myMethod".to_string()));
     }
@@ -408,7 +424,10 @@ mod tests {
         // Should extract package and class
         assert!(facts.len() >= 1);
 
-        let modules: Vec<_> = facts.iter().filter(|f| f.kind == SymbolKind::Module).collect();
+        let modules: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Module)
+            .collect();
         assert_eq!(modules.len(), 1);
         assert_eq!(modules[0].name, Some("com.example".to_string()));
     }
@@ -436,20 +455,34 @@ enum Color {
         // Should extract: package, class, method1, interface, method2, enum
         assert!(facts.len() >= 6);
 
-        let modules: Vec<_> = facts.iter().filter(|f| f.kind == SymbolKind::Module).collect();
+        let modules: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Module)
+            .collect();
         assert_eq!(modules.len(), 1);
 
-        let classes: Vec<_> = facts.iter().filter(|f| f.kind == SymbolKind::Class).collect();
+        let classes: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Class)
+            .collect();
         assert_eq!(classes.len(), 1);
 
-        let interfaces: Vec<_> =
-            facts.iter().filter(|f| f.kind == SymbolKind::Interface).collect();
+        let interfaces: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Interface)
+            .collect();
         assert_eq!(interfaces.len(), 1);
 
-        let enums: Vec<_> = facts.iter().filter(|f| f.kind == SymbolKind::Enum).collect();
+        let enums: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Enum)
+            .collect();
         assert_eq!(enums.len(), 1);
 
-        let methods: Vec<_> = facts.iter().filter(|f| f.kind == SymbolKind::Method).collect();
+        let methods: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Method)
+            .collect();
         assert_eq!(methods.len(), 2); // method1 and method2
     }
 
@@ -470,7 +503,10 @@ enum Color {
 
         // Should handle gracefully - return empty (tree-sitter may still parse partial)
         // We don't crash
-        assert!(facts.len() < 10, "Syntax error should not produce many symbols");
+        assert!(
+            facts.len() < 10,
+            "Syntax error should not produce many symbols"
+        );
     }
 
     #[test]
@@ -512,7 +548,10 @@ class Outer {
         let facts = parser.extract_symbols(PathBuf::from("test.java"), source);
 
         // Should extract both classes (flat structure)
-        let classes: Vec<_> = facts.iter().filter(|f| f.kind == SymbolKind::Class).collect();
+        let classes: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Class)
+            .collect();
         assert_eq!(classes.len(), 2);
         assert_eq!(classes[0].name, Some("Outer".to_string()));
         assert_eq!(classes[1].name, Some("Inner".to_string()));

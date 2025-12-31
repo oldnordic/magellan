@@ -99,7 +99,10 @@ mod tests {
 
     #[test]
     fn test_detect_python() {
-        assert_eq!(detect_language(Path::new("script.py")), Some(Language::Python));
+        assert_eq!(
+            detect_language(Path::new("script.py")),
+            Some(Language::Python)
+        );
     }
 
     #[test]
@@ -111,27 +114,48 @@ mod tests {
     #[test]
     fn test_detect_cpp() {
         assert_eq!(detect_language(Path::new("main.cpp")), Some(Language::Cpp));
-        assert_eq!(detect_language(Path::new("header.hpp")), Some(Language::Cpp));
+        assert_eq!(
+            detect_language(Path::new("header.hpp")),
+            Some(Language::Cpp)
+        );
         assert_eq!(detect_language(Path::new("main.cc")), Some(Language::Cpp));
         assert_eq!(detect_language(Path::new("main.cxx")), Some(Language::Cpp));
     }
 
     #[test]
     fn test_detect_java() {
-        assert_eq!(detect_language(Path::new("Main.java")), Some(Language::Java));
+        assert_eq!(
+            detect_language(Path::new("Main.java")),
+            Some(Language::Java)
+        );
     }
 
     #[test]
     fn test_detect_javascript() {
-        assert_eq!(detect_language(Path::new("script.js")), Some(Language::JavaScript));
-        assert_eq!(detect_language(Path::new("module.mjs")), Some(Language::JavaScript));
-        assert_eq!(detect_language(Path::new("module.cjs")), Some(Language::JavaScript));
+        assert_eq!(
+            detect_language(Path::new("script.js")),
+            Some(Language::JavaScript)
+        );
+        assert_eq!(
+            detect_language(Path::new("module.mjs")),
+            Some(Language::JavaScript)
+        );
+        assert_eq!(
+            detect_language(Path::new("module.cjs")),
+            Some(Language::JavaScript)
+        );
     }
 
     #[test]
     fn test_detect_typescript() {
-        assert_eq!(detect_language(Path::new("component.ts")), Some(Language::TypeScript));
-        assert_eq!(detect_language(Path::new("component.tsx")), Some(Language::TypeScript));
+        assert_eq!(
+            detect_language(Path::new("component.ts")),
+            Some(Language::TypeScript)
+        );
+        assert_eq!(
+            detect_language(Path::new("component.tsx")),
+            Some(Language::TypeScript)
+        );
     }
 
     #[test]

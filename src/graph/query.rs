@@ -3,13 +3,13 @@
 //! Handles symbol and reference queries.
 
 use anyhow::Result;
-use sqlitegraph::{BackendDirection, NeighborQuery, GraphBackend};
+use sqlitegraph::{BackendDirection, GraphBackend, NeighborQuery};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use crate::graph::schema::SymbolNode;
 use crate::ingest::{SymbolFact, SymbolKind};
 use crate::references::ReferenceFact;
-use crate::graph::schema::SymbolNode;
 
 use super::CodeGraph;
 
@@ -22,7 +22,8 @@ use super::CodeGraph;
 /// # Returns
 /// Vector of SymbolFact for all symbols in the file
 pub fn symbols_in_file(graph: &mut CodeGraph, path: &str) -> Result<Vec<SymbolFact>> {
-    symbols_in_file_with_kind(graph, path, None)
+    let entries = symbol_nodes_in_file(graph, path)?;
+    Ok(entries.into_iter().map(|(_, fact)| fact).collect())
 }
 
 /// Query symbols defined in a file, optionally filtered by kind
@@ -39,6 +40,22 @@ pub fn symbols_in_file_with_kind(
     path: &str,
     kind: Option<SymbolKind>,
 ) -> Result<Vec<SymbolFact>> {
+    let entries = symbol_nodes_in_file(graph, path)?;
+    let mut symbols = Vec::new();
+    for (_, fact) in entries {
+        if let Some(ref filter_kind) = kind {
+            if fact.kind == *filter_kind {
+                symbols.push(fact);
+            }
+        } else {
+            symbols.push(fact);
+        }
+    }
+    Ok(symbols)
+}
+
+/// Query symbols in a file along with their node IDs for deterministic CLI output.
+pub fn symbol_nodes_in_file(graph: &mut CodeGraph, path: &str) -> Result<Vec<(i64, SymbolFact)>> {
     let file_id = match graph.files.find_file_node(path)? {
         Some(id) => id,
         None => return Ok(Vec::new()),
@@ -46,7 +63,6 @@ pub fn symbols_in_file_with_kind(
 
     let path_buf = PathBuf::from(path);
 
-    // Query neighbors via DEFINES edges
     let neighbor_ids = graph.files.backend.neighbors(
         file_id.as_i64(),
         NeighborQuery {
@@ -55,22 +71,40 @@ pub fn symbols_in_file_with_kind(
         },
     )?;
 
-    // Convert each neighbor node ID to SymbolFact, filtering by kind if specified
-    let mut symbols = Vec::new();
+    let mut entries = Vec::new();
     for symbol_node_id in neighbor_ids {
-        if let Ok(Some(fact)) = graph.files.symbol_fact_from_node(symbol_node_id, path_buf.clone()) {
-            // Apply kind filter if specified
-            if let Some(ref filter_kind) = kind {
-                if fact.kind == *filter_kind {
-                    symbols.push(fact);
-                }
-            } else {
-                symbols.push(fact);
-            }
+        if let Ok(Some(fact)) = graph
+            .files
+            .symbol_fact_from_node(symbol_node_id, path_buf.clone())
+        {
+            entries.push((symbol_node_id, fact));
         }
     }
 
-    Ok(symbols)
+    entries.sort_by(|(_, a), (_, b)| {
+        a.start_line
+            .cmp(&b.start_line)
+            .then_with(|| a.start_col.cmp(&b.start_col))
+            .then_with(|| a.byte_start.cmp(&b.byte_start))
+    });
+
+    Ok(entries)
+}
+
+/// Lookup symbol extents (byte + line range) by name within a file.
+pub fn symbol_extents(
+    graph: &mut CodeGraph,
+    path: &str,
+    name: &str,
+) -> Result<Vec<(i64, SymbolFact)>> {
+    let entries = symbol_nodes_in_file(graph, path)?;
+    let mut matches = Vec::new();
+    for (node_id, fact) in entries {
+        if fact.name.as_deref() == Some(name) {
+            matches.push((node_id, fact));
+        }
+    }
+    Ok(matches)
 }
 
 /// Query the node ID of a specific symbol by file path and symbol name
@@ -105,7 +139,12 @@ pub fn symbol_id_by_name(graph: &mut CodeGraph, path: &str, name: &str) -> Resul
     for symbol_node_id in neighbor_ids {
         if let Ok(node) = graph.files.backend.get_node(symbol_node_id) {
             if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data) {
-                if symbol_node.name.as_ref().map(|n| n == name).unwrap_or(false) {
+                if symbol_node
+                    .name
+                    .as_ref()
+                    .map(|n| n == name)
+                    .unwrap_or(false)
+                {
                     return Ok(Some(symbol_node_id));
                 }
             }
@@ -159,7 +198,9 @@ pub fn index_references(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Res
     }
 
     // Index references using ReferenceOps
-    graph.references.index_references(path, source, &symbol_name_to_id)
+    graph
+        .references
+        .index_references(path, source, &symbol_name_to_id)
 }
 
 /// Query all references to a specific symbol

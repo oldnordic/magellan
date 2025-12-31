@@ -28,14 +28,13 @@ fn test_scan_initial_flag_indexes_all_files_on_startup() {
     fs::write(&file3_path, b"fn baz() {}").unwrap();
 
     // Get the path to the magellan binary
-    let bin_path = std::env::var("CARGO_BIN_EXE_magellan")
-        .unwrap_or_else(|_| {
-            let mut path = std::env::current_exe().unwrap();
-            path.pop();
-            path.pop();
-            path.push("magellan");
-            path.to_str().unwrap().to_string()
-        });
+    let bin_path = std::env::var("CARGO_BIN_EXE_magellan").unwrap_or_else(|_| {
+        let mut path = std::env::current_exe().unwrap();
+        path.pop();
+        path.pop();
+        path.push("magellan");
+        path.to_str().unwrap().to_string()
+    });
 
     // Start magellan with --scan-initial flag
     let mut child = Command::new(&bin_path)
@@ -44,7 +43,7 @@ fn test_scan_initial_flag_indexes_all_files_on_startup() {
         .arg(&root_path)
         .arg("--db")
         .arg(&db_path)
-        .arg("--scan-initial")  // NEW FLAG
+        .arg("--scan-initial") // NEW FLAG
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -55,11 +54,16 @@ fn test_scan_initial_flag_indexes_all_files_on_startup() {
 
     // Kill the process
     let _ = child.kill();
-    let output = child.wait_with_output().expect("Failed to wait for process");
+    let output = child
+        .wait_with_output()
+        .expect("Failed to wait for process");
 
     // Verify stdout contains scan progress
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Scanning"), "Expected scan progress in stdout");
+    assert!(
+        stdout.contains("Scanning"),
+        "Expected scan progress in stdout"
+    );
 
     // Open database and verify ALL files were indexed
     let mut graph = magellan::CodeGraph::open(&db_path).unwrap();
@@ -100,14 +104,13 @@ fn test_scan_only_processes_rs_files() {
     fs::write(&txt_path, b"Some text").unwrap();
     fs::write(&db_txt_path, b"Database").unwrap();
 
-    let bin_path = std::env::var("CARGO_BIN_EXE_magellan")
-        .unwrap_or_else(|_| {
-            let mut path = std::env::current_exe().unwrap();
-            path.pop();
-            path.pop();
-            path.push("magellan");
-            path.to_str().unwrap().to_string()
-        });
+    let bin_path = std::env::var("CARGO_BIN_EXE_magellan").unwrap_or_else(|_| {
+        let mut path = std::env::current_exe().unwrap();
+        path.pop();
+        path.pop();
+        path.push("magellan");
+        path.to_str().unwrap().to_string()
+    });
 
     let mut child = Command::new(&bin_path)
         .arg("watch")

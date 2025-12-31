@@ -59,7 +59,8 @@ pub fn verify_graph(graph: &mut CodeGraph, root: &Path) -> Result<VerifyReport> 
     let fs_files = get_all_fs_files(root)?;
 
     // Convert fs paths to strings for comparison
-    let fs_paths: HashSet<String> = fs_files.keys()
+    let fs_paths: HashSet<String> = fs_files
+        .keys()
         .map(|p| p.to_string_lossy().to_string())
         .collect();
 

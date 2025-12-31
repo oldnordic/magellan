@@ -26,7 +26,9 @@ fn helper() {
     // Index the file
     let mut graph = CodeGraph::open(&db_path).unwrap();
     graph.index_file("test.rs", source.as_bytes()).unwrap();
-    graph.index_references("test.rs", source.as_bytes()).unwrap();
+    graph
+        .index_references("test.rs", source.as_bytes())
+        .unwrap();
 
     // Export to JSON
     let json = graph.export_json().unwrap();
@@ -37,8 +39,14 @@ fn helper() {
     // Check structure
     assert!(parsed.is_object(), "Root should be an object");
     assert!(parsed.get("files").is_some(), "Should have 'files' field");
-    assert!(parsed.get("symbols").is_some(), "Should have 'symbols' field");
-    assert!(parsed.get("references").is_some(), "Should have 'references' field");
+    assert!(
+        parsed.get("symbols").is_some(),
+        "Should have 'symbols' field"
+    );
+    assert!(
+        parsed.get("references").is_some(),
+        "Should have 'references' field"
+    );
 }
 
 #[test]
@@ -90,15 +98,25 @@ struct MyStruct {
 
     // Should have at least main and MyStruct
     let symbol_count = symbols.as_array().unwrap().len();
-    assert!(symbol_count >= 2, "Should have at least 2 symbols (main, MyStruct), got {}", symbol_count);
+    assert!(
+        symbol_count >= 2,
+        "Should have at least 2 symbols (main, MyStruct), got {}",
+        symbol_count
+    );
 
     // Check symbol structure
     for symbol in symbols.as_array().unwrap() {
         assert!(symbol.get("name").is_some(), "Symbol should have 'name'");
         assert!(symbol.get("kind").is_some(), "Symbol should have 'kind'");
         assert!(symbol.get("file").is_some(), "Symbol should have 'file'");
-        assert!(symbol.get("start_line").is_some(), "Symbol should have 'start_line'");
-        assert!(symbol.get("end_line").is_some(), "Symbol should have 'end_line'");
+        assert!(
+            symbol.get("start_line").is_some(),
+            "Symbol should have 'start_line'"
+        );
+        assert!(
+            symbol.get("end_line").is_some(),
+            "Symbol should have 'end_line'"
+        );
     }
 }
 
@@ -126,13 +144,20 @@ fn helper() {}
 
     // Should have main -> helper call
     let call_count = calls.as_array().unwrap().len();
-    assert!(call_count >= 1, "Should have at least 1 call (main -> helper), got {}", call_count);
+    assert!(
+        call_count >= 1,
+        "Should have at least 1 call (main -> helper), got {}",
+        call_count
+    );
 
     // Check call structure
     for call in calls.as_array().unwrap() {
         assert!(call.get("caller").is_some(), "Call should have 'caller'");
         assert!(call.get("callee").is_some(), "Call should have 'callee'");
         assert!(call.get("file").is_some(), "Call should have 'file'");
-        assert!(call.get("start_line").is_some(), "Call should have 'start_line'");
+        assert!(
+            call.get("start_line").is_some(),
+            "Call should have 'start_line'"
+        );
     }
 }

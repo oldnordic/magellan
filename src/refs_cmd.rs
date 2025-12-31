@@ -3,7 +3,7 @@
 //! Shows calls (incoming/outgoing) for a symbol.
 
 use anyhow::Result;
-use magellan::{CodeGraph, CallFact};
+use magellan::{CallFact, CodeGraph};
 use std::path::PathBuf;
 
 /// Resolve a file path against an optional root directory
@@ -65,7 +65,8 @@ pub fn run_refs(
         } else {
             println!("Calls TO \"{}\":", name);
             for call in &calls {
-                println!("  From: {} ({}) at {}:{}",
+                println!(
+                    "  From: {} ({}) at {}:{}",
                     call.caller,
                     "Function",
                     call.file_path.display(),
@@ -79,7 +80,8 @@ pub fn run_refs(
         } else {
             println!("Calls FROM \"{}\":", name);
             for call in &calls {
-                println!("  To: {} at {}:{}",
+                println!(
+                    "  To: {} at {}:{}",
                     call.callee,
                     call.file_path.display(),
                     call.start_line

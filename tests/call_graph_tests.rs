@@ -22,7 +22,8 @@ fn helper() {}
     // Should extract 2 function symbols
     assert_eq!(symbols.len(), 2, "Should have 2 functions");
 
-    let functions: Vec<_> = symbols.iter()
+    let functions: Vec<_> = symbols
+        .iter()
         .filter(|s| s.kind == magellan::SymbolKind::Function)
         .collect();
     assert_eq!(functions.len(), 2);
@@ -59,8 +60,14 @@ impl Data {
 
     // Should have calls (process → method via data.method())
     // But NOT treat "Data" type reference as a call
-    assert!(calls.iter().any(|c| c.callee == "method"), "Should call method");
-    assert!(!calls.iter().any(|c| c.callee == "Data"), "Should not call struct name");
+    assert!(
+        calls.iter().any(|c| c.callee == "method"),
+        "Should call method"
+    );
+    assert!(
+        !calls.iter().any(|c| c.callee == "Data"),
+        "Should not call struct name"
+    );
 }
 
 #[test]
@@ -98,12 +105,20 @@ fn execute() {
 
     // NEW: Query calls from execute
     let calls_from_execute = graph.calls_from_symbol("test.rs", "execute").unwrap();
-    assert_eq!(calls_from_execute.len(), 1, "execute should call 1 function");
+    assert_eq!(
+        calls_from_execute.len(),
+        1,
+        "execute should call 1 function"
+    );
     assert_eq!(calls_from_execute[0].callee, "parse");
 
     // NEW: Query inbound calls (who calls parse?)
     let calls_to_parse = graph.callers_of_symbol("test.rs", "parse").unwrap();
-    assert_eq!(calls_to_parse.len(), 2, "parse should be called by 2 functions");
+    assert_eq!(
+        calls_to_parse.len(),
+        2,
+        "parse should be called by 2 functions"
+    );
     let caller_names: Vec<_> = calls_to_parse.iter().map(|c| c.caller.as_str()).collect();
     assert!(caller_names.contains(&"main"));
     assert!(caller_names.contains(&"execute"));
@@ -128,11 +143,18 @@ fn inner2() {}
 
     let calls = parser.extract_calls(PathBuf::from("test.rs"), source.as_bytes(), &symbols);
 
-    assert_eq!(calls.len(), 3, "Should have 3 calls (inner1 twice, inner2 once)");
+    assert_eq!(
+        calls.len(),
+        3,
+        "Should have 3 calls (inner1 twice, inner2 once)"
+    );
 
     // Count unique calls
-    let unique_calls: std::collections::HashSet<_> = calls.iter()
-        .map(|c| (&c.caller, &c.callee))
-        .collect();
-    assert_eq!(unique_calls.len(), 2, "Should have 2 unique caller-callee pairs");
+    let unique_calls: std::collections::HashSet<_> =
+        calls.iter().map(|c| (&c.caller, &c.callee)).collect();
+    assert_eq!(
+        unique_calls.len(),
+        2,
+        "Should have 2 unique caller-callee pairs"
+    );
 }

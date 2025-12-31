@@ -3,19 +3,21 @@
 //! Handles reference node CRUD operations and REFERENCES edge management.
 
 use anyhow::Result;
-use sqlitegraph::{NodeId, NodeSpec, EdgeSpec, SqliteGraphBackend, BackendDirection, NeighborQuery, GraphBackend};
+use sqlitegraph::{
+    BackendDirection, EdgeSpec, GraphBackend, NeighborQuery, NodeId, NodeSpec, SqliteGraphBackend,
+};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 
 use crate::graph::schema::ReferenceNode;
-use crate::ingest::{detect::Language, detect_language, Parser};
 use crate::ingest::c::CParser;
 use crate::ingest::cpp::CppParser;
 use crate::ingest::java::JavaParser;
 use crate::ingest::javascript::JavaScriptParser;
 use crate::ingest::python::PythonParser;
 use crate::ingest::typescript::TypeScriptParser;
+use crate::ingest::{detect::Language, detect_language, Parser};
 use crate::references::ReferenceFact;
 
 /// Reference operations for CodeGraph
@@ -84,7 +86,8 @@ impl ReferenceOps {
         let symbol_facts: Vec<crate::ingest::SymbolFact> = symbol_facts
             .into_iter()
             .filter(|fact| {
-                fact.name.as_ref()
+                fact.name
+                    .as_ref()
                     .map(|name| symbol_ids.contains_key(name))
                     .unwrap_or(false)
             })
@@ -127,7 +130,11 @@ impl ReferenceOps {
         for reference in &references {
             if let Some(&target_symbol_id) = symbol_ids.get(&reference.referenced_symbol) {
                 let reference_id = self.insert_reference_node(reference)?;
-                self.insert_references_edge(reference_id, NodeId::from(target_symbol_id), reference)?;
+                self.insert_references_edge(
+                    reference_id,
+                    NodeId::from(target_symbol_id),
+                    reference,
+                )?;
             }
         }
 
@@ -185,7 +192,12 @@ impl ReferenceOps {
     }
 
     /// Insert REFERENCES edge from reference to symbol
-    fn insert_references_edge(&self, reference_id: NodeId, symbol_id: NodeId, reference: &ReferenceFact) -> Result<()> {
+    fn insert_references_edge(
+        &self,
+        reference_id: NodeId,
+        symbol_id: NodeId,
+        reference: &ReferenceFact,
+    ) -> Result<()> {
         let edge_spec = EdgeSpec {
             from: reference_id.as_i64(),
             to: symbol_id.as_i64(),

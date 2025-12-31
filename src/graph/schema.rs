@@ -20,6 +20,8 @@ pub struct FileNode {
 pub struct SymbolNode {
     pub name: Option<String>,
     pub kind: String,
+    #[serde(default)]
+    pub kind_normalized: Option<String>,
     pub byte_start: usize,
     pub byte_end: usize,
     pub start_line: usize,

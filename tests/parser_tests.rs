@@ -18,7 +18,10 @@ fn test_syntax_error_file() {
 
     // Should handle gracefully - either empty or partial results
     // We don't crash
-    assert!(facts.len() < 10, "Syntax error should not produce many symbols");
+    assert!(
+        facts.len() < 10,
+        "Syntax error should not produce many symbols"
+    );
 }
 
 #[test]
@@ -44,7 +47,7 @@ fn test_struct_definition() {
     assert_eq!(facts.len(), 1, "Should extract one struct");
     let fact = &facts[0];
 
-    assert_eq!(fact.kind, SymbolKind::Class);  // Rust struct → Class (language-agnostic)
+    assert_eq!(fact.kind, SymbolKind::Class); // Rust struct → Class (language-agnostic)
     assert_eq!(fact.name, Some("MyStruct".to_string()));
 }
 
@@ -70,7 +73,7 @@ fn test_trait_definition() {
     assert_eq!(facts.len(), 1, "Should extract one trait");
     let fact = &facts[0];
 
-    assert_eq!(fact.kind, SymbolKind::Interface);  // Rust trait → Interface (language-agnostic)
+    assert_eq!(fact.kind, SymbolKind::Interface); // Rust trait → Interface (language-agnostic)
     assert_eq!(fact.name, Some("MyTrait".to_string()));
 }
 
@@ -105,10 +108,7 @@ fn test_impl_block() {
         .filter(|f| f.kind == SymbolKind::Unknown || f.kind == SymbolKind::Method)
         .collect();
 
-    assert!(
-        !methods.is_empty(),
-        "Should find method inside impl block"
-    );
+    assert!(!methods.is_empty(), "Should find method inside impl block");
 }
 
 #[test]
@@ -139,15 +139,12 @@ fn test_multiple_symbols() {
         "Should contain function"
     );
     assert!(
-        kinds.contains(&&SymbolKind::Class),  // Rust struct → Class (language-agnostic)
+        kinds.contains(&&SymbolKind::Class), // Rust struct → Class (language-agnostic)
         "Should contain struct"
     );
+    assert!(kinds.contains(&&SymbolKind::Enum), "Should contain enum");
     assert!(
-        kinds.contains(&&SymbolKind::Enum),
-        "Should contain enum"
-    );
-    assert!(
-        kinds.contains(&&SymbolKind::Interface),  // Rust trait → Interface (language-agnostic)
+        kinds.contains(&&SymbolKind::Interface), // Rust trait → Interface (language-agnostic)
         "Should contain trait"
     );
     assert!(

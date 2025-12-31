@@ -91,9 +91,11 @@ impl CParser {
         // Try to extract name
         let name = self.extract_name(node, source);
 
+        let normalized_kind = symbol_kind.normalized_key().to_string();
         Some(SymbolFact {
             file_path: file_path.clone(),
             kind: symbol_kind,
+            kind_normalized: normalized_kind,
             name,
             byte_start: node.start_byte() as usize,
             byte_end: node.end_byte() as usize,
@@ -118,11 +120,14 @@ impl CParser {
         for child in node.children(&mut cursor) {
             match child.kind() {
                 "identifier" | "type_identifier" => {
-                    let name_bytes = &source[child.start_byte() as usize..child.end_byte() as usize];
+                    let name_bytes =
+                        &source[child.start_byte() as usize..child.end_byte() as usize];
                     return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
                 }
                 // Skip declarator and parameter_list nodes to find the identifier within
-                "function_declarator" | "parameter_list" | "field_declaration_list"
+                "function_declarator"
+                | "parameter_list"
+                | "field_declaration_list"
                 | "enumerator_list" => {
                     if let Some(name) = self.find_name_recursive(&child, source) {
                         return Some(name);
@@ -184,9 +189,9 @@ impl CParser {
         let text_bytes = &source[node.start_byte() as usize..node.end_byte() as usize];
         let text = std::str::from_utf8(text_bytes).ok()?;
 
-        let referenced_symbol = symbols.iter().find(|s| {
-            s.name.as_ref().map(|n| n == text).unwrap_or(false)
-        })?;
+        let referenced_symbol = symbols
+            .iter()
+            .find(|s| s.name.as_ref().map(|n| n == text).unwrap_or(false))?;
 
         let ref_start = node.start_byte() as usize;
         if ref_start < referenced_symbol.byte_end {
@@ -230,7 +235,14 @@ impl CParser {
             .filter(|s| s.kind == SymbolKind::Function)
             .collect();
 
-        self.walk_tree_for_calls(&root_node, source, &file_path, &symbol_map, &functions, &mut calls);
+        self.walk_tree_for_calls(
+            &root_node,
+            source,
+            &file_path,
+            &symbol_map,
+            &functions,
+            &mut calls,
+        );
         calls
     }
 
@@ -272,7 +284,9 @@ impl CParser {
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            self.walk_tree_for_calls_with_caller(&child, source, file_path, symbol_map, caller, calls);
+            self.walk_tree_for_calls_with_caller(
+                &child, source, file_path, symbol_map, caller, calls,
+            );
         }
     }
 
@@ -398,13 +412,22 @@ enum Color {
 
         assert!(facts.len() >= 3);
 
-        let functions: Vec<_> = facts.iter().filter(|f| f.kind == SymbolKind::Function).collect();
+        let functions: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Function)
+            .collect();
         assert_eq!(functions.len(), 1);
 
-        let structs: Vec<_> = facts.iter().filter(|f| f.kind == SymbolKind::Class).collect();
+        let structs: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Class)
+            .collect();
         assert_eq!(structs.len(), 1);
 
-        let enums: Vec<_> = facts.iter().filter(|f| f.kind == SymbolKind::Enum).collect();
+        let enums: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Enum)
+            .collect();
         assert_eq!(enums.len(), 1);
     }
 
@@ -425,7 +448,10 @@ enum Color {
 
         // Should handle gracefully - return empty (tree-sitter may still parse partial)
         // We don't crash
-        assert!(facts.len() < 10, "Syntax error should not produce many symbols");
+        assert!(
+            facts.len() < 10,
+            "Syntax error should not produce many symbols"
+        );
     }
 
     #[test]

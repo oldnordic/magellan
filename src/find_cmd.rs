@@ -2,13 +2,16 @@
 //!
 //! Finds a symbol by name, optionally limited to a specific file.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
+use globset::GlobBuilder;
 use magellan::{CodeGraph, SymbolKind};
 use std::path::PathBuf;
 
 /// Represents a found symbol with its file and node ID
 struct FoundSymbol {
+    name: String,
     kind: SymbolKind,
+    kind_normalized: String,
     file: String,
     line: usize,
     col: usize,
@@ -57,14 +60,15 @@ fn find_in_file(graph: &mut CodeGraph, file_path: &str, name: &str) -> Result<Op
         None => return Ok(None),
     };
 
-    // Get all symbols in the file to find the matching one
     let symbols = graph.symbols_in_file(file_path)?;
 
     for symbol in symbols {
         if let Some(symbol_name) = &symbol.name {
             if symbol_name == name {
                 return Ok(Some(FoundSymbol {
+                    name: symbol_name.clone(),
                     kind: symbol.kind,
+                    kind_normalized: symbol.kind_normalized.clone(),
                     file: symbol.file_path.to_string_lossy().to_string(),
                     line: symbol.start_line,
                     col: symbol.start_col,
@@ -94,7 +98,9 @@ fn find_all_files(graph: &mut CodeGraph, name: &str) -> Result<Vec<FoundSymbol>>
                 if let Some(symbol_name) = &symbol.name {
                     if symbol_name == name {
                         results.push(FoundSymbol {
+                            name: symbol_name.clone(),
                             kind: symbol.kind.clone(),
+                            kind_normalized: symbol.kind_normalized.clone(),
                             file: symbol.file_path.to_string_lossy().to_string(),
                             line: symbol.start_line,
                             col: symbol.start_col,
@@ -122,11 +128,19 @@ fn find_all_files(graph: &mut CodeGraph, name: &str) -> Result<Vec<FoundSymbol>>
 /// Human-readable symbol details
 pub fn run_find(
     db_path: PathBuf,
-    name: String,
+    name: Option<String>,
     root: Option<PathBuf>,
     path: Option<PathBuf>,
+    glob_pattern: Option<String>,
 ) -> Result<()> {
     let mut graph = CodeGraph::open(&db_path)?;
+
+    if let Some(pattern) = glob_pattern {
+        return run_glob_listing(&mut graph, &pattern);
+    }
+
+    let name =
+        name.ok_or_else(|| anyhow::anyhow!("--name is required unless --list-glob is provided"))?;
 
     let results = match path {
         Some(file_path) => {
@@ -141,11 +155,19 @@ pub fn run_find(
 
     if results.is_empty() {
         println!("Symbol '{}' not found", name);
+        println!(
+            "Hint: use `magellan find --list-glob \"{}\"` to preview name variants.",
+            name
+        );
     } else if results.len() == 1 {
         let symbol = &results[0];
         println!("Found \"{}\":", name);
         println!("  File:     {}", symbol.file);
-        println!("  Kind:     {}", format_symbol_kind(&symbol.kind));
+        println!(
+            "  Kind:     {} [{}]",
+            format_symbol_kind(&symbol.kind),
+            symbol.kind_normalized
+        );
         println!("  Location: Line {}, Column {}", symbol.line, symbol.col);
         println!("  Node ID:  {}", symbol.node_id);
     } else {
@@ -154,9 +176,71 @@ pub fn run_find(
             println!();
             println!("  [{}]", i + 1);
             println!("    File:     {}", symbol.file);
-            println!("    Kind:     {}", format_symbol_kind(&symbol.kind));
+            println!(
+                "    Kind:     {} [{}]",
+                format_symbol_kind(&symbol.kind),
+                symbol.kind_normalized
+            );
             println!("    Location: Line {}, Column {}", symbol.line, symbol.col);
         }
+    }
+
+    Ok(())
+}
+
+fn run_glob_listing(graph: &mut CodeGraph, pattern: &str) -> Result<()> {
+    let glob_matcher = GlobBuilder::new(pattern)
+        .case_insensitive(false)
+        .build()
+        .with_context(|| format!("Invalid glob pattern '{}'", pattern))?
+        .compile_matcher();
+
+    let mut matches = Vec::new();
+    let file_nodes = graph.all_file_nodes()?;
+
+    for file_path in file_nodes.keys() {
+        let entries = graph.symbol_nodes_in_file(file_path)?;
+        for (node_id, fact) in entries {
+            if let Some(name) = &fact.name {
+                if glob_matcher.is_match(name) {
+                    matches.push(FoundSymbol {
+                        name: name.clone(),
+                        kind: fact.kind.clone(),
+                        kind_normalized: fact.kind_normalized.clone(),
+                        file: file_path.clone(),
+                        line: fact.start_line,
+                        col: fact.start_col,
+                        node_id,
+                    });
+                }
+            }
+        }
+    }
+
+    matches.sort_by(|a, b| {
+        a.file
+            .cmp(&b.file)
+            .then_with(|| a.name.cmp(&b.name))
+            .then_with(|| a.line.cmp(&b.line))
+    });
+
+    if matches.is_empty() {
+        println!("No symbols matched glob '{}'.", pattern);
+        println!("Hint: run `magellan query --explain` for selector guidance.");
+        return Ok(());
+    }
+
+    println!("Matched {} symbols for glob '{}':", matches.len(), pattern);
+    for symbol in matches {
+        println!("  Node ID: {}", symbol.node_id);
+        println!(
+            "    {} [{}] in {}:{} ({})",
+            symbol.name,
+            symbol.kind_normalized,
+            symbol.file,
+            symbol.line,
+            format_symbol_kind(&symbol.kind)
+        );
     }
 
     Ok(())

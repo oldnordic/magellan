@@ -15,14 +15,13 @@ fn test_status_flag_prints_counts() {
     let file_path = root_path.join("test.rs");
 
     // Get the path to the magellan binary
-    let bin_path = std::env::var("CARGO_BIN_EXE_magellan")
-        .unwrap_or_else(|_| {
-            let mut path = std::env::current_exe().unwrap();
-            path.pop();
-            path.pop();
-            path.push("magellan");
-            path.to_str().unwrap().to_string()
-        });
+    let bin_path = std::env::var("CARGO_BIN_EXE_magellan").unwrap_or_else(|_| {
+        let mut path = std::env::current_exe().unwrap();
+        path.pop();
+        path.pop();
+        path.push("magellan");
+        path.to_str().unwrap().to_string()
+    });
 
     // Create file with 2 functions and 1 reference
     fs::write(&file_path, b"fn foo() {}\nfn bar() { foo(); }").unwrap();
@@ -49,7 +48,19 @@ fn test_status_flag_prints_counts() {
     assert!(output.status.success(), "Process should exit successfully");
 
     // Should have exactly 1 file, 2 symbols (foo, bar), 1 reference (bar -> foo)
-    assert!(stdout.contains("files: 1"), "Expected 'files: 1' in output, got: {}", stdout);
-    assert!(stdout.contains("symbols: 2"), "Expected 'symbols: 2' in output, got: {}", stdout);
-    assert!(stdout.contains("references: 1"), "Expected 'references: 1' in output, got: {}", stdout);
+    assert!(
+        stdout.contains("files: 1"),
+        "Expected 'files: 1' in output, got: {}",
+        stdout
+    );
+    assert!(
+        stdout.contains("symbols: 2"),
+        "Expected 'symbols: 2' in output, got: {}",
+        stdout
+    );
+    assert!(
+        stdout.contains("references: 1"),
+        "Expected 'references: 1' in output, got: {}",
+        stdout
+    );
 }

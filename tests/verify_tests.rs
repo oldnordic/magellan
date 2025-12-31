@@ -9,9 +9,9 @@
 //! - verify detects modified files (hash differs from DB)
 //! - verify detects stale files (timestamp old)
 
+use magellan::CodeGraph;
 use std::fs;
 use std::path::PathBuf;
-use magellan::CodeGraph;
 use tempfile::TempDir;
 
 /// Helper to create a test file with content
@@ -65,7 +65,10 @@ fn test_verify_detects_deleted_files() {
     let report = magellan::verify::verify_graph(&mut graph, &root_path).unwrap();
 
     assert_eq!(report.missing.len(), 1, "Should detect 1 missing file");
-    assert!(report.missing[0].ends_with("deleted.rs"), "Missing file should be deleted.rs");
+    assert!(
+        report.missing[0].ends_with("deleted.rs"),
+        "Missing file should be deleted.rs"
+    );
 }
 
 #[test]
@@ -85,7 +88,10 @@ fn test_verify_detects_new_files() {
     let report = magellan::verify::verify_graph(&mut graph, &root_path).unwrap();
 
     assert_eq!(report.new.len(), 1, "Should detect 1 new file");
-    assert!(report.new[0].ends_with("new.rs"), "New file should be new.rs");
+    assert!(
+        report.new[0].ends_with("new.rs"),
+        "New file should be new.rs"
+    );
 }
 
 #[test]
@@ -109,7 +115,10 @@ fn test_verify_detects_modified_files() {
     let report = magellan::verify::verify_graph(&mut graph, &root_path).unwrap();
 
     assert_eq!(report.modified.len(), 1, "Should detect 1 modified file");
-    assert!(report.modified[0].ends_with("modified.rs"), "Modified file should be modified.rs");
+    assert!(
+        report.modified[0].ends_with("modified.rs"),
+        "Modified file should be modified.rs"
+    );
 }
 
 #[test]
@@ -131,7 +140,8 @@ fn test_verify_detects_stale_files() {
     let old_timestamp = (std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
-        .as_secs() as i64) - 400; // 400 seconds ago (more than 5 minutes)
+        .as_secs() as i64)
+        - 400; // 400 seconds ago (more than 5 minutes)
 
     // Directly update the database via SQL
     {
@@ -146,12 +156,16 @@ fn test_verify_detects_stale_files() {
         conn.execute(
             "UPDATE graph_entities SET data = ?1 WHERE kind = 'File' AND name = ?2",
             [&new_data, &path_str],
-        ).unwrap();
+        )
+        .unwrap();
     }
 
     // Verify should detect stale file
     let report = magellan::verify::verify_graph(&mut graph, &root_path).unwrap();
 
     assert_eq!(report.stale.len(), 1, "Should detect 1 stale file");
-    assert!(report.stale[0].ends_with("stale.rs"), "Stale file should be stale.rs");
+    assert!(
+        report.stale[0].ends_with("stale.rs"),
+        "Stale file should be stale.rs"
+    );
 }

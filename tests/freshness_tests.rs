@@ -8,9 +8,9 @@
 //! - empty database produces no warning
 //! - warning includes time difference
 
+use magellan::CodeGraph;
 use std::fs;
 use std::path::PathBuf;
-use magellan::CodeGraph;
 use tempfile::TempDir;
 
 /// Helper to create a test file with content
@@ -40,7 +40,10 @@ fn test_fresh_database_no_warning() {
 
     let status = result.unwrap();
     assert!(!status.is_stale(), "Fresh database should not be stale");
-    assert!(status.minutes_since_index() < 1, "Fresh database should be < 1 minute old");
+    assert!(
+        status.minutes_since_index() < 1,
+        "Fresh database should be < 1 minute old"
+    );
 }
 
 #[test]
@@ -61,7 +64,8 @@ fn test_stale_database_produces_warning() {
     let old_timestamp = (std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
-        .as_secs() as i64) - 400; // 400 seconds ago (more than 5 minutes)
+        .as_secs() as i64)
+        - 400; // 400 seconds ago (more than 5 minutes)
 
     {
         use rusqlite::Connection;
@@ -75,7 +79,8 @@ fn test_stale_database_produces_warning() {
         conn.execute(
             "UPDATE graph_entities SET data = ?1 WHERE kind = 'File' AND name = ?2",
             [&new_data, &path_str],
-        ).unwrap();
+        )
+        .unwrap();
     }
 
     // Freshness check should detect staleness
@@ -83,8 +88,14 @@ fn test_stale_database_produces_warning() {
     assert!(result.is_ok(), "Freshness check should succeed");
 
     let status = result.unwrap();
-    assert!(status.is_stale(), "Stale database should be detected as stale");
-    assert!(status.minutes_since_index() >= 5, "Stale database should be >= 5 minutes old");
+    assert!(
+        status.is_stale(),
+        "Stale database should be detected as stale"
+    );
+    assert!(
+        status.minutes_since_index() >= 5,
+        "Stale database should be >= 5 minutes old"
+    );
 }
 
 #[test]
@@ -100,7 +111,10 @@ fn test_empty_database_no_warning() {
     assert!(result.is_ok(), "Freshness check should succeed on empty DB");
 
     let status = result.unwrap();
-    assert!(!status.is_stale(), "Empty database should not be considered stale");
+    assert!(
+        !status.is_stale(),
+        "Empty database should not be considered stale"
+    );
 }
 
 #[test]
@@ -121,7 +135,8 @@ fn test_warning_includes_time_difference() {
     let old_timestamp = (std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
-        .as_secs() as i64) - 600; // 600 seconds = 10 minutes
+        .as_secs() as i64)
+        - 600; // 600 seconds = 10 minutes
 
     {
         use rusqlite::Connection;
@@ -134,7 +149,8 @@ fn test_warning_includes_time_difference() {
         conn.execute(
             "UPDATE graph_entities SET data = ?1 WHERE kind = 'File' AND name = ?2",
             [&new_data, &path_str],
-        ).unwrap();
+        )
+        .unwrap();
     }
 
     // Check freshness and verify time difference
@@ -144,16 +160,26 @@ fn test_warning_includes_time_difference() {
     let status = result.unwrap();
     let minutes = status.minutes_since_index();
 
-    assert!(minutes >= 9 && minutes <= 11, "Should be ~10 minutes old, got {}", minutes);
+    assert!(
+        minutes >= 9 && minutes <= 11,
+        "Should be ~10 minutes old, got {}",
+        minutes
+    );
 
     // Warning message should include the time difference
     let warning = status.warning_message("/path/to/db".into(), "/path/to/root".into());
-    assert!(warning.contains("10 minutes"), "Warning should mention '10 minutes'");
+    assert!(
+        warning.contains("10 minutes"),
+        "Warning should mention '10 minutes'"
+    );
 }
 
 #[test]
 fn test_freshness_threshold_constant() {
     // Verify the stale threshold is 300 seconds (5 minutes)
     use magellan::graph::STALE_THRESHOLD_SECS;
-    assert_eq!(STALE_THRESHOLD_SECS, 300, "Stale threshold should be 300 seconds");
+    assert_eq!(
+        STALE_THRESHOLD_SECS, 300,
+        "Stale threshold should be 300 seconds"
+    );
 }

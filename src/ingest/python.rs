@@ -89,9 +89,11 @@ impl PythonParser {
         // Try to extract name
         let name = self.extract_name(node, source);
 
+        let normalized_kind = symbol_kind.normalized_key().to_string();
         Some(SymbolFact {
             file_path: file_path.clone(),
             kind: symbol_kind,
+            kind_normalized: normalized_kind,
             name,
             byte_start: node.start_byte() as usize,
             byte_end: node.end_byte() as usize,
@@ -184,9 +186,9 @@ impl PythonParser {
         let text = std::str::from_utf8(text_bytes).ok()?;
 
         // Find if this matches any symbol
-        let referenced_symbol = symbols.iter().find(|s| {
-            s.name.as_ref().map(|n| n == text).unwrap_or(false)
-        })?;
+        let referenced_symbol = symbols
+            .iter()
+            .find(|s| s.name.as_ref().map(|n| n == text).unwrap_or(false))?;
 
         // Check if reference is OUTSIDE the symbol's defining span
         let ref_start = node.start_byte() as usize;
@@ -244,7 +246,14 @@ impl PythonParser {
             .collect();
 
         // Walk tree and find calls
-        self.walk_tree_for_calls(&root_node, source, &file_path, &symbol_map, &functions, &mut calls);
+        self.walk_tree_for_calls(
+            &root_node,
+            source,
+            &file_path,
+            &symbol_map,
+            &functions,
+            &mut calls,
+        );
 
         calls
     }
@@ -259,14 +268,7 @@ impl PythonParser {
         _functions: &[&SymbolFact],
         calls: &mut Vec<CallFact>,
     ) {
-        self.walk_tree_for_calls_with_caller(
-            node,
-            source,
-            file_path,
-            symbol_map,
-            None,
-            calls,
-        );
+        self.walk_tree_for_calls_with_caller(node, source, file_path, symbol_map, None, calls);
     }
 
     /// Walk tree-sitter tree and extract function calls, tracking current function
@@ -300,12 +302,7 @@ impl PythonParser {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             self.walk_tree_for_calls_with_caller(
-                &child,
-                source,
-                file_path,
-                symbol_map,
-                caller,
-                calls,
+                &child, source, file_path, symbol_map, caller, calls,
             );
         }
     }
@@ -446,12 +443,18 @@ class MyClass:
         assert!(facts.len() >= 2);
 
         // Check for class
-        let class: Vec<_> = facts.iter().filter(|f| f.kind == SymbolKind::Class).collect();
+        let class: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Class)
+            .collect();
         assert_eq!(class.len(), 1);
         assert_eq!(class[0].name, Some("MyClass".to_string()));
 
         // Check for function
-        let functions: Vec<_> = facts.iter().filter(|f| f.kind == SymbolKind::Function).collect();
+        let functions: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Function)
+            .collect();
         assert_eq!(functions.len(), 1);
         assert_eq!(functions[0].name, Some("method".to_string()));
     }
@@ -473,10 +476,16 @@ def func_b():
 
         assert!(facts.len() >= 3);
 
-        let functions: Vec<_> = facts.iter().filter(|f| f.kind == SymbolKind::Function).collect();
+        let functions: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Function)
+            .collect();
         assert_eq!(functions.len(), 2);
 
-        let classes: Vec<_> = facts.iter().filter(|f| f.kind == SymbolKind::Class).collect();
+        let classes: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Class)
+            .collect();
         assert_eq!(classes.len(), 1);
     }
 
@@ -497,7 +506,10 @@ def func_b():
 
         // Should handle gracefully - return empty (tree-sitter may still parse partial)
         // We don't crash
-        assert!(facts.len() < 10, "Syntax error should not produce many symbols");
+        assert!(
+            facts.len() < 10,
+            "Syntax error should not produce many symbols"
+        );
     }
 
     #[test]
@@ -551,7 +563,10 @@ class Outer:
         // Should extract both classes (flat structure)
         assert!(facts.len() >= 2);
 
-        let classes: Vec<_> = facts.iter().filter(|f| f.kind == SymbolKind::Class).collect();
+        let classes: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Class)
+            .collect();
         assert_eq!(classes.len(), 2);
     }
 

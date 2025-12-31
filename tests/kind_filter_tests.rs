@@ -26,7 +26,7 @@ fn test_symbols_in_file_filters_by_kind() {
     // Test struct filtering
     let structs_only: Vec<_> = symbols
         .iter()
-        .filter(|s| s.kind == magellan::SymbolKind::Class)  // Rust struct → Class (language-agnostic)
+        .filter(|s| s.kind == magellan::SymbolKind::Class) // Rust struct → Class (language-agnostic)
         .collect();
 
     assert_eq!(structs_only.len(), 1, "Should have 1 struct");
@@ -58,7 +58,9 @@ fn test_code_graph_symbols_in_file_with_kind_filter() {
     graph.index_file("test.rs", source).unwrap();
 
     // NEW: Query only functions
-    let functions = graph.symbols_in_file_with_kind("test.rs", Some(magellan::SymbolKind::Function)).unwrap();
+    let functions = graph
+        .symbols_in_file_with_kind("test.rs", Some(magellan::SymbolKind::Function))
+        .unwrap();
 
     assert_eq!(functions.len(), 2, "Should have 2 functions");
 
@@ -67,7 +69,9 @@ fn test_code_graph_symbols_in_file_with_kind_filter() {
     }
 
     // NEW: Query only structs
-    let structs = graph.symbols_in_file_with_kind("test.rs", Some(magellan::SymbolKind::Class)).unwrap();  // Rust struct → Class (language-agnostic)
+    let structs = graph
+        .symbols_in_file_with_kind("test.rs", Some(magellan::SymbolKind::Class))
+        .unwrap(); // Rust struct → Class (language-agnostic)
 
     assert_eq!(structs.len(), 1, "Should have 1 struct");
 

@@ -165,3 +165,15 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Magellan is a deterministic codebase mapping tool. It does NOT perform semantic analysis, build LSP servers, use async runtimes, or provide web APIs.
 
 It DOES watch directories for source file changes, extract AST-level facts, and persist to a graph database.
+## [0.4.0] - 2026-01-02
+
+### Added
+- **`magellan query --explain` cheat sheet** covering selector syntax, glob usage, and related commands so CLI clients stop guessing.
+- **Symbol extent reporting (`--symbol` + `--show-extent`)** that prints byte and line/column ranges plus node IDs for highlighted symbols.
+- **Glob previews via `magellan find --list-glob <pattern>`** to generate deterministic symbol sets for batch refactors.
+- **Normalized kind metadata** persisted as `kind_normalized` on every symbol fact, surfaced in CLI output and JSON exports for machine-friendly parsing.
+- **Helpful CLI hints** when queries or finds return no results, nudging agents toward `--explain` or `--list-glob`.
+
+### Changed
+- Query and find output now include the normalized kind tag (e.g., `[fn]`, `[struct]`) alongside the readable kind name.
+- README now documents the new flags and workflows so operators know how to access the richer metadata.

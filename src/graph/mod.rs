@@ -1,8 +1,18 @@
 //! Graph persistence layer using sqlitegraph
-mod schema; mod files; mod symbols; mod references;
-mod call_ops; mod calls; mod count; mod ops; mod scan; mod query; mod export;
+mod call_ops;
+mod calls;
+mod count;
+mod export;
+mod files;
 mod freshness;
-#[cfg(test)] mod tests;
+mod ops;
+mod query;
+mod references;
+mod scan;
+mod schema;
+mod symbols;
+#[cfg(test)]
+mod tests;
 
 use anyhow::Result;
 use sqlitegraph::SqliteGraphBackend;
@@ -10,11 +20,11 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::rc::Rc;
 
-use crate::references::{ReferenceFact, CallFact};
+use crate::references::{CallFact, ReferenceFact};
 
 // Re-export public types
-pub use schema::{FileNode, SymbolNode, ReferenceNode, CallNode};
-pub use freshness::{FreshnessStatus, check_freshness, STALE_THRESHOLD_SECS};
+pub use freshness::{check_freshness, FreshnessStatus, STALE_THRESHOLD_SECS};
+pub use schema::{CallNode, FileNode, ReferenceNode, SymbolNode};
 
 /// Progress callback for scan_directory
 ///
@@ -69,9 +79,7 @@ impl CodeGraph {
             references: references::ReferenceOps {
                 backend: Rc::clone(&backend),
             },
-            calls: call_ops::CallOps {
-                backend,
-            },
+            calls: call_ops::CallOps { backend },
         })
     }
 
@@ -138,6 +146,14 @@ impl CodeGraph {
         query::symbols_in_file_with_kind(self, path, kind)
     }
 
+    /// Query symbol facts along with their node IDs for deterministic ordering/output.
+    pub fn symbol_nodes_in_file(
+        &mut self,
+        path: &str,
+    ) -> Result<Vec<(i64, crate::ingest::SymbolFact)>> {
+        query::symbol_nodes_in_file(self, path)
+    }
+
     /// Query the node ID of a specific symbol by file path and symbol name
     ///
     /// # Arguments
@@ -181,6 +197,15 @@ impl CodeGraph {
     /// Vector of ReferenceFact for all references to the symbol
     pub fn references_to_symbol(&mut self, symbol_id: i64) -> Result<Vec<ReferenceFact>> {
         query::references_to_symbol(self, symbol_id)
+    }
+
+    /// Lookup symbol extent (byte + line span) for a specific symbol name in a file.
+    pub fn symbol_extents(
+        &mut self,
+        path: &str,
+        name: &str,
+    ) -> Result<Vec<(i64, crate::ingest::SymbolFact)>> {
+        query::symbol_extents(self, path, name)
     }
 
     /// Index calls for a file into the graph
@@ -259,7 +284,11 @@ impl CodeGraph {
     /// - Only .rs files are processed
     /// - Files are indexed in sorted order for determinism
     /// - Non-.rs files are silently skipped
-    pub fn scan_directory(&mut self, dir_path: &Path, progress: Option<&ScanProgress>) -> Result<usize> {
+    pub fn scan_directory(
+        &mut self,
+        dir_path: &Path,
+        progress: Option<&ScanProgress>,
+    ) -> Result<usize> {
         scan::scan_directory(self, dir_path, progress)
     }
 

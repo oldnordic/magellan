@@ -52,7 +52,11 @@ impl FreshnessStatus {
     }
 
     /// Generate a warning message for stale database
-    pub fn warning_message(&self, db_path: std::path::PathBuf, root_path: std::path::PathBuf) -> String {
+    pub fn warning_message(
+        &self,
+        db_path: std::path::PathBuf,
+        root_path: std::path::PathBuf,
+    ) -> String {
         let mins = self.minutes_since_index();
         let db_str = db_path.to_string_lossy();
         let root_str = root_path.to_string_lossy();
@@ -140,7 +144,7 @@ mod tests {
 
         let msg = status.warning_message(
             std::path::PathBuf::from("/path/to/db"),
-            std::path::PathBuf::from("/path/to/root")
+            std::path::PathBuf::from("/path/to/root"),
         );
 
         assert!(msg.contains("WARNING"));

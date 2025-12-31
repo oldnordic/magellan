@@ -4,9 +4,9 @@
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use sqlitegraph::{GraphBackend, NeighborQuery, BackendDirection};
+use sqlitegraph::{BackendDirection, GraphBackend, NeighborQuery};
 
-use super::{CodeGraph, FileNode, SymbolNode, ReferenceNode, CallNode};
+use super::{CallNode, CodeGraph, FileNode, ReferenceNode, SymbolNode};
 
 /// JSON export structure containing all graph data
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,6 +29,7 @@ pub struct FileExport {
 pub struct SymbolExport {
     pub name: Option<String>,
     pub kind: String,
+    pub kind_normalized: Option<String>,
     pub file: String,
     pub byte_start: usize,
     pub byte_end: usize,
@@ -99,6 +100,7 @@ pub fn export_json(graph: &mut CodeGraph) -> Result<String> {
                     symbols.push(SymbolExport {
                         name: symbol_node.name,
                         kind: symbol_node.kind,
+                        kind_normalized: symbol_node.kind_normalized,
                         file,
                         byte_start: symbol_node.byte_start,
                         byte_end: symbol_node.byte_end,
@@ -154,7 +156,8 @@ pub fn export_json(graph: &mut CodeGraph) -> Result<String> {
     // Sort for deterministic output
     files.sort_by(|a, b| a.path.cmp(&b.path));
     symbols.sort_by(|a, b| (&a.file, &a.name).cmp(&(&b.file, &b.name)));
-    references.sort_by(|a, b| (&a.file, &a.referenced_symbol).cmp(&(&b.file, &b.referenced_symbol)));
+    references
+        .sort_by(|a, b| (&a.file, &a.referenced_symbol).cmp(&(&b.file, &b.referenced_symbol)));
     calls.sort_by(|a, b| (&a.file, &a.caller, &a.callee).cmp(&(&b.file, &b.caller, &b.callee)));
 
     let export = GraphExport {

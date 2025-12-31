@@ -51,6 +51,14 @@ src/
 
 ## Task Breakdown
 
+### Upcoming Query & Metadata Work (codemcp blockers)
+- ✅ `--explain-query` CLI help now ships via `magellan query --explain` (`src/query_cmd.rs`). The flag prints selector syntax, related commands, and usage examples per `docs/CLI_SEARCH_PLAN.md` §8. Agents have deterministic guidance instead of guessing.
+- ✅ Normalized `kind` metadata is persisted through `SymbolFact.kind_normalized`, `graph::schema::SymbolNode.kind_normalized`, and JSON export payloads. CLI output (query/find) now prints both the display kind and the canonical key so codemcp can drop manual `kind` parameters.
+- ✅ Symbol extent query is exposed through `CodeGraph::symbol_extents` and `magellan query --symbol <name> --show-extent`, returning byte/line spans plus node IDs for `read_symbol`.
+- ✅ Glob pattern search is available via `magellan find --list-glob <pattern>` backed by `globset`, returning deterministic node IDs for bulk rename planning.
+- ✅ Error hints are emitted whenever `magellan query`/`magellan find` return empty results, nudging agents toward `--explain` or the glob helper instead of silent failures.
+- 🔜 Next: thread the normalized-kind + extent data through the upcoming MCP `read_symbol`/`bulk_rename` endpoints (docs/CLI_SEARCH_PLAN.md §9) and add regression tests covering JSON export consumers once codemcp integrates the new schema.
+
 ### Task 1: Project Setup
 **Status:** ✅ Complete
 **Description:** Initialize Rust project with dependencies
@@ -707,4 +715,3 @@ test result: ok. 5 passed; 0 failed
 - docs/DATABASE_FRESHNESS_PLAN.md - NEW (396 LOC)
 
 **Plan:** docs/DATABASE_FRESHNESS_PLAN.md - Complete design document
-

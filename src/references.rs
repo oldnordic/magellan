@@ -162,9 +162,9 @@ impl ReferenceExtractor {
         };
 
         // Find if this matches any symbol
-        let referenced_symbol = symbols.iter().find(|s| {
-            s.name.as_ref().map(|n| n == symbol_name).unwrap_or(false)
-        })?;
+        let referenced_symbol = symbols
+            .iter()
+            .find(|s| s.name.as_ref().map(|n| n == symbol_name).unwrap_or(false))?;
 
         // Check if reference is OUTSIDE the symbol's defining span
         let ref_start = node.start_byte() as usize;
@@ -284,7 +284,14 @@ impl CallExtractor {
             .collect();
 
         // Walk tree and find calls within function bodies
-        self.walk_tree_for_calls(&root_node, source, &file_path, &symbol_map, &functions, &mut calls);
+        self.walk_tree_for_calls(
+            &root_node,
+            source,
+            &file_path,
+            &symbol_map,
+            &functions,
+            &mut calls,
+        );
 
         calls
     }
@@ -299,14 +306,7 @@ impl CallExtractor {
         _functions: &[&SymbolFact],
         calls: &mut Vec<CallFact>,
     ) {
-        self.walk_tree_for_calls_with_caller(
-            node,
-            source,
-            file_path,
-            symbol_map,
-            None,
-            calls,
-        );
+        self.walk_tree_for_calls_with_caller(node, source, file_path, symbol_map, None, calls);
     }
 
     /// Walk tree-sitter tree and extract function calls, tracking current function
@@ -341,12 +341,7 @@ impl CallExtractor {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             self.walk_tree_for_calls_with_caller(
-                &child,
-                source,
-                file_path,
-                symbol_map,
-                caller,
-                calls,
+                &child, source, file_path, symbol_map, caller, calls,
             );
         }
     }

@@ -3,7 +3,9 @@
 //! Handles symbol node CRUD operations and DEFINES edge management.
 
 use anyhow::Result;
-use sqlitegraph::{NodeId, NodeSpec, EdgeSpec, SqliteGraphBackend, BackendDirection, NeighborQuery, GraphBackend};
+use sqlitegraph::{
+    BackendDirection, EdgeSpec, GraphBackend, NeighborQuery, NodeId, NodeSpec, SqliteGraphBackend,
+};
 use std::rc::Rc;
 
 use crate::graph::schema::SymbolNode;
@@ -20,6 +22,7 @@ impl SymbolOps {
         let symbol_node = SymbolNode {
             name: fact.name.clone(),
             kind: format!("{:?}", fact.kind),
+            kind_normalized: Some(fact.kind_normalized.clone()),
             byte_start: fact.byte_start,
             byte_end: fact.byte_end,
             start_line: fact.start_line,

@@ -17,14 +17,13 @@ fn test_sigterm_prints_shutdown_and_exits() {
     let file_path = root_path.join("test.rs");
 
     // Get the path to the magellan binary
-    let bin_path = std::env::var("CARGO_BIN_EXE_magellan")
-        .unwrap_or_else(|_| {
-            let mut path = std::env::current_exe().unwrap();
-            path.pop();
-            path.pop();
-            path.push("magellan");
-            path.to_str().unwrap().to_string()
-        });
+    let bin_path = std::env::var("CARGO_BIN_EXE_magellan").unwrap_or_else(|_| {
+        let mut path = std::env::current_exe().unwrap();
+        path.pop();
+        path.pop();
+        path.push("magellan");
+        path.to_str().unwrap().to_string()
+    });
 
     // Create initial file
     fs::write(&file_path, b"fn test() {}").unwrap();
@@ -59,7 +58,9 @@ fn test_sigterm_prints_shutdown_and_exits() {
         match child.try_wait() {
             Ok(Some(_status)) => {
                 // Process has exited, get output
-                break child.wait_with_output().expect("Failed to wait for process");
+                break child
+                    .wait_with_output()
+                    .expect("Failed to wait for process");
             }
             Ok(None) => {
                 // Process still running
@@ -74,7 +75,11 @@ fn test_sigterm_prints_shutdown_and_exits() {
 
     // Verify stdout contains "SHUTDOWN"
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("SHUTDOWN"), "Expected SHUTDOWN in stdout, got: {}", stdout);
+    assert!(
+        stdout.contains("SHUTDOWN"),
+        "Expected SHUTDOWN in stdout, got: {}",
+        stdout
+    );
 
     // Verify process exited cleanly
     assert!(output.status.success(), "Process should exit successfully");

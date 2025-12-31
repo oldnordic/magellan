@@ -151,27 +151,48 @@ namespace utils {
 
     // Verify each file has symbols
     let rust_symbols = graph.symbols_in_file(rust_file.to_str().unwrap()).unwrap();
-    assert!(rust_symbols.len() >= 2, "Rust file should have at least 2 symbols");
+    assert!(
+        rust_symbols.len() >= 2,
+        "Rust file should have at least 2 symbols"
+    );
 
     let python_symbols = graph
         .symbols_in_file(python_file.to_str().unwrap())
         .unwrap();
-    assert!(python_symbols.len() >= 2, "Python file should have at least 2 symbols");
+    assert!(
+        python_symbols.len() >= 2,
+        "Python file should have at least 2 symbols"
+    );
 
     let c_symbols = graph.symbols_in_file(c_file.to_str().unwrap()).unwrap();
-    assert!(c_symbols.len() >= 3, "C file should have at least 3 symbols");
+    assert!(
+        c_symbols.len() >= 3,
+        "C file should have at least 3 symbols"
+    );
 
     let cpp_symbols = graph.symbols_in_file(cpp_file.to_str().unwrap()).unwrap();
-    assert!(cpp_symbols.len() >= 2, "C++ file should have at least 2 symbols");
+    assert!(
+        cpp_symbols.len() >= 2,
+        "C++ file should have at least 2 symbols"
+    );
 
     let java_symbols = graph.symbols_in_file(java_file.to_str().unwrap()).unwrap();
-    assert!(java_symbols.len() >= 3, "Java file should have at least 3 symbols");
+    assert!(
+        java_symbols.len() >= 3,
+        "Java file should have at least 3 symbols"
+    );
 
     let js_symbols = graph.symbols_in_file(js_file.to_str().unwrap()).unwrap();
-    assert!(js_symbols.len() >= 2, "JavaScript file should have at least 2 symbols");
+    assert!(
+        js_symbols.len() >= 2,
+        "JavaScript file should have at least 2 symbols"
+    );
 
     let ts_symbols = graph.symbols_in_file(ts_file.to_str().unwrap()).unwrap();
-    assert!(ts_symbols.len() >= 4, "TypeScript file should have at least 4 symbols");
+    assert!(
+        ts_symbols.len() >= 4,
+        "TypeScript file should have at least 4 symbols"
+    );
 
     // Verify symbol counts per file
     // Rust: main (Function), Point (Class)
@@ -192,7 +213,11 @@ namespace utils {
         .iter()
         .filter(|s| s.kind == magellan::SymbolKind::Function)
         .collect();
-    assert_eq!(python_functions.len(), 2, "Should have 2 functions (helper + process)");
+    assert_eq!(
+        python_functions.len(),
+        2,
+        "Should have 2 functions (helper + process)"
+    );
 
     let python_classes: Vec<_> = python_symbols
         .iter()
@@ -212,7 +237,11 @@ namespace utils {
         .iter()
         .filter(|s| s.kind == magellan::SymbolKind::Namespace)
         .collect();
-    assert_eq!(cpp_namespaces.len(), 1, "Should have exactly 1 namespace (utils)");
+    assert_eq!(
+        cpp_namespaces.len(),
+        1,
+        "Should have exactly 1 namespace (utils)"
+    );
 
     // Java: Main (Class), run (Method), Handler (Interface), handle (Method), Color (Enum)
     let java_interfaces: Vec<_> = java_symbols
@@ -225,7 +254,11 @@ namespace utils {
         .iter()
         .filter(|s| s.kind == magellan::SymbolKind::Method)
         .collect();
-    assert_eq!(java_methods.len(), 2, "Should have 2 methods (run + handle)");
+    assert_eq!(
+        java_methods.len(),
+        2,
+        "Should have 2 methods (run + handle)"
+    );
 
     // TypeScript: Options (Interface), Config (TypeAlias), Status (Enum), utils (Namespace)
     let ts_interfaces: Vec<_> = ts_symbols

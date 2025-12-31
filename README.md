@@ -49,11 +49,17 @@ magellan status --db /path/to/magellan.db
 # List all indexed files
 magellan files --db /path/to/magellan.db
 
-# Query symbols in a file
+# Query symbols in a file (or run --explain for selector help)
 magellan query --db /path/to/magellan.db --file /path/to/file.rs
+# Print the selector cheat sheet
+magellan query --db /path/to/magellan.db --explain
+# Show the byte/line span for a specific symbol
+magellan query --db /path/to/magellan.db --file src/lib.rs --symbol main --show-extent
 
 # Find a symbol by name
 magellan find --db /path/to/magellan.db --name main
+# List all symbols that match a glob pattern
+magellan find --db /path/to/magellan.db --list-glob "handler_*"
 
 # Show call references
 magellan refs --db /path/to/magellan.db --name main --path /path/to/file.rs --direction out
@@ -113,16 +119,24 @@ $ magellan files --db ./magellan.db
 ### query
 
 ```bash
-magellan query --db <FILE> --file <PATH> [--kind <KIND>]
+magellan query --db <FILE> --file <PATH> [--kind <KIND>] [--symbol <NAME>] [--show-extent]
+magellan query --db <FILE> --explain
 ```
 
-List symbols in a file, optionally filtered by kind.
+List symbols in a file, optionally filtered by kind or symbol name. `--symbol <NAME>` narrows
+output to a specific identifier, and `--show-extent` prints byte/line spans plus node IDs when
+used with `--symbol`. `--explain` prints a selector cheat sheet covering available filters and
+their syntax. Each result line shows both the human-friendly kind and a normalized tag in square
+brackets (e.g., `[fn]`, `[struct]`) so automation can ingest the output deterministically.
 
 | Argument | Description |
 |----------|-------------|
 | `--db <FILE>` | Path to database (required) |
 | `--file <PATH>` | File path to query (required) |
 | `--kind <KIND>` | Filter by symbol kind (optional) |
+| `--symbol <NAME>` | Limit results to a specific symbol (optional) |
+| `--show-extent` | Print byte + line ranges for the selected symbol (requires `--symbol`) |
+| `--explain` | Show selector documentation instead of querying |
 
 Valid kinds: Function, Method, Class, Interface, Enum, Module, Union, Namespace, TypeAlias
 
@@ -137,15 +151,18 @@ $ magellan query --db ./magellan.db --file src/main.rs --kind Function
 
 ```bash
 magellan find --db <FILE> --name <NAME> [--path <PATH>]
+magellan find --db <FILE> --list-glob "<PATTERN>"
 ```
 
-Find a symbol by name.
+Find a symbol by name or preview all symbols that match a glob expression. Glob listings include
+node IDs for deterministic scripting (e.g., feeding results to refactoring tooling).
 
 | Argument | Description |
 |----------|-------------|
 | `--db <FILE>` | Path to database (required) |
 | `--name <NAME>` | Symbol name to find (required) |
 | `--path <PATH>` | Limit search to specific file (optional) |
+| `--list-glob <PATTERN>` | List all symbol names that match the glob (mutually exclusive with `--name`) |
 
 ```
 $ magellan find --db ./magellan.db --name main

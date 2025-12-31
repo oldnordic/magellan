@@ -18,15 +18,14 @@ fn test_watch_command_indexes_file_on_create() {
     let file_path = root_path.join("test.rs");
 
     // Get the path to the magellan binary
-    let bin_path = std::env::var("CARGO_BIN_EXE_magellan")
-        .unwrap_or_else(|_| {
-            // Fallback: construct path to debug binary
-            let mut path = std::env::current_exe().unwrap();
-            path.pop(); // Remove test executable name from deps/
-            path.pop(); // Remove deps/ directory
-            path.push("magellan");
-            path.to_str().unwrap().to_string()
-        });
+    let bin_path = std::env::var("CARGO_BIN_EXE_magellan").unwrap_or_else(|_| {
+        // Fallback: construct path to debug binary
+        let mut path = std::env::current_exe().unwrap();
+        path.pop(); // Remove test executable name from deps/
+        path.pop(); // Remove deps/ directory
+        path.push("magellan");
+        path.to_str().unwrap().to_string()
+    });
 
     // Small delay to ensure directory is stable
     thread::sleep(Duration::from_millis(10));
@@ -57,7 +56,9 @@ fn test_watch_command_indexes_file_on_create() {
     // Wait for event processing and read stdout
     thread::sleep(Duration::from_millis(500));
     let _ = child.kill();
-    let output = child.wait_with_output().expect("Failed to wait for process");
+    let output = child
+        .wait_with_output()
+        .expect("Failed to wait for process");
 
     // Verify stdout contains expected log line
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -69,7 +70,11 @@ fn test_watch_command_indexes_file_on_create() {
     let mut graph = magellan::CodeGraph::open(&db_path).unwrap();
     let path_str = file_path.to_string_lossy().to_string();
     let symbols = graph.symbols_in_file(&path_str).unwrap();
-    assert_eq!(symbols.len(), 2, "Should have 2 symbols indexed: foo and bar");
+    assert_eq!(
+        symbols.len(),
+        2,
+        "Should have 2 symbols indexed: foo and bar"
+    );
 
     // Verify references were indexed
     let foo_id = graph.symbol_id_by_name(&path_str, "foo").unwrap();

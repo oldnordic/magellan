@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use magellan::{CodeGraph, FileSystemWatcher, WatcherConfig, EventType, detect_language};
+use magellan::{detect_language, CodeGraph, EventType, FileSystemWatcher, WatcherConfig};
 
 pub fn run_watch(
     root_path: PathBuf,
@@ -39,9 +39,12 @@ pub fn run_watch(
     // Phase 5.1: Initial full scan if requested
     if scan_initial {
         println!("Scanning {}...", root_path.display());
-        let file_count = graph.scan_directory(&root_path, Some(&|current, total| {
-            println!("Scanning... {}/{}", current, total);
-        }))?;
+        let file_count = graph.scan_directory(
+            &root_path,
+            Some(&|current, total| {
+                println!("Scanning... {}/{}", current, total);
+            }),
+        )?;
         println!("Scanned {} files", file_count);
     }
 
@@ -108,10 +111,7 @@ pub fn run_watch(
 
                         println!(
                             "{} {} symbols={} refs={}",
-                            event.event_type,
-                            path_str,
-                            symbol_count,
-                            ref_count
+                            event.event_type, path_str, symbol_count, ref_count
                         );
                     }
                     EventType::Delete => {

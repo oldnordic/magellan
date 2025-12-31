@@ -26,13 +26,13 @@ use super::CodeGraph;
 /// # Returns
 /// Number of symbols indexed
 pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<usize> {
-    use crate::ingest::{detect::Language, detect_language, Parser};
     use crate::ingest::c::CParser;
     use crate::ingest::cpp::CppParser;
     use crate::ingest::java::JavaParser;
     use crate::ingest::javascript::JavaScriptParser;
     use crate::ingest::python::PythonParser;
     use crate::ingest::typescript::TypeScriptParser;
+    use crate::ingest::{detect::Language, detect_language, Parser};
 
     let hash = graph.files.compute_hash(source);
 
@@ -122,7 +122,11 @@ pub fn delete_file(graph: &mut CodeGraph, path: &str) -> Result<()> {
     graph.symbols.delete_file_symbols(file_id)?;
 
     // Delete the file node using underlying SqliteGraph
-    graph.files.backend.graph().delete_entity(file_id.as_i64())?;
+    graph
+        .files
+        .backend
+        .graph()
+        .delete_entity(file_id.as_i64())?;
 
     // Remove from in-memory index
     graph.files.file_index.remove(path);
