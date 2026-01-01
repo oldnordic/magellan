@@ -6,7 +6,7 @@ mod export;
 mod files;
 mod freshness;
 mod ops;
-mod query;
+pub mod query;
 mod references;
 mod scan;
 mod schema;
@@ -20,6 +20,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::rc::Rc;
 
+use crate::generation::{ChunkStore, CodeChunk};
 use crate::references::{CallFact, ReferenceFact};
 
 // Re-export public types
@@ -46,6 +47,9 @@ pub struct CodeGraph {
 
     /// Call operations module
     calls: call_ops::CallOps,
+
+    /// Code chunk storage module
+    chunks: ChunkStore,
 }
 
 impl CodeGraph {
@@ -57,8 +61,11 @@ impl CodeGraph {
     /// # Returns
     /// A new CodeGraph instance
     pub fn open<P: AsRef<Path>>(db_path: P) -> Result<Self> {
+        // Convert to PathBuf for reuse
+        let db_path_buf = db_path.as_ref().to_path_buf();
+
         // Directly create SqliteGraph and wrap in SqliteGraphBackend
-        let sqlite_graph = sqlitegraph::SqliteGraph::open(db_path)?;
+        let sqlite_graph = sqlitegraph::SqliteGraph::open(&db_path_buf)?;
         let backend = Rc::new(SqliteGraphBackend::from_graph(sqlite_graph));
 
         // Build initial file_index from database (lazy initialization)
@@ -71,6 +78,10 @@ impl CodeGraph {
         // Populate file_index with existing File nodes from database
         files.rebuild_file_index()?;
 
+        // Initialize ChunkStore and ensure schema exists
+        let chunks = ChunkStore::new(&db_path_buf);
+        chunks.ensure_schema()?;
+
         Ok(Self {
             files,
             symbols: symbols::SymbolOps {
@@ -80,6 +91,7 @@ impl CodeGraph {
                 backend: Rc::clone(&backend),
             },
             calls: call_ops::CallOps { backend },
+            chunks,
         })
     }
 
@@ -317,5 +329,67 @@ impl CodeGraph {
     /// HashMap of file path -> FileNode for all files in the database
     pub fn all_file_nodes(&mut self) -> Result<std::collections::HashMap<String, FileNode>> {
         self.files.all_file_nodes()
+    }
+
+    /// Get code chunks for a specific file.
+    ///
+    /// # Arguments
+    /// * `file_path` - File path to query
+    ///
+    /// # Returns
+    /// Vector of CodeChunk for all chunks in the file
+    pub fn get_code_chunks(&self, file_path: &str) -> Result<Vec<CodeChunk>> {
+        self.chunks.get_chunks_for_file(file_path)
+    }
+
+    /// Get code chunks for a specific symbol in a file.
+    ///
+    /// # Arguments
+    /// * `file_path` - File path containing the symbol
+    /// * `symbol_name` - Symbol name to query
+    ///
+    /// # Returns
+    /// Vector of CodeChunk for the symbol (may be multiple for overloads)
+    pub fn get_code_chunks_for_symbol(
+        &self,
+        file_path: &str,
+        symbol_name: &str,
+    ) -> Result<Vec<CodeChunk>> {
+        self.chunks.get_chunks_for_symbol(file_path, symbol_name)
+    }
+
+    /// Get a code chunk by exact byte span.
+    ///
+    /// # Arguments
+    /// * `file_path` - File path containing the chunk
+    /// * `byte_start` - Starting byte offset
+    /// * `byte_end` - Ending byte offset
+    ///
+    /// # Returns
+    /// Option<CodeChunk> if found, None otherwise
+    pub fn get_code_chunk_by_span(
+        &self,
+        file_path: &str,
+        byte_start: usize,
+        byte_end: usize,
+    ) -> Result<Option<CodeChunk>> {
+        self.chunks
+            .get_chunk_by_span(file_path, byte_start, byte_end)
+    }
+
+    /// Store code chunks for a file.
+    ///
+    /// # Arguments
+    /// * `chunks` - Code chunks to store
+    ///
+    /// # Returns
+    /// Vector of inserted chunk IDs
+    pub fn store_code_chunks(&self, chunks: &[CodeChunk]) -> Result<Vec<i64>> {
+        self.chunks.store_chunks(chunks)
+    }
+
+    /// Count total code chunks stored.
+    pub fn count_chunks(&self) -> Result<usize> {
+        self.chunks.count_chunks()
     }
 }

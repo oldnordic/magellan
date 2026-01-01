@@ -16,7 +16,8 @@ use super::CodeGraph;
 /// 4. Detect language and parse symbols from source code
 /// 5. Insert new Symbol nodes
 /// 6. Create DEFINES edges from File to each Symbol
-/// 7. Index calls (CALLS edges)
+/// 7. Extract and store code chunks for each symbol
+/// 8. Index calls (CALLS edges)
 ///
 /// # Arguments
 /// * `graph` - CodeGraph instance
@@ -26,6 +27,7 @@ use super::CodeGraph;
 /// # Returns
 /// Number of symbols indexed
 pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<usize> {
+    use crate::generation::CodeChunk;
     use crate::ingest::c::CParser;
     use crate::ingest::cpp::CppParser;
     use crate::ingest::java::JavaParser;
@@ -92,7 +94,35 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
         graph.symbols.insert_defines_edge(file_id, symbol_id)?;
     }
 
-    // Step 5: Index calls (all supported languages)
+    // Step 5: Extract and store code chunks for each symbol
+    let source_str = std::str::from_utf8(source)
+        .map_err(|e| anyhow::anyhow!("Source is not valid UTF-8: {}", e))?;
+
+    let mut code_chunks = Vec::new();
+    for fact in &symbol_facts {
+        // Extract source content for this symbol's byte span
+        if fact.byte_end <= source_str.len() {
+            let content = source_str[fact.byte_start..fact.byte_end].to_string();
+
+            let chunk = CodeChunk::new(
+                path.to_string(),
+                fact.byte_start,
+                fact.byte_end,
+                content,
+                fact.name.clone(),
+                Some(fact.kind_normalized.clone()),
+            );
+
+            code_chunks.push(chunk);
+        }
+    }
+
+    // Store all code chunks in a single transaction
+    if !code_chunks.is_empty() {
+        let _ = graph.store_code_chunks(&code_chunks);
+    }
+
+    // Step 6: Index calls (all supported languages)
     if language.is_some() {
         let _ = super::calls::index_calls(graph, path, source);
     }
@@ -106,8 +136,9 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
 /// 1. Find File node by path
 /// 2. Delete all DEFINES edges from File
 /// 3. Delete all Symbol nodes that were defined by this File
-/// 4. Delete the File node itself
-/// 5. Remove from in-memory index
+/// 4. Delete all code chunks for this file
+/// 5. Delete the File node itself
+/// 6. Remove from in-memory index
 ///
 /// # Arguments
 /// * `graph` - CodeGraph instance
@@ -120,6 +151,9 @@ pub fn delete_file(graph: &mut CodeGraph, path: &str) -> Result<()> {
 
     // Delete all symbols for this file
     graph.symbols.delete_file_symbols(file_id)?;
+
+    // Delete all code chunks for this file
+    let _ = graph.chunks.delete_chunks_for_file(path);
 
     // Delete the file node using underlying SqliteGraph
     graph

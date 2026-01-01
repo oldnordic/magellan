@@ -1,6 +1,6 @@
 # Magellan Operator Manual
 
-**Version 0.4.0** | *Last Updated: 2026-01-02*
+**Version 0.5.0** | *Last Updated: 2026-01-02*
 
 Comprehensive instructions for operating Magellan.
 
@@ -72,6 +72,14 @@ magellan find --db ./magellan.db --name main
 
 # Preview symbols via glob
 magellan find --db ./magellan.db --list-glob "handler_*"
+
+# Query by labels (NEW in 0.5.0)
+magellan label --db ./magellan.db --list
+magellan label --db ./magellan.db --label rust --label fn
+
+# Get code chunks without re-reading files (NEW in 0.5.0)
+magellan get --db ./magellan.db --file src/main.rs --symbol main
+magellan get-file --db ./magellan.db --file src/main.rs
 
 # Export to JSON
 magellan export --db ./magellan.db > codegraph.json
@@ -221,6 +229,74 @@ magellan export --db <FILE>
 ```
 
 Exports graph data to JSON.
+
+### 3.9 label
+
+```bash
+magellan label --db <FILE> [--label <LABEL>]... [--list] [--count] [--show-code]
+```
+
+Query symbols by labels. Labels are automatically assigned during indexing:
+- **Language labels**: `rust`, `python`, `javascript`, `typescript`, `c`, `cpp`, `java`
+- **Symbol kind labels**: `fn`, `method`, `struct`, `class`, `enum`, `interface`, `module`, `union`, `namespace`, `typealias`
+
+| Argument | Type | Default | Description |
+|----------|------|---------|-------------|
+| `--db <FILE>` | Path | - | Database path (required) |
+| `--label <LABEL>` | String | - | Label to query (can be specified multiple times) |
+| `--list` | Flag | - | List all labels with counts |
+| `--count` | Flag | - | Count entities with specified label(s) |
+| `--show-code` | Flag | - | Show source code for each result |
+
+**Multi-label queries use AND semantics** - symbols must have ALL specified labels.
+
+```
+$ magellan label --db ./magellan.db --list
+12 labels in use:
+  rust (349)
+  fn (120)
+  struct (45)
+  method (89)
+
+$ magellan label --db ./magellan.db --label rust --label fn
+120 symbols with labels [rust, fn]:
+  main (fn) in src/main.rs [0-36]
+  new (fn) in src/user.rs [91-138]
+
+$ magellan label --db ./magellan.db --label rust --label fn --show-code
+120 symbols with labels [rust, fn]:
+  main (fn) in src/main.rs [0-36]
+    fn main() {
+        println!("Hello");
+    }
+```
+
+### 3.10 get
+
+```bash
+magellan get --db <FILE> --file <PATH> --symbol <NAME>
+```
+
+Get code chunks for a specific symbol. Uses stored code chunks so you don't need to re-read source files.
+
+| Argument | Type | Default | Description |
+|----------|------|---------|-------------|
+| `--db <FILE>` | Path | - | Database path (required) |
+| `--file <PATH>` | Path | - | File path (required) |
+| `--symbol <NAME>` | String | - | Symbol name (required) |
+
+### 3.11 get-file
+
+```bash
+magellan get-file --db <FILE> --file <PATH>
+```
+
+Get all code chunks from a file. Useful for getting complete file contents without re-reading the source.
+
+| Argument | Type | Default | Description |
+|----------|------|---------|-------------|
+| `--db <FILE>` | Path | - | Database path (required) |
+| `--file <PATH>` | Path | - | File path (required) |
 
 ---
 

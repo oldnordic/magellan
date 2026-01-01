@@ -1,6 +1,6 @@
 [package]
 name = "magellan"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/feanor/magellan"
@@ -12,6 +12,10 @@ categories = ["development-tools", "command-line-utilities"]
 [[bin]]
 name = "magellan"
 path = "src/main.rs"
+
+[features]
+default = []
+native-v2 = ["sqlitegraph/native-v2"]
 
 [dependencies]
 notify = "7.0"
@@ -30,9 +34,10 @@ tree-sitter-typescript = "0.21"
 sha2 = "0.10"
 hex = "0.4"
 signal-hook = "0.3"
-sqlitegraph = "0.2.10"
+sqlitegraph = "0.2.11"
 walkdir = "2.5"
 globset = "0.4"
+rusqlite = "0.31"
 
 [dev-dependencies]
 tempfile = "3.10"

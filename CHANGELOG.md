@@ -3,6 +3,34 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-01-02
+
+### Added
+- **Label-based symbol queries** - Fast symbol lookup using automatic labels assigned during indexing
+  - Language labels: `rust`, `python`, `javascript`, `typescript`, `c`, `cpp`, `java`
+  - Symbol kind labels: `fn`, `method`, `struct`, `class`, `enum`, `interface`, `module`, `union`, `namespace`, `typealias`
+  - Multi-label queries with AND semantics (e.g., `--label rust --label fn`)
+  - `magellan label --db <FILE> --list` - Show all labels with entity counts
+  - `magellan label --db <FILE> --label <LABEL>...` - Query symbols by label(s)
+  - `magellan label --db <FILE> --count --label <LABEL>` - Count entities with label
+- **`--show-code` flag** for label queries - Display actual source code for each symbol result without re-reading files
+- **`magellan get` command** - Retrieve code chunks for a specific symbol using stored data
+- **`magellan get-file` command** - Retrieve all code chunks from a file
+- **`--help` and `-h` flags** - Global help support for all commands
+- **Native-v2 backend support** - Build with `--features native-v2` for 2-3x improved insert performance
+
+### Changed
+- Code chunks are now automatically stored during indexing (Phase 1 implementation)
+- Symbols are automatically labeled with language and kind during indexing (Phase 2 implementation)
+- All 97 tests pass with native-v2 backend enabled
+
+### Technical
+- Label query API in `src/graph/query.rs` with raw SQL for entity lookup
+- Label integration in `src/graph/symbols.rs` - calls `sqlitegraph::add_label()` during symbol insertion
+- Code chunk storage via `ChunkStore` in `src/generation/mod.rs`
+- Helper methods: `get_entities_by_label()`, `get_entities_by_labels()`, `get_symbols_by_label()`, `get_all_labels()`, `count_entities_by_label()`
+- Uses sqlitegraph 0.2.11 with native-v2 backend bug fix
+
 ## [0.4.0] - 2026-01-02
 
 ### Added

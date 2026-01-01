@@ -37,6 +37,11 @@ cargo build --release
 - Linux/macOS (signal handling uses Unix signals)
 - SQLite 3 (via sqlitegraph dependency)
 
+### Features
+
+- **Help**: Use `--help` or `-h` with any command to see usage information
+- **Native-v2 Backend**: Build with `--features native-v2` for improved performance (2-3x faster inserts)
+
 ## Quick Start
 
 ```bash
@@ -63,6 +68,15 @@ magellan find --db /path/to/magellan.db --list-glob "handler_*"
 
 # Show call references
 magellan refs --db /path/to/magellan.db --name main --path /path/to/file.rs --direction out
+
+# Query by labels (NEW in 0.5.0)
+magellan label --db /path/to/magellan.db --list
+magellan label --db /path/to/magellan.db --label rust --label fn
+magellan label --db /path/to/magellan.db --label struct --show-code
+
+# Get code chunks without re-reading files (NEW in 0.5.0)
+magellan get --db /path/to/magellan.db --file /path/to/file.rs --symbol main
+magellan get-file --db /path/to/magellan.db --file /path/to/file.rs
 
 # Export to JSON
 magellan export --db /path/to/magellan.db > codegraph.json
@@ -211,6 +225,74 @@ magellan export --db <FILE>
 
 Export all graph data to JSON format.
 
+### label
+
+```bash
+magellan label --db <FILE> [--label <LABEL>]... [--list] [--count] [--show-code]
+```
+
+Query symbols by labels. Labels are automatically assigned during indexing:
+- **Language labels**: `rust`, `python`, `javascript`, `typescript`, `c`, `cpp`, `java`
+- **Symbol kind labels**: `fn`, `method`, `struct`, `class`, `enum`, `interface`, `module`, `union`, `namespace`, `typealias`
+
+| Argument | Description |
+|----------|-------------|
+| `--db <FILE>` | Path to database (required) |
+| `--label <LABEL>` | Label to query (can be specified multiple times for AND semantics) |
+| `--list` | List all available labels with counts |
+| `--count` | Count entities with specified label(s) |
+| `--show-code` | Show actual source code for each symbol |
+
+```
+$ magellan label --db ./magellan.db --list
+12 labels in use:
+  rust (349)
+  fn (120)
+  struct (45)
+  method (89)
+  ...
+
+$ magellan label --db ./magellan.db --label rust --label fn
+120 symbols with labels [rust, fn]:
+  main (fn) in src/main.rs [0-36]
+  new (fn) in src/user.rs [91-138]
+  ...
+
+$ magellan label --db ./magellan.db --label rust --label fn --show-code
+120 symbols with labels [rust, fn]:
+  main (fn) in src/main.rs [0-36]
+    fn main() {
+        println!("Hello");
+    }
+```
+
+### get
+
+```bash
+magellan get --db <FILE> --file <PATH> --symbol <NAME>
+```
+
+Get code chunks for a specific symbol. Uses stored code chunks so you don't need to re-read source files.
+
+| Argument | Description |
+|----------|-------------|
+| `--db <FILE>` | Path to database (required) |
+| `--file <PATH>` | File path (required) |
+| `--symbol <NAME>` | Symbol name (required) |
+
+### get-file
+
+```bash
+magellan get-file --db <FILE> --file <PATH>
+```
+
+Get all code chunks from a file. Useful for getting complete file contents without re-reading the source.
+
+| Argument | Description |
+|----------|-------------|
+| `--db <FILE>` | Path to database (required) |
+| `--file <PATH>` | File path (required) |
+
 ## Supported Languages
 
 | Language | Extensions | Parser |
@@ -298,14 +380,17 @@ Test coverage: 172+ tests across 25+ test suites. All tests pass in <15 seconds.
 
 ## Current Status
 
-**Version:** 0.3.0
+**Version:** 0.5.0
 **Status:** Stable
 
 **Features:**
 - Symbol extraction for 7 languages ✅
-- Reference extraction for 7 languages ✅ (NEW)
-- Call graph indexing for 7 languages ✅ (NEW)
-- Rename refactoring support (via codemcp) for 7 languages ✅ (NEW)
+- Reference extraction for 7 languages ✅
+- Call graph indexing for 7 languages ✅
+- Rename refactoring support (via codemcp) for 7 languages ✅
+- Label-based queries for fast symbol lookup ✅ (NEW)
+- Code chunk storage (no file re-reading needed) ✅ (NEW)
+- Native-v2 backend support for improved performance ✅ (NEW)
 
 **Known Limitations:**
 - Name-based reference matching (has false positives)

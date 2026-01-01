@@ -2,6 +2,8 @@
 //!
 //! Magellan observes files, extracts symbols and references, and persists facts to sqlitegraph.
 
+pub mod generation;
+pub mod get_cmd;
 pub mod graph;
 pub mod indexer;
 pub mod ingest;
@@ -9,6 +11,8 @@ pub mod references;
 pub mod verify;
 pub mod watcher;
 
+pub use generation::{CodeChunk, ChunkStore};
+pub use graph::query::SymbolQueryResult;
 pub use graph::{CodeGraph, ScanProgress};
 pub use indexer::{run_indexer, run_indexer_n};
 pub use ingest::detect::{detect_language, Language};

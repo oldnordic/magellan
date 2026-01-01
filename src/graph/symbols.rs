@@ -4,10 +4,12 @@
 
 use anyhow::Result;
 use sqlitegraph::{
-    BackendDirection, EdgeSpec, GraphBackend, NeighborQuery, NodeId, NodeSpec, SqliteGraphBackend,
+    add_label, BackendDirection, EdgeSpec, GraphBackend, NeighborQuery, NodeId, NodeSpec,
+    SqliteGraphBackend,
 };
 use std::rc::Rc;
 
+use crate::detect_language;
 use crate::graph::schema::SymbolNode;
 use crate::ingest::SymbolFact;
 
@@ -44,7 +46,20 @@ impl SymbolOps {
         };
 
         let id = self.backend.insert_node(node_spec)?;
-        Ok(NodeId::from(id))
+        let node_id = NodeId::from(id);
+
+        // Add labels for efficient querying
+        let graph = self.backend.graph();
+
+        // Language label (e.g., "rust", "python", "javascript")
+        if let Some(language) = detect_language(&fact.file_path) {
+            add_label(graph, node_id.as_i64(), language.as_str())?;
+        }
+
+        // Symbol kind label (e.g., "fn", "struct", "enum", "method")
+        add_label(graph, node_id.as_i64(), &fact.kind_normalized)?;
+
+        Ok(node_id)
     }
 
     /// Insert DEFINES edge from file to symbol
