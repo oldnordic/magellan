@@ -170,9 +170,10 @@ impl ReferenceExtractor {
         let ref_start = node.start_byte() as usize;
         let ref_end = node.end_byte() as usize;
 
-        // Reference must start after the symbol's definition ends
-        if ref_start < referenced_symbol.byte_end {
-            return None; // Reference is within defining span
+        // Only apply span filter for same-file references (self-references)
+        // Cross-file references should never be filtered by span
+        if referenced_symbol.file_path == *file_path && ref_start < referenced_symbol.byte_end {
+            return None; // Reference is within defining span (same file only)
         }
 
         Some(ReferenceFact {

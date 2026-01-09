@@ -46,32 +46,24 @@ fn test_create_event_indexes_file() {
     // Small delay to ensure directory is stable
     thread::sleep(Duration::from_millis(10));
 
-    // Create and index initial file (empty/placeholder)
-    let placeholder_source = b"";
-    fs::write(&file_path, placeholder_source).unwrap();
-    let mut graph = CodeGraph::open(&db_path).unwrap();
-    graph
-        .index_file(&file_path.to_string_lossy().to_string(), placeholder_source)
-        .unwrap();
-
-    // Spawn file writer thread (modifies file after watcher starts with stable content)
+    // Spawn file writer thread (writes file after watcher starts)
     let file_path_clone = file_path.clone();
     thread::spawn(move || {
-        thread::sleep(Duration::from_millis(100));
-        // Modify the file to trigger a MODIFY event
+        thread::sleep(Duration::from_millis(50));
+        // Write the file to trigger a CREATE/MODIFY event
         write_and_sync(&file_path_clone, b"fn foo() {}\nfn bar() { foo(); }").unwrap();
         touch_and_sync(&file_path_clone).unwrap();
     });
 
     // Run indexer with bounded events
-    magellan::run_indexer_n(root_path.clone(), db_path.clone(), 8).unwrap();
+    magellan::run_indexer_n(root_path.clone(), db_path.clone(), 3).unwrap();
 
     // Verify: File was indexed with symbols (use full path, as watcher reports full path)
     let mut graph = CodeGraph::open(&db_path).unwrap();
     let path_str = file_path.to_string_lossy().to_string();
     let symbols = graph.symbols_in_file(&path_str).unwrap();
 
-    // Should have 2 symbols (foo, bar) after the modify
+    // Should have 2 symbols (foo, bar) after the create/modify
     assert_eq!(
         symbols.len(),
         2,
@@ -92,12 +84,13 @@ fn test_modify_event_reindexes_file() {
     let root_path = temp_dir.path().to_path_buf();
     let db_path = temp_dir.path().join("test.db");
     let file_path = root_path.join("test.rs");
+    let path_str = file_path.to_string_lossy().to_string();
 
-    // Create and index initial file
+    // Create and index initial file (use full path consistently)
     let initial_source = b"fn foo() {}";
     let mut graph = CodeGraph::open(&db_path).unwrap();
-    graph.index_file("test.rs", initial_source).unwrap();
-    let symbols = graph.symbols_in_file("test.rs").unwrap();
+    graph.index_file(&path_str, initial_source).unwrap();
+    let symbols = graph.symbols_in_file(&path_str).unwrap();
     assert_eq!(symbols.len(), 1, "Initial state: 1 symbol");
 
     // Modify file (add bar function and call) - spawn thread to do it after watcher starts
@@ -113,7 +106,6 @@ fn test_modify_event_reindexes_file() {
 
     // Verify: File was re-indexed with new symbols
     let mut graph = CodeGraph::open(&db_path).unwrap();
-    let path_str = file_path.to_string_lossy().to_string();
     let symbols = graph.symbols_in_file(&path_str).unwrap();
     assert_eq!(symbols.len(), 2, "After modify: should have 2 symbols");
 
@@ -135,14 +127,15 @@ fn test_delete_event_removes_file_data() {
     let root_path = temp_dir.path().to_path_buf();
     let db_path = temp_dir.path().join("test.db");
     let file_path = root_path.join("test.rs");
+    let path_str = file_path.to_string_lossy().to_string();
 
-    // Create and index a file
+    // Create and index a file (use full path consistently)
     let source = b"fn foo() {}";
     fs::write(&file_path, source).unwrap();
 
     let mut graph = CodeGraph::open(&db_path).unwrap();
-    graph.index_file("test.rs", source).unwrap();
-    let symbols = graph.symbols_in_file("test.rs").unwrap();
+    graph.index_file(&path_str, source).unwrap();
+    let symbols = graph.symbols_in_file(&path_str).unwrap();
     assert_eq!(symbols.len(), 1, "Should have 1 symbol before delete");
 
     // Delete the file - spawn thread to do it after watcher starts
@@ -157,7 +150,6 @@ fn test_delete_event_removes_file_data() {
 
     // Verify: File and symbols were removed
     let mut graph = CodeGraph::open(&db_path).unwrap();
-    let path_str = file_path.to_string_lossy().to_string();
     let symbols = graph.symbols_in_file(&path_str).unwrap();
     assert_eq!(
         symbols.len(),
@@ -173,32 +165,25 @@ fn test_multiple_sequential_events_produce_correct_final_state() {
     let root_path = temp_dir.path().to_path_buf();
     let db_path = temp_dir.path().join("test.db");
     let file_path = root_path.join("test.rs");
+    let path_str = file_path.to_string_lossy().to_string();
 
     // Small delay to ensure directory is stable
     thread::sleep(Duration::from_millis(10));
-
-    // Create and index initial file (empty/placeholder)
-    let placeholder_source = b"";
-    fs::write(&file_path, placeholder_source).unwrap();
-    let mut graph = CodeGraph::open(&db_path).unwrap();
-    let path_str = file_path.to_string_lossy().to_string();
-    graph.index_file(&path_str, placeholder_source).unwrap();
 
     // Event 1: Write initial file with synchronization
     let root_path1 = root_path.clone();
     let db_path1 = db_path.clone();
     let file_path1 = file_path.clone();
     thread::spawn(move || {
-        thread::sleep(Duration::from_millis(100));
+        thread::sleep(Duration::from_millis(50));
         write_and_sync(&file_path1, b"fn foo() {}").unwrap();
         touch_and_sync(&file_path1).unwrap();
     });
 
     // Process MODIFY events
-    magellan::run_indexer_n(root_path1, db_path1, 4).unwrap();
+    magellan::run_indexer_n(root_path1, db_path1, 3).unwrap();
 
     let mut graph = CodeGraph::open(&db_path).unwrap();
-    let path_str = file_path.to_string_lossy().to_string();
     let symbols = graph.symbols_in_file(&path_str).unwrap();
     assert_eq!(symbols.len(), 1, "After initial write: 1 symbol");
 
@@ -207,16 +192,15 @@ fn test_multiple_sequential_events_produce_correct_final_state() {
     let db_path2 = db_path.clone();
     let file_path2 = file_path.clone();
     thread::spawn(move || {
-        thread::sleep(Duration::from_millis(100));
+        thread::sleep(Duration::from_millis(50));
         write_and_sync(&file_path2, b"fn foo() {}\nfn bar() {}").unwrap();
         touch_and_sync(&file_path2).unwrap();
     });
 
     // Process MODIFY events
-    magellan::run_indexer_n(root_path2, db_path2, 4).unwrap();
+    magellan::run_indexer_n(root_path2, db_path2, 3).unwrap();
 
     let mut graph = CodeGraph::open(&db_path).unwrap();
-    let path_str = file_path.to_string_lossy().to_string();
     let symbols = graph.symbols_in_file(&path_str).unwrap();
     assert_eq!(symbols.len(), 2, "After adding bar: 2 symbols");
 
@@ -225,16 +209,15 @@ fn test_multiple_sequential_events_produce_correct_final_state() {
     let db_path3 = db_path.clone();
     let file_path3 = file_path.clone();
     thread::spawn(move || {
-        thread::sleep(Duration::from_millis(100));
+        thread::sleep(Duration::from_millis(50));
         write_and_sync(&file_path3, b"fn foo() {}\nfn bar() { foo(); }").unwrap();
         touch_and_sync(&file_path3).unwrap();
     });
 
     // Process MODIFY events
-    magellan::run_indexer_n(root_path3, db_path3, 4).unwrap();
+    magellan::run_indexer_n(root_path3, db_path3, 2).unwrap();
 
     let mut graph = CodeGraph::open(&db_path).unwrap();
-    let path_str = file_path.to_string_lossy().to_string();
     let symbols = graph.symbols_in_file(&path_str).unwrap();
     assert_eq!(symbols.len(), 2, "After adding reference: still 2 symbols");
 

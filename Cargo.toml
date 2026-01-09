@@ -1,6 +1,6 @@
 [package]
 name = "magellan"
-version = "0.5.0"
+version = "0.5.2"
 edition = "2021"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/feanor/magellan"
@@ -8,6 +8,16 @@ readme = "README.md"
 description = "A dumb, deterministic codebase mapping tool for Rust projects"
 keywords = ["code-indexing", "code-analysis", "ast", "source-code"]
 categories = ["development-tools", "command-line-utilities"]
+exclude = [
+    ".mcp.json",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "codemcp",
+    "docs/DEVELOPMENT_WORKFLOW.md",
+    "docs/SQLITEGRAPH_ARCHITECTURE.md",
+    "docs/codemcp_manual.md",
+    "docs/codemcp-rename-bug.md",
+]
 
 [[bin]]
 name = "magellan"

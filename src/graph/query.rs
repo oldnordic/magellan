@@ -158,7 +158,7 @@ pub fn symbol_id_by_name(graph: &mut CodeGraph, path: &str, name: &str) -> Resul
 /// Index references for a file into the graph
 ///
 /// # Behavior
-/// 1. Get all symbols for this file
+/// 1. Get ALL symbols in the database (for cross-file references)
 /// 2. Build map of symbol name -> node ID
 /// 3. Extract references from source
 /// 4. Insert Reference nodes and REFERENCES edges
@@ -172,33 +172,35 @@ pub fn symbol_id_by_name(graph: &mut CodeGraph, path: &str, name: &str) -> Resul
 /// Number of references indexed
 pub fn index_references(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<usize> {
     // Get file node ID
-    let file_id = match graph.files.find_file_node(path)? {
+    let _file_id = match graph.files.find_file_node(path)? {
         Some(id) => id,
         None => return Ok(0), // No file, no references
     };
 
-    // Get all symbols for this file
-    let symbol_ids = graph.files.backend.neighbors(
-        file_id.as_i64(),
-        NeighborQuery {
-            direction: BackendDirection::Outgoing,
-            edge_type: Some("DEFINES".to_string()),
-        },
-    )?;
-
-    // Build map: symbol name -> node ID
+    // Build map: symbol name -> node ID from ALL symbols in database
+    // This enables cross-file reference indexing
     let mut symbol_name_to_id: HashMap<String, i64> = HashMap::new();
-    for symbol_id in symbol_ids {
-        if let Ok(node) = graph.files.backend.get_node(symbol_id) {
-            if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data.clone()) {
-                if let Some(name) = symbol_node.name {
-                    symbol_name_to_id.insert(name, symbol_id);
+
+    // Get all entity IDs from the graph
+    let entity_ids = graph.files.backend.entity_ids()?;
+
+    // Iterate through all entities and find Symbol nodes
+    for entity_id in entity_ids {
+        if let Ok(node) = graph.files.backend.get_node(entity_id) {
+            // Check if this is a Symbol node by looking at the kind field
+            if node.kind == "Symbol" {
+                if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data) {
+                    if let Some(name) = symbol_node.name {
+                        // If multiple symbols have the same name, we keep the first one
+                        // (TODO: handle name collisions with disambiguation)
+                        symbol_name_to_id.entry(name).or_insert(entity_id);
+                    }
                 }
             }
         }
     }
 
-    // Index references using ReferenceOps
+    // Index references using ReferenceOps with ALL symbols
     graph
         .references
         .index_references(path, source, &symbol_name_to_id)

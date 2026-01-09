@@ -34,3 +34,15 @@ temp/
 
 # Local context notes
 MAGELLAN_CONTEXT.md
+
+# Claude/CodeMCP files
+.mcp.json
+AGENTS.md
+CLAUDE.md
+codemcp/
+
+# Internal documentation (not for published crate)
+docs/DEVELOPMENT_WORKFLOW.md
+docs/SQLITEGRAPH_ARCHITECTURE.md
+docs/codemcp_manual.md
+docs/codemcp-rename-bug.md

@@ -38,7 +38,7 @@ impl ReferenceOps {
     /// * `path` - File path
     /// * `source` - File contents as bytes
     /// * `file_id` - Node ID of the file
-    /// * `symbol_ids` - Map of symbol names to their node IDs
+    /// * `symbol_ids` - Map of symbol names to their node IDs (ALL symbols in database)
     pub fn index_references(
         &self,
         path: &str,
@@ -48,80 +48,87 @@ impl ReferenceOps {
         let path_buf = PathBuf::from(path);
         let language = detect_language(&path_buf);
 
-        // Extract symbols first to get proper span information for filtering
-        // This is needed to filter out self-references correctly
-        let symbol_facts = match language {
-            Some(Language::Rust) => {
-                let mut parser = Parser::new()?;
-                parser.extract_symbols(path_buf.clone(), source)
-            }
-            Some(Language::Python) => {
-                let mut parser = PythonParser::new()?;
-                parser.extract_symbols(path_buf.clone(), source)
-            }
-            Some(Language::C) => {
-                let mut parser = CParser::new()?;
-                parser.extract_symbols(path_buf.clone(), source)
-            }
-            Some(Language::Cpp) => {
-                let mut parser = CppParser::new()?;
-                parser.extract_symbols(path_buf.clone(), source)
-            }
-            Some(Language::Java) => {
-                let mut parser = JavaParser::new()?;
-                parser.extract_symbols(path_buf.clone(), source)
-            }
-            Some(Language::JavaScript) => {
-                let mut parser = JavaScriptParser::new()?;
-                parser.extract_symbols(path_buf.clone(), source)
-            }
-            Some(Language::TypeScript) => {
-                let mut parser = TypeScriptParser::new()?;
-                parser.extract_symbols(path_buf.clone(), source)
-            }
-            None => Vec::new(),
+        // Build symbol_facts from ALL symbols in the database
+        // This enables cross-file reference matching
+        let mut all_symbol_facts: Vec<crate::ingest::SymbolFact> = Vec::new();
+
+        // Get all entity IDs from the graph
+        let entity_ids = match self.backend.entity_ids() {
+            Ok(ids) => ids,
+            Err(_) => return Ok(0), // If we can't get entities, no references to index
         };
 
-        // Filter to only symbols that are in symbol_ids
-        let symbol_facts: Vec<crate::ingest::SymbolFact> = symbol_facts
-            .into_iter()
-            .filter(|fact| {
-                fact.name
-                    .as_ref()
-                    .map(|name| symbol_ids.contains_key(name))
-                    .unwrap_or(false)
-            })
-            .collect();
+        // Iterate through all entities and find Symbol nodes
+        for entity_id in entity_ids {
+            if let Ok(node) = self.backend.get_node(entity_id) {
+                // Check if this is a Symbol node by looking at the kind field
+                if node.kind == "Symbol" {
+                    if let Ok(symbol_node) = serde_json::from_value::<crate::graph::schema::SymbolNode>(node.data.clone()) {
+                        // Convert SymbolNode to SymbolFact
+                        if let Some(name) = &symbol_node.name {
+                            // Validate file_path is valid UTF-8 before creating SymbolFact
+                            let file_path_str = node.file_path.as_deref().unwrap_or("");
+                            if std::str::from_utf8(file_path_str.as_bytes()).is_ok() {
+                                all_symbol_facts.push(crate::ingest::SymbolFact {
+                                    file_path: PathBuf::from(file_path_str),
+                                    kind: match symbol_node.kind_normalized.as_deref() {
+                                        Some("fn") => crate::ingest::SymbolKind::Function,
+                                        Some("method") => crate::ingest::SymbolKind::Method,
+                                        Some("struct") => crate::ingest::SymbolKind::Class,
+                                        Some("enum") => crate::ingest::SymbolKind::Enum,
+                                        Some("trait") => crate::ingest::SymbolKind::Interface,
+                                        Some("mod") => crate::ingest::SymbolKind::Module,
+                                        _ => crate::ingest::SymbolKind::Unknown,
+                                    },
+                                    kind_normalized: symbol_node
+                                        .kind_normalized
+                                        .clone()
+                                        .unwrap_or(symbol_node.kind.clone()),
+                                    name: Some(name.clone()),
+                                    byte_start: symbol_node.byte_start as usize,
+                                    byte_end: symbol_node.byte_end as usize,
+                                    start_line: symbol_node.start_line as usize,
+                                    start_col: symbol_node.start_col as usize,
+                                    end_line: symbol_node.end_line as usize,
+                                    end_col: symbol_node.end_col as usize,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         // Extract references using language-specific parser
+        // Pass all_symbol_facts to enable cross-file reference matching
         let references = match language {
             Some(Language::Rust) => {
                 let mut parser = Parser::new()?;
-                parser.extract_references(path_buf.clone(), source, &symbol_facts)
+                parser.extract_references(path_buf.clone(), source, &all_symbol_facts)
             }
             Some(Language::Python) => {
                 let mut parser = PythonParser::new()?;
-                parser.extract_references(path_buf.clone(), source, &symbol_facts)
+                parser.extract_references(path_buf.clone(), source, &all_symbol_facts)
             }
             Some(Language::C) => {
                 let mut parser = CParser::new()?;
-                parser.extract_references(path_buf.clone(), source, &symbol_facts)
+                parser.extract_references(path_buf.clone(), source, &all_symbol_facts)
             }
             Some(Language::Cpp) => {
                 let mut parser = CppParser::new()?;
-                parser.extract_references(path_buf.clone(), source, &symbol_facts)
+                parser.extract_references(path_buf.clone(), source, &all_symbol_facts)
             }
             Some(Language::Java) => {
                 let mut parser = JavaParser::new()?;
-                parser.extract_references(path_buf.clone(), source, &symbol_facts)
+                parser.extract_references(path_buf.clone(), source, &all_symbol_facts)
             }
             Some(Language::JavaScript) => {
                 let mut parser = JavaScriptParser::new()?;
-                parser.extract_references(path_buf.clone(), source, &symbol_facts)
+                parser.extract_references(path_buf.clone(), source, &all_symbol_facts)
             }
             Some(Language::TypeScript) => {
                 let mut parser = TypeScriptParser::new()?;
-                parser.extract_references(path_buf.clone(), source, &symbol_facts)
+                parser.extract_references(path_buf.clone(), source, &all_symbol_facts)
             }
             None => Vec::new(),
         };

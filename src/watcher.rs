@@ -139,6 +139,19 @@ fn convert_notify_event(event: notify::Event) -> Option<FileEvent> {
     // Use first path (notify can emit multiple paths in one event)
     let path = event.paths.first()?.clone();
 
+    // Skip database-related files to avoid feedback loop
+    // ( indexer writes to DB → generates event → indexer writes again )
+    let path_str = path.to_string_lossy();
+    if path_str.ends_with(".db")
+        || path_str.ends_with(".db-journal")
+        || path_str.ends_with(".db-wal")
+        || path_str.ends_with(".db-shm")
+        || path_str.ends_with(".sqlite")
+        || path_str.ends_with(".sqlite3")
+    {
+        return None;
+    }
+
     Some(FileEvent {
         path,
         event_type,
