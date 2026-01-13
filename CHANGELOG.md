@@ -3,6 +3,12 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.3] - 2026-01-13
+
+### Fixed
+- Incoming `refs` now includes cross-file Rust method calls when both files are indexed.
+- Call graph indexing now builds symbol facts from persisted symbols so cross-file calls are recorded.
+
 ## [0.5.0] - 2026-01-02
 
 ### Added

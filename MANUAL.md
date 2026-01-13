@@ -1,6 +1,6 @@
 # Magellan Operator Manual
 
-**Version 0.5.0** | *Last Updated: 2026-01-02*
+**Version 0.5.3** | *Last Updated: 2026-01-13*
 
 Comprehensive instructions for operating Magellan.
 
@@ -187,7 +187,8 @@ Found "main":
 magellan refs --db <FILE> --name <NAME> --path <PATH> [--direction <in|out>]
 ```
 
-Shows incoming or outgoing calls.
+Shows incoming or outgoing calls. Incoming calls include callers from other
+indexed files when the target symbol name is unique in the database.
 
 | Argument | Description |
 |----------|-------------|
@@ -356,7 +357,8 @@ Get all code chunks from a file. Useful for getting complete file contents witho
 |-----------|--------|--------|---------|
 | `DEFINES` | File | Symbol | File defines this symbol |
 | `REFERENCES` | Reference | Symbol | Reference refers to symbol |
-| `CALLS` | Symbol | Symbol | Caller calls callee |
+| `CALLER` | Symbol | Call | Caller emits a call |
+| `CALLS` | Call | Symbol | Call targets callee |
 
 ---
 

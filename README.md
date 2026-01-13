@@ -7,7 +7,7 @@ A deterministic codebase mapping tool. Watches source files, extracts AST-level 
 - Watches directories for file changes (Create/Modify/Delete)
 - Extracts AST-level facts: functions, classes, methods, enums, modules
 - Tracks symbol references: function calls and type references (7 languages)
-- Builds call graphs: caller → callee relationships (7 languages)
+- Builds call graphs: caller → callee relationships across indexed files (7 languages)
 - Persists everything to a sqlitegraph database
 - Handles errors gracefully - keeps running even when files are unreadable
 - Shuts down cleanly on SIGINT/SIGTERM
@@ -192,7 +192,8 @@ Found "main":
 magellan refs --db <FILE> --name <NAME> --path <PATH> [--direction <in|out>]
 ```
 
-Show incoming or outgoing calls for a symbol.
+Show incoming or outgoing calls for a symbol. Incoming calls include callers from
+other indexed files when the target symbol name is unique in the database.
 
 | Argument | Description |
 |----------|-------------|
@@ -316,7 +317,8 @@ Get all code chunks from a file. Useful for getting complete file contents witho
 **Edges:**
 - `DEFINES` - File -> Symbol
 - `REFERENCES` - Reference -> Symbol
-- `CALLS` - Symbol -> Symbol
+- `CALLER` - Symbol -> Call
+- `CALLS` - Call -> Symbol
 
 **Symbol Kinds:**
 Function, Method, Class, Interface, Enum, Module, Union, Namespace, TypeAlias, Unknown
@@ -380,7 +382,7 @@ Test coverage: 172+ tests across 25+ test suites. All tests pass in <15 seconds.
 
 ## Current Status
 
-**Version:** 0.5.0
+**Version:** 0.5.3
 **Status:** Stable
 
 **Features:**
@@ -394,7 +396,7 @@ Test coverage: 172+ tests across 25+ test suites. All tests pass in <15 seconds.
 
 **Known Limitations:**
 - Name-based reference matching (has false positives)
-- No cross-crate/cross-file resolution
+- No cross-crate resolution; cross-file matching is name-based only
 - No incremental parsing
 - Single-threaded event processing
 

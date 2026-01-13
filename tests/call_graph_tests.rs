@@ -125,6 +125,50 @@ fn execute() {
 }
 
 #[test]
+fn test_cross_file_method_calls_are_indexed() {
+    use magellan::CodeGraph;
+    use tempfile::TempDir;
+
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+
+    let mut graph = CodeGraph::open(&db_path).unwrap();
+
+    let library_source = r#"
+struct Widget;
+impl Widget {
+    fn render(&self) {}
+}
+"#;
+
+    let caller_source = r#"
+fn invoke(widget: &Widget) {
+    widget.render();
+}
+"#;
+
+    graph
+        .index_file("lib.rs", library_source.as_bytes())
+        .unwrap();
+    graph
+        .index_file("main.rs", caller_source.as_bytes())
+        .unwrap();
+
+    let calls_to_render = graph.callers_of_symbol("lib.rs", "render").unwrap();
+    assert_eq!(
+        calls_to_render.len(),
+        1,
+        "render should be called from another file"
+    );
+    assert_eq!(calls_to_render[0].caller, "invoke");
+    assert_eq!(calls_to_render[0].callee, "render");
+    assert_eq!(
+        calls_to_render[0].file_path,
+        PathBuf::from("main.rs")
+    );
+}
+
+#[test]
 fn test_extract_calls_handles_nested_calls() {
     // Verify nested function calls are detected
     let source = r#"

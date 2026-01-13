@@ -3,7 +3,7 @@
 //! Handles call indexing and query operations for CALLS edges.
 
 use anyhow::Result;
-use sqlitegraph::{BackendDirection, GraphBackend, NeighborQuery};
+use sqlitegraph::GraphBackend;
 use std::collections::HashMap;
 
 use crate::graph::schema::SymbolNode;
@@ -21,32 +21,39 @@ use super::CodeGraph;
 /// # Returns
 /// Number of calls indexed
 pub fn index_calls(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<usize> {
-    // Get file node ID
-    let file_id = match graph.files.find_file_node(path)? {
-        Some(id) => id,
-        None => return Ok(0), // No file, no calls
-    };
+    // Build map: symbol name -> node ID from ALL symbols in database.
+    // Prefer symbols defined in the current file for duplicate names.
+    let mut symbol_name_to_id: HashMap<String, (i64, bool)> = HashMap::new();
+    let entity_ids = graph.files.backend.entity_ids()?;
+    for entity_id in entity_ids {
+        if let Ok(node) = graph.files.backend.get_node(entity_id) {
+            if node.kind != "Symbol" {
+                continue;
+            }
 
-    // Get all symbols for this file
-    let symbol_ids = graph.files.backend.neighbors(
-        file_id.as_i64(),
-        NeighborQuery {
-            direction: BackendDirection::Outgoing,
-            edge_type: Some("DEFINES".to_string()),
-        },
-    )?;
+            let symbol_node: SymbolNode = match serde_json::from_value(node.data.clone()) {
+                Ok(value) => value,
+                Err(_) => continue,
+            };
 
-    // Build map: symbol name -> node ID
-    let mut symbol_name_to_id: HashMap<String, i64> = HashMap::new();
-    for symbol_id in symbol_ids {
-        if let Ok(node) = graph.files.backend.get_node(symbol_id) {
-            if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data.clone()) {
-                if let Some(name) = symbol_node.name {
-                    symbol_name_to_id.insert(name, symbol_id);
+            let Some(name) = symbol_node.name else {
+                continue;
+            };
+
+            let is_current_file = node.file_path.as_deref() == Some(path);
+            match symbol_name_to_id.get(&name) {
+                Some((_, existing_is_current)) if *existing_is_current || !is_current_file => {}
+                _ => {
+                    symbol_name_to_id.insert(name, (entity_id, is_current_file));
                 }
             }
         }
     }
+
+    let symbol_name_to_id: HashMap<String, i64> = symbol_name_to_id
+        .into_iter()
+        .map(|(name, (id, _))| (name, id))
+        .collect();
 
     // Index calls using CallOps
     graph.calls.index_calls(path, source, &symbol_name_to_id)

@@ -17,7 +17,7 @@ use crate::ingest::java::JavaParser;
 use crate::ingest::javascript::JavaScriptParser;
 use crate::ingest::python::PythonParser;
 use crate::ingest::typescript::TypeScriptParser;
-use crate::ingest::{detect::Language, detect_language, Parser};
+use crate::ingest::{detect::Language, detect_language, Parser, SymbolFact, SymbolKind};
 use crate::references::CallFact;
 
 /// Call operations for CodeGraph
@@ -38,7 +38,7 @@ impl CallOps {
     /// # Arguments
     /// * `path` - File path
     /// * `source` - File contents as bytes
-    /// * `symbol_ids` - Map of symbol names to their node IDs
+    /// * `symbol_ids` - Map of symbol names to their node IDs (ALL symbols in database)
     pub fn index_calls(
         &self,
         path: &str,
@@ -48,49 +48,32 @@ impl CallOps {
         let path_buf = PathBuf::from(path);
         let language = detect_language(&path_buf);
 
-        // Extract symbols first to get proper information
-        let symbol_facts = match language {
-            Some(Language::Rust) => {
-                let mut parser = Parser::new()?;
-                parser.extract_symbols(path_buf.clone(), source)
-            }
-            Some(Language::Python) => {
-                let mut parser = PythonParser::new()?;
-                parser.extract_symbols(path_buf.clone(), source)
-            }
-            Some(Language::C) => {
-                let mut parser = CParser::new()?;
-                parser.extract_symbols(path_buf.clone(), source)
-            }
-            Some(Language::Cpp) => {
-                let mut parser = CppParser::new()?;
-                parser.extract_symbols(path_buf.clone(), source)
-            }
-            Some(Language::Java) => {
-                let mut parser = JavaParser::new()?;
-                parser.extract_symbols(path_buf.clone(), source)
-            }
-            Some(Language::JavaScript) => {
-                let mut parser = JavaScriptParser::new()?;
-                parser.extract_symbols(path_buf.clone(), source)
-            }
-            Some(Language::TypeScript) => {
-                let mut parser = TypeScriptParser::new()?;
-                parser.extract_symbols(path_buf.clone(), source)
-            }
-            None => Vec::new(),
-        };
+        // Build symbol facts from persisted symbols to enable cross-file call matching.
+        let mut symbol_facts = Vec::new();
+        let mut current_file_facts = Vec::new();
+        for symbol_id in symbol_ids.values() {
+            let node = match self.backend.get_node(*symbol_id) {
+                Ok(value) => value,
+                Err(_) => continue,
+            };
 
-        // Filter to only symbols that are in symbol_ids
-        let symbol_facts: Vec<crate::ingest::SymbolFact> = symbol_facts
-            .into_iter()
-            .filter(|fact| {
-                fact.name
-                    .as_ref()
-                    .map(|name| symbol_ids.contains_key(name))
-                    .unwrap_or(false)
-            })
-            .collect();
+            if node.kind != "Symbol" {
+                continue;
+            }
+
+            let symbol_fact = match self.symbol_fact_from_node(&node) {
+                Some(value) => value,
+                None => continue,
+            };
+
+            if node.file_path.as_deref() == Some(path) {
+                current_file_facts.push(symbol_fact);
+            } else {
+                symbol_facts.push(symbol_fact);
+            }
+        }
+
+        symbol_facts.extend(current_file_facts);
 
         // Extract calls using language-specific parser
         let calls = match language {
@@ -268,5 +251,44 @@ impl CallOps {
             end_line: call_node.end_line as usize,
             end_col: call_node.end_col as usize,
         }))
+    }
+
+    fn symbol_fact_from_node(&self, node: &sqlitegraph::GraphEntity) -> Option<SymbolFact> {
+        let symbol_node: crate::graph::schema::SymbolNode =
+            serde_json::from_value(node.data.clone()).ok()?;
+
+        let file_path = node.file_path.as_deref()?;
+
+        let kind = match symbol_node.kind.as_str() {
+            "Function" => SymbolKind::Function,
+            "Method" => SymbolKind::Method,
+            "Class" => SymbolKind::Class,
+            "Interface" => SymbolKind::Interface,
+            "Enum" => SymbolKind::Enum,
+            "Module" => SymbolKind::Module,
+            "Union" => SymbolKind::Union,
+            "Namespace" => SymbolKind::Namespace,
+            "TypeAlias" => SymbolKind::TypeAlias,
+            "Unknown" => SymbolKind::Unknown,
+            _ => SymbolKind::Unknown,
+        };
+
+        let normalized_kind = symbol_node
+            .kind_normalized
+            .clone()
+            .unwrap_or_else(|| kind.normalized_key().to_string());
+
+        Some(SymbolFact {
+            file_path: PathBuf::from(file_path),
+            kind,
+            kind_normalized: normalized_kind,
+            name: symbol_node.name,
+            byte_start: symbol_node.byte_start,
+            byte_end: symbol_node.byte_end,
+            start_line: symbol_node.start_line,
+            start_col: symbol_node.start_col,
+            end_line: symbol_node.end_line,
+            end_col: symbol_node.end_col,
+        })
     }
 }
