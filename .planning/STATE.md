@@ -9,11 +9,11 @@
 ## Current Position
 
 - **Current phase:** Phase 1 — Persistence Compatibility Baseline
-- **Status:** In progress
-- **Last activity:** 2026-01-18 - Completed 01-02-PLAN.md
-- **Next action:** Execute 01-03-PLAN.md
+- **Status:** Phase complete
+- **Last activity:** 2026-01-18 - Completed 01-03-PLAN.md
+- **Next action:** Begin Phase 2 planning (or next roadmap phase)
 
-**Progress bar:** [███████---] 67% (2/3 plans complete)
+**Progress bar:** [██████████] 100% (3/3 plans complete)
 
 ## Success Definition (v1)
 
@@ -47,6 +47,10 @@ Magellan v1 is “done” when a user can:
 - Add a read-only sqlitegraph DB compatibility preflight that checks `graph_meta.schema_version` before any writes.
 - Treat `:memory:` and non-existent DB paths as "new DB" (compat OK) to preserve test ergonomics.
 
+### Key Decisions (from Phase 1 / Plan 03)
+- Add a Magellan-owned `magellan_meta` table (single row, `id=1`) storing `magellan_schema_version` and `sqlitegraph_schema_version`; refuse opens deterministically on mismatch.
+- Prevent bounded watcher tests from hanging by adding an idle timeout to `run_indexer_n` (notify can coalesce events).
+
 ### Known Risks / Watch-outs
 - Mixed coordinate systems (byte vs char; inclusive vs exclusive).
 - “Stable IDs” accidentally derived from unstable sources (rowid, node id, iteration order).
@@ -57,11 +61,11 @@ Magellan v1 is “done” when a user can:
 
 ## Session Continuity
 
-- **Last session:** 2026-01-18T22:07:20Z
-- **Stopped at:** Completed 01-02-PLAN.md
+- **Last session:** 2026-01-18T22:59:13Z
+- **Stopped at:** Completed 01-03-PLAN.md
 - **Resume file:** None
 
 If resuming later, start by:
-1. Open `.planning/ROADMAP.md` and confirm Phase 1 scope.
-2. Execute `01-02-PLAN.md` next.
+1. Open `.planning/ROADMAP.md` and confirm Phase 2 scope.
+2. Run `cargo test --workspace` to verify baseline health.
 3. Keep a running log of determinism acceptance tests/golden fixtures as they’re introduced.
