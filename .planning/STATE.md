@@ -10,10 +10,10 @@
 
 - **Current phase:** Phase 1 — Persistence Compatibility Baseline
 - **Status:** In progress
-- **Last activity:** 2026-01-18 - Completed 01-01-PLAN.md
-- **Next action:** Execute 01-02-PLAN.md
+- **Last activity:** 2026-01-18 - Completed 01-02-PLAN.md
+- **Next action:** Execute 01-03-PLAN.md
 
-**Progress bar:** [███-------] 33% (1/3 plans complete)
+**Progress bar:** [███████---] 67% (2/3 plans complete)
 
 ## Success Definition (v1)
 
@@ -43,6 +43,10 @@ Magellan v1 is “done” when a user can:
 - Pin sqlitegraph to crates.io v1.0.0 as the Phase 1 persistence compatibility baseline.
 - Track Cargo.lock so sqlitegraph resolution is reproducible across environments and CI.
 
+### Key Decisions (from Phase 1 / Plan 02)
+- Add a read-only sqlitegraph DB compatibility preflight that checks `graph_meta.schema_version` before any writes.
+- Treat `:memory:` and non-existent DB paths as "new DB" (compat OK) to preserve test ergonomics.
+
 ### Known Risks / Watch-outs
 - Mixed coordinate systems (byte vs char; inclusive vs exclusive).
 - “Stable IDs” accidentally derived from unstable sources (rowid, node id, iteration order).
@@ -53,8 +57,8 @@ Magellan v1 is “done” when a user can:
 
 ## Session Continuity
 
-- **Last session:** 2026-01-18T21:57:16Z
-- **Stopped at:** Completed 01-01-PLAN.md
+- **Last session:** 2026-01-18T22:07:20Z
+- **Stopped at:** Completed 01-02-PLAN.md
 - **Resume file:** None
 
 If resuming later, start by:
