@@ -21,7 +21,7 @@ Magellan v1 is a deterministic, local-first codebase mapping CLI. The roadmap fo
 **Plans:** 3 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — Use local sqlitegraph checkout (Cargo wiring)
+- [x] 01-01-PLAN.md — Use local sqlitegraph checkout (Cargo wiring)
 - [ ] 01-02-PLAN.md — Add read-only preflight + two-phase CodeGraph open
 - [ ] 01-03-PLAN.md — Add magellan_meta + tests for no partial mutation
 

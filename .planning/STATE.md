@@ -9,10 +9,11 @@
 ## Current Position
 
 - **Current phase:** Phase 1 — Persistence Compatibility Baseline
-- **Status:** Planning complete (roadmap drafted)
-- **Next action:** `/gsd:plan-phase 1`
+- **Status:** In progress
+- **Last activity:** 2026-01-18 - Completed 01-01-PLAN.md
+- **Next action:** Execute 01-02-PLAN.md
 
-**Progress bar:** [----------] 0% (v1 roadmap phases not yet executed)
+**Progress bar:** [███-------] 33% (1/3 plans complete)
 
 ## Success Definition (v1)
 
@@ -38,6 +39,10 @@ Magellan v1 is “done” when a user can:
 - Watch defaults to scan-initial then watch.
 - Structured JSON + stable IDs + deterministic ordering as v1 contract.
 
+### Key Decisions (from Phase 1 / Plan 01)
+- Pin sqlitegraph to crates.io v1.0.0 as the Phase 1 persistence compatibility baseline.
+- Track Cargo.lock so sqlitegraph resolution is reproducible across environments and CI.
+
 ### Known Risks / Watch-outs
 - Mixed coordinate systems (byte vs char; inclusive vs exclusive).
 - “Stable IDs” accidentally derived from unstable sources (rowid, node id, iteration order).
@@ -48,7 +53,11 @@ Magellan v1 is “done” when a user can:
 
 ## Session Continuity
 
+- **Last session:** 2026-01-18T21:57:16Z
+- **Stopped at:** Completed 01-01-PLAN.md
+- **Resume file:** None
+
 If resuming later, start by:
 1. Open `.planning/ROADMAP.md` and confirm Phase 1 scope.
-2. Run `/gsd:plan-phase 1`.
+2. Execute `01-02-PLAN.md` next.
 3. Keep a running log of determinism acceptance tests/golden fixtures as they’re introduced.
