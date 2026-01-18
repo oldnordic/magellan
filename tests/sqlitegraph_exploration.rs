@@ -23,8 +23,8 @@ fn test_sqlitegraph_features() -> anyhow::Result<()> {
 fn test_hnsw_embeddings() -> anyhow::Result<()> {
     println!("--- Test 1: HNSW Vector Embeddings (1536 dim) ---");
 
-    use sqlitegraph::hnsw::{hnsw_config, DistanceMetric, HnswIndex};
     use serde_json::json;
+    use sqlitegraph::hnsw::{hnsw_config, DistanceMetric, HnswIndex};
 
     // Production configuration for OpenAI text-embedding-ada-002
     let config = hnsw_config()
@@ -35,14 +35,26 @@ fn test_hnsw_embeddings() -> anyhow::Result<()> {
         .distance_metric(DistanceMetric::Cosine)
         .build()?;
 
-    let mut hnsw = HnswIndex::new(config)?;
+    let mut hnsw = HnswIndex::new("magellan-exploration", config)?;
 
     // Create synthetic 1536-dim embeddings for code snippets
     let code_snippets = vec![
-        ("fn parse_config(path: &str) -> Result<Config>", create_1536_embedding(1.0)),
-        ("fn connect_database(url: &str) -> Result<Connection>", create_1536_embedding(2.0)),
-        ("fn render_template(data: &Data) -> String", create_1536_embedding(3.0)),
-        ("fn compress_data(input: &[u8]) -> Vec<u8>", create_1536_embedding(4.0)),
+        (
+            "fn parse_config(path: &str) -> Result<Config>",
+            create_1536_embedding(1.0),
+        ),
+        (
+            "fn connect_database(url: &str) -> Result<Connection>",
+            create_1536_embedding(2.0),
+        ),
+        (
+            "fn render_template(data: &Data) -> String",
+            create_1536_embedding(3.0),
+        ),
+        (
+            "fn compress_data(input: &[u8]) -> Vec<u8>",
+            create_1536_embedding(4.0),
+        ),
     ];
 
     // Insert with metadata
@@ -58,7 +70,11 @@ fn test_hnsw_embeddings() -> anyhow::Result<()> {
     }
     let insert_duration = start.elapsed();
 
-    println!("  Inserted {} vectors (1536 dim each) in {:?}", code_snippets.len(), insert_duration);
+    println!(
+        "  Inserted {} vectors (1536 dim each) in {:?}",
+        code_snippets.len(),
+        insert_duration
+    );
 
     // Test search
     let query = create_1536_embedding(1.05); // Similar to first snippet
@@ -66,7 +82,11 @@ fn test_hnsw_embeddings() -> anyhow::Result<()> {
     let results = hnsw.search(&query, 3)?;
     let search_duration = start.elapsed();
 
-    println!("  Search completed in {:?} (found {} results)", search_duration, results.len());
+    println!(
+        "  Search completed in {:?} (found {} results)",
+        search_duration,
+        results.len()
+    );
 
     for (vector_id, distance) in results {
         if let Some((_, metadata)) = hnsw.get_vector(vector_id)? {
@@ -91,7 +111,7 @@ fn test_hnsw_embeddings() -> anyhow::Result<()> {
 fn test_graph_labels() -> anyhow::Result<()> {
     println!("--- Test 2: Graph Labels ---");
 
-    use sqlitegraph::{SqliteGraph, add_label};
+    use sqlitegraph::{add_label, SqliteGraph};
     use std::path::PathBuf;
 
     let test_db = PathBuf::from("/tmp/magellan_labels_test.db");
@@ -118,13 +138,16 @@ fn test_graph_labels() -> anyhow::Result<()> {
     add_label(&graph, entity_id, "async")?;
     add_label(&graph, entity_id, "api")?;
 
-    println!("  Labeled entity {} with: rust, public, async, api", entity_id);
+    println!(
+        "  Labeled entity {} with: rust, public, async, api",
+        entity_id
+    );
 
     // Query labels via raw SQL (workaround since get_entities_by_label is not exported)
     let labels = query_sql(
         &test_db,
         "SELECT label FROM graph_labels WHERE entity_id=?1 ORDER BY label",
-        &[entity_id as usize]
+        &[entity_id as usize],
     )?;
     println!("  All labels: {:?}", labels);
 
@@ -137,7 +160,7 @@ fn test_graph_labels() -> anyhow::Result<()> {
 fn test_graph_properties() -> anyhow::Result<()> {
     println!("--- Test 3: Graph Properties ---");
 
-    use sqlitegraph::{SqliteGraph, add_property};
+    use sqlitegraph::{add_property, SqliteGraph};
     use std::path::PathBuf;
 
     let test_db = PathBuf::from("/tmp/magellan_props_test.db");
@@ -170,7 +193,7 @@ fn test_graph_properties() -> anyhow::Result<()> {
     let props = query_sql(
         &test_db,
         "SELECT key || '=' || value FROM graph_properties WHERE entity_id=?1 ORDER BY key",
-        &[entity_id as usize]
+        &[entity_id as usize],
     )?;
     println!("  All properties: {:?}", props);
 
@@ -188,12 +211,18 @@ fn create_1536_embedding(seed: f32) -> Vec<f32> {
 }
 
 /// Helper to query a single column from SQLite
-fn query_sql(db_path: &std::path::PathBuf, sql: &str, params: &[usize]) -> anyhow::Result<Vec<String>> {
+fn query_sql(
+    db_path: &std::path::PathBuf,
+    sql: &str,
+    params: &[usize],
+) -> anyhow::Result<Vec<String>> {
     use rusqlite::params_from_iter;
 
     let conn = rusqlite::Connection::open(db_path)?;
     let mut stmt = conn.prepare(sql)?;
-    let rows = stmt.query_map(params_from_iter(params.iter().copied()), |row| row.get::<_, String>(0))?;
+    let rows = stmt.query_map(params_from_iter(params.iter().copied()), |row| {
+        row.get::<_, String>(0)
+    })?;
     let result: Result<Vec<_>, _> = rows.collect();
     Ok(result?)
 }
