@@ -24,7 +24,7 @@ Plans:
 - [x] 01-01-PLAN.md — Pin sqlitegraph v1.0.0 (crates.io) + lockfile
 - [x] 01-02-PLAN.md — Add read-only preflight + two-phase CodeGraph open
 - [x] 01-03-PLAN.md — Add magellan_meta + tests for no partial mutation
-- [ ] 01-04-PLAN.md — Gap closure: align Phase 1 docs + verification report
+- [x] 01-04-PLAN.md — Gap closure: align Phase 1 docs + verification report
 
 **Success Criteria (observable):**
 1. User can build/run Magellan with **sqlitegraph v1.0.0 pinned from crates.io**, with reproducible dependency resolution via committed `Cargo.lock` (no hidden drift).

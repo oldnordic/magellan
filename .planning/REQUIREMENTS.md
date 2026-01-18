@@ -70,8 +70,8 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DB-01 | Phase 1 | Pending |
-| DB-02 | Phase 1 | Pending |
+| DB-01 | Phase 1 | Satisfied |
+| DB-02 | Phase 1 | Satisfied |
 | WATCH-01 | Phase 2 | Pending |
 | WATCH-02 | Phase 2 | Pending |
 | WATCH-03 | Phase 2 | Pending |
