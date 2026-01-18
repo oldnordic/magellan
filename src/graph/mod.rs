@@ -2,6 +2,7 @@
 mod call_ops;
 mod calls;
 mod count;
+mod db_compat;
 mod export;
 mod files;
 mod freshness;
@@ -64,7 +65,12 @@ impl CodeGraph {
         // Convert to PathBuf for reuse
         let db_path_buf = db_path.as_ref().to_path_buf();
 
-        // Directly create SqliteGraph and wrap in SqliteGraphBackend
+        // Phase 1: read-only compatibility preflight for existing DB files.
+        // This MUST run before any sqlitegraph or Magellan side-table writes occur.
+        let _preflight = db_compat::preflight_sqlitegraph_compat(&db_path_buf)
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+
+        // Phase 2: mutating open (sqlitegraph ensure_schema/migrations).
         let sqlite_graph = sqlitegraph::SqliteGraph::open(&db_path_buf)?;
         let backend = Rc::new(SqliteGraphBackend::from_graph(sqlite_graph));
 

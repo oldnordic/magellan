@@ -197,7 +197,9 @@ fn map_sqlite_err(db_path: &Path, err: rusqlite::Error) -> DbCompatError {
                 };
             }
 
-            if code == rusqlite::ErrorCode::Corrupt || is_corrupt_extended_code(extended_code) {
+            if code == rusqlite::ErrorCode::DatabaseCorrupt
+                || is_corrupt_extended_code(extended_code)
+            {
                 return DbCompatError::CorruptSqlite {
                     path: db_path.to_path_buf(),
                     code,
@@ -226,7 +228,7 @@ fn is_corrupt_extended_code(extended_code: i32) -> bool {
     // SQLite defines extended result codes by OR-ing the primary code into the low bits.
     // Anything whose low byte matches SQLITE_CORRUPT (11) is treated as corruption.
     // This is deterministic and avoids error-message matching.
-    (extended_code & 0xFF) == rusqlite::ErrorCode::Corrupt as i32
+    (extended_code & 0xFF) == rusqlite::ErrorCode::DatabaseCorrupt as i32
 }
 
 #[cfg(test)]
