@@ -1,0 +1,5 @@
+{
+  "mode": "yolo",
+  "planning_depth": "comprehensive",
+  "parallel_execution": true
+}
