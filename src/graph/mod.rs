@@ -84,6 +84,11 @@ impl CodeGraph {
         // Populate file_index with existing File nodes from database
         files.rebuild_file_index()?;
 
+        // Phase 3: Magellan-owned DB compatibility metadata.
+        // MUST run after sqlitegraph open and before any other Magellan side-table writes.
+        db_compat::ensure_magellan_meta(&db_path_buf)
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+
         // Initialize ChunkStore and ensure schema exists
         let chunks = ChunkStore::new(&db_path_buf);
         chunks.ensure_schema()?;

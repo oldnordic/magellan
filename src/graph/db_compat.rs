@@ -13,8 +13,9 @@
 //!   - schema_version matches expected sqlitegraph schema version for this build
 
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use rusqlite::{OpenFlags, OptionalExtension};
+use rusqlite::{params, OpenFlags, OptionalExtension};
 
 /// Stable sqlitegraph schema version expected by this Magellan build.
 ///
@@ -24,6 +25,91 @@ pub fn expected_sqlitegraph_schema_version() -> i64 {
     // If this becomes unavailable due to upstream visibility changes, this function
     // will fail to compile and we should implement the plan's contingency strategy.
     sqlitegraph::schema::SCHEMA_VERSION
+}
+
+/// Magellan-owned schema version for side tables (e.g. `magellan_meta`).
+///
+/// Phase 1 baseline starts at version 1.
+pub const MAGELLAN_SCHEMA_VERSION: i64 = 1;
+
+/// Ensure Magellan-owned metadata exists and matches expected versions.
+///
+/// ## Ordering contract
+/// This MUST ONLY be called after:
+/// 1) sqlitegraph preflight (read-only) succeeded
+/// 2) sqlitegraph::SqliteGraph::open succeeded
+///
+/// This preserves the "no partial mutation" guarantee for incompatible DBs.
+pub fn ensure_magellan_meta(db_path: &Path) -> Result<(), DbCompatError> {
+    if is_in_memory_path(db_path) {
+        // No on-disk metadata for in-memory databases.
+        return Ok(());
+    }
+
+    // This is a write connection, but it's only reached after sqlitegraph preflight/open.
+    let conn = rusqlite::Connection::open(db_path).map_err(|e| map_sqlite_open_err(db_path, e))?;
+
+    // Create table if missing.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS magellan_meta (\
+            id INTEGER PRIMARY KEY CHECK (id = 1),\
+            magellan_schema_version INTEGER NOT NULL,\
+            sqlitegraph_schema_version INTEGER NOT NULL,\
+            created_at INTEGER NOT NULL\
+        )",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
+
+    // Insert row if missing.
+    let existing: Option<(i64, i64)> = conn
+        .query_row(
+            "SELECT magellan_schema_version, sqlitegraph_schema_version \
+             FROM magellan_meta WHERE id=1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(|e| map_sqlite_query_err(db_path, e))?;
+
+    let expected_sqlitegraph = expected_sqlitegraph_schema_version();
+
+    match existing {
+        None => {
+            let created_at = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64;
+
+            conn.execute(
+                "INSERT INTO magellan_meta (id, magellan_schema_version, sqlitegraph_schema_version, created_at)\
+                 VALUES (1, ?1, ?2, ?3)",
+                params![MAGELLAN_SCHEMA_VERSION, expected_sqlitegraph, created_at],
+            )
+            .map_err(|e| map_sqlite_query_err(db_path, e))?;
+
+            Ok(())
+        }
+        Some((found_magellan, found_sqlitegraph)) => {
+            if found_magellan != MAGELLAN_SCHEMA_VERSION {
+                return Err(DbCompatError::MagellanSchemaMismatch {
+                    path: db_path.to_path_buf(),
+                    found: found_magellan,
+                    expected: MAGELLAN_SCHEMA_VERSION,
+                });
+            }
+
+            if found_sqlitegraph != expected_sqlitegraph {
+                return Err(DbCompatError::SqliteGraphSchemaMismatch {
+                    path: db_path.to_path_buf(),
+                    found: found_sqlitegraph,
+                    expected: expected_sqlitegraph,
+                });
+            }
+
+            Ok(())
+        }
+    }
 }
 
 /// Result of a successful preflight.
@@ -72,6 +158,13 @@ pub enum DbCompatError {
 
     #[error("DB_COMPAT: sqlitegraph schema mismatch: {path} (found={found}, expected={expected})")]
     SqliteGraphSchemaMismatch {
+        path: PathBuf,
+        found: i64,
+        expected: i64,
+    },
+
+    #[error("DB_COMPAT: magellan schema mismatch: {path} (found={found}, expected={expected})")]
+    MagellanSchemaMismatch {
         path: PathBuf,
         found: i64,
         expected: i64,
