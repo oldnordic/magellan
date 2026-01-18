@@ -70,37 +70,37 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| OUT-01 | Phase ? | Pending |
-| OUT-02 | Phase ? | Pending |
-| OUT-03 | Phase ? | Pending |
-| OUT-04 | Phase ? | Pending |
-| OUT-05 | Phase ? | Pending |
-| ID-01 | Phase ? | Pending |
-| ID-02 | Phase ? | Pending |
-| ID-03 | Phase ? | Pending |
-| ID-04 | Phase ? | Pending |
-| WATCH-01 | Phase ? | Pending |
-| WATCH-02 | Phase ? | Pending |
-| WATCH-03 | Phase ? | Pending |
-| WATCH-04 | Phase ? | Pending |
-| WATCH-05 | Phase ? | Pending |
-| QRY-01 | Phase ? | Pending |
-| QRY-02 | Phase ? | Pending |
-| QRY-03 | Phase ? | Pending |
-| QRY-04 | Phase ? | Pending |
-| EXP-01 | Phase ? | Pending |
-| EXP-02 | Phase ? | Pending |
-| EXP-03 | Phase ? | Pending |
-| EXP-04 | Phase ? | Pending |
-| DB-01 | Phase ? | Pending |
-| DB-02 | Phase ? | Pending |
-| DB-03 | Phase ? | Pending |
-| DB-04 | Phase ? | Pending |
+| DB-01 | Phase 1 | Pending |
+| DB-02 | Phase 1 | Pending |
+| WATCH-01 | Phase 2 | Pending |
+| WATCH-02 | Phase 2 | Pending |
+| WATCH-03 | Phase 2 | Pending |
+| WATCH-04 | Phase 2 | Pending |
+| WATCH-05 | Phase 2 | Pending |
+| OUT-01 | Phase 3 | Pending |
+| OUT-02 | Phase 3 | Pending |
+| OUT-03 | Phase 3 | Pending |
+| ID-01 | Phase 4 | Pending |
+| OUT-04 | Phase 4 | Pending |
+| OUT-05 | Phase 5 | Pending |
+| ID-02 | Phase 5 | Pending |
+| ID-03 | Phase 5 | Pending |
+| ID-04 | Phase 5 | Pending |
+| DB-03 | Phase 5 | Pending |
+| QRY-01 | Phase 6 | Pending |
+| QRY-02 | Phase 6 | Pending |
+| QRY-03 | Phase 6 | Pending |
+| QRY-04 | Phase 6 | Pending |
+| EXP-01 | Phase 7 | Pending |
+| EXP-02 | Phase 7 | Pending |
+| EXP-03 | Phase 7 | Pending |
+| DB-04 | Phase 8 | Pending |
+| EXP-04 | Phase 9 | Pending |
 
 **Coverage:**
 - v1 requirements: 24 total
-- Mapped to phases: 0
-- Unmapped: 24 ⚠️
+- Mapped to phases: 24
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-01-18*
