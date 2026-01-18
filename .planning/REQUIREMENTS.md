@@ -44,7 +44,7 @@
 
 ### Persistence & Validation
 
-- [ ] **DB-01**: Upgrade sqlitegraph dependency to the latest version using the local checkout at `/home/feanor/Projects/sqlitegraph`.
+- [ ] **DB-01**: Upgrade sqlitegraph dependency to **sqlitegraph v1.0.0** (crates.io pinned; reproducible via committed `Cargo.lock`).
 - [ ] **DB-02**: Record DB schema version and enforce compatibility at open time.
 - [ ] **DB-03**: Add an execution log table that records every run with `execution_id`, tool version, args, root, DB path, timings, and outcome.
 - [ ] **DB-04**: Add validation hooks: pre-run input manifest/checksums and post-run invariants (no orphan edges, expected edge types, etc.), with output surfaced via JSON.
