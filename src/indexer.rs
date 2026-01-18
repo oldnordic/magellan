@@ -114,19 +114,30 @@ pub fn run_indexer_n(root_path: PathBuf, db_path: PathBuf, max_events: usize) ->
     // Open graph
     let mut graph = CodeGraph::open(&db_path)?;
 
-    // Process up to max_events events
+    // Process up to max_events events.
+    //
+    // IMPORTANT: In tests, notify may coalesce events or fail to emit the expected
+    // number of events on some platforms/filesystems. We therefore include an idle
+    // timeout to prevent hangs while preserving the "process up to N events" contract.
     let mut processed = 0;
+    let mut idle_for = std::time::Duration::from_secs(0);
+    let idle_step = std::time::Duration::from_millis(10);
+    let idle_timeout = std::time::Duration::from_secs(2);
+
     while processed < max_events {
-        match watcher.recv_event() {
-            Some(event) => {
-                handle_event(&mut graph, event)?;
-                processed += 1;
-            }
-            None => {
-                // Watcher terminated, stop processing
-                break;
-            }
+        if let Some(event) = watcher.try_recv_event() {
+            handle_event(&mut graph, event)?;
+            processed += 1;
+            idle_for = std::time::Duration::from_secs(0);
+            continue;
         }
+
+        if idle_for >= idle_timeout {
+            break;
+        }
+
+        std::thread::sleep(idle_step);
+        idle_for += idle_step;
     }
 
     Ok(processed)

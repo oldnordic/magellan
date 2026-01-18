@@ -11,9 +11,9 @@ pub mod references;
 pub mod verify;
 pub mod watcher;
 
-pub use generation::{CodeChunk, ChunkStore};
+pub use generation::{ChunkStore, CodeChunk};
 pub use graph::query::SymbolQueryResult;
-pub use graph::{CodeGraph, ScanProgress};
+pub use graph::{CodeGraph, ScanProgress, MAGELLAN_SCHEMA_VERSION};
 pub use indexer::{run_indexer, run_indexer_n};
 pub use ingest::detect::{detect_language, Language};
 pub use ingest::{Parser, SymbolFact, SymbolKind};

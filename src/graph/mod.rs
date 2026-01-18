@@ -25,6 +25,7 @@ use crate::generation::{ChunkStore, CodeChunk};
 use crate::references::{CallFact, ReferenceFact};
 
 // Re-export public types
+pub use db_compat::MAGELLAN_SCHEMA_VERSION;
 pub use freshness::{check_freshness, FreshnessStatus, STALE_THRESHOLD_SECS};
 pub use schema::{CallNode, FileNode, ReferenceNode, SymbolNode};
 
