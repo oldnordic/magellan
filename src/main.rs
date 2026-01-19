@@ -858,7 +858,10 @@ fn run_files(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
         let mut files: Vec<String> = file_nodes.keys().cloned().collect();
         files.sort(); // Deterministic ordering
 
-        let response = magellan::output::FilesResponse { files };
+        let response = magellan::output::FilesResponse {
+            files,
+            symbol_counts: None,
+        };
         let exec_id = tracker.exec_id().to_string();
         let json_response = magellan::output::JsonResponse::new(response, &exec_id);
         tracker.finish(&graph)?;

@@ -5,29 +5,9 @@
 use anyhow::Result;
 use magellan::CodeGraph;
 use magellan::graph::query::symbols_in_file;
-use magellan::output::{FilesResponse, JsonResponse, generate_execution_id, output_json};
+use magellan::output::{FilesResponse, JsonResponse, generate_execution_id, output_json, OutputFormat};
 use std::collections::HashMap;
 use std::path::PathBuf;
-
-/// Output format for files command
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OutputFormat {
-    /// Human-readable text output
-    Human,
-    /// JSON output with schema versioning
-    Json,
-}
-
-impl OutputFormat {
-    /// Parse from string
-    pub fn from_str(s: &str) -> Option<Self> {
-        match s.to_lowercase().as_str() {
-            "human" | "text" => Some(OutputFormat::Human),
-            "json" => Some(OutputFormat::Json),
-            _ => None,
-        }
-    }
-}
 
 /// Run the files command
 ///

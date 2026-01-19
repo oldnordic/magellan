@@ -731,6 +731,9 @@ pub struct RefsResponse {
 pub struct FilesResponse {
     /// All indexed files (sorted deterministically)
     pub files: Vec<String>,
+    /// Symbol count per file (optional, when --symbols flag is used)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub symbol_counts: Option<std::collections::HashMap<String, usize>>,
 }
 
 /// Response for status command
