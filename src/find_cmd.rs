@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use globset::GlobBuilder;
 use magellan::{CodeGraph, SymbolKind};
 use magellan::graph::query;
-use magellan::output::{JsonResponse, OutputFormat, FindResponse, Span, SymbolMatch, generate_execution_id, output_json};
+use magellan::output::{JsonResponse, OutputFormat, FindResponse, Span, SymbolMatch, output_json};
 use std::path::PathBuf;
 
 /// Represents a found symbol with its file and node ID
@@ -152,29 +152,73 @@ pub fn run_find(
     glob_pattern: Option<String>,
     output_format: OutputFormat,
 ) -> Result<()> {
-    let mut graph = CodeGraph::open(&db_path)?;
+    // Build args for execution tracking
+    let mut args = vec!["find".to_string()];
+    if let Some(ref n) = name {
+        args.push("--name".to_string());
+        args.push(n.clone());
+    }
+    if let Some(ref root_path) = root {
+        args.push("--root".to_string());
+        args.push(root_path.to_string_lossy().to_string());
+    }
+    if let Some(ref p) = path {
+        args.push("--path".to_string());
+        args.push(p.to_string_lossy().to_string());
+    }
+    if let Some(ref pattern) = glob_pattern {
+        args.push("--list-glob".to_string());
+        args.push(pattern.clone());
+    }
+
+    let graph = CodeGraph::open(&db_path)?;
+    let exec_id = magellan::output::generate_execution_id();
+    let root_str = root.as_ref().map(|p| p.to_string_lossy().to_string());
+    let db_path_str = db_path.to_string_lossy().to_string();
+
+    graph.execution_log().start_execution(
+        &exec_id,
+        env!("CARGO_PKG_VERSION"),
+        &args,
+        root_str.as_deref(),
+        &db_path_str,
+    )?;
+
+    // Helper to finish execution on return
+    let finish_execution = |outcome: &str, error_msg: Option<String>| -> Result<()> {
+        graph.execution_log().finish_execution(
+            &exec_id,
+            outcome,
+            error_msg.as_deref(),
+            0, 0, 0, // No indexing counts for find command
+        )
+    };
 
     if let Some(pattern) = glob_pattern {
-        return run_glob_listing(&mut graph, &pattern, output_format);
+        let mut graph_mut = CodeGraph::open(&db_path)?;
+        finish_execution("success", None)?;
+        return run_glob_listing(&mut graph_mut, &pattern, output_format, &exec_id);
     }
 
     let name =
         name.ok_or_else(|| anyhow::anyhow!("--name is required unless --list-glob is provided"))?;
 
+    let mut graph_mut = CodeGraph::open(&db_path)?;
     let results = match path.as_ref() {
         Some(file_path) => {
             let path_str = resolve_path(file_path, &root);
-            match find_in_file(&mut graph, &path_str, &name)? {
+            match find_in_file(&mut graph_mut, &path_str, &name)? {
                 Some(symbol) => vec![symbol],
                 None => vec![],
             }
         }
-        None => find_all_files(&mut graph, &name)?,
+        None => find_all_files(&mut graph_mut, &name)?,
     };
 
     // Handle JSON output mode
     if output_format == OutputFormat::Json {
-        return output_json_mode(&name, results, path.as_ref().map(|p| resolve_path(p, &root)));
+        finish_execution("success", None)?;
+        return output_json_mode(&name, results, path.as_ref().map(|p| resolve_path(p, &root)), &exec_id);
     }
 
     // Human mode (existing behavior)
@@ -210,6 +254,7 @@ pub fn run_find(
         }
     }
 
+    finish_execution("success", None)?;
     Ok(())
 }
 
@@ -218,6 +263,7 @@ fn output_json_mode(
     query_name: &str,
     mut results: Vec<FoundSymbol>,
     file_filter: Option<String>,
+    exec_id: &str,
 ) -> Result<()> {
     // Sort deterministically: by file_path, start_line, start_col
     results.sort_by(|a, b| {
@@ -250,14 +296,13 @@ fn output_json_mode(
         file_filter,
     };
 
-    let exec_id = generate_execution_id();
-    let json_response = JsonResponse::new(response, &exec_id);
+    let json_response = JsonResponse::new(response, exec_id);
     output_json(&json_response)?;
 
     Ok(())
 }
 
-fn run_glob_listing(graph: &mut CodeGraph, pattern: &str, output_format: OutputFormat) -> Result<()> {
+fn run_glob_listing(graph: &mut CodeGraph, pattern: &str, output_format: OutputFormat, exec_id: &str) -> Result<()> {
     let glob_matcher = GlobBuilder::new(pattern)
         .case_insensitive(false)
         .build()
@@ -324,8 +369,7 @@ fn run_glob_listing(graph: &mut CodeGraph, pattern: &str, output_format: OutputF
             file_filter: None,
         };
 
-        let exec_id = generate_execution_id();
-        let json_response = JsonResponse::new(response, &exec_id);
+        let json_response = JsonResponse::new(response, exec_id);
         output_json(&json_response)?;
         return Ok(());
     }
