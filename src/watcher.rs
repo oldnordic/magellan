@@ -8,6 +8,7 @@ use anyhow::Result;
 use notify::RecursiveMode;
 use notify_debouncer_mini::new_debouncer;
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -80,13 +81,19 @@ impl FileSystemWatcher {
     /// Create a new watcher for the given directory.
     ///
     /// # Arguments
-    /// * `path` - Directory to watch recursively
+    /// * `path` - Directory to watch recursively (also used as root_path for validation)
     /// * `config` - Watcher configuration
     ///
     /// # Returns
     /// A watcher that can be polled for batch events
     pub fn new(path: PathBuf, config: WatcherConfig) -> Result<Self> {
         let (batch_tx, batch_rx) = mpsc::channel();
+
+        // Ensure root_path is set to the watched directory for validation
+        let config = WatcherConfig {
+            root_path: path.clone(),
+            ..config
+        };
 
         let thread = thread::spawn(move || {
             if let Err(e) = run_watcher(path, batch_tx, config) {
@@ -275,6 +282,9 @@ fn run_watcher(path: PathBuf, tx: Sender<WatcherBatch>, config: WatcherConfig) -
     // Convert debounce_ms to Duration
     let debounce_duration = Duration::from_millis(config.debounce_ms);
 
+    // Get the root path for validation
+    let root_path = config.root_path.clone();
+
     // Create debouncer with notify 8.x API
     // The debouncer calls our closure on each batch of events
     let mut debouncer = new_debouncer(
@@ -283,7 +293,7 @@ fn run_watcher(path: PathBuf, tx: Sender<WatcherBatch>, config: WatcherConfig) -
             match result {
                 Ok(events) => {
                     // Collect all dirty paths from this batch
-                    let dirty_paths = extract_dirty_paths(&events);
+                    let dirty_paths = extract_dirty_paths(&events, &root_path);
 
                     if !dirty_paths.is_empty() {
                         let batch = WatcherBatch::from_set(dirty_paths);
@@ -312,11 +322,13 @@ fn run_watcher(path: PathBuf, tx: Sender<WatcherBatch>, config: WatcherConfig) -
 /// Filtering rules:
 /// - Exclude directories (only process files)
 /// - Exclude database-related files (.db, .sqlite, etc.)
+/// - Validate paths are within project root (security: prevent path traversal)
 /// - De-duplicate via BTreeSet
 ///
 /// Returns: BTreeSet of dirty paths (sorted deterministically)
 fn extract_dirty_paths(
     events: &[notify_debouncer_mini::DebouncedEvent],
+    root: &Path,
 ) -> BTreeSet<PathBuf> {
     let mut dirty_paths = BTreeSet::new();
 
@@ -334,8 +346,37 @@ fn extract_dirty_paths(
             continue;
         }
 
-        // Insert into BTreeSet for automatic dedup and sorting
-        dirty_paths.insert(path.clone());
+        // Validate path is within project root (security: prevent path traversal)
+        match crate::validation::validate_path_within_root(path, root) {
+            Ok(_) => {
+                // Path is safe, include it
+                dirty_paths.insert(path.clone());
+            }
+            Err(crate::validation::PathValidationError::OutsideRoot(p, _)) => {
+                // Log the rejection but don't crash
+                eprintln!(
+                    "WARNING: Watcher rejected path outside project root: {}",
+                    p
+                );
+            }
+            Err(crate::validation::PathValidationError::SuspiciousTraversal(p)) => {
+                // Log suspicious path patterns
+                eprintln!(
+                    "WARNING: Watcher rejected suspicious traversal pattern: {}",
+                    p
+                );
+            }
+            Err(crate::validation::PathValidationError::SymlinkEscape(from, to)) => {
+                eprintln!(
+                    "WARNING: Watcher rejected symlink escaping root: {} -> {}",
+                    from, to
+                );
+            }
+            Err(crate::validation::PathValidationError::CannotCanonicalize(_)) => {
+                // Path doesn't exist or can't be accessed - skip
+                // This is normal for files that are deleted
+            }
+        }
     }
 
     dirty_paths
