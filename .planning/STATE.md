@@ -9,11 +9,11 @@
 ## Current Position
 
 - **Current phase:** Phase 5 — Stable Identity + Execution Tracking
-- **Status:** In progress (2/3 plans executed)
-- **Last activity:** 2026-01-19 - Completed 05-03 (Symbol ID in JSON Output)
-- **Next action:** Continue Phase 5 remaining plans
+- **Status:** In progress (3/3 plans executed)
+- **Last activity:** 2026-01-19 - Completed 05-04 (CLI Execution Tracking Integration)
+- **Next action:** Phase 5 ready for completion or next phase
 
-**Progress bar:** [████████░░] 94% (17/18 total plans executed - Phase 5 in progress)
+**Progress bar:** [██████████] 100% (18/18 total plans executed - Phase 5 complete)
 
 ## Success Definition (v1)
 
@@ -130,6 +130,15 @@ Magellan v1 is "done" when a user can:
 - Command handlers use symbol_nodes_in_file_with_ids() for JSON output paths only
 - SymbolMatch now includes symbol_id field for stable symbol correlation in JSON API
 
+### Key Decisions (from Phase 5 / Plan 04)
+- ExecutionLog exposed from CodeGraph via public execution_log() method
+- ExecutionTracker helper in main.rs with start/finish/error/set_counts methods
+- All CLI commands record execution in execution_log table (timestamps, args, outcome)
+- JSON responses include execution_id for correlation with execution_log records
+- Single execution_id per command generated at start, used throughout lifecycle
+- Human-output commands still track execution even without JSON response
+- Watch mode treated as single execution with outcome set at exit
+
 ### Known Risks / Watch-outs
 - Mixed coordinate systems (byte vs char; inclusive vs exclusive).
 - "Stable IDs" accidentally derived from unstable sources (rowid, node id, iteration order).
@@ -141,11 +150,11 @@ Magellan v1 is "done" when a user can:
 
 ## Session Continuity
 
-- **Last session:** 2026-01-19T12:38:00Z
-- **Stopped at:** Completed 05-03 (Symbol ID in JSON Output)
+- **Last session:** 2026-01-19T12:40:15Z
+- **Stopped at:** Completed 05-04 (CLI Execution Tracking Integration)
 - **Resume file:** None
 
 If resuming later, start by:
-1. Open `.planning/phases/05-stable-identity/05-03-SUMMARY.md` for context on completed work.
+1. Open `.planning/phases/05-stable-identity/05-04-SUMMARY.md` for context on completed work.
 2. Run `cargo test --workspace` to verify baseline health.
-3. Phase 5 is in progress - proceed to remaining plans.
+3. Phase 5 is complete - ready for next phase.
