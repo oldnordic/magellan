@@ -41,6 +41,13 @@ Plans:
 
 **Requirements:** WATCH-01, WATCH-02, WATCH-03, WATCH-04, WATCH-05
 
+**Plans:** 3 plans
+
+Plans:
+- [ ] 02-01-PLAN.md — Per-file reconcile + delete_file_facts (true idempotency; no ghost nodes)
+- [ ] 02-02-PLAN.md — Debounced batching + buffer events during scan-initial (storm determinism)
+- [ ] 02-03-PLAN.md — Include/exclude rules + structured diagnostics (skip reasons + per-file errors)
+
 **Success Criteria (observable):**
 1. User runs `watch` and observes a complete **scan-initial baseline** before any incremental updates are applied.
 2. When user saves a file repeatedly (editor storm), Magellan coalesces the events deterministically and produces the same resulting indexed state as a clean re-run.
