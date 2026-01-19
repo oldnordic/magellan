@@ -8,12 +8,12 @@
 
 ## Current Position
 
-- **Current phase:** Phase 8 — Validation Hooks (Pre/Post) Surfaced via JSON
-- **Status:** In progress
-- **Last activity:** 2026-01-19 - Completed Phase 8 Plan 04 (Validation Module Tests)
-- **Next action:** Continue Phase 8 or review for Phase 9
+- **Current phase:** Phase 9 — Interop Export (SCIP / LSIF)
+- **Status:** Planned
+- **Last activity:** 2026-01-19 - Completed Phase 8 (Validation Hooks)
+- **Next action:** Plan Phase 9 (Interop Export)
 
-**Progress bar:** [██████████] 91% (31/33 total plans executed - Phase 8 Plan 04 complete)
+**Progress bar:** [██████████] 97% (32/33 total plans executed - Phase 8 complete)
 
 ## Success Definition (v1)
 
@@ -229,11 +229,11 @@ Magellan v1 is "done" when a user can:
 
 ## Session Continuity
 
-- **Last session:** 2026-01-19T15:25:19Z
-- **Stopped at:** Completed Phase 8 Plan 04 (Validation Module Tests)
+- **Last session:** 2026-01-19T15:30:00Z
+- **Stopped at:** Phase 8 complete and verified
 - **Resume file:** None
 
 If resuming later, start by:
-1. Open `.planning/phases/08-validation-hooks/08-04-SUMMARY.md` for context on completed plan.
+1. Open `.planning/phases/08-validation-hooks/08-validation-hooks-VERIFICATION.md` for context on completed phase.
 2. Run `cargo test --workspace` to verify baseline health.
-3. Phase 8 Plan 04 is complete - validation module has comprehensive test coverage with 21 passing tests.
+3. Phase 8 is complete - ready for Phase 9 (Interop Export).

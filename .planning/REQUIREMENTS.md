@@ -48,7 +48,7 @@
 - [ ] **DB-01**: Upgrade sqlitegraph dependency to **sqlitegraph v1.0.0** (crates.io pinned; reproducible via committed `Cargo.lock`).
 - [ ] **DB-02**: Record DB schema version and enforce compatibility at open time.
 - [x] **DB-03**: Add an execution log table that records every run with `execution_id`, tool version, args, root, DB path, timings, and outcome.
-- [ ] **DB-04**: Add validation hooks: pre-run input manifest/checksums and post-run invariants (no orphan edges, expected edge types, etc.), with output surfaced via JSON.
+- [x] **DB-04**: Add validation hooks: pre-run input manifest/checksums and post-run invariants (no orphan edges, expected edge types, etc.), with output surfaced via JSON.
 
 ## v2 Requirements
 
@@ -96,7 +96,7 @@
 | EXP-01 | Phase 7 | Complete |
 | EXP-02 | Phase 7 | Complete |
 | EXP-03 | Phase 7 | Complete |
-| DB-04 | Phase 8 | Pending |
+| DB-04 | Phase 8 | Complete |
 | EXP-04 | Phase 9 | Pending |
 
 **Coverage:**

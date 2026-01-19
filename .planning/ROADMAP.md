@@ -182,10 +182,10 @@ Plans:
 **Plans:** 4 plans
 
 Plans:
-- [ ] 08-01-PLAN.md — Create validation module (ValidationReport, orphan detection)
-- [ ] 08-02-PLAN.md — Add ValidationResponse type for JSON output
-- [ ] 08-03-PLAN.md — Wire validation hooks into CLI (--validate, --validate-only)
-- [ ] 08-04-PLAN.md — Add validation module tests
+- [x] 08-01-PLAN.md — Create validation module (ValidationReport, orphan detection)
+- [x] 08-02-PLAN.md — Add ValidationResponse type for JSON output
+- [x] 08-03-PLAN.md — Wire validation hooks into CLI (--validate, --validate-only)
+- [x] 08-04-PLAN.md — Add validation module tests
 
 **Success Criteria (observable):**
 1. User can enable validation and receive a pre-run manifest/checksum summary and post-run invariant results in JSON output.
@@ -221,5 +221,5 @@ Plans:
 | 5 | Stable Identity + Execution Tracking | Complete |
 | 6 | Query UX | Complete |
 | 7 | Deterministic Exports | Complete |
-| 8 | Validation Hooks | Planned |
+| 8 | Validation Hooks | Complete |
 | 9 | Interop Export (SCIP / LSIF) | Planned |
