@@ -377,6 +377,8 @@ impl TypeScriptParser {
                         file_path: file_path.clone(),
                         caller: caller.name.clone().unwrap_or_default(),
                         callee: callee_name,
+                        caller_symbol_id: None,
+                        callee_symbol_id: None,
                         byte_start: node_start,
                         byte_end: node_end,
                         start_line: node.start_position().row + 1,

@@ -219,8 +219,8 @@ impl CallOps {
             file: call.file_path.to_string_lossy().to_string(),
             caller: call.caller.clone(),
             callee: call.callee.clone(),
-            caller_symbol_id: None, // Will be populated in Task 3
-            callee_symbol_id: None, // Will be populated in Task 3
+            caller_symbol_id: call.caller_symbol_id.clone(),
+            callee_symbol_id: call.callee_symbol_id.clone(),
             byte_start: call.byte_start as u64,
             byte_end: call.byte_end as u64,
             start_line: call.start_line as u64,
@@ -281,6 +281,8 @@ impl CallOps {
             file_path: PathBuf::from(&call_node.file),
             caller: call_node.caller,
             callee: call_node.callee,
+            caller_symbol_id: call_node.caller_symbol_id,
+            callee_symbol_id: call_node.callee_symbol_id,
             byte_start: call_node.byte_start as usize,
             byte_end: call_node.byte_end as usize,
             start_line: call_node.start_line as usize,
