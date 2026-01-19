@@ -865,6 +865,27 @@ fn run_files(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
 /// Usage: magellan label --db <FILE> --label <LABEL> [--list] [--count] [--show-code]
 fn run_label(db_path: PathBuf, labels: Vec<String>, list: bool, count: bool, show_code: bool) -> Result<()> {
     let graph = CodeGraph::open(&db_path)?;
+    let mut args = vec!["label".to_string()];
+    for label in &labels {
+        args.push("--label".to_string());
+        args.push(label.clone());
+    }
+    if list {
+        args.push("--list".to_string());
+    }
+    if count {
+        args.push("--count".to_string());
+    }
+    if show_code {
+        args.push("--show-code".to_string());
+    }
+
+    let tracker = ExecutionTracker::new(
+        args,
+        None,
+        db_path.to_string_lossy().to_string(),
+    );
+    tracker.start(&graph)?;
 
     // List all labels mode
     if list {
@@ -874,23 +895,27 @@ fn run_label(db_path: PathBuf, labels: Vec<String>, list: bool, count: bool, sho
             let count = graph.count_entities_by_label(&label)?;
             println!("  {} ({})", label, count);
         }
+        tracker.finish(&graph)?;
         return Ok(());
     }
 
     // Count mode
     if count {
         if labels.is_empty() {
+            tracker.finish(&graph)?;
             return Err(anyhow::anyhow!("--count requires --label"));
         }
         for label in &labels {
             let entity_count = graph.count_entities_by_label(label)?;
             println!("{}: {} entities", label, entity_count);
         }
+        tracker.finish(&graph)?;
         return Ok(());
     }
 
     // Query mode - get symbols by label(s)
     if labels.is_empty() {
+        tracker.finish(&graph)?;
         return Err(anyhow::anyhow!(
             "No labels specified. Use --label <LABEL> or --list to see all labels"
         ));
@@ -935,6 +960,7 @@ fn run_label(db_path: PathBuf, labels: Vec<String>, list: bool, count: bool, sho
         }
     }
 
+    tracker.finish(&graph)?;
     Ok(())
 }
 
