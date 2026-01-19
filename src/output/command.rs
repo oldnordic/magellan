@@ -454,4 +454,98 @@ mod tests {
         assert_eq!(parsed["error"], "file_not_found");
         assert_eq!(parsed["message"], "The requested file does not exist");
     }
+
+    // === Task 04-02.1: Span ID determinism and uniqueness tests ===
+
+    #[test]
+    fn test_span_id_deterministic_multiple_calls() {
+        // Call generate_id() 100 times with same inputs, verify all equal
+        let file_path = "src/main.rs";
+        let byte_start = 42;
+        let byte_end = 100;
+
+        let first_id = Span::generate_id(file_path, byte_start, byte_end);
+
+        for _ in 0..100 {
+            let id = Span::generate_id(file_path, byte_start, byte_end);
+            assert_eq!(id, first_id,
+                "generate_id() must return identical ID for same inputs every time");
+        }
+    }
+
+    #[test]
+    fn test_span_id_unique_different_files() {
+        // Same position in different files produces different IDs
+        let byte_start = 10;
+        let byte_end = 20;
+
+        let id1 = Span::generate_id("src/main.rs", byte_start, byte_end);
+        let id2 = Span::generate_id("lib/main.rs", byte_start, byte_end);
+        let id3 = Span::generate_id("src/helper.rs", byte_start, byte_end);
+
+        assert_ne!(id1, id2, "Different file paths should produce different IDs");
+        assert_ne!(id1, id3, "Different file paths should produce different IDs");
+        assert_ne!(id2, id3, "Different file paths should produce different IDs");
+    }
+
+    #[test]
+    fn test_span_id_unique_different_positions() {
+        // Same file, different positions produce different IDs
+        let file_path = "test.rs";
+
+        let id1 = Span::generate_id(file_path, 0, 10);
+        let id2 = Span::generate_id(file_path, 10, 20);
+        let id3 = Span::generate_id(file_path, 0, 20);
+        let id4 = Span::generate_id(file_path, 5, 15);
+
+        assert_ne!(id1, id2, "Different positions should produce different IDs");
+        assert_ne!(id1, id3, "Different span lengths should produce different IDs");
+        assert_ne!(id2, id3, "Different positions should produce different IDs");
+        assert_ne!(id1, id4, "Different start positions should produce different IDs");
+    }
+
+    #[test]
+    fn test_span_id_zero_length_span() {
+        // Span where start == end is valid and produces stable ID
+        let file_path = "test.rs";
+        let position = 50;
+
+        let id1 = Span::generate_id(file_path, position, position);
+        let id2 = Span::generate_id(file_path, position, position);
+
+        assert_eq!(id1.len(), 16, "Zero-length span ID should still be 16 hex characters");
+        assert_eq!(id1, id2, "Zero-length span ID should be stable");
+        assert!(id1.chars().all(|c| c.is_ascii_hexdigit()), "Zero-length span ID should be valid hex");
+    }
+
+    #[test]
+    fn test_span_id_case_sensitive() {
+        // File paths are case-sensitive
+        let byte_start = 10;
+        let byte_end = 20;
+
+        let id_lower = Span::generate_id("test.rs", byte_start, byte_end);
+        let id_upper = Span::generate_id("TEST.rs", byte_start, byte_end);
+        let id_mixed = Span::generate_id("Test.rs", byte_start, byte_end);
+
+        assert_ne!(id_lower, id_upper, "File path case should affect span ID");
+        assert_ne!(id_lower, id_mixed, "File path case should affect span ID");
+        assert_ne!(id_upper, id_mixed, "File path case should affect span ID");
+    }
+
+    #[test]
+    fn test_span_id_large_offsets() {
+        // Verify large byte offsets (common in big files) work correctly
+        let file_path = "large_file.rs";
+
+        let id1 = Span::generate_id(file_path, 1_000_000, 1_000_100);
+        let id2 = Span::generate_id(file_path, 1_000_000, 1_000_100);
+
+        assert_eq!(id1, id2, "Large offsets should produce stable IDs");
+        assert_eq!(id1.len(), 16, "Large offset span ID should be 16 characters");
+
+        // Different large offsets produce different IDs
+        let id3 = Span::generate_id(file_path, 1_000_001, 1_000_100);
+        assert_ne!(id1, id3, "Different start positions with large offsets should differ");
+    }
 }
