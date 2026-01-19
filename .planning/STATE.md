@@ -9,11 +9,11 @@
 ## Current Position
 
 - **Current phase:** Phase 8 — Validation Hooks (Pre/Post) Surfaced via JSON
-- **Status:** Planned
-- **Last activity:** 2026-01-19 - Completed Phase 7 (Deterministic Exports)
-- **Next action:** Plan Phase 8 (Validation Hooks)
+- **Status:** In progress
+- **Last activity:** 2026-01-19 - Completed Phase 8 Plan 01 (Validation Module)
+- **Next action:** Continue Phase 8 (CLI integration of validation)
 
-**Progress bar:** [██████████] 81% (27/33 total plans executed - Phase 7 complete)
+**Progress bar:** [██████████] 84% (28/33 total plans executed - Phase 8 Plan 01 complete)
 
 ## Success Definition (v1)
 
@@ -187,6 +187,14 @@ Magellan v1 is "done" when a user can:
 - Stable IDs (symbol_id, caller_symbol_id, callee_symbol_id) included in all CSV rows
 - target_symbol_id set to None for references (acceptable for v1, future: add reverse index)
 
+### Key Decisions (from Phase 8 / Plan 01)
+- Validation module follows VerifyReport pattern with passed bool and errors Vec
+- Error codes use SCREAMING_SNAKE_CASE for machine-readability (ORPHAN_REFERENCE, DB_PARENT_MISSING, etc.)
+- Orphan detection uses sqlitegraph neighbors() with NeighborQuery and BackendDirection
+- GraphBackend trait must be explicitly imported for get_node/neighbors methods
+- Validation module is internal API (no re-exports from mod.rs) - called from CLI handlers
+- Error vectors sorted deterministically by code then message for consistent JSON output
+
 ### Known Risks / Watch-outs
 - Mixed coordinate systems (byte vs char; inclusive vs exclusive).
 - "Stable IDs" accidentally derived from unstable sources (rowid, node id, iteration order).
@@ -198,11 +206,11 @@ Magellan v1 is "done" when a user can:
 
 ## Session Continuity
 
-- **Last session:** 2026-01-19T15:15:00Z
-- **Stopped at:** Phase 7 complete and verified
+- **Last session:** 2026-01-19T15:03:00Z
+- **Stopped at:** Completed Phase 8 Plan 01 (Validation Module)
 - **Resume file:** None
 
 If resuming later, start by:
-1. Open `.planning/phases/07-deterministic-exports/07-VERIFICATION.md` for context on completed phase.
+1. Open `.planning/phases/08-validation-hooks/08-01-SUMMARY.md` for context on completed plan.
 2. Run `cargo test --workspace` to verify baseline health.
-3. Phase 7 is complete - ready for Phase 8 (Validation Hooks).
+3. Phase 8 Plan 01 is complete - validation module ready for CLI integration.
