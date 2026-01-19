@@ -41,6 +41,12 @@ pub struct CallFact {
     pub caller: String,
     /// Name of the function being called
     pub callee: String,
+    /// Stable symbol ID of the caller (optional, for correlation)
+    #[serde(default)]
+    pub caller_symbol_id: Option<String>,
+    /// Stable symbol ID of the callee (optional, for correlation)
+    #[serde(default)]
+    pub callee_symbol_id: Option<String>,
     /// Byte offset where call starts in file
     pub byte_start: usize,
     /// Byte offset where call ends in file
