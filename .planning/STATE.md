@@ -11,11 +11,11 @@ See: .planning/PROJECT.md (updated 2026-01-19)
 
 **Milestone:** v1.1 Correctness + Safety
 **Phase:** 11 of 13 (FQN Extraction)
-**Plan:** 3 of 6 in current phase
+**Plan:** 5 of 6 in current phase
 **Status:** In progress
-**Last activity:** 2026-01-19 — Completed Phase 11-03: Dot-Separated Language FQN Extraction
+**Last activity:** 2026-01-19 — Completed Phase 11-05: FQN-Based Symbol Lookup
 
-**Progress bar:** [█████░░░░░░░] 39% v1.1 (7/18 plans) | [██████████] 100% v1.0 (29/29 plans)
+**Progress bar:** [██████░░░░░░] 44% v1.1 (8/18 plans) | [██████████] 100% v1.0 (29/29 plans)
 
 ## Success Definition (v1.1)
 
@@ -122,6 +122,18 @@ Magellan v1.1 is "done" when:
 - extract_symbol_with_fqn handles type scope nodes for symbol creation
 - Package declaration symbol extracted before pushing to scope stack
 
+### Key Decisions (Phase 11-04: C/C++ Parser FQN Extraction)
+- C has no namespaces, so FQN = simple name (no changes needed)
+- C++ uses ScopeSeparator::DoubleColon for namespace::symbol FQNs
+- Namespace handling with push/pop pattern for nested namespaces
+- Anonymous namespaces use empty name, parent scope for FQN
+
+### Key Decisions (Phase 11-05: FQN-Based Symbol Lookup)
+- Symbol lookup maps use FQN as key instead of simple name
+- FQN collision detection emits WARN-level messages
+- Backward compatibility: fqn.or(name).unwrap_or_default() fallback pattern
+- SymbolNode schema includes fqn field for unique identification
+
 ### Blockers / Concerns
 
 **Phase 11 (FQN):**
@@ -131,12 +143,12 @@ Magellan v1.1 is "done" when:
 ## Session Continuity
 
 - **Last session:** 2026-01-19
-- **Stopped at:** Completed Phase 11-03: Dot-Separated Language FQN Extraction
+- **Stopped at:** Completed Phase 11-05: FQN-Based Symbol Lookup
 - **Resume file:** None
 
 If resuming later, start by:
 1. Read `.planning/ROADMAP.md` for phase structure
 2. Read `.planning/PROJECT.md` for requirements and constraints
-3. Read `.planning/phases/11-fqn-extraction/11-03-SUMMARY.md` for plan results
+3. Read `.planning/phases/11-fqn-extraction/11-05-SUMMARY.md` for plan results
 4. Run `cargo test --workspace` to verify baseline health
-5. Execute next plan in Phase 11 (11-04 through 11-06)
+5. Execute next plan in Phase 11 (11-06)
