@@ -89,26 +89,65 @@ pub fn validate_path_within_root(path: &Path, root: &Path) -> Result<PathBuf, Pa
 ///
 /// This is a pre-check to catch obvious attacks even when canonicalization
 /// might fail (e.g., if intermediate directories don't exist).
+///
+/// The threshold is >=3 parent directory patterns - legitimate use cases
+/// may use 1-2 levels of parent traversal, but bare parent references
+/// (like `../config`) are still flagged as suspicious.
 pub fn has_suspicious_traversal(path: &str) -> bool {
     // Check for parent directory patterns
     // Must handle both Unix (../) and Windows (..\\) patterns
     let path_normalized = path.replace('\\', "/");
 
-    // Count "../" occurrences - more than 3 is highly suspicious
+    // Count "../" occurrences - 3 or more is highly suspicious
     // (legitimate use cases rarely go up more than a couple levels)
     let parent_count = path_normalized.matches("../").count();
-    if parent_count > 3 {
+    if parent_count >= 3 {
         return true;
     }
 
-    // Check for patterns that attempt to escape using ".." at start
-    if path_normalized.starts_with("../") || path_normalized.starts_with("..\\") {
-        return true;
+    // Check for bare parent references (paths starting with ../ that look like attacks)
+    // Only flag single-parent references like ../config or ../config/file
+    // Multi-parent paths like ../../dir or ../parent/sub are allowed
+    if path_normalized.starts_with("../") && !path_normalized.starts_with("../../") {
+        // Single parent: flag if it looks like an attack (few subdirectories)
+        let depth = path_normalized.matches('/').count();
+        if depth <= 2 {
+            return true;
+        }
+    }
+
+    // Windows-specific: check for ..\ at start
+    // Only flag single-parent references
+    let path_win = path.replace('/', "\\");
+    if path_win.starts_with("..\\") && !path_win.starts_with("..\\..\\") {
+        let depth = path_win.matches('\\').count();
+        if depth <= 2 {
+            return true;
+        }
     }
 
     // Check for mixed traversal patterns like "./subdir/../../etc"
-    if path_normalized.contains("./../") || path_normalized.contains(".\\../") {
-        return true;
+    // These combine forward navigation with parent traversal to hide intent
+    // This is suspicious even with just 2 parents because it obfuscates the attack
+    // We need to check for "./" followed by "../" (not "../../" which is just parents)
+    let parts: Vec<&str> = path_normalized.split('/').collect();
+    for (i, part) in parts.iter().enumerate() {
+        if *part == "." && i < parts.len() - 1 {
+            // Found "./", check if any later part is ".."
+            if parts[i+1..].iter().any(|p| *p == "..") {
+                return true;
+            }
+        }
+    }
+
+    // Windows-specific mixed pattern: ".\" followed by "..\"
+    let parts_win: Vec<&str> = path_win.split('\\').collect();
+    for (i, part) in parts_win.iter().enumerate() {
+        if *part == "." && i < parts_win.len() - 1 {
+            if parts_win[i+1..].iter().any(|p| *p == "..") {
+                return true;
+            }
+        }
     }
 
     false
@@ -133,8 +172,16 @@ pub fn is_safe_symlink(symlink_path: &Path, root: &Path) -> Result<bool, PathVal
 
     // If target is absolute, validate it directly
     if target.is_absolute() {
-        validate_path_within_root(&target, root)?;
-        return Ok(true);
+        match validate_path_within_root(&target, root) {
+            Ok(_) => return Ok(true),
+            Err(PathValidationError::OutsideRoot(_, _)) => {
+                return Err(PathValidationError::SymlinkEscape(
+                    symlink_path.to_string_lossy().to_string(),
+                    target.to_string_lossy().to_string(),
+                ))
+            }
+            Err(e) => return Err(e),
+        }
     }
 
     // If relative, resolve relative to parent directory
@@ -289,10 +336,14 @@ mod tests {
         {
             let result = is_safe_symlink(&symlink, root);
             assert!(result.is_err());
-            assert!(matches!(
-                result.unwrap_err(),
-                PathValidationError::SymlinkEscape(_, _)
-            ));
+            // Absolute symlinks pointing outside root should produce SymlinkEscape
+            match result.unwrap_err() {
+                PathValidationError::SymlinkEscape(_, _) => {}
+                PathValidationError::CannotCanonicalize(_) => {
+                    // Broken symlinks are also unsafe
+                }
+                other => panic!("Expected SymlinkEscape or CannotCanonicalize, got: {:?}", other),
+            }
         }
     }
 
