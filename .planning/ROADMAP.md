@@ -194,7 +194,7 @@ Plans:
 
 ---
 
-### Phase 9 — Interop Export (SCIP / LSIF)
+### Phase 9 — Interop Export (SCIP)
 
 **Goal:** Users can emit interoperable index formats with documented encoding and identity rules.
 
@@ -202,11 +202,16 @@ Plans:
 
 **Requirements:** EXP-04
 
-**Plans:** TBD
+**Plans:** 1 plan
+
+Plans:
+- [ ] 09-01-PLAN.md — Add SCIP export with protobuf binary output
 
 **Success Criteria (observable):**
-1. User can export to SCIP and/or LSIF with documented position encoding and symbol identity rules.
-2. A standard SCIP/LSIF consumer can parse the exported artifact without format errors.
+1. User can export to SCIP with documented position encoding (0-indexed lines, UTF-8 byte offsets) and symbol identity rules.
+2. A standard SCIP consumer can parse the exported artifact without format errors.
+
+**Note:** LSIF export is deferred to v2. LSIF is deprecated by Sourcegraph in favor of SCIP.
 
 ---
 
@@ -222,4 +227,4 @@ Plans:
 | 6 | Query UX | Complete |
 | 7 | Deterministic Exports | Complete |
 | 8 | Validation Hooks | Complete |
-| 9 | Interop Export (SCIP / LSIF) | Planned |
+| 9 | Interop Export (SCIP) | Planned |
