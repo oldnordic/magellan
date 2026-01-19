@@ -9,11 +9,11 @@
 ## Current Position
 
 - **Current phase:** Phase 4 — Canonical Span Model
-- **Status:** In progress (2/3 plans executed in Phase 4)
-- **Last activity:** 2026-01-19 - Completed 04-02 (Comprehensive Span Model Tests)
-- **Next action:** Execute 04-03 (Apply Span Model to Graph Queries)
+- **Status:** Phase 4 complete (3/3 plans executed)
+- **Last activity:** 2026-01-19 - Completed 04-03 (Document Canonical Span Model)
+- **Next action:** Begin Phase 5 (if exists) or final validation
 
-**Progress bar:** [██████████] 50% (2/3 plans executed in Phase 4, 14/15 total plans executed)
+**Progress bar:** [██████████] 93% (15/15 total plans executed - Phase 4 complete)
 
 ## Success Definition (v1)
 
@@ -108,6 +108,13 @@ Magellan v1 is "done" when a user can:
 - UTF-8 safety verified via .get() and .is_char_boundary() standard library methods
 - Unicode escape sequences used in tests for portability
 
+### Key Decisions (from Phase 4 / Plan 03)
+- Module-level documentation should explain half-open semantics with concrete example
+- Span struct docstring must include safety section for UTF-8 slicing using .get()
+- All public types should have examples demonstrating usage
+- Method documentation should explain algorithm and stability guarantees
+- Span ID format is part of Magellan's stable API contract
+
 ### Known Risks / Watch-outs
 - Mixed coordinate systems (byte vs char; inclusive vs exclusive).
 - "Stable IDs" accidentally derived from unstable sources (rowid, node id, iteration order).
@@ -119,11 +126,11 @@ Magellan v1 is "done" when a user can:
 
 ## Session Continuity
 
-- **Last session:** 2026-01-19T11:50:00Z
-- **Stopped at:** Completed 04-02 (Comprehensive Span Model Tests)
+- **Last session:** 2026-01-19T11:37:52Z
+- **Stopped at:** Completed 04-03 (Document Canonical Span Model)
 - **Resume file:** None
 
 If resuming later, start by:
-1. Open `.planning/phases/04-canonical-span-model/04-02-SUMMARY.md` for context on completed work.
+1. Open `.planning/phases/04-canonical-span-model/04-03-SUMMARY.md` for context on completed work.
 2. Run `cargo test --workspace` to verify baseline health.
-3. Execute remaining Phase 4 plan: `/gsd:execute-phase 04-canonical-span-model`
+3. Phase 4 is complete - proceed to next phase or final validation.
