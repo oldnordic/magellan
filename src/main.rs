@@ -821,6 +821,14 @@ fn main() -> ExitCode {
         return ExitCode::from(1);
     }
 
+    // Parse global --output flag
+    let output_format = args
+        .iter()
+        .position(|x| x == "--output")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|fmt| OutputFormat::from_str(fmt))
+        .unwrap_or(OutputFormat::Human);
+
     match parse_args() {
         Ok(Command::Status { db_path }) => {
             if let Err(e) = run_status(db_path) {
@@ -853,7 +861,7 @@ fn main() -> ExitCode {
                 explain,
                 symbol,
                 show_extent,
-                OutputFormat::Human,
+                output_format,
             ) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
@@ -868,7 +876,7 @@ fn main() -> ExitCode {
             glob_pattern,
         }) => {
             if let Err(e) =
-                find_cmd::run_find(db_path, name, root, path, glob_pattern, OutputFormat::Human)
+                find_cmd::run_find(db_path, name, root, path, glob_pattern, output_format)
             {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
@@ -883,7 +891,7 @@ fn main() -> ExitCode {
             direction,
         }) => {
             if let Err(e) =
-                refs_cmd::run_refs(db_path, name, root, path, direction, OutputFormat::Human)
+                refs_cmd::run_refs(db_path, name, root, path, direction, output_format)
             {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
@@ -891,7 +899,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Ok(Command::Files { db_path }) => {
-            if let Err(e) = run_files(db_path, OutputFormat::Human) {
+            if let Err(e) = run_files(db_path, output_format) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
