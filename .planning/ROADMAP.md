@@ -112,10 +112,10 @@ Plans:
 **Plans:** 4 plans
 
 Plans:
-- [ ] 05-01-PLAN.md — Add stable symbol_id generation (SymbolNode + SymbolFact schema)
-- [ ] 05-02-PLAN.md — Create ExecutionLog module for run tracking
-- [ ] 05-03-PLAN.md — Add symbol_id to JSON output (SymbolMatch + query propagation)
-- [ ] 05-04-PLAN.md — Wire execution tracking in all command handlers
+- [x] 05-01-PLAN.md — Add stable symbol_id generation (SymbolNode + SymbolFact schema)
+- [x] 05-02-PLAN.md — Create ExecutionLog module for run tracking
+- [x] 05-03-PLAN.md — Add symbol_id to JSON output (SymbolMatch + query propagation)
+- [x] 05-04-PLAN.md — Wire execution tracking in all command handlers
 
 **Success Criteria (observable):**
 1. Every run produces an `execution_id` that appears in CLI JSON outputs and is recorded in the database.
@@ -193,7 +193,7 @@ Plans:
 | 2 | Deterministic Watch & Indexing Pipeline | Complete |
 | 3 | CLI Output Contract | Complete |
 | 4 | Canonical Span Model + Span-Aware Results | Complete |
-| 5 | Stable Identity + Execution Tracking | Planned |
+| 5 | Stable Identity + Execution Tracking | Complete |
 | 6 | Query UX | Planned |
 | 7 | Deterministic Exports | Planned |
 | 8 | Validation Hooks | Planned |
