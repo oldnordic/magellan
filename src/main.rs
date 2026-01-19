@@ -2,6 +2,7 @@
 //!
 //! Usage: magellan <command> [arguments]
 
+mod export_cmd;
 mod files_cmd;
 mod find_cmd;
 mod get_cmd;
@@ -11,7 +12,7 @@ mod verify_cmd;
 mod watch_cmd;
 
 use anyhow::Result;
-use magellan::{CodeGraph, OutputFormat, WatcherConfig};
+use magellan::{CodeGraph, ExportFormat, OutputFormat, WatcherConfig};
 use magellan::output::{JsonResponse, StatusResponse, generate_execution_id, output_json};
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -24,7 +25,7 @@ fn print_usage() {
     eprintln!("  magellan --help");
     eprintln!();
     eprintln!("  magellan watch --root <DIR> --db <FILE> [--debounce-ms <N>] [--watch-only]");
-    eprintln!("  magellan export --db <FILE>");
+    eprintln!("  magellan export --db <FILE> [--format json|jsonl] [--output <PATH>] [--minify]");
     eprintln!("  magellan status --db <FILE>");
     eprintln!("  magellan query --db <FILE> --file <PATH> [--kind <KIND>]");
     eprintln!("  magellan find --db <FILE> --name <NAME> [--path <PATH>]");
@@ -37,7 +38,7 @@ fn print_usage() {
     eprintln!();
     eprintln!("Commands:");
     eprintln!("  watch     Watch directory and index changes");
-    eprintln!("  export    Export graph data to JSON");
+    eprintln!("  export    Export graph data to JSON/JSONL");
     eprintln!("  status    Show database statistics");
     eprintln!("  query     List symbols in a file");
     eprintln!("  find      Find a symbol by name");
@@ -60,6 +61,12 @@ fn print_usage() {
     eprintln!();
     eprintln!("Export arguments:");
     eprintln!("  --db <FILE>         Path to sqlitegraph database");
+    eprintln!("  --format <FORMAT>   Export format: json (default) or jsonl");
+    eprintln!("  --output <PATH>     Write to file instead of stdout");
+    eprintln!("  --minify            Use compact JSON (no pretty-printing)");
+    eprintln!("  --no-symbols        Exclude symbols from export");
+    eprintln!("  --no-references     Exclude references from export");
+    eprintln!("  --no-calls          Exclude calls from export");
     eprintln!();
     eprintln!("Status arguments:");
     eprintln!("  --db <FILE>         Path to sqlitegraph database");
@@ -114,6 +121,12 @@ enum Command {
     },
     Export {
         db_path: PathBuf,
+        format: ExportFormat,
+        output: Option<PathBuf>,
+        include_symbols: bool,
+        include_references: bool,
+        include_calls: bool,
+        minify: bool,
     },
     Status { output_format: OutputFormat,
         db_path: PathBuf,
@@ -246,6 +259,12 @@ fn parse_args() -> Result<Command> {
         }
         "export" => {
             let mut db_path: Option<PathBuf> = None;
+            let mut format = ExportFormat::Json;
+            let mut output: Option<PathBuf> = None;
+            let mut include_symbols = true;
+            let mut include_references = true;
+            let mut include_calls = true;
+            let mut minify = false;
 
             let mut i = 2;
             while i < args.len() {
@@ -257,6 +276,37 @@ fn parse_args() -> Result<Command> {
                         db_path = Some(PathBuf::from(&args[i + 1]));
                         i += 2;
                     }
+                    "--format" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--format requires an argument"));
+                        }
+                        format = ExportFormat::from_str(&args[i + 1])
+                            .ok_or_else(|| anyhow::anyhow!("Invalid format: {}", args[i + 1]))?;
+                        i += 2;
+                    }
+                    "--output" | "-o" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--output requires an argument"));
+                        }
+                        output = Some(PathBuf::from(&args[i + 1]));
+                        i += 2;
+                    }
+                    "--minify" => {
+                        minify = true;
+                        i += 1;
+                    }
+                    "--no-symbols" => {
+                        include_symbols = false;
+                        i += 1;
+                    }
+                    "--no-references" => {
+                        include_references = false;
+                        i += 1;
+                    }
+                    "--no-calls" => {
+                        include_calls = false;
+                        i += 1;
+                    }
                     _ => {
                         return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
                     }
@@ -265,7 +315,15 @@ fn parse_args() -> Result<Command> {
 
             let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
 
-            Ok(Command::Export { db_path })
+            Ok(Command::Export {
+                db_path,
+                format,
+                output,
+                include_symbols,
+                include_references,
+                include_calls,
+                minify,
+            })
         }
         "status" => {
             let mut db_path: Option<PathBuf> = None;
@@ -842,22 +900,6 @@ fn run_status(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
     Ok(())
 }
 
-fn run_export(db_path: PathBuf) -> Result<()> {
-    let mut graph = CodeGraph::open(&db_path)?;
-    let tracker = ExecutionTracker::new(
-        vec!["export".to_string()],
-        None,
-        db_path.to_string_lossy().to_string(),
-    );
-    tracker.start(&graph)?;
-
-    let json = graph.export_json()?;
-    println!("{}", json);
-
-    tracker.finish(&graph)?;
-    Ok(())
-}
-
 fn run_files(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
     let mut graph = CodeGraph::open(&db_path)?;
     let mut tracker = ExecutionTracker::new(
@@ -1028,8 +1070,24 @@ fn main() -> ExitCode {
             }
             ExitCode::SUCCESS
         }
-        Ok(Command::Export { db_path }) => {
-            if let Err(e) = run_export(db_path) {
+        Ok(Command::Export {
+            db_path,
+            format,
+            output,
+            include_symbols,
+            include_references,
+            include_calls,
+            minify,
+        }) => {
+            if let Err(e) = export_cmd::run_export(
+                db_path,
+                format,
+                output,
+                include_symbols,
+                include_references,
+                include_calls,
+                minify,
+            ) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }

@@ -4,7 +4,7 @@ mod calls;
 mod count;
 mod db_compat;
 mod execution_log;
-mod export;
+pub mod export;
 mod files;
 pub mod filter;
 mod freshness;
