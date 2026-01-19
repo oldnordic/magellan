@@ -84,6 +84,79 @@ pub struct ScopeStack {
     separator: ScopeSeparator,
 }
 
+impl ScopeStack {
+    /// Create a new empty scope stack
+    pub fn new(separator: ScopeSeparator) -> Self {
+        Self {
+            scopes: Vec::new(),
+            separator,
+        }
+    }
+
+    /// Push a new scope level onto the stack
+    ///
+    /// Used when entering a module, class, namespace, or other semantic scope.
+    pub fn push(&mut self, scope: impl Into<String>) {
+        self.scopes.push(scope.into());
+    }
+
+    /// Pop the most recent scope level from the stack
+    ///
+    /// Used when exiting a module, class, or namespace.
+    /// Returns the popped scope name, or None if stack was empty.
+    pub fn pop(&mut self) -> Option<String> {
+        if self.scopes.is_empty() {
+            None
+        } else {
+            Some(self.scopes.pop().unwrap())
+        }
+    }
+
+    /// Get the current fully-qualified name
+    ///
+    /// Returns empty string if stack is empty (top-level symbols).
+    /// Otherwise returns components joined by separator.
+    pub fn current_fqn(&self) -> String {
+        if self.scopes.is_empty() {
+            String::new()
+        } else {
+            let sep = self.separator.as_str();
+            self.scopes.join(sep)
+        }
+    }
+
+    /// Get FQN for a symbol within the current scope
+    ///
+    /// If symbol_name is provided, appends it to current scope.
+    /// If no current scope, returns symbol_name only.
+    /// If symbol_name is empty and no scope, returns empty (for anonymous symbols).
+    pub fn fqn_for_symbol(&self, symbol_name: &str) -> String {
+        let current = self.current_fqn();
+        if current.is_empty() {
+            symbol_name.to_string()
+        } else if symbol_name.is_empty() {
+            current
+        } else {
+            format!("{}{}{}", current, self.separator.as_str(), symbol_name)
+        }
+    }
+
+    /// Get the depth of the scope stack
+    pub fn depth(&self) -> usize {
+        self.scopes.len()
+    }
+
+    /// Check if stack is empty
+    pub fn is_empty(&self) -> bool {
+        self.scopes.is_empty()
+    }
+
+    /// Get the separator for this stack
+    pub fn separator(&self) -> ScopeSeparator {
+        self.separator
+    }
+}
+
 impl SymbolKind {
     /// Return the normalized string key for this symbol kind (used for CLI/JSON)
     pub fn normalized_key(&self) -> &'static str {
