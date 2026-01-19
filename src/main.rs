@@ -807,8 +807,17 @@ fn run_status(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
 
 fn run_export(db_path: PathBuf) -> Result<()> {
     let mut graph = CodeGraph::open(&db_path)?;
+    let tracker = ExecutionTracker::new(
+        vec!["export".to_string()],
+        None,
+        db_path.to_string_lossy().to_string(),
+    );
+    tracker.start(&graph)?;
+
     let json = graph.export_json()?;
     println!("{}", json);
+
+    tracker.finish(&graph)?;
     Ok(())
 }
 
