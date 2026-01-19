@@ -27,7 +27,7 @@ fn print_usage() {
     eprintln!("  magellan status --db <FILE>");
     eprintln!("  magellan query --db <FILE> --file <PATH> [--kind <KIND>]");
     eprintln!("  magellan find --db <FILE> --name <NAME> [--path <PATH>]");
-    eprintln!("  magellan refs --db <FILE> --name <NAME> --path <PATH> [--direction <in|out>]");
+    eprintln!("  magellan refs --db <FILE> --name <NAME> --path <PATH> [--direction <in|out>] [--output <FORMAT>]");
     eprintln!("  magellan get --db <FILE> --file <PATH> --symbol <NAME>");
     eprintln!("  magellan get-file --db <FILE> --file <PATH>");
     eprintln!("  magellan files --db <FILE>");
@@ -456,6 +456,7 @@ fn parse_args() -> Result<Command> {
             let mut root: Option<PathBuf> = None;
             let mut path: Option<PathBuf> = None;
             let mut direction = String::from("in"); // default
+            let mut _output_format = OutputFormat::Human; // Consume but don't store in Command
 
             let mut i = 2;
             while i < args.len() {
@@ -493,6 +494,14 @@ fn parse_args() -> Result<Command> {
                             return Err(anyhow::anyhow!("--direction requires an argument"));
                         }
                         direction = args[i + 1].clone();
+                        i += 2;
+                    }
+                    "--output" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--output requires an argument"));
+                        }
+                        _output_format = OutputFormat::from_str(&args[i + 1])
+                            .ok_or_else(|| anyhow::anyhow!("Invalid output format: {}", args[i + 1]))?;
                         i += 2;
                     }
                     _ => {

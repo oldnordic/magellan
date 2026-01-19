@@ -1067,8 +1067,6 @@ fn caller2() {
 
     // Run refs --name callee --direction in --output json
     let output = Command::new(&bin_path)
-        .arg("--output")
-        .arg("json")
         .arg("refs")
         .arg("--db")
         .arg(&db_path)
@@ -1078,6 +1076,8 @@ fn caller2() {
         .arg(&file_path)
         .arg("--direction")
         .arg("in")
+        .arg("--output")
+        .arg("json")
         .output()
         .expect("Failed to execute magellan refs");
 
