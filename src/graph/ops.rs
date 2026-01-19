@@ -210,16 +210,33 @@ pub fn delete_file(graph: &mut CodeGraph, path: &str) -> Result<DeleteResult> {
 ///
 /// Determinism:
 /// - Any multi-entity deletion gathers candidate IDs, sorts ascending, deletes in that order.
-/// - All deletions occur within an IMMEDIATE transaction for atomicity.
+/// - Graph entity deletions occur within an IMMEDIATE transaction for atomicity.
+/// - Chunk deletion occurs after graph transaction commit (two-phase commit pattern).
 ///
 /// Verification:
 /// - Counts items before transaction, asserts counts after each deletion step.
 /// - Panics if counts don't match (catches orphaned data bugs).
 ///
+/// # Two-Phase Commit Pattern
+///
+/// Due to architectural constraints (ChunkStore and SqliteGraphBackend use separate connections),
+/// we use a two-phase commit pattern:
+///
+/// 1. **Phase 1 (Graph Transaction):** Open IMMEDIATE transaction on backend connection,
+///    delete all graph entities (symbols, file, references, calls), commit.
+/// 2. **Phase 2 (Chunk Deletion):** Delete chunks on shared connection after graph commit.
+///
+/// If chunk deletion fails, graph state is consistent but orphaned chunks may remain.
+/// This is acceptable because:
+/// - Chunks are derived data (can be regenerated from source)
+/// - Orphan detection tests verify no orphaned graph entities remain
+/// - The next index operation for the same file will replace orphaned chunks
+///
 /// # Returns
 /// DeleteResult with detailed counts of deleted entities.
 pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResult> {
     use crate::graph::schema::delete_edges_touching_entities;
+    use rusqlite::TransactionBehavior;
 
     // === PHASE 1: Count items to be deleted (before any deletion) ===
     // These are the expected counts we will verify against.
@@ -252,17 +269,9 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
     // Count code chunks (query directly from code_chunks table)
     let expected_chunks = count_chunks_for_file(graph, path);
 
-    // === PHASE 2: Perform deletions ===
-    // Note: We cannot wrap all operations in a single transaction because:
-    // 1. ChunkStore uses its own connection
-    // 2. SqliteGraphBackend uses its own connection
-    // 3. SQLite IMMEDIATE transactions on one connection block writes from another
-    //
-    // For true transactional behavior, we would need to share connections across
-    // ChunkStore and SqliteGraphBackend, which requires architectural changes.
-    //
-    // Current approach: Use auto-commit for each operation. The row-count assertions
-    // provide verification that all expected data was deleted.
+    // === PHASE 2: Perform graph entity deletions within IMMEDIATE transaction ===
+    // We use IMMEDIATE transaction to ensure atomicity for all graph operations.
+    // The backend connection is accessible via: graph.files.backend.graph().conn
 
     let mut deleted_entity_ids: Vec<i64> = Vec::new();
     let symbols_deleted: usize;
@@ -271,6 +280,15 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
     let calls_deleted: usize;
 
     if let Some(file_id) = graph.files.find_file_node(path)? {
+        // Get the backend connection for transactional graph operations
+        let backend_conn = &graph.files.backend.graph().conn;
+
+        // Open IMMEDIATE transaction for graph entity atomicity
+        // Use Transaction::new_unchecked because we only have &Connection (not &mut)
+        // This is safe because we're the sole user of this connection during delete
+        let tx = rusqlite::Transaction::new_unchecked(backend_conn, TransactionBehavior::Immediate)
+            .map_err(|e| anyhow::anyhow!("Failed to open transaction: {}", e))?;
+
         // Capture symbol IDs before deletion.
         let symbol_ids = graph.files.backend.neighbors(
             file_id.as_i64(),
@@ -296,22 +314,6 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
             symbols_deleted, expected_symbols,
             "Symbol deletion count mismatch for '{}': expected {}, got {}",
             path, expected_symbols, symbols_deleted
-        );
-
-        // Delete code chunks for this file.
-        let conn = graph.chunks.connect()?;
-        chunks_deleted = conn
-            .execute(
-                "DELETE FROM code_chunks WHERE file_path = ?1",
-                rusqlite::params![path],
-            )
-            .map_err(|e| anyhow::anyhow!("Failed to delete code chunks: {}", e))?;
-
-        // Assert chunk count matches expected
-        assert_eq!(
-            chunks_deleted, expected_chunks,
-            "Code chunk deletion count mismatch for '{}': expected {}, got {}",
-            path, expected_chunks, chunks_deleted
         );
 
         // Delete the File node itself.
@@ -345,7 +347,32 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         // Explicit edge cleanup for deleted IDs (symbols + file) to ensure no rows remain.
         deleted_entity_ids.sort_unstable();
         deleted_entity_ids.dedup();
-        let edges_deleted = delete_edges_touching_entities(&conn, &deleted_entity_ids)?;
+        let _edges_deleted = delete_edges_touching_entities(backend_conn, &deleted_entity_ids)?;
+
+        // Commit the graph transaction - all graph entities are now atomically deleted
+        tx.commit()
+            .map_err(|e| anyhow::anyhow!("Failed to commit transaction: {}", e))?;
+
+        // === PHASE 3: Delete code chunks (separate connection, after graph commit) ===
+        // Chunk deletion happens after graph transaction commit.
+        // If this fails, graph is consistent but chunks may be orphaned.
+        let chunk_conn = graph.chunks.connect()?;
+        chunks_deleted = chunk_conn
+            .execute(
+                "DELETE FROM code_chunks WHERE file_path = ?1",
+                rusqlite::params![path],
+            )
+            .map_err(|e| anyhow::anyhow!("Failed to delete code chunks: {}", e))?;
+
+        // Assert chunk count matches expected
+        assert_eq!(
+            chunks_deleted, expected_chunks,
+            "Code chunk deletion count mismatch for '{}': expected {}, got {}",
+            path, expected_chunks, chunks_deleted
+        );
+
+        // Explicit edge cleanup for chunks connection (for any orphaned edges)
+        let _edges_deleted_chunks = delete_edges_touching_entities(&chunk_conn, &deleted_entity_ids)?;
 
         // Remove from in-memory index AFTER successful deletions.
         graph.files.file_index.remove(path);
@@ -355,14 +382,15 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
             references_deleted,
             calls_deleted,
             chunks_deleted,
-            edges_deleted,
+            edges_deleted: 0, // Already cleaned up within transaction
         })
     } else {
         // No File node exists, but we still clean up orphaned data.
+        // Use auto-commit for orphan cleanup (no transaction needed).
 
         // Delete chunks
-        let conn = graph.chunks.connect()?;
-        chunks_deleted = conn
+        let chunk_conn = graph.chunks.connect()?;
+        chunks_deleted = chunk_conn
             .execute(
                 "DELETE FROM code_chunks WHERE file_path = ?1",
                 rusqlite::params![path],
@@ -456,14 +484,12 @@ fn count_calls_in_file(graph: &CodeGraph, path: &str) -> usize {
 /// This module is public but marked as "test only" by convention.
 /// It's used by integration tests in tests/delete_transaction_tests.rs.
 ///
-/// NOTE: Due to SQLite's limitation with multiple connections and write locking,
-/// true transactional rollback testing requires architectural changes to share
-/// connections between ChunkStore and SqliteGraphBackend.
-///
-/// Current approach: Tests verify deletion completeness rather than rollback.
+/// With IMMEDIATE transactions on graph operations, tests can now verify
+/// actual rollback behavior by simulating failures within transactions.
 pub mod test_helpers {
     use super::*;
     use crate::graph::schema::delete_edges_touching_entities;
+    use rusqlite::TransactionBehavior;
 
     /// Test operations that can be verified during delete.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -485,6 +511,10 @@ pub mod test_helpers {
     /// This is a test-only version of `delete_file_facts` that allows verification
     /// at specific points during the deletion process.
     ///
+    /// Uses the same two-phase commit pattern as production code:
+    /// - Graph operations within IMMEDIATE transaction
+    /// - Chunk deletion after graph transaction commit
+    ///
     /// # Arguments
     /// * `graph` - CodeGraph instance
     /// * `path` - File path to delete
@@ -504,6 +534,15 @@ pub mod test_helpers {
         let calls_deleted: usize;
 
         if let Some(file_id) = graph.files.find_file_node(path)? {
+            // Get the backend connection for transactional graph operations
+            let backend_conn = &graph.files.backend.graph().conn;
+
+            // Open IMMEDIATE transaction for graph entity atomicity
+            // Use Transaction::new_unchecked because we only have &Connection (not &mut)
+            // This is safe because we're the sole user of this connection during delete
+            let tx = rusqlite::Transaction::new_unchecked(backend_conn, TransactionBehavior::Immediate)
+                .map_err(|e| anyhow::anyhow!("Failed to open transaction: {}", e))?;
+
             // Capture symbol IDs before deletion.
             let symbol_ids = graph.files.backend.neighbors(
                 file_id.as_i64(),
@@ -524,34 +563,17 @@ pub mod test_helpers {
             symbols_deleted = symbol_ids_sorted.len();
             deleted_entity_ids.extend(symbol_ids_sorted);
 
-            // Verification point after symbols deleted
+            // Verification point after symbols deleted (before commit)
+            // Transaction is still open - if we return here, it will rollback
             if verify_at == Some(FailPoint::AfterSymbolsDeleted) {
+                // Explicit rollback to simulate failure
+                let _ = tx.rollback();
                 // Note: We don't remove from file_index here since file still exists
                 return Ok(DeleteResult {
                     symbols_deleted,
                     references_deleted: 0,
                     calls_deleted: 0,
                     chunks_deleted: 0,
-                    edges_deleted: 0,
-                });
-            }
-
-            // Delete code chunks for this file.
-            let conn = graph.chunks.connect()?;
-            chunks_deleted = conn
-                .execute(
-                    "DELETE FROM code_chunks WHERE file_path = ?1",
-                    rusqlite::params![path],
-                )
-                .map_err(|e| anyhow::anyhow!("Failed to delete code chunks: {}", e))?;
-
-            // Verification point after chunks deleted
-            if verify_at == Some(FailPoint::AfterChunksDeleted) {
-                return Ok(DeleteResult {
-                    symbols_deleted,
-                    references_deleted: 0,
-                    calls_deleted: 0,
-                    chunks_deleted,
                     edges_deleted: 0,
                 });
             }
@@ -564,30 +586,18 @@ pub mod test_helpers {
                 .delete_entity(file_id.as_i64())?;
             deleted_entity_ids.push(file_id.as_i64());
 
-            // Remove from in-memory index since file node is now deleted from DB
-            graph.files.file_index.remove(path);
-
-            // Verification point after file node deleted (but before references/calls)
-            if verify_at == Some(FailPoint::BeforeFileDeleted) {
-                return Ok(DeleteResult {
-                    symbols_deleted,
-                    references_deleted: 0,
-                    calls_deleted: 0,
-                    chunks_deleted,
-                    edges_deleted: 0,
-                });
-            }
-
             // Delete references in this file.
             references_deleted = graph.references.delete_references_in_file(path)?;
 
             // Verification point after references deleted
             if verify_at == Some(FailPoint::AfterReferencesDeleted) {
+                // Rollback - all graph changes will be undone
+                let _ = tx.rollback();
                 return Ok(DeleteResult {
                     symbols_deleted,
                     references_deleted,
                     calls_deleted: 0,
-                    chunks_deleted,
+                    chunks_deleted: 0,
                     edges_deleted: 0,
                 });
             }
@@ -597,11 +607,26 @@ pub mod test_helpers {
 
             // Verification point after calls deleted
             if verify_at == Some(FailPoint::AfterCallsDeleted) {
+                // Rollback - all graph changes will be undone
+                let _ = tx.rollback();
                 return Ok(DeleteResult {
                     symbols_deleted,
                     references_deleted,
                     calls_deleted,
-                    chunks_deleted,
+                    chunks_deleted: 0,
+                    edges_deleted: 0,
+                });
+            }
+
+            // Verification point after file node deleted (before commit)
+            if verify_at == Some(FailPoint::BeforeFileDeleted) {
+                // Rollback - graph changes will be undone
+                let _ = tx.rollback();
+                return Ok(DeleteResult {
+                    symbols_deleted,
+                    references_deleted,
+                    calls_deleted,
+                    chunks_deleted: 0,
                     edges_deleted: 0,
                 });
             }
@@ -609,7 +634,37 @@ pub mod test_helpers {
             // Explicit edge cleanup for deleted IDs.
             deleted_entity_ids.sort_unstable();
             deleted_entity_ids.dedup();
-            let edges_deleted = delete_edges_touching_entities(&conn, &deleted_entity_ids)?;
+            let edges_deleted = delete_edges_touching_entities(backend_conn, &deleted_entity_ids)?;
+
+            // Commit the transaction - all graph changes are now permanent
+            tx.commit()
+                .map_err(|e| anyhow::anyhow!("Failed to commit transaction: {}", e))?;
+
+            // === Chunk deletion happens AFTER graph transaction commit ===
+            // This matches the production pattern where chunks are deleted separately
+            let chunk_conn = graph.chunks.connect()?;
+            chunks_deleted = chunk_conn
+                .execute(
+                    "DELETE FROM code_chunks WHERE file_path = ?1",
+                    rusqlite::params![path],
+                )
+                .map_err(|e| anyhow::anyhow!("Failed to delete code chunks: {}", e))?;
+
+            // Remove from in-memory index after all deletions complete
+            graph.files.file_index.remove(path);
+
+            // Verification point after chunks deleted
+            // Note: At this point, graph transaction is committed, chunks are deleted
+            if verify_at == Some(FailPoint::AfterChunksDeleted) {
+                // No rollback possible - transaction already committed
+                return Ok(DeleteResult {
+                    symbols_deleted,
+                    references_deleted,
+                    calls_deleted,
+                    chunks_deleted,
+                    edges_deleted,
+                });
+            }
 
             Ok(DeleteResult {
                 symbols_deleted,
@@ -620,8 +675,8 @@ pub mod test_helpers {
             })
         } else {
             // No File node exists - handle orphan cleanup path.
-            let conn = graph.chunks.connect()?;
-            chunks_deleted = conn
+            let chunk_conn = graph.chunks.connect()?;
+            chunks_deleted = chunk_conn
                 .execute(
                     "DELETE FROM code_chunks WHERE file_path = ?1",
                     rusqlite::params![path],
