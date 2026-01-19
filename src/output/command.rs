@@ -796,6 +796,29 @@ pub struct ValidationWarning {
     pub details: serde_json::Value,
 }
 
+// Conversion from internal validation report to public response type
+impl From<crate::graph::validation::ValidationReport> for ValidationResponse {
+    fn from(report: crate::graph::validation::ValidationReport) -> Self {
+        ValidationResponse {
+            passed: report.passed,
+            error_count: report.errors.len(),
+            errors: report.errors.into_iter().map(|e| ValidationError {
+                code: e.code,
+                message: e.message,
+                entity_id: e.entity_id,
+                details: e.details,
+            }).collect(),
+            warning_count: report.warnings.len(),
+            warnings: report.warnings.into_iter().map(|w| ValidationWarning {
+                code: w.code,
+                message: w.message,
+                entity_id: w.entity_id,
+                details: w.details,
+            }).collect(),
+        }
+    }
+}
+
 /// Response for errors in JSON mode
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ErrorResponse {
