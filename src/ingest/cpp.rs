@@ -192,8 +192,11 @@ impl CppParser {
         // Track namespace scope
         if kind == "namespace_definition" {
             if let Some(name) = self.extract_name(node, source, kind) {
-                // Handle anonymous namespaces (empty name or unnamed)
+                // Create namespace symbol with parent scope
                 if !name.is_empty() {
+                    if let Some(fact) = self.extract_symbol_with_fqn(node, source, file_path, scope_stack) {
+                        facts.push(fact);
+                    }
                     scope_stack.push(&name);
                 }
                 // Recurse into namespace body

@@ -691,6 +691,17 @@ pub trait MyTrait {
         let method = methods.first().unwrap();
         assert_eq!(method.fqn, Some("MyTrait::trait_method".to_string()));
     }
+
+    #[test]
+    fn test_fqn_always_populated() {
+        let mut parser = Parser::new().unwrap();
+        let source = b"pub fn test_fn() {}\n";
+        let facts = parser.extract_symbols(PathBuf::from("test.rs"), source);
+
+        assert!(!facts.is_empty());
+        assert!(facts[0].fqn.is_some(), "FQN should always be populated");
+        assert!(!facts[0].fqn.as_ref().unwrap().is_empty(), "FQN should not be empty");
+    }
 }
 
 #[cfg(test)]
