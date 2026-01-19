@@ -59,14 +59,27 @@ impl ChunkStore {
     /// Get a connection to the database.
     ///
     /// For owned connections, opens a new connection.
-    /// For shared connections, returns an error (use with_conn instead).
+    /// For shared connections, also opens a new connection (to the same database).
+    ///
+    /// Note: This method always opens a NEW connection, even when using shared mode.
+    /// This is needed for operations that require raw access to the connection,
+    /// such as delete_edges_touching_entities which operates on sqlitegraph tables.
     pub fn connect(&self) -> Result<rusqlite::Connection, rusqlite::Error> {
         match &self.conn_source {
             ChunkStoreConnection::Owned(path) => rusqlite::Connection::open(path),
-            ChunkStoreConnection::Shared(_) => {
-                // For shared connections, we can't return a new Connection.
-                // The caller should use with_conn or with_connection_mut instead.
-                Err(rusqlite::Error::ExecuteReturnedResults)
+            ChunkStoreConnection::Shared(rc) => {
+                // Open a new connection to the same database.
+                // We need to extract the path from the existing connection.
+                let conn = rc.try_borrow()
+                    .map_err(|_| rusqlite::Error::InvalidParameterName(
+                        "Shared connection already borrowed".to_string()
+                    ))?;
+                // Get the database path from the existing connection
+                let path = conn.path().ok_or_else(|| {
+                    rusqlite::Error::InvalidParameterName("Cannot get database path".to_string())
+                })?;
+                // Open a new connection to the same database
+                rusqlite::Connection::open(path)
             }
         }
     }
@@ -359,6 +372,25 @@ impl ChunkStore {
                     row.get(0)
                 })
                 .map_err(|e| anyhow::anyhow!("Failed to count chunks: {}", e))?;
+
+            Ok(count as usize)
+        })
+    }
+
+    /// Count code chunks for a specific file.
+    ///
+    /// Used by delete operations to verify deletion completeness.
+    pub fn count_chunks_for_file(&self, file_path: &str) -> Result<usize> {
+        self.with_conn(|conn| {
+            let count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM code_chunks WHERE file_path = ?1",
+                    params![file_path],
+                    |row: &rusqlite::Row| {
+                        row.get(0)
+                    },
+                )
+                .map_err(|e| anyhow::anyhow!("Failed to count chunks for file: {}", e))?;
 
             Ok(count as usize)
         })

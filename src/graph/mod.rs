@@ -107,8 +107,13 @@ impl CodeGraph {
         db_compat::ensure_magellan_meta(&db_path_buf)
             .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
-        // Initialize ChunkStore and ensure schema exists
-        let chunks = ChunkStore::new(&db_path_buf);
+        // Open a shared connection for ChunkStore to enable transactional operations
+        // This allows chunk operations to participate in transactions with graph operations
+        let shared_conn = rusqlite::Connection::open(&db_path_buf)
+            .map_err(|e| anyhow::anyhow!("Failed to open shared connection for ChunkStore: {}", e))?;
+
+        // Initialize ChunkStore with shared connection and ensure schema exists
+        let chunks = ChunkStore::with_connection(shared_conn);
         chunks.ensure_schema()?;
 
         // Initialize ExecutionLog and ensure schema exists

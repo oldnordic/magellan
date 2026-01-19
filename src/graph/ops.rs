@@ -648,17 +648,7 @@ pub mod test_helpers {
 fn count_chunks_for_file(graph: &CodeGraph, path: &str) -> usize {
     graph
         .chunks
-        .connect()
-        .ok()
-        .and_then(|conn| {
-            conn.query_row(
-                "SELECT COUNT(*) FROM code_chunks WHERE file_path = ?1",
-                &[path],
-                |row| row.get::<_, i64>(0),
-            )
-            .ok()
-        })
-        .map(|count| count as usize)
+        .count_chunks_for_file(path)
         .unwrap_or(0)
 }
 
