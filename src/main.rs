@@ -10,7 +10,7 @@ mod verify_cmd;
 mod watch_cmd;
 
 use anyhow::Result;
-use magellan::{CodeGraph, WatcherConfig};
+use magellan::{CodeGraph, OutputFormat, WatcherConfig};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -45,6 +45,9 @@ fn print_usage() {
     eprintln!("  files     List all indexed files");
     eprintln!("  label     Query symbols by label (language, kind, etc.)");
     eprintln!("  verify    Verify database vs filesystem");
+    eprintln!();
+    eprintln!("Global arguments:");
+    eprintln!("  --output <FORMAT>   Output format: human (default) or json");
     eprintln!();
     eprintln!("Watch arguments:");
     eprintln!("  --root <DIR>        Directory to watch recursively");
@@ -830,9 +833,16 @@ fn main() -> ExitCode {
             symbol,
             show_extent,
         }) => {
-            if let Err(e) =
-                query_cmd::run_query(db_path, file_path, root, kind, explain, symbol, show_extent)
-            {
+            if let Err(e) = query_cmd::run_query(
+                db_path,
+                file_path,
+                root,
+                kind,
+                explain,
+                symbol,
+                show_extent,
+                OutputFormat::Human,
+            ) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }

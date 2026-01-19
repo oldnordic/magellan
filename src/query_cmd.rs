@@ -3,7 +3,8 @@
 //! Lists symbols in a file, optionally filtered by kind.
 
 use anyhow::{Context, Result};
-use magellan::{CodeGraph, SymbolKind};
+use magellan::{CodeGraph, SymbolFact, SymbolKind};
+use magellan::output::{JsonResponse, OutputFormat, QueryResponse, Span, SymbolMatch, generate_execution_id, output_json};
 use std::path::PathBuf;
 
 const QUERY_EXPLAIN_TEXT: &str = r#"Query Selector Cheatsheet
@@ -117,6 +118,7 @@ pub fn run_query(
     explain: bool,
     symbol: Option<String>,
     show_extent: bool,
+    output_format: OutputFormat,
 ) -> Result<()> {
     if explain {
         println!("{}", QUERY_EXPLAIN_TEXT);
@@ -149,6 +151,12 @@ pub fn run_query(
         symbols.retain(|s| s.name.as_deref() == Some(symbol_name.as_str()));
     }
 
+    // Handle JSON output mode
+    if output_format == OutputFormat::Json {
+        return output_json_mode(&path_str, symbols, kind_str, show_extent, &symbol, &mut graph);
+    }
+
+    // Human mode (existing behavior)
     println!("{}:", path_str);
 
     if symbols.is_empty() {
@@ -191,6 +199,59 @@ pub fn run_query(
             }
         }
     }
+
+    Ok(())
+}
+
+/// Output query results in JSON format
+fn output_json_mode(
+    path_str: &str,
+    mut symbols: Vec<SymbolFact>,
+    kind_str: Option<String>,
+    _show_extent: bool,
+    _symbol: &Option<String>,
+    _graph: &mut CodeGraph,
+) -> Result<()> {
+    // Sort deterministically: by file_path, start_line, start_col, name
+    symbols.sort_by(|a, b| {
+        a.file_path
+            .cmp(&b.file_path)
+            .then_with(|| a.start_line.cmp(&b.start_line))
+            .then_with(|| a.start_col.cmp(&b.start_col))
+            .then_with(|| a.name.as_deref().cmp(&b.name.as_deref()))
+    });
+
+    // Convert SymbolFact to SymbolMatch
+    let symbol_matches: Vec<SymbolMatch> = symbols
+        .into_iter()
+        .map(|s| {
+            let span = Span::new(
+                s.file_path.to_string_lossy().to_string(),
+                s.byte_start,
+                s.byte_end,
+                s.start_line,
+                s.start_col,
+                s.end_line,
+                s.end_col,
+            );
+            SymbolMatch::new(
+                s.name.unwrap_or_else(|| "(unnamed)".to_string()),
+                s.kind_normalized,
+                span,
+                None, // parent not tracked yet
+            )
+        })
+        .collect();
+
+    let response = QueryResponse {
+        symbols: symbol_matches,
+        file_path: path_str.to_string(),
+        kind_filter: kind_str,
+    };
+
+    let exec_id = generate_execution_id();
+    let json_response = JsonResponse::new(response, &exec_id);
+    output_json(&json_response)?;
 
     Ok(())
 }
