@@ -28,13 +28,13 @@ v1.0 delivered deterministic codebase mapping with tree-sitter AST extraction, S
   3. Directory scan in scan.rs validates each path before recursing
   4. Symlinks pointing outside project root are either rejected or resolved-then-validated
   5. Cross-platform path tests pass (Windows backslash, macOS case-insensitivity)
-**Plans**: TBD
+**Plans**: 4 plans in 3 waves
 
 Plans:
-- [ ] 10-01: Create `src/validation.rs` with path canonicalization and validation utilities
-- [ ] 10-02: Integrate path validation into watcher.rs event filtering
-- [ ] 10-03: Integrate path validation into scan.rs directory walking
-- [ ] 10-04: Add traversal tests for malicious paths, symlinks, and cross-platform edge cases
+- [ ] 10-01-PLAN.md — Create `src/validation.rs` with path canonicalization and validation utilities (Wave 1)
+- [ ] 10-02-PLAN.md — Integrate path validation into watcher.rs event filtering (Wave 2)
+- [ ] 10-03-PLAN.md — Integrate path validation into scan.rs directory walking (Wave 2)
+- [ ] 10-04-PLAN.md — Add traversal tests for malicious paths, symlinks, and cross-platform edge cases (Wave 3)
 
 #### Phase 11: FQN Extraction
 **Goal**: Symbol lookup uses fully-qualified names (FQN) as keys, eliminating collisions from simple-name-first-match wins.
@@ -105,7 +105,7 @@ Phases execute in numeric order: 10 → 11 → 12 → 13
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 1-9 | v1.0 | 29/29 | Complete | 2025-12-XX |
-| 10. Path Traversal Validation | v1.1 | 0/4 | Not started | - |
+| 10. Path Traversal Validation | v1.1 | 0/4 | Ready to execute | - |
 | 11. FQN Extraction | v1.1 | 0/6 | Not started | - |
 | 12. Transactional Deletes | v1.1 | 0/4 | Not started | - |
 | 13. SCIP Tests + Docs | v1.1 | 0/4 | Not started | - |
