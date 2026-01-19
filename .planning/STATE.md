@@ -8,12 +8,12 @@
 
 ## Current Position
 
-- **Current phase:** Phase 2 — Deterministic Watch & Indexing Pipeline
-- **Status:** In progress (3/3 plans complete)
-- **Last activity:** 2026-01-19 - Completed 02-03-PLAN.md
-- **Next action:** Begin Phase 3 (Structured JSON Output) or next roadmap phase
+- **Current phase:** Phase 3 — CLI Output Contract (Schema + Determinism + Stdout Discipline)
+- **Status:** Planning complete (3/3 plans created)
+- **Last activity:** 2026-01-19 - Created Phase 3 plans (03-01, 03-02, 03-03)
+- **Next action:** Execute Phase 3 plans
 
-**Progress bar:** [██████████] 100% (3/3 plans in Phase 2 complete, 7/9 total plans)
+**Progress bar:** [████████░░] 33% (0/3 plans executed in Phase 3, 10/12 total plans executed)
 
 ## Success Definition (v1)
 
@@ -26,7 +26,7 @@ Magellan v1 is "done" when a user can:
 
 ## Performance / Quality Metrics (track as work progresses)
 
-- **Determinism:** Same command on unchanged inputs → byte-for-byte identical JSON (ignoring allowed fields).
+- **Determinism:** Same command on unchanged inputs -> byte-for-byte identical JSON (ignoring allowed fields).
 - **Span fidelity:** Spans are UTF-8 byte offsets, half-open; line/col mapping consistent with editor display.
 - **Watcher robustness:** Editor-save storms do not cause nondeterministic final DB state.
 - **Reliability:** Per-file errors never crash watch; errors appear as structured diagnostics.
@@ -71,22 +71,30 @@ Magellan v1 is "done" when a user can:
 - Internal ignores always win over gitignore for security (db files, .git/, target/, etc.)
 - Per-path Result wrapping ensures watch continues on bad files
 
+### Key Decisions (from Phase 3 Research)
+- Use hash-based execution_id generation (timestamp + pid) instead of uuid crate for simplicity
+- Schema version "1.0.0" for JSON output contract
+- Stdout = JSON data only; stderr = logs/diagnostics
+- Span representation follows existing SymbolFact pattern (byte + line/col, half-open)
+- Phase 4 will implement proper stable span_id (placeholder for now)
+
 ### Known Risks / Watch-outs
 - Mixed coordinate systems (byte vs char; inclusive vs exclusive).
 - "Stable IDs" accidentally derived from unstable sources (rowid, node id, iteration order).
 - Watch event storms creating nondeterministic intermediate states.
 - Nested .gitignore files not yet supported (only root .gitignore/.ignore loaded)
+- span_id generation deferred to Phase 4 (using placeholders in Phase 3)
 
 ### Blockers
 - None currently (roadmap created). If constraints change (e.g., interop export moved to v2), revisit Phase 9.
 
 ## Session Continuity
 
-- **Last session:** 2026-01-19T09:56:50Z
-- **Stopped at:** Completed 02-03-PLAN.md (Phase 2 complete)
+- **Last session:** 2026-01-19T11:30:00Z
+- **Stopped at:** Created Phase 3 plans (ready for execution)
 - **Resume file:** None
 
 If resuming later, start by:
 1. Open `.planning/ROADMAP.md` and confirm Phase 3 scope.
 2. Run `cargo test --workspace` to verify baseline health.
-3. Keep a running log of determinism acceptance tests/golden fixtures as they're introduced.
+3. Execute Phase 3 plans: `/gsd:execute-phase 03-cli-output-contract`

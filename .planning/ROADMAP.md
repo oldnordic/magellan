@@ -2,7 +2,7 @@
 
 ## Overview
 
-Magellan v1 is a deterministic, local-first codebase mapping CLI. The roadmap focuses on making Magellan’s outputs and identifiers **contract-grade** (schema-versioned, span-aware, stable IDs) while keeping watch mode **reliable under real editor workloads**.
+Magellan v1 is a deterministic, local-first codebase mapping CLI. The roadmap focuses on making Magellan's outputs and identifiers **contract-grade** (schema-versioned, span-aware, stable IDs) while keeping watch mode **reliable under real editor workloads**.
 
 **Planning depth:** comprehensive (config.json)
 
@@ -65,6 +65,13 @@ Plans:
 
 **Requirements:** OUT-01, OUT-02, OUT-03, WATCH-05B
 
+**Plans:** 3 plans
+
+Plans:
+- [ ] 03-01-PLAN.md — Output module foundation (JsonResponse, OutputFormat, execution_id, stdout/stderr helpers)
+- [ ] 03-02-PLAN.md — CLI --output flag + status command JSON output (proof of concept)
+- [ ] 03-03-PLAN.md — Query/find/refs/files commands JSON output (span-aware results)
+
 **Success Criteria (observable):**
 1. For every user-facing command, user can request JSON output (or get JSON in machine mode) that includes `schema_version` and documented fields.
 2. On unchanged inputs, running the same command twice produces JSON output with deterministic ordering (no HashMap-order drift).
@@ -74,7 +81,7 @@ Plans:
 
 ### Phase 4 — Canonical Span Model + Span-Aware Results
 
-**Goal:** Users can treat Magellan’s “points into source code” as a consistent coordinate system across languages and files.
+**Goal:** Users can treat Magellan's "points into source code" as a consistent coordinate system across languages and files.
 
 **Dependencies:** Phase 3
 
@@ -99,7 +106,7 @@ Plans:
 1. Every run produces an `execution_id` that appears in CLI JSON outputs and is recorded in the database.
 2. For unchanged inputs, `span_id` values remain stable across repeated runs.
 3. For unchanged inputs, `symbol_id` values remain stable across repeated runs.
-4. Each result payload that represents a “match” includes stable identifiers (`match_id`, `span_id`, `symbol_id`) where applicable, allowing downstream tooling to de-duplicate and diff results.
+4. Each result payload that represents a "match" includes stable identifiers (`match_id`, `span_id`, `symbol_id`) where applicable, allowing downstream tooling to de-duplicate and diff results.
 
 ---
 
@@ -129,7 +136,7 @@ Plans:
 
 **Success Criteria (observable):**
 1. User can export a full graph snapshot to JSON/JSONL with stable IDs and deterministic ordering.
-2. User can export DOT (Graphviz) for caller→callee graphs and render it with standard Graphviz tooling.
+2. User can export DOT (Graphviz) for caller->callee graphs and render it with standard Graphviz tooling.
 3. User can export CSV for core entities/edges (symbols, references, calls) with stable IDs suitable for spreadsheets/pipelines.
 
 ---
