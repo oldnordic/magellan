@@ -9,11 +9,11 @@
 ## Current Position
 
 - **Current phase:** Phase 6 — Query UX (Definitions, References, Call Graph, File Listing)
-- **Status:** In progress (3/4 plans executed)
-- **Last activity:** 2026-01-19 - Completed 06-03 (Call Graph Symbol IDs)
+- **Status:** In progress (4/4 plans executed)
+- **Last activity:** 2026-01-19 - Completed 06-04 (Files Command)
 - **Next action:** Continue with Phase 6 query UX improvements
 
-**Progress bar:** [███       ] 17% (3/18 total plans executed - Phase 6 in progress)
+**Progress bar:** [████      ] 22% (4/18 total plans executed - Phase 6 in progress)
 
 ## Success Definition (v1)
 
@@ -156,6 +156,12 @@ Magellan v1 is "done" when a user can:
 - For "out" direction (callees), target_symbol_id = callee_symbol_id
 - Use symbol_id directly from CallFact in refs JSON output instead of database lookup
 
+### Key Decisions (from Phase 6 / Plan 04)
+- Extract files command to separate src/files_cmd.rs module for better code organization
+- Use skip_serializing_if for symbol_counts to maintain backward compatibility with existing JSON consumers
+- Parse --output flag in files command arg parser to avoid unknown argument errors
+- Count symbols per file using existing symbols_in_file() query function from graph/query module
+
 ### Known Risks / Watch-outs
 - Mixed coordinate systems (byte vs char; inclusive vs exclusive).
 - "Stable IDs" accidentally derived from unstable sources (rowid, node id, iteration order).
@@ -167,11 +173,11 @@ Magellan v1 is "done" when a user can:
 
 ## Session Continuity
 
-- **Last session:** 2026-01-19T13:21:09Z
-- **Stopped at:** Completed 06-03 (Call Graph Symbol IDs)
+- **Last session:** 2026-01-19T13:26:30Z
+- **Stopped at:** Completed 06-04 (Files Command)
 - **Resume file:** None
 
 If resuming later, start by:
-1. Open `.planning/phases/06-query-ux/06-03-SUMMARY.md` for context on completed work.
+1. Open `.planning/phases/06-query-ux/06-04-SUMMARY.md` for context on completed work.
 2. Run `cargo test --workspace` to verify baseline health.
-3. Phase 6-03 complete - ready for next plan in Phase 6.
+3. Phase 6-04 complete - ready for next plan in Phase 6.
