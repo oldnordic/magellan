@@ -2,9 +2,9 @@
 //!
 //! Lists symbols in a file, optionally filtered by kind.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use magellan::{CodeGraph, SymbolFact, SymbolKind};
-use magellan::output::{JsonResponse, OutputFormat, QueryResponse, Span, SymbolMatch, generate_execution_id, output_json};
+use magellan::output::{JsonResponse, OutputFormat, QueryResponse, Span, SymbolMatch, output_json};
 use std::path::PathBuf;
 
 const QUERY_EXPLAIN_TEXT: &str = r#"Query Selector Cheatsheet
@@ -120,40 +120,118 @@ pub fn run_query(
     show_extent: bool,
     output_format: OutputFormat,
 ) -> Result<()> {
+    // Build args for execution tracking
+    let mut args = vec!["query".to_string()];
+    if let Some(ref fp) = file_path {
+        args.push("--file".to_string());
+        args.push(fp.to_string_lossy().to_string());
+    }
+    if let Some(ref root_path) = root {
+        args.push("--root".to_string());
+        args.push(root_path.to_string_lossy().to_string());
+    }
+    if let Some(ref kind) = kind_str {
+        args.push("--kind".to_string());
+        args.push(kind.clone());
+    }
+    if explain {
+        args.push("--explain".to_string());
+    }
+    if let Some(ref sym) = symbol {
+        args.push("--symbol".to_string());
+        args.push(sym.clone());
+    }
+    if show_extent {
+        args.push("--show-extent".to_string());
+    }
+
+    let graph = CodeGraph::open(&db_path)?;
+    let exec_id = magellan::output::generate_execution_id();
+    let root_str = root.as_ref().map(|p| p.to_string_lossy().to_string());
+    let db_path_str = db_path.to_string_lossy().to_string();
+
+    graph.execution_log().start_execution(
+        &exec_id,
+        env!("CARGO_PKG_VERSION"),
+        &args,
+        root_str.as_deref(),
+        &db_path_str,
+    )?;
+
+    // Helper to finish execution on return
+    let finish_execution = |graph: &CodeGraph, outcome: &str, error_msg: Option<String>| -> Result<()> {
+        graph.execution_log().finish_execution(
+            &exec_id,
+            outcome,
+            error_msg.as_deref(),
+            0, 0, 0, // No indexing counts for query command
+        )
+    };
+
     if explain {
         println!("{}", QUERY_EXPLAIN_TEXT);
+        finish_execution(&graph, "success", None)?;
         return Ok(());
     }
 
     if show_extent && symbol.is_none() {
-        anyhow::bail!("--show-extent requires --symbol <name>");
+        let err_msg = "--show-extent requires --symbol <name>".to_string();
+        finish_execution(&graph, "error", Some(err_msg.clone()))?;
+        anyhow::bail!(err_msg);
     }
-
-    let mut graph = CodeGraph::open(&db_path)?;
 
     // Parse kind filter if provided
     let kind_filter = match kind_str {
         Some(ref s) => match parse_symbol_kind(s) {
             Some(k) => Some(k),
             None => {
-                anyhow::bail!("Unknown symbol kind: '{}'. Valid kinds: function, method, class, interface, enum, module, union, namespace, typealias", s);
+                let err_msg = format!("Unknown symbol kind: '{}'. Valid kinds: function, method, class, interface, enum, module, union, namespace, typealias", s);
+                finish_execution(&graph, "error", Some(err_msg.clone()))?;
+                anyhow::bail!(err_msg);
             }
         },
         None => None,
     };
 
-    let file_path = file_path.context("--file is required unless --explain is used")?;
+    let file_path = match file_path {
+        Some(fp) => fp,
+        None => {
+            let err_msg = "--file is required unless --explain is used".to_string();
+            finish_execution(&graph, "error", Some(err_msg.clone()))?;
+            anyhow::bail!(err_msg);
+        }
+    };
 
     let path_str = resolve_path(&file_path, &root);
-    let mut symbols = graph.symbols_in_file_with_kind(&path_str, kind_filter)?;
+
+    // Handle JSON output mode - use symbol_nodes_in_file_with_ids for symbol_id propagation
+    if output_format == OutputFormat::Json {
+        let mut graph_mut = CodeGraph::open(&db_path)?;
+        let mut symbols_with_ids = magellan::graph::query::symbol_nodes_in_file_with_ids(&mut graph_mut, &path_str)?;
+
+        // Apply kind filter
+        if let Some(ref filter_kind) = kind_filter {
+            symbols_with_ids.retain(|(_, fact, _)| fact.kind == *filter_kind);
+        }
+
+        // Apply symbol name filter
+        if let Some(ref symbol_name) = symbol {
+            symbols_with_ids.retain(|(_, fact, _)| fact.name.as_deref() == Some(symbol_name.as_str()));
+        }
+
+        let symbols_with_ids: Vec<(SymbolFact, Option<String>)> =
+            symbols_with_ids.into_iter().map(|(_, fact, symbol_id)| (fact, symbol_id)).collect();
+
+        finish_execution(&graph, "success", None)?;
+        return output_json_mode(&path_str, symbols_with_ids, kind_str, show_extent, &symbol, &mut graph_mut, &exec_id);
+    }
+
+    // Human mode - use existing flow
+    let mut graph_mut = CodeGraph::open(&db_path)?;
+    let mut symbols = graph_mut.symbols_in_file_with_kind(&path_str, kind_filter)?;
 
     if let Some(ref symbol_name) = symbol {
         symbols.retain(|s| s.name.as_deref() == Some(symbol_name.as_str()));
-    }
-
-    // Handle JSON output mode
-    if output_format == OutputFormat::Json {
-        return output_json_mode(&path_str, symbols, kind_str, show_extent, &symbol, &mut graph);
     }
 
     // Human mode (existing behavior)
@@ -168,6 +246,7 @@ pub fn run_query(
             ),
             None => println!("  Hint: run `magellan query --explain` for selector syntax."),
         }
+        finish_execution(&graph, "success", None)?;
         return Ok(());
     }
 
@@ -182,9 +261,10 @@ pub fn run_query(
 
     if show_extent {
         if let Some(ref symbol_name) = symbol {
-            let mut extents = graph.symbol_extents(&path_str, symbol_name)?;
+            let mut extents = graph_mut.symbol_extents(&path_str, symbol_name)?;
             if extents.is_empty() {
                 println!("  (no extent info found for '{}')", symbol_name);
+                finish_execution(&graph, "success", None)?;
                 return Ok(());
             }
             println!();
@@ -200,20 +280,22 @@ pub fn run_query(
         }
     }
 
+    finish_execution(&graph, "success", None)?;
     Ok(())
 }
 
 /// Output query results in JSON format
 fn output_json_mode(
     path_str: &str,
-    mut symbols: Vec<SymbolFact>,
+    mut symbols_with_ids: Vec<(SymbolFact, Option<String>)>,
     kind_str: Option<String>,
     _show_extent: bool,
     _symbol: &Option<String>,
     _graph: &mut CodeGraph,
+    exec_id: &str,
 ) -> Result<()> {
     // Sort deterministically: by file_path, start_line, start_col, name
-    symbols.sort_by(|a, b| {
+    symbols_with_ids.sort_by(|(a, _), (b, _)| {
         a.file_path
             .cmp(&b.file_path)
             .then_with(|| a.start_line.cmp(&b.start_line))
@@ -221,10 +303,10 @@ fn output_json_mode(
             .then_with(|| a.name.as_deref().cmp(&b.name.as_deref()))
     });
 
-    // Convert SymbolFact to SymbolMatch
-    let symbol_matches: Vec<SymbolMatch> = symbols
+    // Convert (SymbolFact, Option<symbol_id>) to SymbolMatch
+    let symbol_matches: Vec<SymbolMatch> = symbols_with_ids
         .into_iter()
-        .map(|s| {
+        .map(|(s, symbol_id)| {
             let span = Span::new(
                 s.file_path.to_string_lossy().to_string(),
                 s.byte_start,
@@ -239,6 +321,7 @@ fn output_json_mode(
                 s.kind_normalized,
                 span,
                 None, // parent not tracked yet
+                symbol_id, // stable symbol ID from graph
             )
         })
         .collect();
@@ -249,8 +332,7 @@ fn output_json_mode(
         kind_filter: kind_str,
     };
 
-    let exec_id = generate_execution_id();
-    let json_response = JsonResponse::new(response, &exec_id);
+    let json_response = JsonResponse::new(response, exec_id);
     output_json(&json_response)?;
 
     Ok(())
