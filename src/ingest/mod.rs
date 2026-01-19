@@ -44,6 +44,46 @@ pub enum SymbolKind {
     Unknown,
 }
 
+/// Separator character for FQN construction per language
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScopeSeparator {
+    /// Rust, C, C++ use :: separator
+    DoubleColon,
+    /// Python, Java, JavaScript, TypeScript use . separator
+    Dot,
+}
+
+impl ScopeSeparator {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ScopeSeparator::DoubleColon => "::",
+            ScopeSeparator::Dot => ".",
+        }
+    }
+}
+
+/// Stack for tracking scope nesting during tree-sitter traversal
+///
+/// Maintains a hierarchy of scope names (modules, types, namespaces)
+/// to build fully-qualified names for symbols.
+///
+/// # Example
+/// ```rust
+/// let mut stack = ScopeStack::new(ScopeSeparator::DoubleColon);
+/// stack.push("my_crate");
+/// stack.push("my_module");
+/// assert_eq!(stack.current_fqn(), "my_crate::my_module");
+/// stack.push("MyStruct");
+/// assert_eq!(stack.current_fqn(), "my_crate::my_module::MyStruct");
+/// ```
+#[derive(Debug, Clone)]
+pub struct ScopeStack {
+    /// Scope components in order (e.g., ["my_crate", "my_module", "MyStruct"])
+    scopes: Vec<String>,
+    /// Separator for this language
+    separator: ScopeSeparator,
+}
+
 impl SymbolKind {
     /// Return the normalized string key for this symbol kind (used for CLI/JSON)
     pub fn normalized_key(&self) -> &'static str {
