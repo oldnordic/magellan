@@ -8,6 +8,17 @@ Magellan is a deterministic codebase mapping CLI for local developers. It watche
 
 Produce correct, deterministic symbol + reference + call graph data from real codebases, continuously, without stopping on bad files.
 
+## Current Milestone: v1.1 Correctness + Safety
+
+**Goal:** Fix correctness issues (FQN collisions), harden security (path traversal), and ensure data integrity (transactional deletes)
+
+**Target features:**
+- FQN-as-key refactor: Switch all maps to FQN→symbol_id, treat simple names as display only
+- Path traversal validation: Ensure resolved paths cannot escape root directory
+- Delete ops transactional safety: Wrap delete_file_facts in explicit transaction + assertions
+- SCIP round-trip tests: Export then parse SCIP to verify format correctness
+- Docs hardening: Document .db location recommendations
+
 ## Requirements
 
 ### Validated
@@ -26,8 +37,17 @@ Produce correct, deterministic symbol + reference + call graph data from real co
 
 ### Active
 
-- [ ] Address performance concerns (sqlitegraph caching for reference indexing)
-- [ ] Fully-qualified names (FQN) for hierarchical symbol identity
+- [ ] FQN-as-key refactor: Switch all maps to FQN→symbol_id, treat simple names as display only — v1.1
+- [ ] Path traversal validation: Ensure resolved paths cannot escape root directory — v1.1
+- [ ] Delete ops transactional safety: Wrap delete_file_facts in explicit transaction + assertions — v1.1
+- [ ] SCIP round-trip tests: Export then parse SCIP to verify format correctness — v1.1
+- [ ] Docs hardening: Document .db location recommendations — v1.1
+
+### Active (v1.2+)
+
+- [ ] sqlitegraph caching for reference indexing (deferred)
+- [ ] Persist file index (deferred)
+- [ ] Cross-file reference accuracy tests (deferred)
 - [ ] Nested .gitignore file support
 - [ ] Multi-root workspaces (v2)
 
@@ -91,4 +111,4 @@ Produce correct, deterministic symbol + reference + call graph data from real co
 | Simple symbol names (not FQN) for v1 | Hierarchical names deferred; FQN requires AST traversal | ⚠️ Revisit for v1.1 |
 
 ---
-*Last updated: 2026-01-19 after v1.0 milestone*
+*Last updated: 2026-01-19 after v1.1 milestone initialization*
