@@ -110,6 +110,7 @@
 //! [`Span`] implements `Serialize` and `Deserialize` for JSON output:
 //!
 //! ```rust
+//! # use magellan::output::command::Span;
 //! let span = Span::new("file.rs".into(), 10, 20, 2, 0, 2, 10);
 //! let json = serde_json::to_string(&span).unwrap();
 //! ```
@@ -174,22 +175,94 @@ impl<T> JsonResponse<T> {
 
 /// Span in source code (byte + line/column)
 ///
-/// Represents an exclusive range: [start, end)
-/// - byte_end is the first byte NOT included
-/// - end_line/end_col point to the position after the span
+/// Represents a **half-open range** `[start, end)` where:
+/// - `byte_start` is inclusive (first byte INCLUDED)
+/// - `byte_end` is exclusive (first byte NOT included)
+///
+/// All offsets are UTF-8 byte positions. Lines are 1-indexed for user-friendliness.
+/// Columns are 0-indexed byte offsets within each line.
+///
+/// # Examples
+///
+/// Creating a span and extracting text:
+///
+/// ```
+/// use magellan::output::command::Span;
+///
+/// let source = "fn main() { println!(\"Hello\"); }";
+/// let span = Span::new(
+///     "main.rs".into(),  // file_path
+///     3,   // byte_start (points to 'm')
+///     7,   // byte_end (points to '(')
+///     1,   // start_line (1-indexed)
+///     3,   // start_col (byte offset in line)
+///     1,   // end_line
+///     7,   // end_col
+/// );
+///
+/// // Extract text using the span
+/// let text = source.get(span.byte_start..span.byte_end).unwrap();
+/// assert_eq!(text, "main");
+/// ```
+///
+/// # Safety
+///
+/// **Always use `.get()` for UTF-8 safe slicing:**
+///
+/// ```
+/// # use magellan::output::command::Span;
+/// # let source = "fn main() {}";
+/// # let span = Span::new("test.rs".into(), 3, 7, 1, 3, 1, 7);
+/// // SAFE: Returns Option<&str>, None if out of bounds
+/// let text = source.get(span.byte_start..span.byte_end);
+///
+/// // UNSAFE: Can panic on invalid UTF-8 boundaries
+/// // let text = &source[span.byte_start..span.byte_end];
+/// ```
+///
+/// # Serialization
+///
+/// `Span` implements `Serialize` and `Deserialize` for JSON output.
+/// All fields are public and included in serialization.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Span {
     /// Stable span ID (SHA-256 hash of file_path:byte_start:byte_end)
+    ///
+    /// This ID is deterministic and platform-independent.
+    /// See [`Span::generate_id`] for the algorithm details.
     pub span_id: String,
     /// File path (absolute or root-relative)
+    ///
+    /// Use consistent paths for stable IDs. The path is included
+    /// in the span ID hash, so different representations of the same
+    /// file (e.g., `./main.rs` vs `main.rs`) produce different IDs.
     pub file_path: String,
-    /// Byte range [start, end) - end is exclusive
+    /// Byte range start (inclusive, first byte INCLUDED)
+    ///
+    /// UTF-8 byte offset from the start of the file.
     pub byte_start: usize,
+    /// Byte range end (exclusive, first byte NOT included)
+    ///
+    /// UTF-8 byte offset. The span covers `[byte_start, byte_end)`.
+    /// Length is `byte_end - byte_start`.
     pub byte_end: usize,
-    /// Line (1-indexed) and column (0-indexed, bytes)
+    /// Start line (1-indexed)
+    ///
+    /// Line number where the span starts, counting from 1.
+    /// Matches editor line numbers.
     pub start_line: usize,
+    /// Start column (0-indexed, byte-based)
+    ///
+    /// Byte offset within `start_line` where the span begins.
+    /// This is a byte offset, not a character offset.
     pub start_col: usize,
+    /// End line (1-indexed)
+    ///
+    /// Line number where the span ends.
     pub end_line: usize,
+    /// End column (0-indexed, byte-based)
+    ///
+    /// Byte offset within `end_line` where the span ends (exclusive).
     pub end_col: usize,
 }
 
@@ -254,17 +327,48 @@ impl Span {
 }
 
 /// Symbol match result for query/find commands
+///
+/// Represents a symbol found during a query, including its location ([`Span`]),
+/// name, kind (function, variable, type, etc.), and optional parent symbol
+/// for nested definitions.
+///
+/// # Examples
+///
+/// Creating a symbol match:
+///
+/// ```
+/// use magellan::output::command::{Span, SymbolMatch};
+///
+/// let span = Span::new("main.rs".into(), 3, 7, 1, 3, 1, 7);
+/// let symbol = SymbolMatch::new(
+///     "main".into(),    // name
+///     "Function".into(), // kind
+///     span,
+///     None,             // no parent
+/// );
+///
+/// assert_eq!(symbol.name, "main");
+/// assert_eq!(symbol.kind, "Function");
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SymbolMatch {
     /// Stable match ID
+    ///
+    /// Generated from symbol name, file path, and byte position.
+    /// See [`SymbolMatch::generate_match_id`] for details.
     pub match_id: String,
-    /// Symbol span
+    /// Symbol span (location in source code)
     pub span: Span,
     /// Symbol name
     pub name: String,
     /// Symbol kind (normalized)
+    ///
+    /// Examples: "Function", "Variable", "Struct", "Enum", "Method", etc.
     pub kind: String,
     /// Containing symbol (if nested)
+    ///
+    /// For nested symbols like methods inside structs or closures,
+    /// this field contains the parent symbol's name.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent: Option<String>,
 }
@@ -301,15 +405,44 @@ impl SymbolMatch {
 }
 
 /// Reference match result for refs command
+///
+/// Represents a reference to a symbol, including the location of the reference
+/// ([`Span`]), the name of the symbol being referenced, and an optional reference
+/// kind for categorization (e.g., "call", "read", "write").
+///
+/// # Examples
+///
+/// Creating a reference match:
+///
+/// ```
+/// use magellan::output::command::{Span, ReferenceMatch};
+///
+/// let span = Span::new("main.rs".into(), 10, 14, 2, 4, 2, 8);
+/// let reference = ReferenceMatch::new(
+///     span,
+///     "println".into(),  // referenced_symbol
+///     Some("call".into()), // reference_kind
+/// );
+///
+/// assert_eq!(reference.referenced_symbol, "println");
+/// assert_eq!(reference.reference_kind, Some("call".into()));
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReferenceMatch {
     /// Stable match ID
+    ///
+    /// Generated from referenced symbol, file path, and byte position.
+    /// See [`ReferenceMatch::generate_match_id`] for details.
     pub match_id: String,
-    /// Reference span
+    /// Reference span (location where the reference occurs)
     pub span: Span,
     /// Referenced symbol name
+    ///
+    /// The name of the symbol being referenced (e.g., a function or variable name).
     pub referenced_symbol: String,
     /// Reference kind (optional, for categorization)
+    ///
+    /// Examples: "call", "read", "write", "type_ref", etc.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reference_kind: Option<String>,
 }
