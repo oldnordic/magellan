@@ -40,8 +40,8 @@ fn test_sigterm_prints_shutdown_and_exits() {
         .spawn()
         .expect("Failed to start magellan binary");
 
-    // Wait for process startup
-    thread::sleep(Duration::from_millis(100));
+    // Wait for process startup (now includes baseline scan)
+    thread::sleep(Duration::from_millis(800));
 
     // Send SIGTERM using kill command
     #[cfg(unix)]

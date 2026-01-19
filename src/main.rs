@@ -21,7 +21,7 @@ fn print_usage() {
     eprintln!("  magellan <command> [arguments]");
     eprintln!("  magellan --help");
     eprintln!();
-    eprintln!("  magellan watch --root <DIR> --db <FILE> [--debounce-ms <N>] [--scan-initial]");
+    eprintln!("  magellan watch --root <DIR> --db <FILE> [--debounce-ms <N>] [--watch-only]");
     eprintln!("  magellan export --db <FILE>");
     eprintln!("  magellan status --db <FILE>");
     eprintln!("  magellan query --db <FILE> --file <PATH> [--kind <KIND>]");
@@ -50,7 +50,8 @@ fn print_usage() {
     eprintln!("  --root <DIR>        Directory to watch recursively");
     eprintln!("  --db <FILE>         Path to sqlitegraph database");
     eprintln!("  --debounce-ms <N>   Debounce delay in milliseconds (default: 500)");
-    eprintln!("  --scan-initial      Scan directory for source files on startup");
+    eprintln!("  --watch-only        Watch for changes only; skip initial directory scan baseline");
+    eprintln!("  --scan-initial      Scan directory for source files on startup (default: true; disabled by --watch-only)");
     eprintln!();
     eprintln!("Export arguments:");
     eprintln!("  --db <FILE>         Path to sqlitegraph database");
@@ -180,7 +181,8 @@ fn parse_args() -> Result<Command> {
             let mut root_path: Option<PathBuf> = None;
             let mut db_path: Option<PathBuf> = None;
             let mut debounce_ms: u64 = 500;
-            let mut scan_initial = false;
+            let mut watch_only = false;
+            let mut scan_initial = true; // Default: true (scan on startup)
 
             let mut i = 2;
             while i < args.len() {
@@ -206,6 +208,10 @@ fn parse_args() -> Result<Command> {
                         debounce_ms = args[i + 1].parse()?;
                         i += 2;
                     }
+                    "--watch-only" => {
+                        watch_only = true;
+                        i += 1;
+                    }
                     "--scan-initial" => {
                         scan_initial = true;
                         i += 1;
@@ -219,6 +225,9 @@ fn parse_args() -> Result<Command> {
             let root_path = root_path.ok_or_else(|| anyhow::anyhow!("--root is required"))?;
             let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
             let config = WatcherConfig { debounce_ms };
+
+            // Precedence: --watch-only forces scan_initial to false
+            let scan_initial = if watch_only { false } else { scan_initial };
 
             Ok(Command::Watch {
                 root_path,

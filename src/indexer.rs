@@ -4,7 +4,12 @@
 //! Maintains synchronous consistency between filesystem and sqlitegraph.
 
 use anyhow::Result;
+use std::collections::BTreeSet;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
 
 use crate::{CodeGraph, FileEvent, FileSystemWatcher, WatcherConfig};
 
@@ -117,4 +122,255 @@ pub fn run_indexer_n(root_path: PathBuf, db_path: PathBuf, max_events: usize) ->
     }
 
     Ok(processed)
+}
+
+// ============================================================================
+// Phase 2: Deterministic watch pipeline with buffering
+// ============================================================================
+
+/// Configuration for the deterministic watch pipeline.
+#[derive(Debug, Clone)]
+pub struct WatchPipelineConfig {
+    /// Root directory to watch
+    pub root_path: PathBuf,
+    /// Path to the database
+    pub db_path: PathBuf,
+    /// Watcher configuration
+    pub watcher_config: WatcherConfig,
+    /// Whether to run initial baseline scan
+    pub scan_initial: bool,
+}
+
+impl WatchPipelineConfig {
+    /// Create a new pipeline configuration.
+    pub fn new(
+        root_path: PathBuf,
+        db_path: PathBuf,
+        watcher_config: WatcherConfig,
+        scan_initial: bool,
+    ) -> Self {
+        Self {
+            root_path,
+            db_path,
+            watcher_config,
+            scan_initial,
+        }
+    }
+}
+
+/// Shared state for the watch pipeline.
+///
+/// Uses a BTreeSet for deterministic ordering and a bounded wakeup channel.
+#[derive(Clone)]
+struct PipelineSharedState {
+    /// Dirty paths collected during scan/watch (sorted deterministically)
+    dirty_paths: Arc<std::sync::Mutex<BTreeSet<PathBuf>>>,
+    /// Wakeup channel (bounded, capacity 1)
+    wakeup_tx: std::sync::mpsc::SyncSender<()>,
+}
+
+impl PipelineSharedState {
+    /// Create a new shared state.
+    fn new() -> (Self, std::sync::mpsc::Receiver<()>) {
+        let (wakeup_tx, wakeup_rx) = std::sync::mpsc::sync_channel(1);
+        (
+            Self {
+                dirty_paths: Arc::new(std::sync::Mutex::new(BTreeSet::new())),
+                wakeup_tx,
+            },
+            wakeup_rx,
+        )
+    }
+
+    /// Insert multiple dirty paths from a batch.
+    fn insert_dirty_paths(&self, paths: &[PathBuf]) {
+        let mut dirty_paths = self.dirty_paths.lock().unwrap();
+        for path in paths {
+            dirty_paths.insert(path.clone());
+        }
+        // Try to send wakeup tick, but don't block if channel is full
+        let _ = self.wakeup_tx.try_send(());
+    }
+
+    /// Snapshot and clear the dirty path set.
+    ///
+    /// Returns all dirty paths in lexicographic order and clears the set.
+    fn drain_dirty_paths(&self) -> Vec<PathBuf> {
+        let mut paths = self.dirty_paths.lock().unwrap();
+        let snapshot: Vec<PathBuf> = paths.iter().cloned().collect();
+        paths.clear();
+        snapshot
+    }
+}
+
+/// Run the deterministic watch pipeline with buffering.
+///
+/// # Phase 2 Pipeline Behavior
+///
+/// 1. **Start watcher immediately** - Filesystem events start buffering right away
+/// 2. **Baseline scan (if enabled)** - scan_directory provides complete baseline
+/// 3. **Drain buffered edits** - Any edits during scan are flushed after baseline
+/// 4. **Main watch loop** - Process dirty paths in sorted order as batches arrive
+///
+/// # Concurrency Model
+/// - One watcher thread (notify/debouncer callback) produces batches
+/// - One main/indexer thread performs scan and processes dirty paths
+/// - BTreeSet ensures deterministic ordering regardless of event arrival
+///
+/// # Buffering Model
+/// - BTreeSet<PathBuf> for dirty path collection (sorted, deduplicated)
+/// - Bounded sync_channel(1) for wakeup ticks (non-blocking insertion)
+/// - Snapshot+clear drain semantics for deterministic processing
+///
+/// # Arguments
+/// * `config` - Pipeline configuration
+/// * `shutdown` - AtomicBool for graceful shutdown
+///
+/// # Returns
+/// Number of paths processed during watch phase
+pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>) -> Result<usize> {
+    // Create shared state for buffering dirty paths
+    let (shared_state, wakeup_rx) = PipelineSharedState::new();
+
+    // Keep a reference for the main thread to drain dirty paths
+    let main_state = shared_state.clone();
+
+    // Start watcher thread
+    let watcher_thread = {
+        let root_path = config.root_path.clone();
+        let watcher_config = config.watcher_config.clone();
+        let shared_state = Arc::new(shared_state);
+        let shutdown_watch = shutdown.clone();
+
+        thread::spawn(move || {
+            if let Err(e) = watcher_loop(root_path, watcher_config, shared_state, shutdown_watch) {
+                eprintln!("Watcher thread error: {:?}", e);
+            }
+        })
+    };
+
+    // Open graph
+    let mut graph = CodeGraph::open(&config.db_path)?;
+
+    // Baseline scan if requested
+    if config.scan_initial {
+        println!("Scanning {}...", config.root_path.display());
+        let file_count = graph.scan_directory(
+            &config.root_path,
+            Some(&|current, total| {
+                println!("Scanning... {}/{}", current, total);
+            }),
+        )?;
+        println!("Scanned {} files", file_count);
+    }
+
+    // Drain any dirty paths that accumulated during scan
+    let mut total_processed = 0;
+    let paths_during_scan = main_state.drain_dirty_paths();
+    if !paths_during_scan.is_empty() {
+        println!(
+            "Flushing {} buffered path(s) from scan...",
+            paths_during_scan.len()
+        );
+        total_processed += process_dirty_paths(&mut graph, &paths_during_scan)?;
+    }
+
+    // Main watch loop
+    println!("Magellan watching: {}", config.root_path.display());
+    println!("Database: {}", config.db_path.display());
+
+    while !shutdown.load(Ordering::SeqCst) {
+        // Wait for wakeup tick with timeout
+        match wakeup_rx.recv_timeout(Duration::from_millis(100)) {
+            Ok(()) => {
+                // Drain and process all dirty paths
+                let dirty_paths = main_state.drain_dirty_paths();
+                if !dirty_paths.is_empty() {
+                    total_processed += process_dirty_paths(&mut graph, &dirty_paths)?;
+                }
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                // Timeout is normal - check shutdown flag and continue
+                continue;
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                // Watcher thread terminated
+                break;
+            }
+        }
+    }
+
+    // Wait for watcher thread to finish
+    let _ = watcher_thread.join();
+
+    Ok(total_processed)
+}
+
+/// Watcher loop that receives batches and inserts paths into shared state.
+fn watcher_loop(
+    root_path: PathBuf,
+    config: WatcherConfig,
+    shared_state: Arc<PipelineSharedState>,
+    shutdown: Arc<AtomicBool>,
+) -> Result<()> {
+    let watcher = FileSystemWatcher::new(root_path, config)?;
+
+    // Receive batches and insert dirty paths
+    // Use timeout-based checking to respond to shutdown signal
+    while !shutdown.load(Ordering::SeqCst) {
+        match watcher.recv_batch_timeout(Duration::from_millis(100)) {
+            Ok(Some(batch)) => {
+                shared_state.insert_dirty_paths(&batch.paths);
+            }
+            Ok(None) => {
+                // Channel closed, exit
+                break;
+            }
+            Err(_) => {
+                // Timeout, check shutdown flag and continue
+                continue;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Process a list of dirty paths, reconciling each in sorted order.
+///
+/// Paths are already sorted because they came from a BTreeSet.
+fn process_dirty_paths(graph: &mut CodeGraph, dirty_paths: &[PathBuf]) -> Result<usize> {
+    for path in dirty_paths {
+        let path_key = path.to_string_lossy().to_string();
+        match graph.reconcile_file_path(path, &path_key) {
+            Ok(outcome) => {
+                // Log outcome
+                let path_str = path.to_string_lossy();
+                match outcome {
+                    crate::ReconcileOutcome::Deleted => {
+                        println!("DELETE {}", path_str);
+                    }
+                    crate::ReconcileOutcome::Unchanged => {
+                        // Skip logging for unchanged files
+                    }
+                    crate::ReconcileOutcome::Reindexed {
+                        symbols,
+                        references,
+                        calls,
+                    } => {
+                        println!(
+                            "MODIFY {} symbols={} refs={} calls={}",
+                            path_str, symbols, references, calls
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                // Log error but continue processing other paths
+                let path_str = path.to_string_lossy();
+                println!("ERROR {} {}", path_str, e);
+            }
+        }
+    }
+    Ok(dirty_paths.len())
 }

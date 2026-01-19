@@ -114,6 +114,20 @@ impl FileSystemWatcher {
         self.batch_receiver.try_recv().ok()
     }
 
+    /// Receive the next batch with a timeout.
+    ///
+    /// # Returns
+    /// - `Ok(Some(batch))` if a batch is available
+    /// - `Ok(None)` if the watcher thread has terminated
+    /// - `Err` if timeout elapsed
+    pub fn recv_batch_timeout(&self, timeout: Duration) -> Result<Option<WatcherBatch>, ()> {
+        match self.batch_receiver.recv_timeout(timeout) {
+            Ok(batch) => Ok(Some(batch)),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(()),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Ok(None),
+        }
+    }
+
     // ========================================================================
     // LEGACY: Old single-event API for backward compatibility during migration
     // ========================================================================
