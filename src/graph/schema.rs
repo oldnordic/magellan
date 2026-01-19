@@ -26,6 +26,15 @@ pub struct SymbolNode {
     /// This ID is deterministic and stable across runs for the same symbol.
     #[serde(default)]
     pub symbol_id: Option<String>,
+
+    /// Fully-qualified name for this symbol
+    /// Format varies by language (crate::module::Name for Rust, package.Class.Name for Java)
+    /// This is the primary key for symbol lookup, preventing name collisions
+    #[serde(default)]
+    pub fqn: Option<String>,
+
+    /// Simple symbol name (display name)
+    /// For user-facing output only. Not used as a unique identifier.
     pub name: Option<String>,
     pub kind: String,
     #[serde(default)]

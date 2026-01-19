@@ -149,7 +149,7 @@ pub fn symbol_nodes_in_file_with_ids(
                     kind,
                     kind_normalized,
                     name: symbol_node.name.clone(),
-                    fqn: symbol_node.name,
+                    fqn: symbol_node.fqn,
                     byte_start: symbol_node.byte_start,
                     byte_end: symbol_node.byte_end,
                     start_line: symbol_node.start_line,
@@ -240,7 +240,7 @@ pub fn symbol_id_by_name(graph: &mut CodeGraph, path: &str, name: &str) -> Resul
 ///
 /// # Behavior
 /// 1. Get ALL symbols in the database (for cross-file references)
-/// 2. Build map of symbol name -> node ID
+/// 2. Build map of FQN -> node ID with collision detection
 /// 3. Extract references from source
 /// 4. Insert Reference nodes and REFERENCES edges
 ///
@@ -258,9 +258,9 @@ pub fn index_references(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Res
         None => return Ok(0), // No file, no references
     };
 
-    // Build map: symbol name -> node ID from ALL symbols in database
-    // This enables cross-file reference indexing
-    let mut symbol_name_to_id: HashMap<String, i64> = HashMap::new();
+    // Build map: FQN -> node ID from ALL symbols in database
+    // This enables cross-file reference indexing with FQN-based disambiguation
+    let mut symbol_fqn_to_id: HashMap<String, i64> = HashMap::new();
 
     // Get all entity IDs from the graph
     let entity_ids = graph.files.backend.entity_ids()?;
@@ -271,10 +271,24 @@ pub fn index_references(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Res
             // Check if this is a Symbol node by looking at the kind field
             if node.kind == "Symbol" {
                 if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data) {
-                    if let Some(name) = symbol_node.name {
-                        // If multiple symbols have the same name, we keep the first one
-                        // (TODO: handle name collisions with disambiguation)
-                        symbol_name_to_id.entry(name).or_insert(entity_id);
+                    // Use FQN as key, fall back to name for backward compatibility
+                    let fqn = symbol_node
+                        .fqn
+                        .or(symbol_node.name)
+                        .unwrap_or_default();
+
+                    if !fqn.is_empty() {
+                        // Check for FQN collisions
+                        if let Some(&existing_id) = symbol_fqn_to_id.get(&fqn) {
+                            if existing_id != entity_id {
+                                eprintln!(
+                                    "WARNING: FQN collision detected for '{}': symbols {} and {} share the same FQN",
+                                    fqn, existing_id, entity_id
+                                );
+                            }
+                        } else {
+                            symbol_fqn_to_id.insert(fqn, entity_id);
+                        }
                     }
                 }
             }
@@ -284,7 +298,7 @@ pub fn index_references(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Res
     // Index references using ReferenceOps with ALL symbols
     graph
         .references
-        .index_references(path, source, &symbol_name_to_id)
+        .index_references(path, source, &symbol_fqn_to_id)
 }
 
 /// Query all references to a specific symbol
@@ -452,6 +466,7 @@ impl CodeGraph {
                 let symbol_node: SymbolNode =
                     serde_json::from_value(node.data).unwrap_or_else(|_| SymbolNode {
                         symbol_id: None,
+                        fqn: None,
                         name: None,
                         kind: "Unknown".to_string(),
                         kind_normalized: None,
@@ -487,6 +502,7 @@ impl CodeGraph {
                 let symbol_node: SymbolNode =
                     serde_json::from_value(node.data).unwrap_or_else(|_| SymbolNode {
                         symbol_id: None,
+                        fqn: None,
                         name: None,
                         kind: "Unknown".to_string(),
                         kind_normalized: None,
