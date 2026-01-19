@@ -7,12 +7,12 @@
 
 ### FQN Correctness
 
-- [ ] **FQN-01**: Extract fully-qualified names (FQN) during tree-sitter traversal for all indexed languages
-- [ ] **FQN-02**: Switch symbol lookup maps from simple name → symbol_id to FQN → symbol_id
-- [ ] **FQN-03**: Implement per-language scope tracking (Rust `::`, Python `.`, Java `.`)
-- [ ] **FQN-04**: symbol_id generation uses hash(language, FQN, span_id) - never simple names
-- [ ] **FQN-05**: Treat simple names as display-only for user-facing output
-- [ ] **FQN-06**: Emit warnings when FQN collisions are detected
+- [x] **FQN-01**: Extract fully-qualified names (FQN) during tree-sitter traversal for all indexed languages
+- [x] **FQN-02**: Switch symbol lookup maps from simple name → symbol_id to FQN → symbol_id
+- [x] **FQN-03**: Implement per-language scope tracking (Rust `::`, Python `.`, Java `.`)
+- [x] **FQN-04**: symbol_id generation uses hash(language, FQN, span_id) - never simple names
+- [x] **FQN-05**: Treat simple names as display-only for user-facing output
+- [x] **FQN-06**: Emit warnings when FQN collisions are detected
 
 ### Path Traversal Security
 
@@ -75,12 +75,12 @@
 | PATH-04 | Phase 10 | Complete |
 | PATH-05 | Phase 10 | Complete |
 | PATH-06 | Phase 10 | Complete |
-| FQN-01 | Phase 11 | Pending |
-| FQN-02 | Phase 11 | Pending |
-| FQN-03 | Phase 11 | Pending |
-| FQN-04 | Phase 11 | Pending |
-| FQN-05 | Phase 11 | Pending |
-| FQN-06 | Phase 11 | Pending |
+| FQN-01 | Phase 11 | Complete |
+| FQN-02 | Phase 11 | Complete |
+| FQN-03 | Phase 11 | Complete |
+| FQN-04 | Phase 11 | Complete |
+| FQN-05 | Phase 11 | Complete |
+| FQN-06 | Phase 11 | Complete |
 | DELETE-01 | Phase 12 | Pending |
 | DELETE-02 | Phase 12 | Pending |
 | DELETE-03 | Phase 12 | Pending |

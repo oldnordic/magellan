@@ -37,7 +37,7 @@ Plans:
 - [x] 10-03 — Integrate path validation into scan.rs directory walking (Wave 2)
 - [x] 10-04 — Add traversal tests for malicious paths, symlinks, and cross-platform edge cases (Wave 3)
 
-#### Phase 11: FQN Extraction
+#### Phase 11: FQN Extraction ✅
 **Goal**: Symbol lookup uses fully-qualified names (FQN) as keys, eliminating collisions from simple-name-first-match wins.
 **Depends on**: Phase 10
 **Requirements**: FQN-01, FQN-02, FQN-03, FQN-04, FQN-05, FQN-06
@@ -48,14 +48,15 @@ Plans:
   4. FQN collision warnings are emitted when two symbols would have the same FQN
   5. Full re-index of all files produces correct FQNs throughout the graph
 **Plans**: 6 plans in 5 waves
+**Status**: Complete — Verified 2026-01-19 (5/5 must-haves passed)
 
 Plans:
-- [ ] 11-01 — Implement ScopeStack struct in src/ingest/mod.rs for tracking nesting during walk_tree (Wave 1)
-- [ ] 11-02 — Add Rust parser scope tracking (mod/impl/trait) with walk_tree_with_scope (Wave 2)
-- [ ] 11-03 — Add Python/Java/JavaScript/TypeScript parser scope tracking with Dot separator (Wave 3)
-- [ ] 11-04 — Add C/C++ parser scope tracking (C: no-op, C++: namespaces with :: separator) (Wave 3)
-- [ ] 11-05 — Update symbol lookup maps to use FQN → symbol_id (query.rs, references.rs, calls.rs) (Wave 4)
-- [ ] 11-06 — Complete symbol_id generation from FQN and add integration tests (Wave 5)
+- [x] 11-01 — Implement ScopeStack struct in src/ingest/mod.rs for tracking nesting during walk_tree (Wave 1)
+- [x] 11-02 — Add Rust parser scope tracking (mod/impl/trait) with walk_tree_with_scope (Wave 2)
+- [x] 11-03 — Add Python/Java/JavaScript/TypeScript parser scope tracking with Dot separator (Wave 3)
+- [x] 11-04 — Add C/C++ parser scope tracking (C: no-op, C++: namespaces with :: separator) (Wave 3)
+- [x] 11-05 — Update symbol lookup maps to use FQN → symbol_id (query.rs, references.rs, calls.rs) (Wave 4)
+- [x] 11-06 — Complete symbol_id generation from FQN and add integration tests (Wave 5)
 
 #### Phase 12: Transactional Deletes
 **Goal**: All delete operations are atomic all-or-nothing, preventing orphaned records on partial failures.
@@ -107,8 +108,8 @@ Phases execute in numeric order: 10 → 11 → 12 → 13
 |-------|-----------|----------------|--------|-----------|
 | 1-9 | v1.0 | 29/29 | Complete | 2025-12-XX |
 | 10. Path Traversal Validation | v1.1 | 4/4 | Complete | 2026-01-19 |
-| 11. FQN Extraction | v1.1 | 0/6 | Not started | - |
+| 11. FQN Extraction | v1.1 | 6/6 | Complete | 2026-01-19 |
 | 12. Transactional Deletes | v1.1 | 0/4 | Not started | - |
 | 13. SCIP Tests + Docs | v1.1 | 0/4 | Not started | - |
 
-**v1.1 Progress:** [████░░░░░░] 22% (4/18 plans)
+**v1.1 Progress:** [██████░░░░] 56% (10/18 plans)

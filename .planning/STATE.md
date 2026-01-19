@@ -5,17 +5,17 @@
 See: .planning/PROJECT.md (updated 2026-01-19)
 
 **Core value:** Produce correct, deterministic symbol + reference + call graph data from real codebases, continuously, without stopping on bad files.
-**Current focus:** Phase 11 - FQN Extraction
+**Current focus:** Phase 12 - Transactional Deletes
 
 ## Current Position
 
 **Milestone:** v1.1 Correctness + Safety
-**Phase:** 11 of 13 (FQN Extraction)
-**Plan:** 6 of 6 in current phase
-**Status:** Phase complete
-**Last activity:** 2026-01-19 — Completed Phase 11-06: FQN Implementation Complete
+**Phase:** 12 of 13 (Transactional Deletes)
+**Plan:** 4 of 4 in current phase
+**Status:** Ready to plan
+**Last activity:** 2026-01-19 — Verified Phase 11: FQN Extraction (5/5 must-haves passed)
 
-**Progress bar:** [███████░░░░░] 50% v1.1 (9/18 plans) | [██████████] 100% v1.0 (29/29 plans)
+**Progress bar:** [██████░░░░] 56% v1.1 (10/18 plans) | [██████████] 100% v1.0 (29/29 plans)
 
 ## Success Definition (v1.1)
 
