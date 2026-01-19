@@ -11,11 +11,11 @@ See: .planning/PROJECT.md (updated 2026-01-19)
 
 **Milestone:** v1.1 Correctness + Safety
 **Phase:** 10 of 13 (Path Traversal Validation)
-**Plan:** 2 of 4 in current phase
-**Status:** In progress
-**Last activity:** 2026-01-19 — Completed 10-02: Integrate Path Validation into Watcher
+**Plan:** 4 of 4 in current phase
+**Status:** Phase complete
+**Last activity:** 2026-01-19 — Completed 10-04: Cross-Platform Path Tests
 
-**Progress bar:** [██░░░░░░░░░] 6% v1.1 (2/18 plans) | [██████████] 100% v1.0 (29/29 plans)
+**Progress bar:** [████░░░░░░░░] 22% v1.1 (4/18 plans) | [██████████] 100% v1.0 (29/29 plans)
 
 ## Success Definition (v1.1)
 
@@ -85,6 +85,18 @@ Magellan v1.1 is "done" when:
 - Silent skip for CannotCanonicalize errors (normal for deleted files)
 - Path validation called for each event path in extract_dirty_paths()
 
+### Key Decisions (Phase 10-03: Scan Integration)
+- scan_directory_with_filter validates each path before processing
+- WalkDir follows symlinks=false to prevent automatic following
+- Validation is defense-in-depth (WalkDir should keep us in dir_path)
+- Paths escaping root logged as diagnostics and skipped
+
+### Key Decisions (Phase 10-04: Cross-Platform Tests)
+- Tests use cfg attributes for platform-specific behavior
+- Test structure separates general validation from symlink-specific tests
+- Accept both SuspiciousTraversal and CannotCanonicalize for nonexistent paths
+- Documentation covers all three platforms (Linux, macOS, Windows)
+
 ### Blockers / Concerns
 
 **Phase 11 (FQN):**
@@ -92,17 +104,18 @@ Magellan v1.1 is "done" when:
 - Per-language edge cases (anonymous namespaces, closures, trait impls, generics)
 
 **Phase 10 (Path):**
-- Cross-platform path testing needed (Linux, macOS, Windows)
+- ~~Cross-platform path testing needed (Linux, macOS, Windows)~~ COMPLETED in 10-04
+- Windows and macOS testing would be beneficial for full coverage (currently only Linux tested)
 
 ## Session Continuity
 
 - **Last session:** 2026-01-19
-- **Stopped at:** Completed 10-02: Integrate Path Validation into Watcher
+- **Stopped at:** Completed 10-04: Cross-Platform Path Tests (Phase 10 complete)
 - **Resume file:** None
 
 If resuming later, start by:
 1. Read `.planning/ROADMAP.md` for phase structure
 2. Read `.planning/PROJECT.md` for requirements and constraints
-3. Read `.planning/phases/10-path-traversal-validation/10-02-SUMMARY.md` for what was built
+3. Read `.planning/phases/10-path-traversal-validation/10-04-SUMMARY.md` for what was built
 4. Run `cargo test --workspace` to verify baseline health
-5. Execute `/gsd:execute-plan 10-path-traversal-validation/10-03` for scan integration
+5. Execute `/gsd:execute-plan 11-fqn-extraction/11-01` for FQN extraction phase
