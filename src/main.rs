@@ -131,6 +131,7 @@ enum Command {
         root: Option<PathBuf>,
         path: Option<PathBuf>,
         glob_pattern: Option<String>,
+        output_format: OutputFormat,
     },
     Refs {
         db_path: PathBuf,
@@ -379,6 +380,7 @@ fn parse_args() -> Result<Command> {
             let mut root: Option<PathBuf> = None;
             let mut path: Option<PathBuf> = None;
             let mut glob_pattern: Option<String> = None;
+            let mut output_format = OutputFormat::Human;
 
             let mut i = 2;
             while i < args.len() {
@@ -418,6 +420,14 @@ fn parse_args() -> Result<Command> {
                         glob_pattern = Some(args[i + 1].clone());
                         i += 2;
                     }
+                    "--output" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--output requires an argument"));
+                        }
+                        output_format = OutputFormat::from_str(&args[i + 1])
+                            .ok_or_else(|| anyhow::anyhow!("Invalid output format: {}", args[i + 1]))?;
+                        i += 2;
+                    }
                     _ => {
                         return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
                     }
@@ -437,6 +447,7 @@ fn parse_args() -> Result<Command> {
                 root,
                 path,
                 glob_pattern,
+                output_format,
             })
         }
         "refs" => {
@@ -1025,6 +1036,7 @@ fn main() -> ExitCode {
             root,
             path,
             glob_pattern,
+            output_format,
         }) => {
             if let Err(e) =
                 find_cmd::run_find(db_path, name, root, path, glob_pattern, output_format)

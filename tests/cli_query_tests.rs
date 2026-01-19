@@ -750,6 +750,108 @@ fn test_find_symbol_not_found() {
     );
 }
 
+#[test]
+fn test_find_includes_symbol_id_in_json() {
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("magellan.db");
+    let file_path = temp_dir.path().join("test.rs");
+
+    let bin_path = std::env::var("CARGO_BIN_EXE_magellan").unwrap_or_else(|_| {
+        let mut path = std::env::current_exe().unwrap();
+        path.pop();
+        path.pop();
+        path.push("magellan");
+        path.to_str().unwrap().to_string()
+    });
+
+    // Create file with a function
+    let source = r#"
+fn main() {
+    println!("Hello");
+}
+
+struct Point {
+    x: i32,
+}
+"#;
+    fs::write(&file_path, source).unwrap();
+
+    // Index the file
+    {
+        let mut graph = magellan::CodeGraph::open(&db_path).unwrap();
+        let source_bytes = fs::read(&file_path).unwrap();
+        let path_str = file_path.to_string_lossy().to_string();
+        graph.index_file(&path_str, &source_bytes).unwrap();
+    }
+
+    // Run find --name with JSON output
+    let output = Command::new(&bin_path)
+        .arg("find")
+        .arg("--db")
+        .arg(&db_path)
+        .arg("--name")
+        .arg("main")
+        .arg("--output")
+        .arg("json")
+        .output()
+        .expect("Failed to execute magellan find --output json");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "Process should exit successfully\nstdout: {}\nstderr: {}",
+        stdout,
+        stderr
+    );
+
+    // Parse JSON and verify structure
+    let json: serde_json::Value = serde_json::from_str(&stdout)
+        .expect("Output should be valid JSON");
+
+    // Verify response wrapper
+    assert_eq!(
+        json["schema_version"], "1.0.0",
+        "Schema version should be 1.0.0"
+    );
+    assert!(
+        json["execution_id"].is_string(),
+        "Should have execution_id"
+    );
+
+    // Verify data structure
+    let data = &json["data"];
+    assert!(data.is_object(), "Should have data object");
+
+    let matches = &data["matches"];
+    assert!(matches.is_array(), "Should have matches array");
+
+    let matches_array = matches.as_array().unwrap();
+    assert!(
+        !matches_array.is_empty(),
+        "Should find at least one match for 'main'"
+    );
+
+    // Verify symbol_id field exists and is non-empty
+    let first_match = &matches_array[0];
+    assert!(
+        first_match["symbol_id"].is_string(),
+        "symbol_id should be a string in JSON output, got: {}",
+        first_match
+    );
+
+    let symbol_id = first_match["symbol_id"].as_str().unwrap();
+    assert!(
+        !symbol_id.is_empty(),
+        "symbol_id should be non-empty"
+    );
+
+    // Verify other expected fields
+    assert_eq!(first_match["name"], "main");
+    assert!(first_match["span"].is_object());
+}
+
 // ============================================================================
 // Phase 3: Refs Command Tests
 // ============================================================================
@@ -923,6 +1025,120 @@ fn test_refs_symbol_not_found() {
         output.status.success(),
         "Process should succeed even when symbol not found"
     );
+}
+
+#[test]
+fn test_refs_includes_target_symbol_id_in_json() {
+    // Test that refs JSON output includes target_symbol_id for referenced symbols
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("magellan.db");
+    let file_path = temp_dir.path().join("test.rs");
+
+    let bin_path = std::env::var("CARGO_BIN_EXE_magellan").unwrap_or_else(|_| {
+        let mut path = std::env::current_exe().unwrap();
+        path.pop();
+        path.pop();
+        path.push("magellan");
+        path.to_str().unwrap().to_string()
+    });
+
+    // Create file with caller/callee functions
+    let source = r#"
+fn callee() {}
+
+fn caller1() {
+    callee();
+}
+
+fn caller2() {
+    callee();
+}
+"#;
+    fs::write(&file_path, source).unwrap();
+
+    // Index the file and calls
+    {
+        let mut graph = magellan::CodeGraph::open(&db_path).unwrap();
+        let source_bytes = fs::read(&file_path).unwrap();
+        let path_str = file_path.to_string_lossy().to_string();
+        graph.index_file(&path_str, &source_bytes).unwrap();
+        graph.index_calls(&path_str, &source_bytes).unwrap();
+    }
+
+    // Run refs --name callee --direction in --output json
+    let output = Command::new(&bin_path)
+        .arg("--output")
+        .arg("json")
+        .arg("refs")
+        .arg("--db")
+        .arg(&db_path)
+        .arg("--name")
+        .arg("callee")
+        .arg("--path")
+        .arg(&file_path)
+        .arg("--direction")
+        .arg("in")
+        .output()
+        .expect("Failed to execute magellan refs");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "Process should exit successfully\nstdout: {}\nstderr: {}",
+        stdout,
+        stderr
+    );
+
+    // Parse JSON and verify structure
+    let json: serde_json::Value = serde_json::from_str(&stdout)
+        .expect("Output should be valid JSON");
+
+    // Verify response wrapper
+    assert_eq!(
+        json["schema_version"], "1.0.0",
+        "Schema version should be 1.0.0"
+    );
+    assert!(
+        json["execution_id"].is_string(),
+        "Should have execution_id"
+    );
+
+    // Verify data structure
+    let data = &json["data"];
+    assert!(data.is_object(), "Should have data object");
+
+    let references = &data["references"];
+    assert!(references.is_array(), "Should have references array");
+
+    let references_array = references.as_array().unwrap();
+    assert!(
+        !references_array.is_empty(),
+        "Should find at least one reference to 'callee'"
+    );
+
+    // Verify target_symbol_id field exists and is non-empty
+    let first_ref = &references_array[0];
+    assert!(
+        first_ref["target_symbol_id"].is_string(),
+        "target_symbol_id should be a string in JSON output, got: {}",
+        first_ref
+    );
+
+    let target_symbol_id = first_ref["target_symbol_id"].as_str().unwrap();
+    assert!(
+        !target_symbol_id.is_empty(),
+        "target_symbol_id should be non-empty"
+    );
+
+    // Verify other expected fields
+    assert_eq!(first_ref["reference_kind"], "call");
+    assert!(first_ref["span"].is_object());
+
+    // Verify symbol_name in response
+    assert_eq!(data["symbol_name"], "callee");
+    assert_eq!(data["direction"], "in");
 }
 
 // ============================================================================
