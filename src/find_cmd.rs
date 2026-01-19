@@ -286,7 +286,7 @@ fn output_json_mode(
                 s.end_line,
                 s.end_col,
             );
-            SymbolMatch::new(s.name, s.kind_normalized, span, None, None)
+            SymbolMatch::new(s.name, s.kind_normalized, span, None, s.symbol_id)
         })
         .collect();
 
