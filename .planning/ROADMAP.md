@@ -68,13 +68,14 @@ Plans:
   3. Row-count assertions verify all derived data is deleted (symbols, refs, calls, edges)
   4. Error injection tests demonstrate transaction rollback works correctly
   5. Orphan detection test confirms no dangling edges after delete operations
-**Plans**: TBD
+**Plans**: 4 plans in 4 waves
+**Status**: Ready to execute
 
 Plans:
-- [ ] 12-01: Wrap delete_file_facts() in rusqlite IMMEDIATE transaction following generation/mod.rs pattern
-- [ ] 12-02: Add row-count assertions to verify all derived data is deleted
-- [ ] 12-03: Implement error injection tests for transaction rollback verification
-- [ ] 12-04: Add invariant test for orphan detection after file delete
+- [ ] 12-01 — Wrap delete_file_facts() in rusqlite IMMEDIATE transaction following generation/mod.rs pattern (Wave 1)
+- [ ] 12-02 — Add row-count assertions to verify all derived data is deleted (Wave 2)
+- [ ] 12-03 — Implement error injection tests for transaction rollback verification (Wave 3)
+- [ ] 12-04 — Add invariant test for orphan detection after file delete (Wave 4)
 
 #### Phase 13: SCIP Tests + Documentation
 **Goal**: SCIP export is verified by round-trip tests, and users have clear security guidance.
