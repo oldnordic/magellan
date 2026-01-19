@@ -56,6 +56,12 @@ pub struct CallNode {
     pub file: String,
     pub caller: String,
     pub callee: String,
+    /// Stable symbol ID of the caller
+    #[serde(default)]
+    pub caller_symbol_id: Option<String>,
+    /// Stable symbol ID of the callee
+    #[serde(default)]
+    pub callee_symbol_id: Option<String>,
     pub byte_start: u64,
     pub byte_end: u64,
     pub start_line: u64,

@@ -219,6 +219,8 @@ impl CallOps {
             file: call.file_path.to_string_lossy().to_string(),
             caller: call.caller.clone(),
             callee: call.callee.clone(),
+            caller_symbol_id: None, // Will be populated in Task 3
+            callee_symbol_id: None, // Will be populated in Task 3
             byte_start: call.byte_start as u64,
             byte_end: call.byte_end as u64,
             start_line: call.start_line as u64,
