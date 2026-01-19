@@ -160,7 +160,7 @@ Plans:
 
 | Phase | Name | Status |
 |------:|------|--------|
-| 1 | Persistence Compatibility Baseline | Planned |
+| 1 | Persistence Compatibility Baseline | Complete |
 | 2 | Deterministic Watch & Indexing Pipeline | Planned |
 | 3 | CLI Output Contract | Planned |
 | 4 | Canonical Span Model + Span-Aware Results | Planned |
