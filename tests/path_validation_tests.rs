@@ -50,7 +50,7 @@ fn test_single_parent_traversal_rejected() {
 
     // Either SuspiciousTraversal or CannotCanonicalize is acceptable
     // (path doesn't exist, so canonicalization fails)
-    match &result {
+    match result {
         Err(PathValidationError::SuspiciousTraversal(_)) => {}
         Err(PathValidationError::CannotCanonicalize(_)) => {}
         e => panic!("Expected SuspiciousTraversal or CannotCanonicalize, got {:?}", e),
@@ -368,7 +368,7 @@ fn test_empty_path_components() {
     let root = temp_dir.path();
 
     // Path with empty components (// on Unix)
-    let _file = create_test_file(root, "test.rs");
+    let _ = create_test_file(root, "test.rs");
 
     #[cfg(unix)]
     {
@@ -384,7 +384,7 @@ fn test_relative_from_root() {
     let temp_dir = TempDir::new().unwrap();
     let root = temp_dir.path();
 
-    let _file = create_test_file(root, "test.rs");
+    let _ = create_test_file(root, "test.rs");
 
     // Relative path from root should work
     let relative = Path::new("test.rs");
