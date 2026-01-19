@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use super::{CodeGraph, ScanProgress};
 use crate::diagnostics::{DiagnosticStage, WatchDiagnostic};
 use crate::graph::filter::{skip_diagnostic, FileFilter};
+use crate::validation::{validate_path_within_root, PathValidationError};
 
 /// Scan result containing count and diagnostics.
 #[derive(Debug, Default)]
@@ -22,14 +23,20 @@ pub struct ScanResult {
 ///
 /// # Behavior
 /// 1. Walk directory recursively
-/// 2. Apply filtering rules (internal ignores, gitignore, include/exclude)
-/// 3. Index each supported file (symbols + references)
-/// 4. Report progress via callback
-/// 5. Collect diagnostics for skipped files and errors
+/// 2. Validate each path is within project root (prevents traversal attacks)
+/// 3. Apply filtering rules (internal ignores, gitignore, include/exclude)
+/// 4. Index each supported file (symbols + references)
+/// 5. Report progress via callback
+/// 6. Collect diagnostics for skipped files and errors
+///
+/// # Security
+/// - Path validation prevents directory traversal attacks
+/// - Symlinks are NOT followed during walk (follow_links=false in WalkDir)
+/// - Paths escaping root are rejected and logged as diagnostics
 ///
 /// # Arguments
 /// * `graph` - CodeGraph instance (mutable for indexing)
-/// * `dir_path` - Directory to scan
+/// * `dir_path` - Directory to scan (treated as root boundary)
 /// * `filter` - File filter for determining which files to process
 /// * `progress` - Optional callback for progress reporting (current, total)
 ///
@@ -40,6 +47,7 @@ pub struct ScanResult {
 /// - Filtering is deterministic and pure
 /// - Files are indexed in sorted order for determinism
 /// - Errors are collected as diagnostics; processing continues
+/// - No files outside dir_path are accessed
 pub fn scan_directory_with_filter(
     graph: &mut CodeGraph,
     dir_path: &Path,
@@ -61,6 +69,49 @@ pub fn scan_directory_with_filter(
         // Skip directories and symlinks to directories
         if path.is_dir() {
             continue;
+        }
+
+        // Validate path is within project root (security: prevent path traversal)
+        // WalkDir should keep us within dir_path, but validate defensively
+        match validate_path_within_root(path, dir_path) {
+            Ok(_) => {
+                // Path is safe, continue to filtering
+            }
+            Err(PathValidationError::OutsideRoot(p, _)) => {
+                let rel_path = Path::new(&p).strip_prefix(dir_path)
+                    .unwrap_or_else(|_| Path::new(&p))
+                    .to_string_lossy()
+                    .to_string();
+                diagnostics.push(WatchDiagnostic::skipped(
+                    rel_path,
+                    crate::diagnostics::SkipReason::IgnoredInternal,
+                ));
+                continue;
+            }
+            Err(PathValidationError::SymlinkEscape(from, to)) => {
+                let rel_path = Path::new(&from).strip_prefix(dir_path)
+                    .unwrap_or_else(|_| Path::new(&from))
+                    .to_string_lossy()
+                    .to_string();
+                diagnostics.push(WatchDiagnostic::error(
+                    rel_path,
+                    DiagnosticStage::Read,
+                    format!("symlink escapes root: {}", to),
+                ));
+                continue;
+            }
+            Err(PathValidationError::CannotCanonicalize(_)) => {
+                // Path doesn't exist or can't be accessed
+                continue;
+            }
+            Err(PathValidationError::SuspiciousTraversal(p)) => {
+                diagnostics.push(WatchDiagnostic::error(
+                    p,
+                    DiagnosticStage::Read,
+                    "suspicious traversal pattern".to_string(),
+                ));
+                continue;
+            }
         }
 
         // Apply filter
