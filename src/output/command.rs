@@ -751,6 +751,51 @@ pub struct StatusResponse {
     pub code_chunks: usize,
 }
 
+/// Response for validation command
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidationResponse {
+    /// Whether validation passed
+    pub passed: bool,
+    /// Number of errors found
+    pub error_count: usize,
+    /// Detailed error information
+    pub errors: Vec<ValidationError>,
+    /// Number of warnings found
+    pub warning_count: usize,
+    /// Detailed warning information
+    pub warnings: Vec<ValidationWarning>,
+}
+
+/// A validation error with structured data
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidationError {
+    /// Machine-readable error code (SCREAMING_SNAKE_CASE)
+    pub code: String,
+    /// Human-readable error description
+    pub message: String,
+    /// Related stable symbol_id if applicable
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entity_id: Option<String>,
+    /// Additional structured data
+    #[serde(skip_serializing_if = "serde_json::Value::is_null")]
+    pub details: serde_json::Value,
+}
+
+/// A validation warning with structured data
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidationWarning {
+    /// Machine-readable warning code (SCREAMING_SNAKE_CASE)
+    pub code: String,
+    /// Human-readable warning description
+    pub message: String,
+    /// Related stable symbol_id if applicable
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entity_id: Option<String>,
+    /// Additional structured data
+    #[serde(skip_serializing_if = "serde_json::Value::is_null")]
+    pub details: serde_json::Value,
+}
+
 /// Response for errors in JSON mode
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ErrorResponse {
