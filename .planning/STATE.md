@@ -10,10 +10,10 @@
 
 - **Current phase:** Phase 8 — Validation Hooks (Pre/Post) Surfaced via JSON
 - **Status:** In progress
-- **Last activity:** 2026-01-19 - Completed Phase 8 Plan 02 (JSON Validation Output Types)
-- **Next action:** Continue Phase 8 (CLI integration of validation)
+- **Last activity:** 2026-01-19 - Completed Phase 8 Plan 03 (CLI Validation Hooks)
+- **Next action:** Continue Phase 8 or review for Phase 9
 
-**Progress bar:** [██████████] 87% (29/33 total plans executed - Phase 8 Plan 02 complete)
+**Progress bar:** [██████████] 90% (30/33 total plans executed - Phase 8 Plan 03 complete)
 
 ## Success Definition (v1)
 
@@ -201,6 +201,15 @@ Magellan v1 is "done" when a user can:
 - From<ValidationReport> implementation converts internal types to public JSON types
 - Made validation module pub(crate) to enable From implementation from output module
 
+### Key Decisions (from Phase 8 / Plan 03)
+- Made validation module public (was pub(crate)) for CLI access from binary
+- Added --output flag parsing to watch command for JSON validation output support
+- validate-only implies validate=true (precedence rule for flag interaction)
+- Pre-run validation checks DB parent directory, root path existence, input path existence
+- Post-run validation checks orphan references and orphan calls after indexing
+- Validation failures exit with code 1 for CI/CD integration
+- Validation output wrapped in JsonResponse with execution_id for correlation
+
 ### Known Risks / Watch-outs
 - Mixed coordinate systems (byte vs char; inclusive vs exclusive).
 - "Stable IDs" accidentally derived from unstable sources (rowid, node id, iteration order).
@@ -212,11 +221,11 @@ Magellan v1 is "done" when a user can:
 
 ## Session Continuity
 
-- **Last session:** 2026-01-19T15:08:12Z
-- **Stopped at:** Completed Phase 8 Plan 02 (JSON Validation Output Types)
+- **Last session:** 2026-01-19T15:19:36Z
+- **Stopped at:** Completed Phase 8 Plan 03 (CLI Validation Hooks)
 - **Resume file:** None
 
 If resuming later, start by:
-1. Open `.planning/phases/08-validation-hooks/08-02-SUMMARY.md` for context on completed plan.
+1. Open `.planning/phases/08-validation-hooks/08-03-SUMMARY.md` for context on completed plan.
 2. Run `cargo test --workspace` to verify baseline health.
-3. Phase 8 Plan 02 is complete - ValidationResponse types ready for CLI integration.
+3. Phase 8 Plan 03 is complete - CLI validation hooks integrated with --validate and --validate-only flags.
