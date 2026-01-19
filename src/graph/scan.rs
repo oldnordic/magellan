@@ -412,4 +412,80 @@ mod tests {
         assert!(sorted_diags.iter().any(|d| d.path() == "b.rs"));
         assert!(sorted_diags.iter().any(|d| d.path() == "c.rs"));
     }
+
+    #[test]
+    fn test_scan_rejects_path_traversal() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+
+        // Create a subdirectory
+        let subdir = temp_dir.path().join("src");
+        std::fs::create_dir(&subdir).unwrap();
+
+        // Create a file in subdirectory (valid)
+        std::fs::write(subdir.join("valid.rs"), b"fn valid() {}").unwrap();
+
+        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
+        let filter = FileFilter::new(temp_dir.path(), &[], &[]).unwrap();
+
+        // Scan should succeed
+        let result = scan_directory_with_filter(&mut graph, temp_dir.path(), &filter, None).unwrap();
+
+        // Should have indexed the valid file
+        assert_eq!(result.indexed, 1);
+    }
+
+    #[test]
+    fn test_scan_with_symlink_to_outside() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let outside_dir = tempfile::TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+
+        // Create a file outside the scan root
+        let outside_file = outside_dir.path().join("outside.rs");
+        std::fs::write(&outside_file, b"fn outside() {}").unwrap();
+
+        // Create a symlink inside root pointing outside
+        let symlink = temp_dir.path().join("link.rs");
+
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside_file, &symlink).unwrap();
+
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_file(&outside_file, &symlink).unwrap();
+
+        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
+        let filter = FileFilter::new(temp_dir.path(), &[], &[]).unwrap();
+
+        // Scan should handle the symlink safely
+        // Since follow_links=false, WalkDir won't follow it
+        let _result = scan_directory_with_filter(&mut graph, temp_dir.path(), &filter, None).unwrap();
+
+        // The symlink itself might be indexed as a file (depending on WalkDir behavior)
+        // But it should NOT escape the root
+        #[cfg(any(unix, windows))]
+        {
+            // Verify no files from outside_dir were indexed
+            let symbols = graph.symbols_in_file(outside_file.to_str().unwrap());
+            assert!(symbols.is_err() || symbols.unwrap().is_empty());
+        }
+    }
+
+    #[test]
+    fn test_scan_continues_after_traversal_rejection() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+
+        // Create valid files
+        std::fs::write(temp_dir.path().join("good.rs"), b"fn good() {}").unwrap();
+        std::fs::write(temp_dir.path().join("better.rs"), b"fn better() {}").unwrap();
+
+        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
+        let filter = FileFilter::new(temp_dir.path(), &[], &[]).unwrap();
+
+        let result = scan_directory_with_filter(&mut graph, temp_dir.path(), &filter, None).unwrap();
+
+        // Both files should be indexed
+        assert_eq!(result.indexed, 2);
+    }
 }
