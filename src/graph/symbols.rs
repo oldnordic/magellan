@@ -91,6 +91,41 @@ pub fn generate_symbol_id(language: &str, fqn: &str, span_id: &str) -> String {
             result[4], result[5], result[6], result[7])
 }
 
+/// Generate a stable span ID from (file_path, byte_start, byte_end)
+///
+/// Uses SHA-256 for platform-independent, deterministic span IDs.
+/// This mirrors the Span::generate_id function from output/command.rs
+/// but lives here to avoid circular dependencies between graph and output modules.
+///
+/// # Algorithm
+///
+/// The hash is computed from: `file_path + ":" + byte_start + ":" + byte_end`
+/// The first 8 bytes (64 bits) of the hash are formatted as 16 hex characters.
+fn generate_span_id(file_path: &str, byte_start: usize, byte_end: usize) -> String {
+    let mut hasher = Sha256::new();
+
+    // Hash file path
+    hasher.update(file_path.as_bytes());
+
+    // Separator to distinguish path from numbers
+    hasher.update(b":");
+
+    // Hash byte_start as big-endian bytes
+    hasher.update(byte_start.to_be_bytes());
+
+    // Separator
+    hasher.update(b":");
+
+    // Hash byte_end as big-endian bytes
+    hasher.update(byte_end.to_be_bytes());
+
+    // Take first 8 bytes (64 bits) and format as hex
+    let result = hasher.finalize();
+    format!("{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+            result[0], result[1], result[2], result[3],
+            result[4], result[5], result[6], result[7])
+}
+
 /// Symbol operations for CodeGraph
 pub struct SymbolOps {
     pub backend: Rc<SqliteGraphBackend>,
@@ -98,9 +133,30 @@ pub struct SymbolOps {
 
 impl SymbolOps {
     /// Insert a symbol node from SymbolFact
+    ///
+    /// This method generates a stable symbol_id based on the symbol's language,
+    /// fully-qualified name, and defining span. The symbol_id is stored in the
+    /// SymbolNode and can be used to correlate symbols across indexing runs.
     pub fn insert_symbol_node(&self, fact: &SymbolFact) -> Result<NodeId> {
+        // Detect language (default to "unknown" if detection fails)
+        let language = detect_language(&fact.file_path)
+            .map(|l| l.as_str().to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+
+        // Generate span_id for the symbol's defining location
+        let file_path_str = fact.file_path.to_string_lossy();
+        let span_id = generate_span_id(&file_path_str, fact.byte_start, fact.byte_end);
+
+        // Get FQN for symbol_id generation
+        // Use name as fallback if fqn is not set (v1 compatibility)
+        let name_for_fqn = fact.name.as_deref().unwrap_or("");
+        let fqn = fact.fqn.as_deref().unwrap_or(name_for_fqn);
+
+        // Generate stable symbol_id
+        let symbol_id = generate_symbol_id(&language, fqn, &span_id);
+
         let symbol_node = SymbolNode {
-            symbol_id: None, // Will be set in Task 4
+            symbol_id: Some(symbol_id),
             name: fact.name.clone(),
             kind: format!("{:?}", fact.kind),
             kind_normalized: Some(fact.kind_normalized.clone()),
@@ -120,7 +176,7 @@ impl SymbolOps {
         let node_spec = NodeSpec {
             kind: "Symbol".to_string(),
             name,
-            file_path: Some(fact.file_path.to_string_lossy().to_string()),
+            file_path: Some(file_path_str.to_string()),
             data: serde_json::to_value(symbol_node)?,
         };
 
@@ -131,8 +187,8 @@ impl SymbolOps {
         let graph = self.backend.graph();
 
         // Language label (e.g., "rust", "python", "javascript")
-        if let Some(language) = detect_language(&fact.file_path) {
-            add_label(graph, node_id.as_i64(), language.as_str())?;
+        if let Some(detected_lang) = detect_language(&fact.file_path) {
+            add_label(graph, node_id.as_i64(), detected_lang.as_str())?;
         }
 
         // Symbol kind label (e.g., "fn", "struct", "enum", "method")
