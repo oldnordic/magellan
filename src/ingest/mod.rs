@@ -248,14 +248,100 @@ impl Parser {
 
         let root_node = tree.root_node();
         let mut facts = Vec::new();
+        let mut scope_stack = ScopeStack::new(ScopeSeparator::DoubleColon);
 
-        // Walk the tree and extract symbols
-        self.walk_tree(&root_node, &source, &file_path, &mut facts);
+        // Walk tree with scope tracking
+        self.walk_tree_with_scope(&root_node, source, &file_path, &mut facts, &mut scope_stack);
 
         facts
     }
 
+    /// Walk tree-sitter tree recursively with scope tracking
+    ///
+    /// Tracks module, impl, and trait scope boundaries to build proper FQNs.
+    /// - mod_item: pushes module name to scope
+    /// - impl_item: pushes type name for method scoping (doesn't create symbol)
+    /// - trait_item: pushes trait name to scope
+    fn walk_tree_with_scope(
+        &self,
+        node: &tree_sitter::Node,
+        source: &[u8],
+        file_path: &PathBuf,
+        facts: &mut Vec<SymbolFact>,
+        scope_stack: &mut ScopeStack,
+    ) {
+        let kind = node.kind();
+
+        // Track scope boundaries
+        match kind {
+            "mod_item" => {
+                // Extract module name and push to scope
+                if let Some(name) = self.extract_name(node, source) {
+                    scope_stack.push(&name);
+                    if let Some(fact) =
+                        self.extract_symbol_with_fqn(node, source, file_path, scope_stack)
+                    {
+                        facts.push(fact);
+                    }
+                    // Recurse into children (they're in this module's scope)
+                    let mut cursor = node.walk();
+                    for child in node.children(&mut cursor) {
+                        self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack);
+                    }
+                    scope_stack.pop();
+                    return;
+                }
+            }
+            "impl_item" => {
+                // impl blocks don't add to FQN (syntactic, not semantic)
+                // But we need to track them for method scoping
+                if let Some(type_name) = self.extract_impl_name(node, source) {
+                    scope_stack.push(&type_name);
+                    // Don't create a symbol for the impl block itself
+                    let mut cursor = node.walk();
+                    for child in node.children(&mut cursor) {
+                        self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack);
+                    }
+                    scope_stack.pop();
+                    return;
+                }
+            }
+            "trait_item" => {
+                if let Some(name) = self.extract_name(node, source) {
+                    scope_stack.push(&name);
+                    if let Some(fact) =
+                        self.extract_symbol_with_fqn(node, source, file_path, scope_stack)
+                    {
+                        facts.push(fact);
+                    }
+                    let mut cursor = node.walk();
+                    for child in node.children(&mut cursor) {
+                        self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack);
+                    }
+                    scope_stack.pop();
+                    return;
+                }
+            }
+            _ => {}
+        }
+
+        // Check if this node is a symbol we care about
+        if let Some(fact) = self.extract_symbol_with_fqn(node, source, file_path, scope_stack) {
+            facts.push(fact);
+        }
+
+        // Recurse into children
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack);
+        }
+    }
+
     /// Walk tree-sitter tree recursively and extract symbols
+    ///
+    /// Legacy method kept for backward compatibility during transition.
+    /// Use walk_tree_with_scope for FQN-aware extraction.
+    #[allow(dead_code)]
     fn walk_tree(
         &self,
         node: &tree_sitter::Node,
@@ -276,6 +362,10 @@ impl Parser {
     }
 
     /// Extract a symbol fact from a tree-sitter node, if applicable
+    ///
+    /// Legacy method kept for backward compatibility during transition.
+    /// Use extract_symbol_with_fqn for FQN-aware extraction.
+    #[allow(dead_code)]
     fn extract_symbol(
         &self,
         node: &tree_sitter::Node,
@@ -308,6 +398,53 @@ impl Parser {
             byte_start: node.start_byte() as usize,
             byte_end: node.end_byte() as usize,
             start_line: node.start_position().row + 1, // tree-sitter is 0-indexed
+            start_col: node.start_position().column,
+            end_line: node.end_position().row + 1,
+            end_col: node.end_position().column,
+        })
+    }
+
+    /// Extract a symbol fact with FQN from a tree-sitter node, if applicable
+    ///
+    /// Uses the current scope stack to build a fully-qualified name.
+    /// Skips scope-defining nodes (mod_item, impl_item, trait_item) as they
+    /// are handled in walk_tree_with_scope.
+    fn extract_symbol_with_fqn(
+        &self,
+        node: &tree_sitter::Node,
+        source: &[u8],
+        file_path: &PathBuf,
+        scope_stack: &ScopeStack,
+    ) -> Option<SymbolFact> {
+        let kind = node.kind();
+
+        // Skip scope-defining nodes (handled in walk_tree_with_scope)
+        if matches!(kind, "mod_item" | "impl_item" | "trait_item") {
+            return None;
+        }
+
+        let symbol_kind = match kind {
+            "function_item" => SymbolKind::Function,
+            "struct_item" => SymbolKind::Class,
+            "enum_item" => SymbolKind::Enum,
+            _ => return None,
+        };
+
+        let name = self.extract_name(node, source)?;
+        let normalized_kind = symbol_kind.normalized_key().to_string();
+
+        // Build FQN from current scope + symbol name
+        let fqn = scope_stack.fqn_for_symbol(&name);
+
+        Some(SymbolFact {
+            file_path: file_path.clone(),
+            kind: symbol_kind,
+            kind_normalized: normalized_kind,
+            name: Some(name),
+            fqn: Some(fqn),
+            byte_start: node.start_byte() as usize,
+            byte_end: node.end_byte() as usize,
+            start_line: node.start_position().row + 1,
             start_col: node.start_position().column,
             end_line: node.end_position().row + 1,
             end_col: node.end_position().column,
