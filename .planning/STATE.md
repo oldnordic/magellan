@@ -9,11 +9,11 @@
 ## Current Position
 
 - **Current phase:** Phase 7 — Deterministic Exports (JSON/JSONL, DOT, CSV)
-- **Status:** Planned
-- **Last activity:** 2026-01-19 - Completed Phase 6 (Query UX)
-- **Next action:** Plan Phase 7 (Deterministic Exports)
+- **Status:** In Progress (Plan 07-01 complete)
+- **Last activity:** 2026-01-19 - Completed Phase 7 Plan 01 (JSON/JSONL Export)
+- **Next action:** Continue Phase 7 (DOT or CSV format)
 
-**Progress bar:** [████████░░] 67% (22/33 total plans executed - Phase 6 complete)
+**Progress bar:** [████████░░] 70% (23/33 total plans executed - Phase 7 Plan 1 complete)
 
 ## Success Definition (v1)
 
@@ -162,6 +162,15 @@ Magellan v1 is "done" when a user can:
 - Parse --output flag in files command arg parser to avoid unknown argument errors
 - Count symbols per file using existing symbols_in_file() query function from graph/query module
 
+### Key Decisions (from Phase 7 / Plan 01)
+- ExportFormat enum with Json/JsonL/Dot/Csv variants (Dot and CSV are placeholders for future plans)
+- ExportConfig struct with format selection and content filters (include_symbols, include_references, include_calls)
+- JSONL format uses tagged enum serialization with #[serde(tag = "type")] for type discrimination
+- Preserve existing export_json() for backward compatibility, add export_graph(config) for new features
+- All stable ID fields use #[serde(default)] for backward compatibility with existing consumers
+- Deterministic sorting by type (File < Symbol < Reference < Call) then by keys for reproducible output
+- Minify flag uses serde_json::to_string() instead of to_string_pretty() for compact JSON
+
 ### Known Risks / Watch-outs
 - Mixed coordinate systems (byte vs char; inclusive vs exclusive).
 - "Stable IDs" accidentally derived from unstable sources (rowid, node id, iteration order).
@@ -173,11 +182,11 @@ Magellan v1 is "done" when a user can:
 
 ## Session Continuity
 
-- **Last session:** 2026-01-19T14:30:00Z
-- **Stopped at:** Phase 6 complete and verified
+- **Last session:** 2026-01-19T14:12:35Z
+- **Stopped at:** Completed Phase 7 Plan 01 (JSON/JSONL Export)
 - **Resume file:** None
 
 If resuming later, start by:
-1. Open `.planning/phases/06-query-ux/06-query-ux-VERIFICATION.md` for context on completed phase.
+1. Open `.planning/phases/07-deterministic-exports/07-01-SUMMARY.md` for context on completed plan.
 2. Run `cargo test --workspace` to verify baseline health.
-3. Phase 6 is complete - ready for Phase 7 (Deterministic Exports).
+3. Phase 7 Plan 01 is complete - ready for Phase 7 Plan 02 (DOT format) or Plan 03 (CSV format).
