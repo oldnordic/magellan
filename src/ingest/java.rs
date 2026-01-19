@@ -2,7 +2,7 @@
 //!
 //! Extracts classes, interfaces, enums, methods, and packages from Java source code.
 
-use crate::ingest::{SymbolFact, SymbolKind};
+use crate::ingest::{ScopeSeparator, ScopeStack, SymbolFact, SymbolKind};
 use crate::references::{CallFact, ReferenceFact};
 use anyhow::Result;
 use std::collections::HashMap;
@@ -45,62 +45,122 @@ impl JavaParser {
 
         let root_node = tree.root_node();
         let mut facts = Vec::new();
+        let mut scope_stack = ScopeStack::new(ScopeSeparator::Dot);
 
-        // Walk the tree and extract symbols
-        self.walk_tree(&root_node, source, &file_path, &mut facts);
+        // Find package declaration first (it comes first in the file)
+        let mut cursor = root_node.walk();
+        for child in root_node.children(&mut cursor) {
+            if child.kind() == "package_declaration" {
+                if let Some(pkg_name) = self.extract_name(&child, source, "package_declaration") {
+                    // Extract the package symbol itself (before pushing to scope)
+                    if let Some(fact) = self.extract_symbol_with_fqn(&child, source, &file_path, &scope_stack) {
+                        facts.push(fact);
+                    }
+                    // Package becomes root scope: com.example.Class
+                    for part in pkg_name.split('.') {
+                        scope_stack.push(part);
+                    }
+                }
+                break;
+            }
+        }
+
+        // Walk tree with scope tracking
+        self.walk_tree_with_scope(&root_node, source, &file_path, &mut facts, &mut scope_stack);
 
         facts
     }
 
-    /// Walk tree-sitter tree recursively and extract symbols.
-    fn walk_tree(
+    /// Walk tree-sitter tree recursively with scope tracking
+    ///
+    /// Tracks class and interface scope boundaries to build proper FQNs.
+    /// - class_declaration: pushes class name to scope
+    /// - interface_declaration: pushes interface name to scope
+    /// - enum_declaration: pushes enum name to scope
+    fn walk_tree_with_scope(
         &self,
         node: &tree_sitter::Node,
         source: &[u8],
         file_path: &PathBuf,
         facts: &mut Vec<SymbolFact>,
+        scope_stack: &mut ScopeStack,
     ) {
+        let kind = node.kind();
+
+        // Skip package_declaration (already handled)
+        if kind == "package_declaration" {
+            return;
+        }
+
+        // Track type scope
+        let is_type_scope = matches!(
+            kind,
+            "class_declaration" | "interface_declaration" | "enum_declaration"
+        );
+
+        if is_type_scope {
+            if let Some(name) = self.extract_name(node, source, kind) {
+                // Create type symbol with parent scope
+                if let Some(fact) = self.extract_symbol_with_fqn(node, source, file_path, scope_stack) {
+                    facts.push(fact);
+                }
+                // Push type scope for children (methods, nested types)
+                scope_stack.push(&name);
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack);
+                }
+                scope_stack.pop();
+                return;
+            }
+        }
+
         // Check if this node is a symbol we care about
-        if let Some(fact) = self.extract_symbol(node, source, file_path) {
+        if let Some(fact) = self.extract_symbol_with_fqn(node, source, file_path, scope_stack) {
             facts.push(fact);
         }
 
         // Recurse into children
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            self.walk_tree(&child, source, file_path, facts);
+            self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack);
         }
     }
 
-    /// Extract a symbol fact from a tree-sitter node, if applicable.
-    fn extract_symbol(
+    /// Extract a symbol fact with FQN from a tree-sitter node, if applicable
+    ///
+    /// Uses the current scope stack to build a fully-qualified name.
+    /// Creates symbols for all relevant node types including type scope nodes.
+    fn extract_symbol_with_fqn(
         &self,
         node: &tree_sitter::Node,
         source: &[u8],
         file_path: &PathBuf,
+        scope_stack: &ScopeStack,
     ) -> Option<SymbolFact> {
         let kind = node.kind();
 
         let symbol_kind = match kind {
+            "method_declaration" => SymbolKind::Method,
             "class_declaration" => SymbolKind::Class,
             "interface_declaration" => SymbolKind::Interface,
             "enum_declaration" => SymbolKind::Enum,
-            "method_declaration" => SymbolKind::Method,
             "package_declaration" => SymbolKind::Module,
             _ => return None, // Not a symbol we track
         };
 
-        // Try to extract name
-        let name = self.extract_name(node, source, kind);
-
+        let name = self.extract_name(node, source, kind)?;
         let normalized_kind = symbol_kind.normalized_key().to_string();
-        let fqn = name.clone(); // For v1, FQN is just the symbol name
+
+        // Build FQN from current scope + symbol name
+        let fqn = scope_stack.fqn_for_symbol(&name);
+
         Some(SymbolFact {
             file_path: file_path.clone(),
             kind: symbol_kind,
             kind_normalized: normalized_kind,
-            name,
-            fqn,
+            name: Some(name),
+            fqn: Some(fqn),
             byte_start: node.start_byte() as usize,
             byte_end: node.end_byte() as usize,
             start_line: node.start_position().row + 1, // tree-sitter is 0-indexed
@@ -559,5 +619,67 @@ class Outer {
         assert_eq!(classes.len(), 2);
         assert_eq!(classes[0].name, Some("Outer".to_string()));
         assert_eq!(classes[1].name, Some("Inner".to_string()));
+    }
+
+    #[test]
+    fn test_fqn_package_class_method() {
+        let mut parser = JavaParser::new().unwrap();
+        let source = b"
+package com.example;
+
+public class MyClass {
+    public void myMethod() {}
+}
+";
+        let facts = parser.extract_symbols(PathBuf::from("test.java"), source);
+
+        let modules: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Module)
+            .collect();
+        assert_eq!(modules.len(), 1);
+        assert_eq!(modules[0].fqn, Some("com.example".to_string()));
+
+        let classes: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Class)
+            .collect();
+        assert_eq!(classes.len(), 1);
+        assert_eq!(classes[0].fqn, Some("com.example.MyClass".to_string()));
+
+        let methods: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Method)
+            .collect();
+        assert_eq!(methods.len(), 1);
+        assert_eq!(methods[0].fqn, Some("com.example.MyClass.myMethod".to_string()));
+    }
+
+    #[test]
+    fn test_fqn_nested_class() {
+        let mut parser = JavaParser::new().unwrap();
+        let source = b"
+class Outer {
+    class Inner {
+        void method() {}
+    }
+}
+";
+        let facts = parser.extract_symbols(PathBuf::from("test.java"), source);
+
+        let classes: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Class)
+            .collect();
+        assert_eq!(classes.len(), 2);
+        assert_eq!(classes[0].fqn, Some("Outer".to_string()));
+        assert_eq!(classes[1].fqn, Some("Outer.Inner".to_string()));
+
+        let methods: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Method)
+            .collect();
+        assert_eq!(methods.len(), 1);
+        assert_eq!(methods[0].fqn, Some("Outer.Inner.method".to_string()));
     }
 }

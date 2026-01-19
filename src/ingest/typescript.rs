@@ -2,7 +2,7 @@
 //!
 //! Extracts functions, classes, interfaces, methods, types, enums, and namespaces from TypeScript source code.
 
-use crate::ingest::{SymbolFact, SymbolKind};
+use crate::ingest::{ScopeSeparator, ScopeStack, SymbolFact, SymbolKind};
 use crate::references::{CallFact, ReferenceFact};
 use anyhow::Result;
 use std::path::PathBuf;
@@ -44,69 +44,110 @@ impl TypeScriptParser {
 
         let root_node = tree.root_node();
         let mut facts = Vec::new();
+        let mut scope_stack = ScopeStack::new(ScopeSeparator::Dot);
 
-        // Walk the tree and extract symbols
-        self.walk_tree(&root_node, source, &file_path, &mut facts);
+        // Walk tree with scope tracking
+        self.walk_tree_with_scope(&root_node, source, &file_path, &mut facts, &mut scope_stack);
 
         facts
     }
 
-    /// Walk tree-sitter tree recursively and extract symbols.
-    fn walk_tree(
+    /// Walk tree-sitter tree recursively with scope tracking
+    ///
+    /// Tracks class, interface, and namespace scope boundaries to build proper FQNs.
+    /// - class_declaration: pushes class name to scope
+    /// - interface_declaration: pushes interface name to scope
+    /// - internal_module (namespace): pushes namespace name to scope
+    fn walk_tree_with_scope(
         &self,
         node: &tree_sitter::Node,
         source: &[u8],
         file_path: &PathBuf,
         facts: &mut Vec<SymbolFact>,
+        scope_stack: &mut ScopeStack,
     ) {
+        let kind = node.kind();
+
+        // export_statement wraps the actual declaration - skip it here
+        if kind == "export_statement" {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack);
+            }
+            return;
+        }
+
+        // Track type scope
+        let is_type_scope = matches!(
+            kind,
+            "class_declaration" | "interface_declaration" | "internal_module"
+        );
+
+        if is_type_scope {
+            if let Some(name) = self.extract_name(node, source, kind) {
+                // Create type symbol with parent scope
+                if let Some(fact) = self.extract_symbol_with_fqn(node, source, file_path, scope_stack) {
+                    facts.push(fact);
+                }
+                // Push type scope for children (methods, nested types)
+                scope_stack.push(&name);
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack);
+                }
+                scope_stack.pop();
+                return;
+            }
+        }
+
         // Check if this node is a symbol we care about
-        if let Some(fact) = self.extract_symbol(node, source, file_path) {
+        if let Some(fact) = self.extract_symbol_with_fqn(node, source, file_path, scope_stack) {
             facts.push(fact);
         }
 
         // Recurse into children
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            self.walk_tree(&child, source, file_path, facts);
+            self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack);
         }
     }
 
-    /// Extract a symbol fact from a tree-sitter node, if applicable.
-    fn extract_symbol(
+    /// Extract a symbol fact with FQN from a tree-sitter node, if applicable
+    ///
+    /// Uses the current scope stack to build a fully-qualified name.
+    /// Creates symbols for all relevant node types including type scope nodes.
+    fn extract_symbol_with_fqn(
         &self,
         node: &tree_sitter::Node,
         source: &[u8],
         file_path: &PathBuf,
+        scope_stack: &ScopeStack,
     ) -> Option<SymbolFact> {
         let kind = node.kind();
 
-        // export_statement wraps the actual declaration - skip it here
-        if kind == "export_statement" {
-            return None;
-        }
-
         let symbol_kind = match kind {
             "function_declaration" => SymbolKind::Function,
-            "class_declaration" => SymbolKind::Class,
             "method_definition" => SymbolKind::Method,
-            "interface_declaration" => SymbolKind::Interface,
             "type_alias_declaration" => SymbolKind::TypeAlias,
             "enum_declaration" => SymbolKind::Enum,
+            "class_declaration" => SymbolKind::Class,
+            "interface_declaration" => SymbolKind::Interface,
             "internal_module" => SymbolKind::Namespace,
             _ => return None, // Not a symbol we track
         };
 
-        // Try to extract name
-        let name = self.extract_name(node, source, kind);
-
+        let name = self.extract_name(node, source, kind)?;
         let normalized_kind = symbol_kind.normalized_key().to_string();
-        let fqn = name.clone(); // For v1, FQN is just the symbol name
+
+        // Build FQN from current scope + symbol name
+        let fqn = scope_stack.fqn_for_symbol(&name);
+
         Some(SymbolFact {
             file_path: file_path.clone(),
             kind: symbol_kind,
             kind_normalized: normalized_kind,
-            name,
-            fqn,
+            name: Some(name),
+            fqn: Some(fqn),
             byte_start: node.start_byte() as usize,
             byte_end: node.end_byte() as usize,
             start_line: node.start_position().row + 1, // tree-sitter is 0-indexed
@@ -646,5 +687,59 @@ function foo(): void {}
         // Interface starts at line 1
         assert_eq!(fact.start_line, 1);
         assert_eq!(fact.start_col, 0); // 'i' in 'interface' is at column 0
+    }
+
+    #[test]
+    fn test_fqn_namespace_class_method() {
+        let mut parser = TypeScriptParser::new().unwrap();
+        let source = b"
+namespace MyNamespace {
+    export class MyClass {
+        myMethod() {
+            return;
+        }
+    }
+}
+";
+        let facts = parser.extract_symbols(PathBuf::from("test.ts"), source);
+
+        let namespaces: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Namespace)
+            .collect();
+        assert_eq!(namespaces.len(), 1);
+        assert_eq!(namespaces[0].fqn, Some("MyNamespace".to_string()));
+
+        let classes: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Class)
+            .collect();
+        assert_eq!(classes.len(), 1);
+        assert_eq!(classes[0].fqn, Some("MyNamespace.MyClass".to_string()));
+
+        let methods: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Method)
+            .collect();
+        assert_eq!(methods.len(), 1);
+        assert_eq!(methods[0].fqn, Some("MyNamespace.MyClass.myMethod".to_string()));
+    }
+
+    #[test]
+    fn test_fqn_interface_method() {
+        let mut parser = TypeScriptParser::new().unwrap();
+        let source = b"
+interface MyInterface {
+    myMethod(): void;
+}
+";
+        let facts = parser.extract_symbols(PathBuf::from("test.ts"), source);
+
+        let interfaces: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Interface)
+            .collect();
+        assert_eq!(interfaces.len(), 1);
+        assert_eq!(interfaces[0].fqn, Some("MyInterface".to_string()));
     }
 }

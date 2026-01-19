@@ -2,7 +2,7 @@
 //!
 //! Extracts functions, classes, and methods from JavaScript source code.
 
-use crate::ingest::{SymbolFact, SymbolKind};
+use crate::ingest::{ScopeSeparator, ScopeStack, SymbolFact, SymbolKind};
 use crate::references::{CallFact, ReferenceFact};
 use anyhow::Result;
 use std::path::PathBuf;
@@ -44,66 +44,100 @@ impl JavaScriptParser {
 
         let root_node = tree.root_node();
         let mut facts = Vec::new();
+        let mut scope_stack = ScopeStack::new(ScopeSeparator::Dot);
 
-        // Walk the tree and extract symbols
-        self.walk_tree(&root_node, source, &file_path, &mut facts);
+        // Walk tree with scope tracking
+        self.walk_tree_with_scope(&root_node, source, &file_path, &mut facts, &mut scope_stack);
 
         facts
     }
 
-    /// Walk tree-sitter tree recursively and extract symbols.
-    fn walk_tree(
+    /// Walk tree-sitter tree recursively with scope tracking
+    ///
+    /// Tracks class scope boundaries to build proper FQNs.
+    /// - class_declaration: pushes class name to scope
+    fn walk_tree_with_scope(
         &self,
         node: &tree_sitter::Node,
         source: &[u8],
         file_path: &PathBuf,
         facts: &mut Vec<SymbolFact>,
+        scope_stack: &mut ScopeStack,
     ) {
+        let kind = node.kind();
+
+        // export_statement wraps the actual declaration - skip it here
+        // The walk_tree will recurse into its children and find the actual symbol
+        if kind == "export_statement" {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack);
+            }
+            return;
+        }
+
+        // Track class scope
+        if kind == "class_declaration" {
+            if let Some(name) = self.extract_name(node, source) {
+                // Create class symbol with parent scope
+                if let Some(fact) = self.extract_symbol_with_fqn(node, source, file_path, scope_stack) {
+                    facts.push(fact);
+                }
+                // Push class scope for children (methods)
+                scope_stack.push(&name);
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack);
+                }
+                scope_stack.pop();
+                return;
+            }
+        }
+
         // Check if this node is a symbol we care about
-        if let Some(fact) = self.extract_symbol(node, source, file_path) {
+        if let Some(fact) = self.extract_symbol_with_fqn(node, source, file_path, scope_stack) {
             facts.push(fact);
         }
 
         // Recurse into children
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            self.walk_tree(&child, source, file_path, facts);
+            self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack);
         }
     }
 
-    /// Extract a symbol fact from a tree-sitter node, if applicable.
-    fn extract_symbol(
+    /// Extract a symbol fact with FQN from a tree-sitter node, if applicable
+    ///
+    /// Uses the current scope stack to build a fully-qualified name.
+    /// Creates symbols for all relevant node types including class_declaration.
+    fn extract_symbol_with_fqn(
         &self,
         node: &tree_sitter::Node,
         source: &[u8],
         file_path: &PathBuf,
+        scope_stack: &ScopeStack,
     ) -> Option<SymbolFact> {
         let kind = node.kind();
 
-        // export_statement wraps the actual declaration - skip it here
-        // The walk_tree will recurse into its children and find the actual symbol
-        if kind == "export_statement" {
-            return None;
-        }
-
         let symbol_kind = match kind {
             "function_declaration" => SymbolKind::Function,
-            "class_declaration" => SymbolKind::Class,
             "method_definition" => SymbolKind::Method,
+            "class_declaration" => SymbolKind::Class,
             _ => return None, // Not a symbol we track
         };
 
-        // Try to extract name
-        let name = self.extract_name(node, source);
-
+        let name = self.extract_name(node, source)?;
         let normalized_kind = symbol_kind.normalized_key().to_string();
-        let fqn = name.clone(); // For v1, FQN is just the symbol name
+
+        // Build FQN from current scope + symbol name
+        let fqn = scope_stack.fqn_for_symbol(&name);
+
         Some(SymbolFact {
             file_path: file_path.clone(),
             kind: symbol_kind,
             kind_normalized: normalized_kind,
-            name,
-            fqn,
+            name: Some(name),
+            fqn: Some(fqn),
             byte_start: node.start_byte() as usize,
             byte_end: node.end_byte() as usize,
             start_line: node.start_position().row + 1, // tree-sitter is 0-indexed
@@ -586,5 +620,32 @@ export function baz() {}
         // Function starts at line 1
         assert_eq!(fact.start_line, 1);
         assert_eq!(fact.start_col, 0); // 'f' in 'function' is at column 0
+    }
+
+    #[test]
+    fn test_fqn_class_method() {
+        let mut parser = JavaScriptParser::new().unwrap();
+        let source = b"
+class MyClass {
+    myMethod() {
+        return;
+    }
+}
+";
+        let facts = parser.extract_symbols(PathBuf::from("test.js"), source);
+
+        let classes: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Class)
+            .collect();
+        assert_eq!(classes.len(), 1);
+        assert_eq!(classes[0].fqn, Some("MyClass".to_string()));
+
+        let methods: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Method)
+            .collect();
+        assert_eq!(methods.len(), 1);
+        assert_eq!(methods[0].fqn, Some("MyClass.myMethod".to_string()));
     }
 }
