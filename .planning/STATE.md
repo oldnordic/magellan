@@ -9,11 +9,11 @@
 ## Current Position
 
 - **Current phase:** Phase 3 — CLI Output Contract (Schema + Determinism + Stdout Discipline)
-- **Status:** Planning complete (3/3 plans created)
-- **Last activity:** 2026-01-19 - Created Phase 3 plans (03-01, 03-02, 03-03)
-- **Next action:** Execute Phase 3 plans
+- **Status:** In progress (1/3 plans complete)
+- **Last activity:** 2026-01-19 - Completed 03-01 (Output Module Foundation)
+- **Next action:** Execute remaining Phase 3 plans (03-02, 03-03)
 
-**Progress bar:** [████████░░] 33% (0/3 plans executed in Phase 3, 10/12 total plans executed)
+**Progress bar:** [████████░░] 42% (1/3 plans executed in Phase 3, 11/12 total plans executed)
 
 ## Success Definition (v1)
 
@@ -78,6 +78,12 @@ Magellan v1 is "done" when a user can:
 - Span representation follows existing SymbolFact pattern (byte + line/col, half-open)
 - Phase 4 will implement proper stable span_id (placeholder for now)
 
+### Key Decisions (from Phase 3 / Plan 01)
+- OutputFormat enum with Human and Json variants for CLI flag parsing
+- JsonResponse<T> wrapper with schema_version, execution_id, data, partial fields
+- Execution ID format: 16 hex chars from timestamp (8) + PID (8)
+- output_json() function using serde_json::to_string_pretty for human-readable JSON
+
 ### Known Risks / Watch-outs
 - Mixed coordinate systems (byte vs char; inclusive vs exclusive).
 - "Stable IDs" accidentally derived from unstable sources (rowid, node id, iteration order).
@@ -90,11 +96,11 @@ Magellan v1 is "done" when a user can:
 
 ## Session Continuity
 
-- **Last session:** 2026-01-19T11:30:00Z
-- **Stopped at:** Created Phase 3 plans (ready for execution)
+- **Last session:** 2026-01-19T10:35:30Z
+- **Stopped at:** Completed 03-01 (Output Module Foundation)
 - **Resume file:** None
 
 If resuming later, start by:
-1. Open `.planning/ROADMAP.md` and confirm Phase 3 scope.
+1. Open `.planning/phases/03-cli-output-contract/03-01-SUMMARY.md` for context on completed work.
 2. Run `cargo test --workspace` to verify baseline health.
-3. Execute Phase 3 plans: `/gsd:execute-phase 03-cli-output-contract`
+3. Execute next Phase 3 plan: `/gsd:execute-phase 03-cli-output-contract` (will pick 03-02)
