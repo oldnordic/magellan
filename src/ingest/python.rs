@@ -2,7 +2,7 @@
 //!
 //! Extracts functions, classes, and async functions from Python source code.
 
-use crate::ingest::{SymbolFact, SymbolKind};
+use crate::ingest::{ScopeSeparator, ScopeStack, SymbolFact, SymbolKind};
 use crate::references::{CallFact, ReferenceFact};
 use anyhow::Result;
 use std::path::PathBuf;
@@ -44,39 +44,68 @@ impl PythonParser {
 
         let root_node = tree.root_node();
         let mut facts = Vec::new();
+        let mut scope_stack = ScopeStack::new(ScopeSeparator::Dot);
 
-        // Walk the tree and extract symbols
-        self.walk_tree(&root_node, source, &file_path, &mut facts);
+        // Walk tree with scope tracking
+        self.walk_tree_with_scope(&root_node, source, &file_path, &mut facts, &mut scope_stack);
 
         facts
     }
 
-    /// Walk tree-sitter tree recursively and extract symbols.
-    fn walk_tree(
+    /// Walk tree-sitter tree recursively with scope tracking
+    ///
+    /// Tracks class scope boundaries to build proper FQNs.
+    /// - class_definition: pushes class name to scope
+    fn walk_tree_with_scope(
         &self,
         node: &tree_sitter::Node,
         source: &[u8],
         file_path: &PathBuf,
         facts: &mut Vec<SymbolFact>,
+        scope_stack: &mut ScopeStack,
     ) {
+        let kind = node.kind();
+
+        // Track class scope
+        if kind == "class_definition" {
+            if let Some(name) = self.extract_name(node, source) {
+                // Create class symbol with parent scope
+                if let Some(fact) = self.extract_symbol_with_fqn(node, source, file_path, scope_stack) {
+                    facts.push(fact);
+                }
+                // Push class scope for children
+                scope_stack.push(&name);
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack);
+                }
+                scope_stack.pop();
+                return;
+            }
+        }
+
         // Check if this node is a symbol we care about
-        if let Some(fact) = self.extract_symbol(node, source, file_path) {
+        if let Some(fact) = self.extract_symbol_with_fqn(node, source, file_path, scope_stack) {
             facts.push(fact);
         }
 
         // Recurse into children
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            self.walk_tree(&child, source, file_path, facts);
+            self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack);
         }
     }
 
-    /// Extract a symbol fact from a tree-sitter node, if applicable.
-    fn extract_symbol(
+    /// Extract a symbol fact with FQN from a tree-sitter node, if applicable
+    ///
+    /// Uses the current scope stack to build a fully-qualified name.
+    /// For class_definition, creates the symbol with parent scope (not including self).
+    fn extract_symbol_with_fqn(
         &self,
         node: &tree_sitter::Node,
         source: &[u8],
         file_path: &PathBuf,
+        scope_stack: &ScopeStack,
     ) -> Option<SymbolFact> {
         let kind = node.kind();
 
@@ -86,17 +115,18 @@ impl PythonParser {
             _ => return None, // Not a symbol we track
         };
 
-        // Try to extract name
-        let name = self.extract_name(node, source);
-
+        let name = self.extract_name(node, source)?;
         let normalized_kind = symbol_kind.normalized_key().to_string();
-        let fqn = name.clone(); // For v1, FQN is just the symbol name
+
+        // Build FQN from current scope + symbol name
+        let fqn = scope_stack.fqn_for_symbol(&name);
+
         Some(SymbolFact {
             file_path: file_path.clone(),
             kind: symbol_kind,
             kind_normalized: normalized_kind,
-            name,
-            fqn,
+            name: Some(name),
+            fqn: Some(fqn),
             byte_start: node.start_byte() as usize,
             byte_end: node.end_byte() as usize,
             start_line: node.start_position().row + 1, // tree-sitter is 0-indexed
@@ -588,5 +618,51 @@ def decorated_func():
         // We may not extract it if we don't handle that node type
         // For now, this test documents current behavior
         // Note: Tree-sitter may extract decorated functions as function_definition
+    }
+
+    #[test]
+    fn test_fqn_class_method() {
+        let mut parser = PythonParser::new().unwrap();
+        let source = b"
+class MyClass:
+    def my_method(self):
+        pass
+";
+        let facts = parser.extract_symbols(PathBuf::from("test.py"), source);
+
+        let methods: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Function)
+            .collect();
+
+        assert_eq!(methods.len(), 1);
+        assert_eq!(methods[0].fqn, Some("MyClass.my_method".to_string()));
+    }
+
+    #[test]
+    fn test_fqn_nested_classes() {
+        let mut parser = PythonParser::new().unwrap();
+        let source = b"
+class Outer:
+    class Inner:
+        def method(self):
+            pass
+";
+        let facts = parser.extract_symbols(PathBuf::from("test.py"), source);
+
+        let classes: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Class)
+            .collect();
+        assert_eq!(classes.len(), 2);
+        assert_eq!(classes[0].fqn, Some("Outer".to_string()));
+        assert_eq!(classes[1].fqn, Some("Outer.Inner".to_string()));
+
+        let methods: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Function)
+            .collect();
+        assert_eq!(methods.len(), 1);
+        assert_eq!(methods[0].fqn, Some("Outer.Inner.method".to_string()));
     }
 }
