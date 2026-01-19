@@ -90,6 +90,7 @@ fn print_usage() {
     eprintln!();
     eprintln!("Files arguments:");
     eprintln!("  --db <FILE>         Path to sqlitegraph database");
+    eprintln!("  --symbols           Show symbol count per file");
     eprintln!();
     eprintln!("Label arguments:");
     eprintln!("  --db <FILE>         Path to sqlitegraph database");
