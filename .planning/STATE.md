@@ -8,12 +8,12 @@
 
 ## Current Position
 
-- **Current phase:** Phase 4 — Canonical Span Model
-- **Status:** Phase 4 complete (3/3 plans executed)
-- **Last activity:** 2026-01-19 - Completed 04-03 (Document Canonical Span Model)
-- **Next action:** Begin Phase 5 (if exists) or final validation
+- **Current phase:** Phase 5 — Stable Identity + Execution Tracking
+- **Status:** In progress (1/3 plans executed)
+- **Last activity:** 2026-01-19 - Completed 05-02 (ExecutionLog Module)
+- **Next action:** Continue Phase 5 Plan 05-03 or next plan
 
-**Progress bar:** [██████████] 93% (15/15 total plans executed - Phase 4 complete)
+**Progress bar:** [████████░░] 97% (16/18 total plans executed - Phase 5 in progress)
 
 ## Success Definition (v1)
 
@@ -115,22 +115,36 @@ Magellan v1 is "done" when a user can:
 - Method documentation should explain algorithm and stability guarantees
 - Span ID format is part of Magellan's stable API contract
 
+### Key Decisions (from Phase 5 / Plan 01)
+- Add fqn (fully-qualified name) field to SymbolFact for stable symbol_id generation
+- For v1, fqn is set to simple symbol name (hierarchical FQN deferred)
+- Add symbol_id field to SymbolNode schema (SHA-256 hash of language:fqn:span_id)
+- generate_symbol_id() function provides deterministic stable ID generation
+
+### Key Decisions (from Phase 5 / Plan 02)
+- ExecutionLog uses separate rusqlite connection (following ChunkStore pattern)
+- Schema version incremented to 2 for execution_log table (breaks existing DBs)
+- UNIQUE constraint on execution_id prevents duplicate tracking
+- Three outcome values: "success", "error", "partial"
+- Users must delete old DBs or await future migration implementation
+
 ### Known Risks / Watch-outs
 - Mixed coordinate systems (byte vs char; inclusive vs exclusive).
 - "Stable IDs" accidentally derived from unstable sources (rowid, node id, iteration order).
 - Watch event storms creating nondeterministic intermediate states.
 - Nested .gitignore files not yet supported (only root .gitignore/.ignore loaded)
+- **DB compatibility:** MAGELLAN_SCHEMA_VERSION=2 breaks existing databases (users must delete DBs)
 
 ### Blockers
 - None currently (roadmap created). If constraints change (e.g., interop export moved to v2), revisit Phase 9.
 
 ## Session Continuity
 
-- **Last session:** 2026-01-19T11:37:52Z
-- **Stopped at:** Completed 04-03 (Document Canonical Span Model)
+- **Last session:** 2026-01-19T12:17:27Z
+- **Stopped at:** Completed 05-02 (ExecutionLog Module)
 - **Resume file:** None
 
 If resuming later, start by:
-1. Open `.planning/phases/04-canonical-span-model/04-03-SUMMARY.md` for context on completed work.
+1. Open `.planning/phases/05-stable-identity/05-02-SUMMARY.md` for context on completed work.
 2. Run `cargo test --workspace` to verify baseline health.
-3. Phase 4 is complete - proceed to next phase or final validation.
+3. Phase 5 is in progress - proceed to plan 05-03.
