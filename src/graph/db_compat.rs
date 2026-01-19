@@ -31,7 +31,8 @@ pub fn expected_sqlitegraph_schema_version() -> i64 {
 ///
 /// Phase 1 baseline starts at version 1.
 /// Phase 5: added execution_log table for tracking Magellan runs.
-pub const MAGELLAN_SCHEMA_VERSION: i64 = 2;
+/// Phase 11: FQN-based symbol_id generation (breaking change).
+pub const MAGELLAN_SCHEMA_VERSION: i64 = 3;
 
 /// Ensure Magellan-owned metadata exists and matches expected versions.
 ///
@@ -164,7 +165,7 @@ pub enum DbCompatError {
         expected: i64,
     },
 
-    #[error("DB_COMPAT: magellan schema mismatch: {path} (found={found}, expected={expected})")]
+    #[error("DB_COMPAT: magellan schema mismatch: {path} (found={found}, expected={expected})\n\nThis database was created by an older version of Magellan.\nTo upgrade, delete the database file and re-index your codebase.\n\n  rm {path}\n  magellan scan --db {path} <your-code-directory>\n\nNote: All symbol_id values have changed to use fully-qualified names (FQN).")]
     MagellanSchemaMismatch {
         path: PathBuf,
         found: i64,
