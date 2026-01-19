@@ -30,7 +30,8 @@ pub fn expected_sqlitegraph_schema_version() -> i64 {
 /// Magellan-owned schema version for side tables (e.g. `magellan_meta`).
 ///
 /// Phase 1 baseline starts at version 1.
-pub const MAGELLAN_SCHEMA_VERSION: i64 = 1;
+/// Phase 5: added execution_log table for tracking Magellan runs.
+pub const MAGELLAN_SCHEMA_VERSION: i64 = 2;
 
 /// Ensure Magellan-owned metadata exists and matches expected versions.
 ///
