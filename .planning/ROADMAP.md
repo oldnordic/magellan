@@ -39,7 +39,7 @@ Plans:
 
 **Dependencies:** Phase 1
 
-**Requirements:** WATCH-01, WATCH-02, WATCH-03, WATCH-04, WATCH-05
+**Requirements:** WATCH-01, WATCH-02, WATCH-03, WATCH-04, WATCH-05A
 
 **Plans:** 3 plans
 
@@ -53,7 +53,7 @@ Plans:
 2. When user saves a file repeatedly (editor storm), Magellan coalesces the events deterministically and produces the same resulting indexed state as a clean re-run.
 3. User can apply ignore/include/exclude rules and can see which files were skipped and why via structured diagnostics.
 4. User can re-index the same file multiple times and the DB reflects only the latest derived facts (no ghost nodes/edges).
-5. When a file cannot be read/parsed, watch continues running and the failure is captured as structured diagnostics.
+5. When a file cannot be read/parsed, watch continues running and the failure is captured as structured diagnostics (with deterministic stderr output for human consumption).
 
 ---
 
@@ -63,7 +63,7 @@ Plans:
 
 **Dependencies:** Phase 2
 
-**Requirements:** OUT-01, OUT-02, OUT-03
+**Requirements:** OUT-01, OUT-02, OUT-03, WATCH-05B
 
 **Success Criteria (observable):**
 1. For every user-facing command, user can request JSON output (or get JSON in machine mode) that includes `schema_version` and documented fields.
