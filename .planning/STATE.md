@@ -11,11 +11,11 @@ See: .planning/PROJECT.md (updated 2026-01-19)
 
 **Milestone:** v1.1 Correctness + Safety
 **Phase:** 12 of 13 (Transactional Deletes)
-**Plan:** 1 of 4 in current phase
+**Plan:** 2 of 4 in current phase
 **Status:** In progress
-**Last activity:** 2026-01-19 — Completed Phase 12-01: Transactional Delete Implementation
+**Last activity:** 2026-01-19 — Completed Phase 12-02: Row-Count Assertions for Delete Operations
 
-**Progress bar:** [███████░░░] 61% v1.1 (11/18 plans) | [██████████] 100% v1.0 (29/29 plans)
+**Progress bar:** [████████░░] 67% v1.1 (12/18 plans) | [██████████] 100% v1.0 (29/29 plans)
 
 ## Success Definition (v1.1)
 
@@ -148,8 +148,8 @@ Magellan v1.1 is "done" when:
 - None - complete. Database version bump handles migration.
 
 **Phase 12 (Transactional Deletes):**
-- Plan 12-01 complete: delete_file_facts() now uses IMMEDIATE transaction
-- Plans 12-02, 12-03, 12-04 remain
+- Plans 12-01, 12-02 complete
+- Plans 12-03, 12-04 remain
 
 ### Key Decisions (Phase 12-01: Transactional Delete Implementation)
 - Use TransactionBehavior::Immediate for write locking during delete operations
@@ -157,15 +157,25 @@ Magellan v1.1 is "done" when:
 - Automatic rollback on any failure via Rust's Drop trait
 - Transaction pattern follows generation/mod.rs style with explicit commit error handling
 
+### Key Decisions (Phase 12-02: Row-Count Assertions)
+- DeleteResult struct provides detailed deletion statistics (symbols, references, calls, chunks, edges)
+- Count queries executed BEFORE opening transaction to avoid additional locking
+- Row-count assertions use assert_eq! with descriptive error messages including file path
+- Production assertions kept intentionally - data integrity checks that panic on mismatch
+- Code chunks deleted directly on transaction connection to avoid third connection
+- Helper functions: count_references_in_file, count_calls_in_file, count_chunks_for_file
+- API updated: delete_file() and delete_file_facts() now return Result<DeleteResult>
+- reconcile_file_path() ignores DeleteResult for backward compatibility
+
 ## Session Continuity
 
 - **Last session:** 2026-01-19
-- **Stopped at:** Completed Phase 12-01: Transactional Delete Implementation
+- **Stopped at:** Completed Phase 12-02: Row-Count Assertions for Delete Operations
 - **Resume file:** None
 
 If resuming later, start by:
 1. Read `.planning/ROADMAP.md` for phase structure
 2. Read `.planning/PROJECT.md` for requirements and constraints
-3. Read `.planning/phases/12-transactional-deletes/12-01-SUMMARY.md` for plan results
+3. Read `.planning/phases/12-transactional-deletes/12-02-SUMMARY.md` for plan results
 4. Run `cargo test --workspace` to verify baseline health
-5. Execute next plan: Phase 12-02 - Remaining Transactional Cleanup
+5. Execute next plan: Phase 12-03 - Cleanup Orphan Detection
