@@ -77,9 +77,9 @@ pub fn scan_directory_with_filter(
             Ok(_) => {
                 // Path is safe, continue to filtering
             }
-            Err(PathValidationError::OutsideRoot(p, _)) => {
-                let rel_path = Path::new(&p).strip_prefix(dir_path)
-                    .unwrap_or_else(|_| Path::new(&p))
+            Err(PathValidationError::OutsideRoot(_p, _)) => {
+                let rel_path = path.strip_prefix(dir_path)
+                    .unwrap_or(path)
                     .to_string_lossy()
                     .to_string();
                 diagnostics.push(WatchDiagnostic::skipped(
@@ -88,9 +88,9 @@ pub fn scan_directory_with_filter(
                 ));
                 continue;
             }
-            Err(PathValidationError::SymlinkEscape(from, to)) => {
-                let rel_path = Path::new(&from).strip_prefix(dir_path)
-                    .unwrap_or_else(|_| Path::new(&from))
+            Err(PathValidationError::SymlinkEscape(_from, to)) => {
+                let rel_path = path.strip_prefix(dir_path)
+                    .unwrap_or(path)
                     .to_string_lossy()
                     .to_string();
                 diagnostics.push(WatchDiagnostic::error(

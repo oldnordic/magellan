@@ -1,8 +1,11 @@
 //! Export functionality for CodeGraph
 //!
-//! Exports graph data to JSON/JSONL/CSV format for LLM and pipeline consumption.
+//! Exports graph data to JSON/JSONL/CSV/SCIP format for LLM and pipeline consumption.
+
+pub mod scip;
 
 use anyhow::Result;
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use sqlitegraph::{BackendDirection, GraphBackend, NeighborQuery};
 
@@ -10,17 +13,19 @@ use super::{CallNode, CodeGraph, FileNode, ReferenceNode, SymbolNode};
 
 /// Export format options
 ///
-/// Dot and Csv are placeholders for future plans (02-03).
+/// Dot, Csv, and Scip are available export formats.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExportFormat {
     /// Standard JSON array format
     Json,
     /// JSON Lines format (one JSON record per line)
     JsonL,
-    /// Graphviz DOT format (placeholder for Plan 02)
+    /// Graphviz DOT format
     Dot,
-    /// CSV format (placeholder for Plan 03)
+    /// CSV format
     Csv,
+    /// SCIP (Source Code Intelligence Protocol) binary format
+    Scip,
 }
 
 impl ExportFormat {
@@ -31,6 +36,7 @@ impl ExportFormat {
             "jsonl" => Some(ExportFormat::JsonL),
             "dot" => Some(ExportFormat::Dot),
             "csv" => Some(ExportFormat::Csv),
+            "scip" => Some(ExportFormat::Scip),
             _ => None,
         }
     }
@@ -822,6 +828,19 @@ pub fn export_graph(graph: &mut CodeGraph, config: &ExportConfig) -> Result<Stri
         ExportFormat::JsonL => export_jsonl(graph),
         ExportFormat::Dot => export_dot(graph, config),
         ExportFormat::Csv => export_csv(graph, config),
+        ExportFormat::Scip => {
+            // SCIP export is binary, not text - use separate function
+            let scip_config = self::scip::ScipExportConfig {
+                project_root: ".".to_string(),
+                project_name: None,
+                version: None,
+            };
+            let scip_bytes = self::scip::export_scip(graph, &scip_config)?;
+
+            // Return base64-encoded SCIP data as a workaround for text-based export_graph
+            // For direct binary output, use export_cmd.rs which handles SCIP specially
+            Ok(base64::engine::general_purpose::STANDARD.encode(&scip_bytes))
+        }
     }
 }
 

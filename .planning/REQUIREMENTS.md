@@ -69,26 +69,26 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PATH-01 | Phase 1 | Pending |
-| PATH-02 | Phase 1 | Pending |
-| PATH-03 | Phase 1 | Pending |
-| PATH-04 | Phase 1 | Pending |
-| PATH-05 | Phase 1 | Pending |
-| PATH-06 | Phase 1 | Pending |
-| FQN-01 | Phase 2 | Pending |
-| FQN-02 | Phase 2 | Pending |
-| FQN-03 | Phase 2 | Pending |
-| FQN-04 | Phase 2 | Pending |
-| FQN-05 | Phase 2 | Pending |
-| FQN-06 | Phase 2 | Pending |
-| DELETE-01 | Phase 3 | Pending |
-| DELETE-02 | Phase 3 | Pending |
-| DELETE-03 | Phase 3 | Pending |
-| DELETE-04 | Phase 3 | Pending |
-| SCIP-01 | Phase 4 | Pending |
-| SCIP-02 | Phase 4 | Pending |
-| DOC-01 | Phase 4 | Pending |
-| DOC-02 | Phase 4 | Pending |
+| PATH-01 | Phase 10 | Pending |
+| PATH-02 | Phase 10 | Pending |
+| PATH-03 | Phase 10 | Pending |
+| PATH-04 | Phase 10 | Pending |
+| PATH-05 | Phase 10 | Pending |
+| PATH-06 | Phase 10 | Pending |
+| FQN-01 | Phase 11 | Pending |
+| FQN-02 | Phase 11 | Pending |
+| FQN-03 | Phase 11 | Pending |
+| FQN-04 | Phase 11 | Pending |
+| FQN-05 | Phase 11 | Pending |
+| FQN-06 | Phase 11 | Pending |
+| DELETE-01 | Phase 12 | Pending |
+| DELETE-02 | Phase 12 | Pending |
+| DELETE-03 | Phase 12 | Pending |
+| DELETE-04 | Phase 12 | Pending |
+| SCIP-01 | Phase 13 | Pending |
+| SCIP-02 | Phase 13 | Pending |
+| DOC-01 | Phase 13 | Pending |
+| DOC-02 | Phase 13 | Pending |
 
 **Coverage:**
 - v1.1 requirements: 20 total
@@ -97,4 +97,4 @@
 
 ---
 *Requirements defined: 2026-01-19*
-*Last updated: 2026-01-19 after v1.1 milestone initialization*
+*Last updated: 2026-01-19 after v1.1 roadmap creation*

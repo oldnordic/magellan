@@ -493,6 +493,31 @@ After completion, create `.planning/phases/10-path-traversal-validation/10-01-SU
 </output>
 
 ---
+phase: 10-path-traversal-validation
+plan: 02
+type: execute
+wave: 2
+depends_on: ["10-01"]
+files_modified:
+  - src/watcher.rs
+autonomous: true
+user_setup: []
+
+must_haves:
+  truths:
+    - "Watcher events are validated before file access"
+    - "Paths escaping project root are filtered and logged"
+    - "extract_dirty_paths() calls validate_path_within_root()"
+  artifacts:
+    - path: "src/watcher.rs"
+      provides: "Path validation in event filtering"
+      contains: "validate_path_within_root"
+  key_links:
+    - from: "src/watcher.rs"
+      to: "src/validation.rs"
+      via: "use crate::validation::validate_path_within_root"
+      pattern: "validate_path_within_root"
+---
 
 ## Plan 10-02: Integrate Path Validation into Watcher
 
@@ -742,6 +767,31 @@ After completion, create `.planning/phases/10-path-traversal-validation/10-02-SU
 
 </output>
 
+---
+phase: 10-path-traversal-validation
+plan: 03
+type: execute
+wave: 2
+depends_on: ["10-01"]
+files_modified:
+  - src/graph/scan.rs
+autonomous: true
+user_setup: []
+
+must_haves:
+  truths:
+    - "Directory scan validates each path before recursing"
+    - "Paths escaping project root are rejected during scan"
+    - "scan_directory_with_filter() calls validate_path_within_root()"
+  artifacts:
+    - path: "src/graph/scan.rs"
+      provides: "Path validation in directory walking"
+      contains: "validate_path_within_root"
+  key_links:
+    - from: "src/graph/scan.rs"
+      to: "src/validation.rs"
+      via: "use crate::validation::validate_path_within_root"
+      pattern: "validate_path_within_root"
 ---
 
 ## Plan 10-03: Integrate Path Validation into Scan
@@ -1004,6 +1054,40 @@ After completion, create `.planning/phases/10-path-traversal-validation/10-03-SU
 
 </output>
 
+---
+phase: 10-path-traversal-validation
+plan: 04
+type: execute
+wave: 3
+depends_on: ["10-01", "10-02", "10-03"]
+files_modified:
+  - tests/path_validation_tests.rs
+  - tests/symlink_tests.rs
+  - docs/PATH_VALIDATION.md
+autonomous: true
+user_setup: []
+
+must_haves:
+  truths:
+    - "Cross-platform tests pass on Linux, Windows, macOS"
+    - "Traversal attempts are rejected (../, ..\\, UNC paths)"
+    - "Symlinks outside root are detected and rejected"
+    - "Documentation explains path validation behavior"
+  artifacts:
+    - path: "tests/path_validation_tests.rs"
+      provides: "Integration tests for path validation"
+      contains: "test_reject_traversal"
+    - path: "tests/symlink_tests.rs"
+      provides: "Symlink-specific tests"
+      contains: "test_symlink_outside_root"
+    - path: "docs/PATH_VALIDATION.md"
+      provides: "Documentation of path validation behavior"
+      contains: "symlink policy"
+  key_links:
+    - from: "tests/path_validation_tests.rs"
+      to: "src/validation.rs"
+      via: "use magellan::validation::validate_path_within_root"
+      pattern: "validate_path_within_root"
 ---
 
 ## Plan 10-04: Add Cross-Platform Path Tests

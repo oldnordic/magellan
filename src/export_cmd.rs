@@ -1,23 +1,24 @@
 //! Export command implementation
 //!
-//! Exports graph data to JSON/JSONL/CSV/DOT formats with stable IDs.
+//! Exports graph data to JSON/JSONL/CSV/DOT/SCIP formats with stable IDs.
 
 use anyhow::Result;
 use magellan::CodeGraph;
-use magellan::graph::export::{export_graph, ExportConfig, ExportFilters, ExportFormat};
+use magellan::graph::export::{export_graph, scip, ExportConfig, ExportFilters, ExportFormat};
 use magellan::output::generate_execution_id;
 use std::fs::File;
-use std::io::Write;
+use std::io::{self, Write};
 use std::path::PathBuf;
 
 /// Run the export command
 ///
-/// Exports graph data to JSON/JSONL/CSV/DOT format with stable IDs.
+/// Exports graph data to JSON/JSONL/CSV/DOT/SCIP format with stable IDs.
 /// Output goes to stdout by default, or to a file if --output is specified.
+/// Note: SCIP format requires --output file since it outputs binary data.
 ///
 /// # Arguments
 /// * `db_path` - Path to the sqlitegraph database
-/// * `format` - Export format (Json, JsonL, Dot, Csv)
+/// * `format` - Export format (Json, JsonL, Dot, Csv, Scip)
 /// * `output` - Optional file path for output
 /// * `include_symbols` - Whether to include symbols in export
 /// * `include_references` - Whether to include references in export
@@ -89,30 +90,50 @@ pub fn run_export(
         &db_path.to_string_lossy(),
     )?;
 
-    // Build export config with filters
-    let config = ExportConfig {
-        format,
-        include_symbols,
-        include_references,
-        include_calls,
-        minify,
-        filters,
-    };
+    // Handle SCIP format specially (binary output)
+    if format == ExportFormat::Scip {
+        let scip_config = scip::ScipExportConfig {
+            project_root: ".".to_string(),
+            project_name: None,
+            version: None,
+        };
+        let scip_bytes = scip::export_scip(&mut graph, &scip_config)?;
 
-    // Export graph data
-    let exported_data = export_graph(&mut graph, &config)?;
-
-    // Write output
-    match output {
-        Some(path) => {
-            // Write to file
-            let mut file = File::create(&path)?;
-            file.write_all(exported_data.as_bytes())?;
-            file.write_all(b"\n")?;
+        // Write output (SCIP requires file output)
+        match output {
+            Some(path) => {
+                let mut file = File::create(&path)?;
+                file.write_all(&scip_bytes)?;
+            }
+            None => {
+                // SCIP is binary, warn user but still write to stdout
+                eprintln!("Warning: SCIP format is binary. Use --output file.scip for proper output.");
+                io::stdout().write_all(&scip_bytes)?;
+            }
         }
-        None => {
-            // Write to stdout
-            println!("{}", exported_data);
+    } else {
+        // Text-based formats
+        let config = ExportConfig {
+            format,
+            include_symbols,
+            include_references,
+            include_calls,
+            minify,
+            filters,
+        };
+
+        let exported_data = export_graph(&mut graph, &config)?;
+
+        // Write output
+        match output {
+            Some(path) => {
+                let mut file = File::create(&path)?;
+                file.write_all(exported_data.as_bytes())?;
+                file.write_all(b"\n")?;
+            }
+            None => {
+                println!("{}", exported_data);
+            }
         }
     }
 
@@ -136,5 +157,6 @@ fn format_name(format: ExportFormat) -> String {
         ExportFormat::JsonL => "jsonl".to_string(),
         ExportFormat::Dot => "dot".to_string(),
         ExportFormat::Csv => "csv".to_string(),
+        ExportFormat::Scip => "scip".to_string(),
     }
 }

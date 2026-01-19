@@ -26,7 +26,7 @@ fn print_usage() {
     eprintln!("  magellan --help");
     eprintln!();
     eprintln!("  magellan watch --root <DIR> --db <FILE> [--debounce-ms <N>] [--watch-only] [--validate] [--validate-only]");
-    eprintln!("  magellan export --db <FILE> [--format json|jsonl|csv] [--output <PATH>] [--minify]");
+    eprintln!("  magellan export --db <FILE> [--format json|jsonl|csv|scip] [--output <PATH>] [--minify]");
     eprintln!("  magellan status --db <FILE>");
     eprintln!("  magellan query --db <FILE> --file <PATH> [--kind <KIND>]");
     eprintln!("  magellan find --db <FILE> --name <NAME> [--path <PATH>]");
@@ -39,7 +39,7 @@ fn print_usage() {
     eprintln!();
     eprintln!("Commands:");
     eprintln!("  watch     Watch directory and index changes");
-    eprintln!("  export    Export graph data to JSON/JSONL/CSV");
+    eprintln!("  export    Export graph data to JSON/JSONL/CSV/SCIP");
     eprintln!("  status    Show database statistics");
     eprintln!("  query     List symbols in a file");
     eprintln!("  find      Find a symbol by name");
@@ -64,7 +64,7 @@ fn print_usage() {
     eprintln!();
     eprintln!("Export arguments:");
     eprintln!("  --db <FILE>         Path to sqlitegraph database");
-    eprintln!("  --format <FORMAT>   Export format: json (default), jsonl, or csv");
+    eprintln!("  --format <FORMAT>   Export format: json (default), jsonl, csv, or scip");
     eprintln!("  --output <PATH>     Write to file instead of stdout");
     eprintln!("  --minify            Use compact JSON (no pretty-printing)");
     eprintln!("  --no-symbols        Exclude symbols from export");
@@ -271,7 +271,7 @@ fn parse_args() -> Result<Command> {
 
             let root_path = root_path.ok_or_else(|| anyhow::anyhow!("--root is required"))?;
             let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
-            let config = WatcherConfig { debounce_ms };
+            let config = WatcherConfig { root_path: root_path.clone(), debounce_ms };
 
             // Precedence: --watch-only forces scan_initial to false
             let scan_initial = if watch_only { false } else { scan_initial };
