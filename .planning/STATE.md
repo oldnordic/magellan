@@ -5,17 +5,17 @@
 See: .planning/PROJECT.md (updated 2026-01-19)
 
 **Core value:** Produce correct, deterministic symbol + reference + call graph data from real codebases, continuously, without stopping on bad files.
-**Current focus:** Phase 12 - Transactional Deletes
+**Current focus:** Phase 12 - Transactional Deletes (COMPLETE)
 
 ## Current Position
 
 **Milestone:** v1.1 Correctness + Safety
 **Phase:** 12 of 13 (Transactional Deletes)
-**Plan:** 3 of 4 in current phase
-**Status:** In progress
-**Last activity:** 2026-01-19 — Completed Phase 12-03: Error Injection Tests for Delete Rollback
+**Plan:** 4 of 4 in current phase
+**Status:** Phase complete
+**Last activity:** 2026-01-19 — Completed Phase 12-04: Orphan Detection Tests for Delete Operations
 
-**Progress bar:** [████████░░] 72% v1.1 (13/18 plans) | [██████████] 100% v1.0 (29/29 plans)
+**Progress bar:** [████████░░] 78% v1.1 (14/18 plans) | [██████████] 100% v1.0 (29/29 plans)
 
 ## Success Definition (v1.1)
 
@@ -148,9 +148,9 @@ Magellan v1.1 is "done" when:
 - None - complete. Database version bump handles migration.
 
 **Phase 12 (Transactional Deletes):**
-- Plans 12-01, 12-02, 12-03 complete
-- Plan 12-04 remains
-- Blocker: True transactional deletes require architectural changes to share connections between ChunkStore and SqliteGraphBackend
+- All 4 plans complete (12-01, 12-02, 12-03, 12-04)
+- Delete operations verified with row-count assertions and orphan detection tests
+- Known limitation: True transactional deletes require architectural changes to share connections between ChunkStore and SqliteGraphBackend
 
 ### Key Decisions (Phase 12-01: Transactional Delete Implementation)
 - Use TransactionBehavior::Immediate for write locking during delete operations
@@ -178,15 +178,16 @@ Magellan v1.1 is "done" when:
 ## Session Continuity
 
 - **Last session:** 2026-01-19
-- **Stopped at:** Completed Phase 12-03: Error Injection Tests for Delete Rollback
+- **Stopped at:** Completed Phase 12-04: Orphan Detection Tests for Delete Operations
 - **Resume file:** None
+- **Next:** Phase 13 - SCIP Tests + Docs
 
 If resuming later, start by:
 1. Read `.planning/ROADMAP.md` for phase structure
 2. Read `.planning/PROJECT.md` for requirements and constraints
-3. Read `.planning/phases/12-transactional-deletes/12-02-SUMMARY.md` for plan results
+3. Read `.planning/phases/12-transactional-deletes/12-04-SUMMARY.md` for plan results
 4. Run `cargo test --workspace` to verify baseline health
-5. Execute next plan: Phase 12-04 - Final transactional deletes and cleanup
+5. Execute next phase: Phase 13 - SCIP Tests + Docs
 
 ### Key Decisions (Phase 12-03: Error Injection Tests for Delete Rollback)
 - Created test_helpers module with FailPoint enum for verification point testing
@@ -194,3 +195,10 @@ If resuming later, start by:
 - Use verification points instead of error injection for testing delete completeness
 - Remove from file_index immediately after file node deletion to prevent stale references
 - For true transactional behavior, need to share connections between ChunkStore and SqliteGraphBackend (architectural change)
+
+### Key Decisions (Phase 12-04: Orphan Detection Tests for Delete Operations)
+- Created tests/delete_orphan_tests.rs with 12 comprehensive tests (743 lines)
+- Added validate_graph() convenience method to CodeGraph
+- Cross-file references to deleted symbols are expected to become orphans (ORPHAN_REFERENCE errors)
+- Tests use only public API (no private field access) for robustness
+- All 12 orphan detection tests pass; 244 library tests pass
