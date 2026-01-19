@@ -229,3 +229,88 @@ impl SymbolOps {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_symbol_id_deterministic() {
+        // Same inputs should produce same ID
+        let id1 = generate_symbol_id("rust", "my_crate::main", "a1b2c3d4e5f6g7h8");
+        let id2 = generate_symbol_id("rust", "my_crate::main", "a1b2c3d4e5f6g7h8");
+
+        assert_eq!(id1, id2, "Same inputs should produce same symbol ID");
+    }
+
+    #[test]
+    fn test_symbol_id_different_languages() {
+        let rust_id = generate_symbol_id("rust", "my_crate::main", "a1b2c3d4e5f6g7h8");
+        let python_id = generate_symbol_id("python", "my_module.main", "a1b2c3d4e5f6g7h8");
+
+        assert_ne!(rust_id, python_id, "Different languages should produce different symbol IDs");
+    }
+
+    #[test]
+    fn test_symbol_id_different_fqn() {
+        let id1 = generate_symbol_id("rust", "my_crate::main", "a1b2c3d4e5f6g7h8");
+        let id2 = generate_symbol_id("rust", "my_crate::foo", "a1b2c3d4e5f6g7h8");
+
+        assert_ne!(id1, id2, "Different FQNs should produce different symbol IDs");
+    }
+
+    #[test]
+    fn test_symbol_id_different_span() {
+        let id1 = generate_symbol_id("rust", "my_crate::main", "a1b2c3d4e5f6g7h8");
+        let id2 = generate_symbol_id("rust", "my_crate::main", "b1b2c3d4e5f6g7h8");
+
+        assert_ne!(id1, id2, "Different span IDs should produce different symbol IDs");
+    }
+
+    #[test]
+    fn test_symbol_id_format() {
+        let id = generate_symbol_id("rust", "my_crate::main", "a1b2c3d4e5f6g7h8");
+
+        // ID should be 16 hex characters (64 bits)
+        assert_eq!(id.len(), 16, "Symbol ID should be 16 characters");
+
+        // All characters should be valid hex
+        assert!(id.chars().all(|c| c.is_ascii_hexdigit()), "Symbol ID should be hex");
+    }
+
+    #[test]
+    fn test_span_id_deterministic() {
+        // Same inputs should produce same span ID
+        let id1 = generate_span_id("src/main.rs", 10, 20);
+        let id2 = generate_span_id("src/main.rs", 10, 20);
+
+        assert_eq!(id1, id2, "Same inputs should produce same span ID");
+    }
+
+    #[test]
+    fn test_span_id_different_files() {
+        let id1 = generate_span_id("src/main.rs", 10, 20);
+        let id2 = generate_span_id("lib/main.rs", 10, 20);
+
+        assert_ne!(id1, id2, "Different file paths should produce different span IDs");
+    }
+
+    #[test]
+    fn test_span_id_different_positions() {
+        let id1 = generate_span_id("test.rs", 0, 10);
+        let id2 = generate_span_id("test.rs", 10, 20);
+
+        assert_ne!(id1, id2, "Different positions should produce different span IDs");
+    }
+
+    #[test]
+    fn test_span_id_format() {
+        let id = generate_span_id("test.rs", 10, 20);
+
+        // ID should be 16 hex characters (64 bits)
+        assert_eq!(id.len(), 16, "Span ID should be 16 characters");
+
+        // All characters should be valid hex
+        assert!(id.chars().all(|c| c.is_ascii_hexdigit()), "Span ID should be hex");
+    }
+}
