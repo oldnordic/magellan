@@ -1,6 +1,6 @@
-//! JSON export functionality for CodeGraph
+//! Export functionality for CodeGraph
 //!
-//! Exports graph data to JSON/JSONL format for LLM consumption.
+//! Exports graph data to JSON/JSONL/CSV format for LLM and pipeline consumption.
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -556,9 +556,122 @@ pub fn export_jsonl(graph: &mut CodeGraph) -> Result<String> {
     Ok(lines.join("\n"))
 }
 
+/// Export call graph to DOT (Graphviz) format
+///
+/// Generates a DOT digraph representing the call graph with nodes as symbols
+/// and edges as call relationships. Output is deterministic for reproducibility.
+///
+/// # Arguments
+/// * `graph` - The code graph to export
+/// * `config` - Export configuration with filters
+///
+/// # Returns
+/// DOT format string suitable for Graphviz tools
+///
+/// # DOT Format Details
+/// - Uses "strict digraph" for deterministic output
+/// - Node labels: "{symbol_name}\n{file_path}" (newline for readability)
+/// - Uses symbol_id as internal identifier if available, fallback to sanitized name
+/// - Clusters nodes by file if config.filters.cluster is true
+pub fn export_dot(graph: &mut CodeGraph, config: &ExportConfig) -> Result<String> {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    let mut dot_output = String::from("strict digraph call_graph {\n");
+    dot_output.push_str("  node [shape=box, style=rounded];\n");
+
+    // Collect all Call nodes from the graph
+    let entity_ids = graph.files.backend.entity_ids()?;
+    let mut calls = Vec::new();
+
+    for entity_id in entity_ids {
+        let entity = graph.files.backend.get_node(entity_id)?;
+        if entity.kind == "Call" {
+            if let Ok(call_node) = serde_json::from_value::<CallNode>(entity.data) {
+                calls.push(call_node);
+            }
+        }
+    }
+
+    // Apply filters
+    if let Some(ref file_filter) = config.filters.file {
+        calls.retain(|c| c.file.contains(file_filter));
+    }
+    if let Some(ref symbol_filter) = config.filters.symbol {
+        calls.retain(|c| c.caller.contains(symbol_filter) || c.callee.contains(symbol_filter));
+    }
+
+    // Sort deterministically: file, then caller, then callee
+    calls.sort_by(|a, b| {
+        a.file.cmp(&b.file)
+            .then_with(|| a.caller.cmp(&b.caller))
+            .then_with(|| a.callee.cmp(&b.callee))
+    });
+
+    // Collect unique nodes and organize by file if clustering
+    let mut nodes: BTreeSet<(String, String)> = BTreeSet::new(); // (symbol_id_or_name, label)
+    let mut file_to_nodes: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
+
+    for call in &calls {
+        for (name, symbol_id) in [(call.caller.as_str(), call.caller_symbol_id.as_ref()),
+                                   (call.callee.as_str(), call.callee_symbol_id.as_ref())] {
+            let node_id = escape_dot_id(&symbol_id.cloned(), name);
+            let label = format!("{}\\n{}", escape_dot_label(name), escape_dot_label(&call.file));
+            nodes.insert((node_id.clone(), label.clone()));
+
+            if config.filters.cluster {
+                file_to_nodes
+                    .entry(call.file.clone())
+                    .or_insert_with(Vec::new)
+                    .push((node_id, label));
+            }
+        }
+    }
+
+    // Emit edges
+    if config.filters.cluster {
+        // Group nodes by file into subgraphs
+        for (file, file_nodes) in &file_to_nodes {
+            // Create a sanitized cluster ID from file path
+            let cluster_id = file.chars()
+                .map(|c| if c.is_alphanumeric() { c } else { '_' })
+                .collect::<String>();
+
+            dot_output.push_str(&format!("  subgraph cluster_{} {{\n", cluster_id));
+            dot_output.push_str(&format!("    label = {};\n", escape_dot_label(file)));
+            dot_output.push_str("    style = dashed;\n");
+
+            // Deduplicate nodes within this file
+            let mut seen = BTreeSet::new();
+            for (node_id, label) in file_nodes {
+                if seen.insert(node_id.clone()) {
+                    dot_output.push_str(&format!("    {} [label={}];\n", node_id, label));
+                }
+            }
+
+            dot_output.push_str("  }\n");
+        }
+    } else {
+        // Emit all nodes at top level
+        for (node_id, label) in &nodes {
+            dot_output.push_str(&format!("  {} [label={}];\n", node_id, label));
+        }
+    }
+
+    // Emit edges
+    for call in &calls {
+        let caller_id = escape_dot_id(&call.caller_symbol_id, &call.caller);
+        let callee_id = escape_dot_id(&call.callee_symbol_id, &call.callee);
+        dot_output.push_str(&format!("  {} -> {};\n", caller_id, callee_id));
+    }
+
+    dot_output.push_str("}\n");
+
+    Ok(dot_output)
+}
+
 /// Export graph data with configurable format and options
 ///
-/// Dispatches to export_json() or export_jsonl() based on config.format.
+/// Dispatches to export_json(), export_jsonl(), or export_dot() based on config.format.
 /// Respects minify flag for JSON output.
 ///
 /// # Arguments
@@ -566,7 +679,7 @@ pub fn export_jsonl(graph: &mut CodeGraph) -> Result<String> {
 /// * `config` - Export configuration (format, minify, filters)
 ///
 /// # Returns
-/// JSON or JSONL string based on config.format
+/// JSON, JSONL, or DOT string based on config.format
 pub fn export_graph(graph: &mut CodeGraph, config: &ExportConfig) -> Result<String> {
     // Check if export should be empty based on filters
     let has_content = config.include_symbols || config.include_references || config.include_calls;
@@ -588,6 +701,10 @@ pub fn export_graph(graph: &mut CodeGraph, config: &ExportConfig) -> Result<Stri
                 }
             }
             ExportFormat::JsonL => Ok(String::new()),
+            ExportFormat::Dot => {
+                // Empty DOT graph
+                Ok("strict digraph call_graph {\n}\n".to_string())
+            }
             _ => Err(anyhow::anyhow!("Export format {:?} not yet implemented", config.format)),
         };
     }
@@ -703,6 +820,237 @@ pub fn export_graph(graph: &mut CodeGraph, config: &ExportConfig) -> Result<Stri
             }
         }
         ExportFormat::JsonL => export_jsonl(graph),
-        _ => Err(anyhow::anyhow!("Export format {:?} not yet implemented", config.format)),
+        ExportFormat::Dot => export_dot(graph, config),
+        ExportFormat::Csv => export_csv(graph, config),
     }
+}
+
+// ============================================================================
+// CSV Export
+// ============================================================================
+
+/// CSV row for symbol entries
+///
+/// Flat structure optimized for tabular data with RFC 4180 compliance.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SymbolCsvRow {
+    /// Record type discriminator
+    pub record_type: String,
+    /// Stable symbol ID for cross-run correlation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub symbol_id: Option<String>,
+    /// Symbol name
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Symbol kind (Function, Method, Struct, etc.)
+    pub kind: String,
+    /// Normalized kind (optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind_normalized: Option<String>,
+    /// File path containing the symbol
+    pub file: String,
+    /// Byte start position
+    pub byte_start: usize,
+    /// Byte end position
+    pub byte_end: usize,
+    /// Start line (1-indexed)
+    pub start_line: usize,
+    /// Start column (1-indexed)
+    pub start_col: usize,
+    /// End line (1-indexed)
+    pub end_line: usize,
+    /// End column (1-indexed)
+    pub end_col: usize,
+}
+
+/// CSV row for reference entries
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReferenceCsvRow {
+    /// Record type discriminator
+    pub record_type: String,
+    /// File containing the reference
+    pub file: String,
+    /// Referenced symbol name
+    pub referenced_symbol: String,
+    /// Stable ID of referenced symbol
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_symbol_id: Option<String>,
+    /// Byte start position
+    pub byte_start: usize,
+    /// Byte end position
+    pub byte_end: usize,
+    /// Start line (1-indexed)
+    pub start_line: usize,
+    /// Start column (1-indexed)
+    pub start_col: usize,
+    /// End line (1-indexed)
+    pub end_line: usize,
+    /// End column (1-indexed)
+    pub end_col: usize,
+}
+
+/// CSV row for call entries
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CallCsvRow {
+    /// Record type discriminator
+    pub record_type: String,
+    /// File containing the call
+    pub file: String,
+    /// Caller symbol name
+    pub caller: String,
+    /// Callee symbol name
+    pub callee: String,
+    /// Stable ID of caller symbol
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub caller_symbol_id: Option<String>,
+    /// Stable ID of callee symbol
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub callee_symbol_id: Option<String>,
+    /// Byte start position
+    pub byte_start: usize,
+    /// Byte end position
+    pub byte_end: usize,
+    /// Start line (1-indexed)
+    pub start_line: usize,
+    /// Start column (1-indexed)
+    pub start_col: usize,
+    /// End line (1-indexed)
+    pub end_line: usize,
+    /// End column (1-indexed)
+    pub end_col: usize,
+}
+
+/// Combined CSV record enum for serialization
+///
+/// All records include a record_type field for discrimination in combined output.
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+enum CsvRecord {
+    Symbol(SymbolCsvRow),
+    Reference(ReferenceCsvRow),
+    Call(CallCsvRow),
+}
+
+/// Export graph data to CSV format
+///
+/// Produces a combined CSV with a record_type column for discrimination.
+/// Uses the csv crate for proper RFC 4180 compliance (quoting, escaping).
+///
+/// # Returns
+/// CSV string with all requested entities, deterministically sorted
+pub fn export_csv(graph: &mut CodeGraph, config: &ExportConfig) -> Result<String> {
+    // Collect and sort all records deterministically
+    let mut records: Vec<CsvRecord> = Vec::new();
+
+    let entity_ids = graph.files.backend.entity_ids()?;
+
+    for entity_id in entity_ids {
+        let entity = graph.files.backend.get_node(entity_id)?;
+
+        match entity.kind.as_str() {
+            "Symbol" => {
+                if config.include_symbols {
+                    if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(entity.data.clone()) {
+                        let file = get_file_path_from_symbol(graph, entity_id)?;
+                        records.push(CsvRecord::Symbol(SymbolCsvRow {
+                            record_type: "Symbol".to_string(),
+                            symbol_id: symbol_node.symbol_id,
+                            name: symbol_node.name,
+                            kind: symbol_node.kind,
+                            kind_normalized: symbol_node.kind_normalized,
+                            file,
+                            byte_start: symbol_node.byte_start,
+                            byte_end: symbol_node.byte_end,
+                            start_line: symbol_node.start_line,
+                            start_col: symbol_node.start_col,
+                            end_line: symbol_node.end_line,
+                            end_col: symbol_node.end_col,
+                        }));
+                    }
+                }
+            }
+            "Reference" => {
+                if config.include_references {
+                    if let Ok(ref_node) = serde_json::from_value::<ReferenceNode>(entity.data.clone()) {
+                        let referenced_symbol = entity
+                            .name
+                            .strip_prefix("ref to ")
+                            .unwrap_or("")
+                            .to_string();
+
+                        records.push(CsvRecord::Reference(ReferenceCsvRow {
+                            record_type: "Reference".to_string(),
+                            file: ref_node.file,
+                            referenced_symbol,
+                            target_symbol_id: None, // Would need lookup; acceptable for v1
+                            byte_start: ref_node.byte_start as usize,
+                            byte_end: ref_node.byte_end as usize,
+                            start_line: ref_node.start_line as usize,
+                            start_col: ref_node.start_col as usize,
+                            end_line: ref_node.end_line as usize,
+                            end_col: ref_node.end_col as usize,
+                        }));
+                    }
+                }
+            }
+            "Call" => {
+                if config.include_calls {
+                    if let Ok(call_node) = serde_json::from_value::<CallNode>(entity.data.clone()) {
+                        records.push(CsvRecord::Call(CallCsvRow {
+                            record_type: "Call".to_string(),
+                            file: call_node.file,
+                            caller: call_node.caller,
+                            callee: call_node.callee,
+                            caller_symbol_id: call_node.caller_symbol_id,
+                            callee_symbol_id: call_node.callee_symbol_id,
+                            byte_start: call_node.byte_start as usize,
+                            byte_end: call_node.byte_end as usize,
+                            start_line: call_node.start_line as usize,
+                            start_col: call_node.start_col as usize,
+                            end_line: call_node.end_line as usize,
+                            end_col: call_node.end_col as usize,
+                        }));
+                    }
+                }
+            }
+            _ => {
+                // Ignore File and unknown node types for CSV export
+            }
+        }
+    }
+
+    // Sort deterministically by record_type, then by keys
+    records.sort_by(|a, b| match (a, b) {
+        (CsvRecord::Symbol(a), CsvRecord::Symbol(b)) => {
+            (&a.record_type, &a.file, &a.name).cmp(&(&b.record_type, &b.file, &b.name))
+        }
+        (CsvRecord::Reference(a), CsvRecord::Reference(b)) => {
+            (&a.record_type, &a.file, &a.referenced_symbol)
+                .cmp(&(&b.record_type, &b.file, &b.referenced_symbol))
+        }
+        (CsvRecord::Call(a), CsvRecord::Call(b)) => {
+            (&a.record_type, &a.file, &a.caller, &a.callee)
+                .cmp(&(&b.record_type, &b.file, &b.caller, &b.callee))
+        }
+        // Type ordering: Reference < Call (no Symbol in mixed output since fields differ)
+        // For simplicity in combined output, we just use record_type
+        _ => std::cmp::Ordering::Equal,
+    });
+
+    // Write to buffer using csv::Writer
+    let mut buffer = Vec::new();
+    {
+        let mut writer = csv::Writer::from_writer(&mut buffer);
+        for record in records {
+            match record {
+                CsvRecord::Symbol(row) => writer.serialize(row)?,
+                CsvRecord::Reference(row) => writer.serialize(row)?,
+                CsvRecord::Call(row) => writer.serialize(row)?,
+            }
+        }
+        writer.flush()?;
+    }
+
+    String::from_utf8(buffer)
+        .map_err(|e| anyhow::anyhow!("CSV output is not valid UTF-8: {}", e))
 }
