@@ -26,6 +26,41 @@ pub struct ReferenceOps {
 }
 
 impl ReferenceOps {
+    /// Delete all Reference nodes that belong to a specific file path.
+    ///
+    /// Determinism: collects candidate entity IDs, sorts ascending, deletes in that order.
+    pub fn delete_references_in_file(&self, path: &str) -> Result<usize> {
+        let entity_ids = self.backend.entity_ids()?;
+
+        let mut to_delete: Vec<i64> = Vec::new();
+        for entity_id in entity_ids {
+            let node = match self.backend.get_node(entity_id) {
+                Ok(n) => n,
+                Err(_) => continue,
+            };
+
+            if node.kind != "Reference" {
+                continue;
+            }
+
+            let reference_node: ReferenceNode = match serde_json::from_value(node.data) {
+                Ok(value) => value,
+                Err(_) => continue,
+            };
+
+            if reference_node.file == path {
+                to_delete.push(entity_id);
+            }
+        }
+
+        to_delete.sort_unstable();
+
+        for id in &to_delete {
+            self.backend.graph().delete_entity(*id)?;
+        }
+
+        Ok(to_delete.len())
+    }
     /// Index references for a file into the graph
     ///
     /// # Behavior
@@ -63,7 +98,10 @@ impl ReferenceOps {
             if let Ok(node) = self.backend.get_node(entity_id) {
                 // Check if this is a Symbol node by looking at the kind field
                 if node.kind == "Symbol" {
-                    if let Ok(symbol_node) = serde_json::from_value::<crate::graph::schema::SymbolNode>(node.data.clone()) {
+                    if let Ok(symbol_node) = serde_json::from_value::<
+                        crate::graph::schema::SymbolNode,
+                    >(node.data.clone())
+                    {
                         // Convert SymbolNode to SymbolFact
                         if let Some(name) = &symbol_node.name {
                             // Validate file_path is valid UTF-8 before creating SymbolFact

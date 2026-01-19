@@ -26,6 +26,41 @@ pub struct CallOps {
 }
 
 impl CallOps {
+    /// Delete all Call nodes that belong to a specific file path.
+    ///
+    /// Determinism: collects candidate entity IDs, sorts ascending, deletes in that order.
+    pub fn delete_calls_in_file(&self, path: &str) -> Result<usize> {
+        let entity_ids = self.backend.entity_ids()?;
+
+        let mut to_delete: Vec<i64> = Vec::new();
+        for entity_id in entity_ids {
+            let node = match self.backend.get_node(entity_id) {
+                Ok(n) => n,
+                Err(_) => continue,
+            };
+
+            if node.kind != "Call" {
+                continue;
+            }
+
+            let call_node: CallNode = match serde_json::from_value(node.data) {
+                Ok(value) => value,
+                Err(_) => continue,
+            };
+
+            if call_node.file == path {
+                to_delete.push(entity_id);
+            }
+        }
+
+        to_delete.sort_unstable();
+
+        for id in &to_delete {
+            self.backend.graph().delete_entity(*id)?;
+        }
+
+        Ok(to_delete.len())
+    }
     /// Index calls for a file into the graph
     ///
     /// # Behavior
