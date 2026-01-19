@@ -59,15 +59,17 @@ pub fn run_files(
     let mut files: Vec<String> = file_nodes.keys().cloned().collect();
     files.sort();
 
+    // Get counts for execution tracking before moving
+    let file_count = files.len();
+    let symbol_count = symbol_counts.as_ref().map(|c| c.values().sum()).unwrap_or(0);
+
     // Handle output based on format
     match output_format {
         OutputFormat::Json => {
-            let mut response = FilesResponse { files };
-
-            // Add symbol counts if present
-            if let Some(counts) = symbol_counts {
-                response.symbol_counts = Some(counts);
-            }
+            let response = FilesResponse {
+                files,
+                symbol_counts,
+            };
 
             let json_response = JsonResponse::new(response, &exec_id);
             output_json(&json_response)?;
@@ -94,8 +96,8 @@ pub fn run_files(
         &exec_id,
         "success",
         None,
-        files.len(),
-        symbol_counts.as_ref().map(|c| c.values().sum()).unwrap_or(0),
+        file_count,
+        symbol_count,
         0,
     )?;
 

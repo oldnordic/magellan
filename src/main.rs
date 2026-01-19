@@ -2,6 +2,7 @@
 //!
 //! Usage: magellan <command> [arguments]
 
+mod files_cmd;
 mod find_cmd;
 mod get_cmd;
 mod query_cmd;
@@ -30,7 +31,7 @@ fn print_usage() {
     eprintln!("  magellan refs --db <FILE> --name <NAME> --path <PATH> [--direction <in|out>] [--output <FORMAT>]");
     eprintln!("  magellan get --db <FILE> --file <PATH> --symbol <NAME>");
     eprintln!("  magellan get-file --db <FILE> --file <PATH>");
-    eprintln!("  magellan files --db <FILE>");
+    eprintln!("  magellan files --db <FILE> [--symbols] [--output <FORMAT>]");
     eprintln!("  magellan label --db <FILE> [--label <LABEL>]... [--list] [--count] [--show-code]");
     eprintln!("  magellan verify --root <DIR> --db <FILE>");
     eprintln!();
@@ -152,6 +153,7 @@ enum Command {
     },
     Files {
         db_path: PathBuf,
+        with_symbols: bool,
     },
     Verify {
         root_path: PathBuf,
@@ -525,6 +527,8 @@ fn parse_args() -> Result<Command> {
         }
         "files" => {
             let mut db_path: Option<PathBuf> = None;
+            let mut with_symbols = false;
+            let mut _output_format = OutputFormat::Human; // Consume but don't store in Command
 
             let mut i = 2;
             while i < args.len() {
@@ -536,6 +540,18 @@ fn parse_args() -> Result<Command> {
                         db_path = Some(PathBuf::from(&args[i + 1]));
                         i += 2;
                     }
+                    "--symbols" => {
+                        with_symbols = true;
+                        i += 1;
+                    }
+                    "--output" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--output requires an argument"));
+                        }
+                        _output_format = OutputFormat::from_str(&args[i + 1])
+                            .ok_or_else(|| anyhow::anyhow!("Invalid output format: {}", args[i + 1]))?;
+                        i += 2;
+                    }
                     _ => {
                         return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
                     }
@@ -544,7 +560,7 @@ fn parse_args() -> Result<Command> {
 
             let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
 
-            Ok(Command::Files { db_path })
+            Ok(Command::Files { db_path, with_symbols })
         }
         "verify" => {
             let mut root_path: Option<PathBuf> = None;
@@ -1074,8 +1090,13 @@ fn main() -> ExitCode {
             }
             ExitCode::SUCCESS
         }
-        Ok(Command::Files { db_path }) => {
-            if let Err(e) = run_files(db_path, output_format) {
+        Ok(Command::Files {
+            db_path,
+            with_symbols,
+        }) => {
+            if let Err(e) =
+                files_cmd::run_files(db_path, with_symbols, output_format)
+            {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
