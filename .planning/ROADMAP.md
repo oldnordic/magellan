@@ -89,13 +89,13 @@ Plans:
   2. At least one integration test exports then parses SCIP to verify correctness
   3. User documentation recommends placing .db outside watched directories
   4. Security best practices are documented in user-facing docs
-**Plans**: TBD
+**Plans**: 4 plans in 3 waves
 
 Plans:
-- [ ] 13-01: Export SCIP from test fixture and parse with scip crate
-- [ ] 13-02: Add integration test that verifies SCIP round-trip correctness
-- [ ] 13-03: Document .db location recommendations in user docs
-- [ ] 13-04: Update user documentation with security best practices
+- [ ] 13-01 — Implement SCIP export using scip crate with metadata and symbol encoding (Wave 1)
+- [ ] 13-02 — Add round-trip integration tests for SCIP format verification (Wave 2)
+- [ ] 13-03 — Add Security section to README.md with database placement guidance (Wave 3)
+- [ ] 13-04 — Add Security Best Practices section to MANUAL.md (Wave 3)
 
 ### 📋 v1.2 Performance (Planned)
 
@@ -116,4 +116,4 @@ Phases execute in numeric order: 10 → 11 → 12 → 13
 | 12. Transactional Deletes | v1.1 | 6/6 | Complete | 2026-01-20 |
 | 13. SCIP Tests + Docs | v1.1 | 0/4 | Not started | - |
 
-**v1.1 Progress:** [█████████░] 89% (16/18 plans)
+**v1.1 Progress:** [█████████░] 89% (16/20 plans)
