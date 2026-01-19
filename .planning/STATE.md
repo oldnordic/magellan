@@ -8,12 +8,12 @@
 
 ## Current Position
 
-- **Current phase:** Phase 3 — CLI Output Contract (Schema + Determinism + Stdout Discipline)
+- **Current phase:** Phase 4 — Stable Span IDs
 - **Status:** Phase 3 complete (3/3 plans executed)
 - **Last activity:** 2026-01-19 - Completed 03-03 (JSON Output for Query Commands)
-- **Next action:** Execute Phase 4 plans (04-stable-ids)
+- **Next action:** Execute Phase 4 plans (04-stable-span-ids)
 
-**Progress bar:** [████████░░] 42% (0/3 plans executed in Phase 4, 11/12 total plans executed)
+**Progress bar:** [████████░░] 42% (0/3 plans executed in Phase 4, 12/12 total plans executed)
 
 ## Success Definition (v1)
 
