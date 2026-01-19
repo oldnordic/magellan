@@ -1,23 +1,358 @@
+//! Filesystem watcher with debounced batch events.
+//!
+//! Provides deterministic event coalescing: all events within a debounce window
+//! are collected, de-duplicated, sorted lexicographically, and emitted as a single
+//! batch. This ensures the same final DB state regardless of event arrival order.
+
 use anyhow::Result;
-use notify::{EventKind, RecursiveMode, Watcher};
+use notify::RecursiveMode;
+use notify_debouncer_mini::new_debouncer;
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
-use std::time::SystemTime;
+use std::time::Duration;
 
-/// File event emitted by the watcher
+/// Deterministic batch of dirty file paths.
+///
+/// Contains ONLY paths (no timestamps, no event types) to ensure deterministic
+/// behavior. Paths are sorted lexicographically before emission.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WatcherBatch {
+    /// Dirty file paths to reconcile, in lexicographic order
+    pub paths: Vec<PathBuf>,
+}
+
+impl WatcherBatch {
+    /// Create a new batch from a set of paths, sorting them deterministically.
+    fn from_set(paths: BTreeSet<PathBuf>) -> Self {
+        Self {
+            paths: paths.into_iter().collect(),
+        }
+    }
+
+    /// Empty batch for when no dirty paths exist after filtering.
+    pub fn empty() -> Self {
+        Self { paths: Vec::new() }
+    }
+
+    /// Whether this batch contains any paths.
+    pub fn is_empty(&self) -> bool {
+        self.paths.is_empty()
+    }
+}
+
+/// Filesystem watcher configuration
+#[derive(Debug, Clone)]
+pub struct WatcherConfig {
+    /// Debounce delay in milliseconds
+    pub debounce_ms: u64,
+}
+
+impl Default for WatcherConfig {
+    fn default() -> Self {
+        Self { debounce_ms: 500 }
+    }
+}
+
+/// Filesystem watcher that emits debounced batches of dirty paths.
+///
+/// Uses notify-debouncer-mini for event coalescing. All paths within the
+/// debounce window are collected, de-duplicated, sorted, and emitted as a
+/// single WatcherBatch.
+pub struct FileSystemWatcher {
+    _watcher_thread: thread::JoinHandle<()>,
+    batch_receiver: Receiver<WatcherBatch>,
+    /// Legacy compatibility: pending batch to emit one path at a time
+    legacy_pending_batch: RefCell<Option<WatcherBatch>>,
+    /// Legacy compatibility: current index into pending batch
+    legacy_pending_index: RefCell<usize>,
+}
+
+impl FileSystemWatcher {
+    /// Create a new watcher for the given directory.
+    ///
+    /// # Arguments
+    /// * `path` - Directory to watch recursively
+    /// * `config` - Watcher configuration
+    ///
+    /// # Returns
+    /// A watcher that can be polled for batch events
+    pub fn new(path: PathBuf, config: WatcherConfig) -> Result<Self> {
+        let (batch_tx, batch_rx) = mpsc::channel();
+
+        let thread = thread::spawn(move || {
+            if let Err(e) = run_watcher(path, batch_tx, config) {
+                eprintln!("Watcher error: {:?}", e);
+            }
+        });
+
+        Ok(Self {
+            _watcher_thread: thread,
+            batch_receiver: batch_rx,
+            legacy_pending_batch: RefCell::new(None),
+            legacy_pending_index: RefCell::new(0),
+        })
+    }
+
+    /// Receive the next batch, blocking until available.
+    ///
+    /// # Returns
+    /// `None` if the watcher thread has terminated
+    pub fn recv_batch(&self) -> Option<WatcherBatch> {
+        self.batch_receiver.recv().ok()
+    }
+
+    /// Try to receive a batch without blocking.
+    ///
+    /// # Returns
+    /// - `Some(batch)` if a batch is available
+    /// - `None` if no batch is available or watcher terminated
+    pub fn try_recv_batch(&self) -> Option<WatcherBatch> {
+        self.batch_receiver.try_recv().ok()
+    }
+
+    // ========================================================================
+    // LEGACY: Old single-event API for backward compatibility during migration
+    // ========================================================================
+
+    /// Legacy: Try to receive a single event without blocking (DEPRECATED).
+    ///
+    /// This method converts batch events to single events for backward
+    /// compatibility. Paths from each batch are returned one at a time
+    /// in sorted order.
+    ///
+    /// # Deprecated
+    /// Use `try_recv_batch()` instead for deterministic batch processing.
+    pub fn try_recv_event(&self) -> Option<FileEvent> {
+        // First, check if we have a pending batch to continue from
+        {
+            let mut pending_batch = self.legacy_pending_batch.borrow_mut();
+            let mut pending_index = self.legacy_pending_index.borrow_mut();
+
+            if let Some(ref batch) = *pending_batch {
+                if *pending_index < batch.paths.len() {
+                    let path = batch.paths[*pending_index].clone();
+                    *pending_index += 1;
+
+                    // Check if we've exhausted this batch
+                    if *pending_index >= batch.paths.len() {
+                        *pending_batch = None;
+                        *pending_index = 0;
+                    }
+
+                    return Some(FileEvent {
+                        path,
+                        event_type: EventType::Modify,
+                    });
+                }
+            }
+        }
+
+        // No pending batch or batch exhausted, try to get a new batch
+        if let Ok(batch) = self.batch_receiver.try_recv() {
+            if batch.paths.is_empty() {
+                return None;
+            }
+
+            // If there are multiple paths, store the batch for next call
+            if batch.paths.len() > 1 {
+                let path = batch.paths[0].clone();
+                let mut pending_batch = self.legacy_pending_batch.borrow_mut();
+                let mut pending_index = self.legacy_pending_index.borrow_mut();
+                *pending_batch = Some(batch);
+                *pending_index = 1; // Next call will return index 1
+                drop(pending_batch);
+                drop(pending_index);
+                return Some(FileEvent {
+                    path,
+                    event_type: EventType::Modify,
+                });
+            }
+
+            // Single path, return it directly
+            Some(FileEvent {
+                path: batch.paths[0].clone(),
+                event_type: EventType::Modify,
+            })
+        } else {
+            None
+        }
+    }
+
+    /// Legacy: Receive the next event, blocking until available (DEPRECATED).
+    ///
+    /// This method converts batch events to single events for backward
+    /// compatibility. Paths from each batch are returned one at a time
+    /// in sorted order.
+    ///
+    /// # Deprecated
+    /// Use `recv_batch()` instead for deterministic batch processing.
+    pub fn recv_event(&self) -> Option<FileEvent> {
+        // First, check if we have a pending batch to continue from
+        {
+            let mut pending_batch = self.legacy_pending_batch.borrow_mut();
+            let mut pending_index = self.legacy_pending_index.borrow_mut();
+
+            if let Some(ref batch) = *pending_batch {
+                if *pending_index < batch.paths.len() {
+                    let path = batch.paths[*pending_index].clone();
+                    *pending_index += 1;
+
+                    // Check if we've exhausted this batch
+                    if *pending_index >= batch.paths.len() {
+                        *pending_batch = None;
+                        *pending_index = 0;
+                    }
+
+                    return Some(FileEvent {
+                        path,
+                        event_type: EventType::Modify,
+                    });
+                }
+            }
+        }
+
+        // No pending batch or batch exhausted, block for a new batch
+        if let Ok(batch) = self.batch_receiver.recv() {
+            if batch.paths.is_empty() {
+                return None;
+            }
+
+            // If there are multiple paths, store the batch for next call
+            if batch.paths.len() > 1 {
+                let path = batch.paths[0].clone();
+                let mut pending_batch = self.legacy_pending_batch.borrow_mut();
+                let mut pending_index = self.legacy_pending_index.borrow_mut();
+                *pending_batch = Some(batch);
+                *pending_index = 1; // Next call will return index 1
+                drop(pending_batch);
+                drop(pending_index);
+                return Some(FileEvent {
+                    path,
+                    event_type: EventType::Modify,
+                });
+            }
+
+            // Single path, return it directly
+            Some(FileEvent {
+                path: batch.paths[0].clone(),
+                event_type: EventType::Modify,
+            })
+        } else {
+            None
+        }
+    }
+}
+
+/// Run the debounced watcher in a dedicated thread.
+///
+/// Uses notify-debouncer-mini for event coalescing. Batches are emitted
+/// after the debounce delay expires with all paths that changed during
+/// the window.
+fn run_watcher(path: PathBuf, tx: Sender<WatcherBatch>, config: WatcherConfig) -> Result<()> {
+    // Convert debounce_ms to Duration
+    let debounce_duration = Duration::from_millis(config.debounce_ms);
+
+    // Create debouncer with notify 8.x API
+    // The debouncer calls our closure on each batch of events
+    let mut debouncer = new_debouncer(
+        debounce_duration,
+        move |result: notify_debouncer_mini::DebounceEventResult| {
+            match result {
+                Ok(events) => {
+                    // Collect all dirty paths from this batch
+                    let dirty_paths = extract_dirty_paths(&events);
+
+                    if !dirty_paths.is_empty() {
+                        let batch = WatcherBatch::from_set(dirty_paths);
+                        let _ = tx.send(batch);
+                    }
+                }
+                Err(error) => {
+                    eprintln!("Watcher error: {:?}", error);
+                }
+            }
+        },
+    )?;
+
+    // Watch the directory recursively via the inner watcher
+    debouncer.watcher().watch(&path, RecursiveMode::Recursive)?;
+
+    // Keep the thread alive - block forever
+    // The debouncer runs in the background and sends batches via callback
+    loop {
+        thread::sleep(Duration::from_secs(1));
+    }
+}
+
+/// Extract dirty paths from a batch of debouncer events.
+///
+/// Filtering rules:
+/// - Exclude directories (only process files)
+/// - Exclude database-related files (.db, .sqlite, etc.)
+/// - De-duplicate via BTreeSet
+///
+/// Returns: BTreeSet of dirty paths (sorted deterministically)
+fn extract_dirty_paths(
+    events: &[notify_debouncer_mini::DebouncedEvent],
+) -> BTreeSet<PathBuf> {
+    let mut dirty_paths = BTreeSet::new();
+
+    for event in events {
+        let path = &event.path;
+
+        // Skip directories
+        if path.is_dir() {
+            continue;
+        }
+
+        // Skip database-related files to avoid feedback loop
+        let path_str = path.to_string_lossy();
+        if is_database_file(&path_str) {
+            continue;
+        }
+
+        // Insert into BTreeSet for automatic dedup and sorting
+        dirty_paths.insert(path.clone());
+    }
+
+    dirty_paths
+}
+
+/// Check if a path is a database file that should be excluded from watching.
+///
+/// Database files are excluded because the indexer writes to them, which
+/// would create a feedback loop (write event -> indexer writes again -> ...).
+fn is_database_file(path: &str) -> bool {
+    let path_lower = path.to_lowercase();
+    path_lower.ends_with(".db")
+        || path_lower.ends_with(".db-journal")
+        || path_lower.ends_with(".db-wal")
+        || path_lower.ends_with(".db-shm")
+        || path_lower.ends_with(".sqlite")
+        || path_lower.ends_with(".sqlite3")
+}
+
+// ============================================================================
+// LEGACY: Old single-event types for backward compatibility during migration
+// ============================================================================
+
+/// Legacy: File event emitted by the watcher (DEPRECATED).
+///
+/// This type is kept for backward compatibility during the migration to
+/// batch-based processing. New code should use `WatcherBatch` instead.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct FileEvent {
     /// Path of the affected file
     pub path: PathBuf,
-    /// Type of event
+    /// Type of event (DEPRECATED - not used in batch processing)
     pub event_type: EventType,
-    /// Timestamp when event was detected
-    pub timestamp: SystemTime,
 }
 
-/// Type of file event
+/// Type of file event (DEPRECATED - not used in batch processing).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum EventType {
     /// File was created
@@ -38,143 +373,56 @@ impl std::fmt::Display for EventType {
     }
 }
 
-/// Filesystem watcher configuration
-#[derive(Debug, Clone)]
-pub struct WatcherConfig {
-    /// Debounce delay in milliseconds
-    pub debounce_ms: u64,
-}
-
-impl Default for WatcherConfig {
-    fn default() -> Self {
-        Self { debounce_ms: 500 }
-    }
-}
-
-/// Filesystem watcher that emits events on a channel
-pub struct FileSystemWatcher {
-    _watcher_thread: thread::JoinHandle<()>,
-    event_receiver: Receiver<FileEvent>,
-}
-
-impl FileSystemWatcher {
-    /// Create a new watcher for the given directory
-    ///
-    /// # Arguments
-    /// * `path` - Directory to watch recursively
-    /// * `config` - Watcher configuration
-    ///
-    /// # Returns
-    /// A watcher that can be polled for events
-    pub fn new(path: PathBuf, config: WatcherConfig) -> Result<Self> {
-        let (tx, rx) = mpsc::channel();
-
-        let thread = thread::spawn(move || {
-            if let Err(e) = run_watcher(path, tx, config) {
-                eprintln!("Watcher error: {:?}", e);
-            }
-        });
-
-        Ok(Self {
-            _watcher_thread: thread,
-            event_receiver: rx,
-        })
-    }
-
-    /// Receive the next event, blocking until available
-    ///
-    /// # Returns
-    /// `None` if the watcher thread has terminated
-    pub fn recv_event(&self) -> Option<FileEvent> {
-        self.event_receiver.recv().ok()
-    }
-
-    /// Try to receive an event without blocking
-    ///
-    /// # Returns
-    /// - `Some(event)` if an event is available
-    /// - `None` if no event is available or watcher terminated
-    pub fn try_recv_event(&self) -> Option<FileEvent> {
-        self.event_receiver.try_recv().ok()
-    }
-}
-
-/// Run the watcher in a dedicated thread
-fn run_watcher(path: PathBuf, tx: Sender<FileEvent>, _config: WatcherConfig) -> Result<()> {
-    let _tx = tx.clone(); // Clone for closure
-
-    let mut notify_watcher = notify::recommended_watcher(move |res| {
-        if let Ok(event) = res {
-            if let Some(file_event) = convert_notify_event(event) {
-                let _ = _tx.send(file_event);
-            }
-        }
-    })?;
-
-    notify_watcher.watch(&path, RecursiveMode::Recursive)?;
-
-    // Keep the thread alive - block forever
-    // The watcher runs in the background and sends events via callback
-    loop {
-        std::thread::sleep(std::time::Duration::from_secs(1));
-    }
-}
-
-/// Convert notify event to FileEvent
-fn convert_notify_event(event: notify::Event) -> Option<FileEvent> {
-    // Only process files, not directories
-    if event.paths.iter().any(|p| p.is_dir()) {
-        return None;
-    }
-
-    let event_type = match event.kind {
-        EventKind::Create(_) => Some(EventType::Create),
-        EventKind::Modify(_) => Some(EventType::Modify),
-        EventKind::Remove(_) => Some(EventType::Delete),
-        _ => None,
-    };
-
-    let event_type = event_type?;
-
-    // Use first path (notify can emit multiple paths in one event)
-    let path = event.paths.first()?.clone();
-
-    // Skip database-related files to avoid feedback loop
-    // ( indexer writes to DB → generates event → indexer writes again )
-    let path_str = path.to_string_lossy();
-    if path_str.ends_with(".db")
-        || path_str.ends_with(".db-journal")
-        || path_str.ends_with(".db-wal")
-        || path_str.ends_with(".db-shm")
-        || path_str.ends_with(".sqlite")
-        || path_str.ends_with(".sqlite3")
-    {
-        return None;
-    }
-
-    Some(FileEvent {
-        path,
-        event_type,
-        timestamp: SystemTime::now(),
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_event_type_serialization() {
-        let event = FileEvent {
-            path: PathBuf::from("/test/file.rs"),
-            event_type: EventType::Create,
-            timestamp: SystemTime::now(),
+    fn test_batch_is_empty() {
+        let batch = WatcherBatch::empty();
+        assert!(batch.is_empty());
+    }
+
+    #[test]
+    fn test_batch_from_set_sorts_deterministically() {
+        let mut set = BTreeSet::new();
+        set.insert(PathBuf::from("/zebra.rs"));
+        set.insert(PathBuf::from("/alpha.rs"));
+        set.insert(PathBuf::from("/beta.rs"));
+
+        let batch = WatcherBatch::from_set(set);
+
+        // BTreeSet iterates in sorted order
+        assert_eq!(batch.paths[0], PathBuf::from("/alpha.rs"));
+        assert_eq!(batch.paths[1], PathBuf::from("/beta.rs"));
+        assert_eq!(batch.paths[2], PathBuf::from("/zebra.rs"));
+    }
+
+    #[test]
+    fn test_database_file_detection() {
+        assert!(is_database_file("test.db"));
+        assert!(is_database_file("test.sqlite"));
+        assert!(is_database_file("test.db-journal"));
+        assert!(is_database_file("test.DB")); // Case insensitive
+        assert!(is_database_file("test.SQLITE"));
+
+        assert!(!is_database_file("test.rs"));
+        assert!(!is_database_file("test.py"));
+        assert!(!is_database_file("database.rs")); // Extension matters
+    }
+
+    #[test]
+    fn test_batch_serialization() {
+        let batch = WatcherBatch {
+            paths: vec![
+                PathBuf::from("/alpha.rs"),
+                PathBuf::from("/beta.rs"),
+            ],
         };
 
-        let json = serde_json::to_string(&event).unwrap();
-        let deserialized: FileEvent = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&batch).unwrap();
+        let deserialized: WatcherBatch = serde_json::from_str(&json).unwrap();
 
-        assert_eq!(event.path, deserialized.path);
-        assert_eq!(event.event_type, deserialized.event_type);
+        assert_eq!(batch.paths, deserialized.paths);
     }
 }

@@ -28,7 +28,8 @@ default = []
 native-v2 = ["sqlitegraph/native-v2"]
 
 [dependencies]
-notify = "7.0"
+notify = "8.2.0"
+notify-debouncer-mini = "0.7.0"
 anyhow = "1.0"
 thiserror = "1.0"
 serde = { version = "1.0", features = ["derive"] }

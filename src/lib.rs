@@ -19,4 +19,4 @@ pub use ingest::detect::{detect_language, Language};
 pub use ingest::{Parser, SymbolFact, SymbolKind};
 pub use references::{CallFact, ReferenceFact};
 pub use verify::{verify_graph, VerifyReport};
-pub use watcher::{EventType, FileEvent, FileSystemWatcher, WatcherConfig};
+pub use watcher::{EventType, FileEvent, FileSystemWatcher, WatcherBatch, WatcherConfig};

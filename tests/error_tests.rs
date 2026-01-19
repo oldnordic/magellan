@@ -58,7 +58,9 @@ fn test_unreadable_file_prints_error_and_continues() {
     fs::write(&good_file, b"fn good() { fn updated() {} }").unwrap();
 
     // Wait for event processing
-    thread::sleep(Duration::from_millis(500));
+    // Must wait longer than the default debounce_ms (500ms) for the debouncer to emit
+    // Wait longer to ensure both the error event and the modify event are processed
+    thread::sleep(Duration::from_millis(1000));
 
     // Restore permissions so we can clean up
     perms.set_mode(0o644);

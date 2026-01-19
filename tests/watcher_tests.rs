@@ -39,11 +39,13 @@ fn test_file_create_event() {
     // Poll for event with timeout
     let event = poll_for_event(&watcher, 2000);
 
-    assert!(event.is_some(), "Should receive create event");
+    assert!(event.is_some(), "Should receive file event");
     let event = event.unwrap();
 
     assert_eq!(event.path, file_path);
-    assert_eq!(event.event_type, magellan::EventType::Create);
+    // Note: With notify 8.x debouncer, event type is always Modify
+    // The reconcile operation handles Create vs Delete based on actual file state
+    assert_eq!(event.event_type, magellan::EventType::Modify);
 }
 
 #[test]
@@ -104,11 +106,13 @@ fn test_file_delete_event() {
     // Poll for delete event
     let event = poll_for_event(&watcher, 2000);
 
-    assert!(event.is_some(), "Should receive delete event");
+    assert!(event.is_some(), "Should receive file event for deleted path");
     let event = event.unwrap();
 
     assert_eq!(event.path, file_path);
-    assert_eq!(event.event_type, magellan::EventType::Delete);
+    // Note: With notify 8.x debouncer, event type is always Modify
+    // The reconcile operation handles Create vs Delete based on actual file state
+    assert_eq!(event.event_type, magellan::EventType::Modify);
 }
 
 #[test]
@@ -133,7 +137,7 @@ fn test_debounce_rapid_changes() {
     // Wait for debounce period + buffer
     sleep(Duration::from_millis(600));
 
-    // Count events - rapid changes should produce multiple events
+    // Count events - rapid changes should produce a single debounced event
     let mut event_count = 0;
     while let Some(_) = watcher.try_recv_event() {
         event_count += 1;
@@ -181,7 +185,7 @@ fn test_watch_temp_directory() {
                 found_file_event = true;
                 break;
             }
-            // Directory events are filtered out in convert_notify_event
+            // Directory events are filtered out in extract_dirty_paths
         }
         sleep(Duration::from_millis(50));
     }

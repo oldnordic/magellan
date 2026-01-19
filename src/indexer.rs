@@ -15,40 +15,16 @@ use crate::{CodeGraph, FileEvent, FileSystemWatcher, WatcherConfig};
 /// * `event` - FileEvent to process
 ///
 /// # Behavior
-/// - Create/Modify: read file, delete old data, index symbols and references
-/// - Delete: delete file and all derived data
+/// - Uses reconcile_file_path for deterministic update-or-delete semantics:
+///   - File exists and changed: delete old data, re-index
+///   - File exists and unchanged: no-op (skip re-indexing)
+///   - File doesn't exist: delete all data
+/// - This works for both Create/Modify/Delete events since we check filesystem state
 fn handle_event(graph: &mut CodeGraph, event: FileEvent) -> Result<()> {
-    // Convert path to string for graph API
-    let path = event.path.to_string_lossy().to_string();
-
-    // Handle event by type
-    match event.event_type {
-        crate::EventType::Create | crate::EventType::Modify => {
-            // Read file contents - handle case where file doesn't exist yet
-            let source = match std::fs::read(&event.path) {
-                Ok(s) => s,
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                    // File was deleted or doesn't exist yet, skip this event
-                    return Ok(());
-                }
-                Err(e) => return Err(e.into()),
-            };
-
-            // Delete old data (idempotent)
-            graph.delete_file(&path)?;
-
-            // Index symbols
-            graph.index_file(&path, &source)?;
-
-            // Index references
-            graph.index_references(&path, &source)?;
-        }
-        crate::EventType::Delete => {
-            // Delete file and all derived data
-            graph.delete_file(&path)?;
-        }
-    }
-
+    // Use reconcile for deterministic handling regardless of event type
+    // The debouncer doesn't preserve event types, so we check actual file state
+    let path_key = event.path.to_string_lossy().to_string();
+    let _outcome = graph.reconcile_file_path(&event.path, &path_key)?;
     Ok(())
 }
 

@@ -54,7 +54,8 @@ fn test_watch_command_indexes_file_on_create() {
     fs::write(&file_path, rust_code).unwrap();
 
     // Wait for event processing and read stdout
-    thread::sleep(Duration::from_millis(500));
+    // Must wait longer than the default debounce_ms (500ms) for the debouncer to emit
+    thread::sleep(Duration::from_millis(700));
     let _ = child.kill();
     let output = child
         .wait_with_output()
