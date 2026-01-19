@@ -9,11 +9,11 @@
 ## Current Position
 
 - **Current phase:** Phase 6 — Query UX (Definitions, References, Call Graph, File Listing)
-- **Status:** In progress (2/4 plans executed)
-- **Last activity:** 2026-01-19 - Completed 06-02 (Target Symbol ID in References)
+- **Status:** In progress (3/4 plans executed)
+- **Last activity:** 2026-01-19 - Completed 06-03 (Call Graph Symbol IDs)
 - **Next action:** Continue with Phase 6 query UX improvements
 
-**Progress bar:** [██       ] 11% (2/18 total plans executed - Phase 6 in progress)
+**Progress bar:** [███       ] 17% (3/18 total plans executed - Phase 6 in progress)
 
 ## Success Definition (v1)
 
@@ -149,6 +149,13 @@ Magellan v1 is "done" when a user can:
 - Add --output flag parsing to refs command (consuming but not storing, using global output_format)
 - Build symbol_id lookup map to efficiently fetch target IDs without repeated graph queries
 
+### Key Decisions (from Phase 6 / Plan 03)
+- Use #[serde(default)] on optional symbol_id fields for backward compatibility with existing Call nodes
+- Build stable_symbol_ids lookup map as (file_path, symbol_name) -> Option<String> during indexing
+- For "in" direction (callers), target_symbol_id = caller_symbol_id
+- For "out" direction (callees), target_symbol_id = callee_symbol_id
+- Use symbol_id directly from CallFact in refs JSON output instead of database lookup
+
 ### Known Risks / Watch-outs
 - Mixed coordinate systems (byte vs char; inclusive vs exclusive).
 - "Stable IDs" accidentally derived from unstable sources (rowid, node id, iteration order).
@@ -160,11 +167,11 @@ Magellan v1 is "done" when a user can:
 
 ## Session Continuity
 
-- **Last session:** 2026-01-19T13:09:10Z
-- **Stopped at:** Completed 06-02 (Target Symbol ID in References)
+- **Last session:** 2026-01-19T13:21:09Z
+- **Stopped at:** Completed 06-03 (Call Graph Symbol IDs)
 - **Resume file:** None
 
 If resuming later, start by:
-1. Open `.planning/phases/06-query-ux/06-02-SUMMARY.md` for context on completed work.
+1. Open `.planning/phases/06-query-ux/06-03-SUMMARY.md` for context on completed work.
 2. Run `cargo test --workspace` to verify baseline health.
-3. Phase 6-02 complete - ready for next plan in Phase 6.
+3. Phase 6-03 complete - ready for next plan in Phase 6.
