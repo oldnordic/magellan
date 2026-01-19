@@ -90,9 +90,9 @@ Plans:
 **Plans:** 3 plans
 
 Plans:
-- [ ] 04-01-PLAN.md — Implement SHA-256 based stable span ID generation
-- [ ] 04-02-PLAN.md — Add comprehensive span model tests (determinism, UTF-8, half-open semantics)
-- [ ] 04-03-PLAN.md — Document the canonical span model in module docs
+- [x] 04-01-PLAN.md — Implement SHA-256 based stable span ID generation
+- [x] 04-02-PLAN.md — Add comprehensive span model tests (determinism, UTF-8, half-open semantics)
+- [x] 04-03-PLAN.md — Document the canonical span model in module docs
 
 **Success Criteria (observable):**
 1. Any result that points into source code includes byte offsets and line/col, with explicit range semantics (half-open) that are consistent across all commands.
@@ -184,7 +184,7 @@ Plans:
 | 1 | Persistence Compatibility Baseline | Complete |
 | 2 | Deterministic Watch & Indexing Pipeline | Complete |
 | 3 | CLI Output Contract | Complete |
-| 4 | Canonical Span Model + Span-Aware Results | Ready to execute (3 plans) |
+| 4 | Canonical Span Model + Span-Aware Results | Complete |
 | 5 | Stable Identity + Execution Tracking | Planned |
 | 6 | Query UX | Planned |
 | 7 | Deterministic Exports | Planned |

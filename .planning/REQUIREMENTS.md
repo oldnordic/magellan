@@ -10,12 +10,12 @@
 - [x] **OUT-01**: Every user-facing command supports `--output json` (or defaults to JSON in machine mode) with a **schema_version** field and explicit, documented fields.
 - [x] **OUT-02**: CLI output is **deterministic**: stable ordering of arrays/records (sorted by stable keys) and no HashMap iteration order leaks.
 - [x] **OUT-03**: Enforce stdout discipline: **stdout = data only**, **stderr = logs/diagnostics**.
-- [ ] **OUT-04**: Every match/result that points into source is **span-aware**, returning byte offsets and line/col with explicit range semantics.
+- [x] **OUT-04**: Every match/result that points into source is **span-aware**, returning byte offsets and line/col with explicit range semantics.
 - [ ] **OUT-05**: Every response includes stable identifiers where applicable: `execution_id`, and per-result `match_id` / `span_id` / `symbol_id`.
 
 ### Spans & Identity
 
-- [ ] **ID-01**: Define a canonical span model (UTF-8 byte offsets with half-open ranges) and include conversion rules for line/col in outputs.
+- [x] **ID-01**: Define a canonical span model (UTF-8 byte offsets with half-open ranges) and include conversion rules for line/col in outputs.
 - [ ] **ID-02**: `span_id` is stable across runs for unchanged inputs and is derived deterministically from (canonical path, byte_start, byte_end, and content hash policy).
 - [ ] **ID-03**: `symbol_id` is stable across runs for unchanged inputs and is derived deterministically from (language, fully-qualified symbol name policy, and defining span or content hash).
 - [ ] **ID-04**: `execution_id` is generated for every run and is recorded in both outputs and the database.
@@ -82,8 +82,8 @@
 | OUT-01 | Phase 3 | Complete |
 | OUT-02 | Phase 3 | Complete |
 | OUT-03 | Phase 3 | Complete |
-| ID-01 | Phase 4 | Pending |
-| OUT-04 | Phase 4 | Pending |
+| ID-01 | Phase 4 | Complete |
+| OUT-04 | Phase 4 | Complete |
 | OUT-05 | Phase 5 | Pending |
 | ID-02 | Phase 5 | Pending |
 | ID-03 | Phase 5 | Pending |
