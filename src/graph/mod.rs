@@ -432,4 +432,9 @@ impl CodeGraph {
     pub fn count_chunks(&self) -> Result<usize> {
         self.chunks.count_chunks()
     }
+
+    /// Get the execution log for recording command execution
+    pub fn execution_log(&self) -> &execution_log::ExecutionLog {
+        &self.execution_log
+    }
 }
