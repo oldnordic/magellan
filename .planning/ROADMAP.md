@@ -133,6 +133,14 @@ Plans:
 
 **Requirements:** QRY-01, QRY-02, QRY-03, QRY-04
 
+**Plans:** 4 plans
+
+Plans:
+- [ ] 06-01-PLAN.md — Fix find command symbol_id propagation (find by name sets None, should use symbol_id)
+- [ ] 06-02-PLAN.md — Add target_symbol_id to references (ReferenceMatch lacks target ID)
+- [ ] 06-03-PLAN.md — Add symbol_id to call graph results (CallFact needs caller/callee IDs)
+- [ ] 06-04-PLAN.md — Create files command with --symbols flag (list indexed files)
+
 **Success Criteria (observable):**
 1. User can look up symbol definitions by name/kind and receive span-aware results with stable IDs.
 2. User can look up references to a symbol and receive span-aware results with stable IDs.
@@ -194,7 +202,7 @@ Plans:
 | 3 | CLI Output Contract | Complete |
 | 4 | Canonical Span Model + Span-Aware Results | Complete |
 | 5 | Stable Identity + Execution Tracking | Complete |
-| 6 | Query UX | Planned |
+| 6 | Query UX | Planned (4 plans) |
 | 7 | Deterministic Exports | Planned |
 | 8 | Validation Hooks | Planned |
 | 9 | Interop Export (SCIP / LSIF) | Planned |
