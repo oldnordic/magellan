@@ -48,6 +48,7 @@ signal-hook = "0.3"
 sqlitegraph = "1.0.0"
 walkdir = "2.5"
 globset = "0.4"
+ignore = "0.4.25"
 rusqlite = "0.31"
 
 [dev-dependencies]

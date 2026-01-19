@@ -5,11 +5,12 @@ mod count;
 mod db_compat;
 mod export;
 mod files;
+pub mod filter;
 mod freshness;
 mod ops;
 pub mod query;
 mod references;
-mod scan;
+pub mod scan;
 mod schema;
 mod symbols;
 

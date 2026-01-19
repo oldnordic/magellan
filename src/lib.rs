@@ -12,9 +12,12 @@ pub mod references;
 pub mod verify;
 pub mod watcher;
 
+pub use diagnostics::{DiagnosticStage, SkipReason, WatchDiagnostic};
 pub use generation::{ChunkStore, CodeChunk};
+pub use graph::filter::FileFilter;
 pub use graph::query::SymbolQueryResult;
 pub use graph::{CodeGraph, ReconcileOutcome, ScanProgress, MAGELLAN_SCHEMA_VERSION};
+pub use graph::scan::ScanResult;
 pub use indexer::{run_indexer, run_indexer_n, run_watch_pipeline, WatchPipelineConfig};
 pub use ingest::detect::{detect_language, Language};
 pub use ingest::{Parser, SymbolFact, SymbolKind};
