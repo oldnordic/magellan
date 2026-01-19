@@ -870,7 +870,9 @@ fn main() -> ExitCode {
             path,
             direction,
         }) => {
-            if let Err(e) = refs_cmd::run_refs(db_path, name, root, path, direction) {
+            if let Err(e) =
+                refs_cmd::run_refs(db_path, name, root, path, direction, OutputFormat::Human)
+            {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }

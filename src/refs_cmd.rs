@@ -4,6 +4,7 @@
 
 use anyhow::Result;
 use magellan::{CallFact, CodeGraph};
+use magellan::output::{JsonResponse, OutputFormat, RefsResponse, ReferenceMatch, Span, generate_execution_id, output_json};
 use std::path::PathBuf;
 
 /// Resolve a file path against an optional root directory
@@ -31,15 +32,17 @@ fn resolve_path(file_path: &PathBuf, root: &Option<PathBuf>) -> String {
 /// * `root` - Optional root directory for resolving relative paths
 /// * `path` - File path containing the symbol
 /// * `direction` - "in" for callers, "out" for calls
+/// * `output_format` - Output format (Human or Json)
 ///
 /// # Displays
-/// Human-readable list of calls
+/// Human-readable list of calls or JSON output
 pub fn run_refs(
     db_path: PathBuf,
     name: String,
     root: Option<PathBuf>,
     path: PathBuf,
     direction: String,
+    output_format: OutputFormat,
 ) -> Result<()> {
     let mut graph = CodeGraph::open(&db_path)?;
 
@@ -59,6 +62,12 @@ pub fn run_refs(
         }
     };
 
+    // Handle JSON output mode
+    if output_format == OutputFormat::Json {
+        return output_json_mode(&name, &path_str, &direction, calls);
+    }
+
+    // Human mode (existing behavior)
     if direction == "in" || direction == "incoming" {
         if calls.is_empty() {
             println!("No incoming calls to \"{}\"", name);
@@ -89,6 +98,60 @@ pub fn run_refs(
             }
         }
     }
+
+    Ok(())
+}
+
+/// Output refs results in JSON format
+fn output_json_mode(
+    symbol_name: &str,
+    file_path: &str,
+    direction: &str,
+    mut calls: Vec<CallFact>,
+) -> Result<()> {
+    // Sort deterministically: by file_path, byte_start
+    calls.sort_by(|a, b| {
+        a.file_path
+            .cmp(&b.file_path)
+            .then_with(|| a.byte_start.cmp(&b.byte_start))
+    });
+
+    // Convert CallFact to ReferenceMatch
+    let references: Vec<ReferenceMatch> = calls
+        .into_iter()
+        .map(|call| {
+            let span = Span::new(
+                call.file_path.to_string_lossy().to_string(),
+                call.byte_start,
+                call.byte_end,
+                call.start_line,
+                call.start_col,
+                call.end_line,
+                call.end_col,
+            );
+
+            // For "in" direction, referenced_symbol is the caller
+            // For "out" direction, referenced_symbol is the callee
+            let referenced_symbol = if direction == "in" || direction == "incoming" {
+                call.caller.clone()
+            } else {
+                call.callee.clone()
+            };
+
+            ReferenceMatch::new(span, referenced_symbol, Some("call".to_string()))
+        })
+        .collect();
+
+    let response = RefsResponse {
+        references,
+        symbol_name: symbol_name.to_string(),
+        file_path: file_path.to_string(),
+        direction: direction.to_string(),
+    };
+
+    let exec_id = generate_execution_id();
+    let json_response = JsonResponse::new(response, &exec_id);
+    output_json(&json_response)?;
 
     Ok(())
 }
