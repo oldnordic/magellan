@@ -706,10 +706,22 @@ fn run_export(db_path: PathBuf) -> Result<()> {
     Ok(())
 }
 
-fn run_files(db_path: PathBuf) -> Result<()> {
+fn run_files(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
     let mut graph = CodeGraph::open(&db_path)?;
     let file_nodes = graph.all_file_nodes()?;
 
+    // Handle JSON output mode
+    if output_format == OutputFormat::Json {
+        let mut files: Vec<String> = file_nodes.keys().cloned().collect();
+        files.sort(); // Deterministic ordering
+
+        let response = magellan::output::FilesResponse { files };
+        let exec_id = magellan::output::generate_execution_id();
+        let json_response = magellan::output::JsonResponse::new(response, &exec_id);
+        return magellan::output::output_json(&json_response);
+    }
+
+    // Human mode (existing behavior)
     if file_nodes.is_empty() {
         println!("0 indexed files");
     } else {
@@ -879,7 +891,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Ok(Command::Files { db_path }) => {
-            if let Err(e) = run_files(db_path) {
+            if let Err(e) = run_files(db_path, OutputFormat::Human) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
