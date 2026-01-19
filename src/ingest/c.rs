@@ -92,7 +92,8 @@ impl CParser {
         let name = self.extract_name(node, source);
 
         let normalized_kind = symbol_kind.normalized_key().to_string();
-        let fqn = name.clone(); // For v1, FQN is just the symbol name
+        // C has no namespaces/packages, FQN is just the symbol name
+        let fqn = name.clone();
         Some(SymbolFact {
             file_path: file_path.clone(),
             kind: symbol_kind,
@@ -483,5 +484,15 @@ enum Color {
         // Function starts at line 1
         assert_eq!(fact.start_line, 1);
         assert_eq!(fact.start_col, 0); // 'i' in 'int' is at column 0
+    }
+
+    #[test]
+    fn test_fqn_is_simple_name() {
+        let mut parser = CParser::new().unwrap();
+        let source = b"int my_function() {}\n";
+        let facts = parser.extract_symbols(PathBuf::from("test.c"), source);
+
+        assert_eq!(facts.len(), 1);
+        assert_eq!(facts[0].fqn, Some("my_function".to_string()));
     }
 }
