@@ -485,4 +485,38 @@ mod tests {
 
         assert_eq!(batch.paths, deserialized.paths);
     }
+
+    #[test]
+    fn test_watcher_config_has_root() {
+        let config = WatcherConfig {
+            root_path: PathBuf::from("/test/root"),
+            debounce_ms: 100,
+        };
+
+        assert_eq!(config.root_path, PathBuf::from("/test/root"));
+        assert_eq!(config.debounce_ms, 100);
+    }
+
+    #[test]
+    fn test_extract_dirty_paths_filters_traversal() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let root = temp_dir.path();
+
+        // Create a valid file
+        let valid_file = root.join("valid.rs");
+        fs::write(&valid_file, b"fn valid() {}").unwrap();
+
+        // Test the validation logic directly
+        // since DebouncedEvent cannot be easily constructed in tests
+        let result = crate::validation::validate_path_within_root(&valid_file, root);
+        assert!(result.is_ok());
+
+        // Test that traversal is rejected
+        let outside = root.join("../../../etc/passwd");
+        let result_outside = crate::validation::validate_path_within_root(&outside, root);
+        assert!(result_outside.is_err());
+    }
 }
