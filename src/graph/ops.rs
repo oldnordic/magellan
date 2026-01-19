@@ -23,6 +23,39 @@ pub enum ReconcileOutcome {
     },
 }
 
+/// Deletion statistics returned by delete_file_facts()
+///
+/// Provides counts of deleted entities to verify all derived data was removed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeleteResult {
+    /// Number of symbols deleted (via DEFINES edges from file)
+    pub symbols_deleted: usize,
+    /// Number of reference nodes deleted
+    pub references_deleted: usize,
+    /// Number of call nodes deleted
+    pub calls_deleted: usize,
+    /// Number of code chunks deleted
+    pub chunks_deleted: usize,
+    /// Number of edges deleted (cleanup of orphaned edges)
+    pub edges_deleted: usize,
+}
+
+impl DeleteResult {
+    /// Total count of all deleted items
+    pub fn total_deleted(&self) -> usize {
+        self.symbols_deleted
+            + self.references_deleted
+            + self.calls_deleted
+            + self.chunks_deleted
+            + self.edges_deleted
+    }
+
+    /// Returns true if nothing was deleted
+    pub fn is_empty(&self) -> bool {
+        self.total_deleted() == 0
+    }
+}
+
 /// Index a file into the graph (idempotent)
 ///
 /// # Behavior
@@ -159,7 +192,10 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
 /// # Arguments
 /// * `graph` - CodeGraph instance
 /// * `path` - File path to delete
-pub fn delete_file(graph: &mut CodeGraph, path: &str) -> Result<()> {
+///
+/// # Returns
+/// DeleteResult with counts of deleted entities
+pub fn delete_file(graph: &mut CodeGraph, path: &str) -> Result<DeleteResult> {
     // Delegate to the authoritative deletion path.
     delete_file_facts(graph, path)
 }
@@ -176,8 +212,50 @@ pub fn delete_file(graph: &mut CodeGraph, path: &str) -> Result<()> {
 /// Determinism:
 /// - Any multi-entity deletion gathers candidate IDs, sorts ascending, deletes in that order.
 /// - All deletions occur within an IMMEDIATE transaction for atomicity.
-pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<()> {
+///
+/// Verification:
+/// - Counts items before transaction, asserts counts after each deletion step.
+/// - Panics if counts don't match (catches orphaned data bugs).
+///
+/// # Returns
+/// DeleteResult with detailed counts of deleted entities.
+pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResult> {
     use crate::graph::schema::delete_edges_touching_entities;
+
+    // === PHASE 1: Count items to be deleted (before any deletion) ===
+    // These are the expected counts we will verify against.
+    // IMPORTANT: Do this BEFORE opening any transaction connection to avoid locking issues.
+
+    // Count symbols defined by this file (DEFINES edges)
+    let expected_symbols: usize = if let Some(file_id) = graph.files.find_file_node(path)? {
+        graph
+            .files
+            .backend
+            .neighbors(
+                file_id.as_i64(),
+                sqlitegraph::NeighborQuery {
+                    direction: sqlitegraph::BackendDirection::Outgoing,
+                    edge_type: Some("DEFINES".to_string()),
+                },
+            )
+            .map(|ids| ids.len())
+            .unwrap_or(0)
+    } else {
+        0
+    };
+
+    // Count references with matching file_path
+    let expected_references = count_references_in_file(graph, path);
+
+    // Count calls with matching file_path
+    let expected_calls = count_calls_in_file(graph, path);
+
+    // Count code chunks (query directly from code_chunks table)
+    let expected_chunks = count_chunks_for_file(graph, path);
+
+    // === PHASE 2: Open transaction and perform deletions ===
+    // IMPORTANT: We use a single connection for the transaction and perform all
+    // code chunk operations on this transaction directly to avoid "database is locked" errors.
 
     let mut conn = graph.chunks.connect()?;
 
@@ -185,10 +263,12 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<()> {
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|e| anyhow::anyhow!("Failed to start delete transaction: {}", e))?;
 
-    // We'll gather all entity IDs we intend to delete and perform edge cleanup for them.
     let mut deleted_entity_ids: Vec<i64> = Vec::new();
+    let symbols_deleted: usize;
+    let chunks_deleted: usize;
+    let references_deleted: usize;
+    let calls_deleted: usize;
 
-    // 1) Symbols defined by this file (if file exists).
     if let Some(file_id) = graph.files.find_file_node(path)? {
         // Capture symbol IDs before deletion.
         let symbol_ids = graph.files.backend.neighbors(
@@ -207,12 +287,33 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<()> {
             graph.files.backend.graph().delete_entity(*symbol_id)?;
         }
 
+        symbols_deleted = symbol_ids_sorted.len();
         deleted_entity_ids.extend(symbol_ids_sorted);
 
-        // 4) Delete code chunks for this file.
-        let _ = graph.chunks.delete_chunks_for_file(path);
+        // Assert symbol count matches expected
+        assert_eq!(
+            symbols_deleted, expected_symbols,
+            "Symbol deletion count mismatch for '{}': expected {}, got {}",
+            path, expected_symbols, symbols_deleted
+        );
 
-        // 5) Delete the File node itself.
+        // Delete code chunks for this file using the transaction connection directly.
+        // We can't use delete_chunks_for_file here because it opens its own connection.
+        chunks_deleted = tx
+            .execute(
+                "DELETE FROM code_chunks WHERE file_path = ?1",
+                rusqlite::params![path],
+            )
+            .map_err(|e| anyhow::anyhow!("Failed to delete code chunks: {}", e))?;
+
+        // Assert chunk count matches expected
+        assert_eq!(
+            chunks_deleted, expected_chunks,
+            "Code chunk deletion count mismatch for '{}': expected {}, got {}",
+            path, expected_chunks, chunks_deleted
+        );
+
+        // Delete the File node itself.
         graph
             .files
             .backend
@@ -220,40 +321,158 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<()> {
             .delete_entity(file_id.as_i64())?;
         deleted_entity_ids.push(file_id.as_i64());
 
-        // 2) References in this file.
-        let reference_deleted = graph.references.delete_references_in_file(path)?;
+        // Delete references in this file.
+        references_deleted = graph.references.delete_references_in_file(path)?;
 
-        // 3) Calls in this file.
-        let call_deleted = graph.calls.delete_calls_in_file(path)?;
+        // Assert reference count matches expected
+        assert_eq!(
+            references_deleted, expected_references,
+            "Reference deletion count mismatch for '{}': expected {}, got {}",
+            path, expected_references, references_deleted
+        );
+
+        // Delete calls in this file.
+        calls_deleted = graph.calls.delete_calls_in_file(path)?;
+
+        // Assert call count matches expected
+        assert_eq!(
+            calls_deleted, expected_calls,
+            "Call deletion count mismatch for '{}': expected {}, got {}",
+            path, expected_calls, calls_deleted
+        );
 
         // Explicit edge cleanup for deleted IDs (symbols + file) to ensure no rows remain.
         deleted_entity_ids.sort_unstable();
         deleted_entity_ids.dedup();
-        let _ = delete_edges_touching_entities(&tx, &deleted_entity_ids)?;
+        let edges_deleted = delete_edges_touching_entities(&tx, &deleted_entity_ids)?;
 
-        // Silence unused warnings for counts (useful for debugging, kept deterministic).
-        let _ = (reference_deleted, call_deleted);
+        tx.commit()
+            .map_err(|e| anyhow::anyhow!("Failed to commit delete transaction: {}", e))?;
+
+        // Remove from in-memory index AFTER successful commit.
+        graph.files.file_index.remove(path);
+
+        Ok(DeleteResult {
+            symbols_deleted,
+            references_deleted,
+            calls_deleted,
+            chunks_deleted,
+            edges_deleted,
+        })
     } else {
-        // Even if there's no File node, we still delete chunks for this path string.
-        let _ = graph.chunks.delete_chunks_for_file(path);
+        // No File node exists, but we still clean up orphaned data.
 
-        // 2) References in this file.
-        let reference_deleted = graph.references.delete_references_in_file(path)?;
+        // Delete chunks using the transaction connection directly.
+        chunks_deleted = tx
+            .execute(
+                "DELETE FROM code_chunks WHERE file_path = ?1",
+                rusqlite::params![path],
+            )
+            .map_err(|e| anyhow::anyhow!("Failed to delete code chunks: {}", e))?;
+        assert_eq!(
+            chunks_deleted, expected_chunks,
+            "Code chunk deletion count mismatch (no file) for '{}': expected {}, got {}",
+            path, expected_chunks, chunks_deleted
+        );
 
-        // 3) Calls in this file.
-        let call_deleted = graph.calls.delete_calls_in_file(path)?;
+        // Delete references
+        references_deleted = graph.references.delete_references_in_file(path)?;
+        assert_eq!(
+            references_deleted, expected_references,
+            "Reference deletion count mismatch (no file) for '{}': expected {}, got {}",
+            path, expected_references, references_deleted
+        );
 
-        // Silence unused warnings for counts (useful for debugging, kept deterministic).
-        let _ = (reference_deleted, call_deleted);
+        // Delete calls
+        calls_deleted = graph.calls.delete_calls_in_file(path)?;
+        assert_eq!(
+            calls_deleted, expected_calls,
+            "Call deletion count mismatch (no file) for '{}': expected {}, got {}",
+            path, expected_calls, calls_deleted
+        );
+
+        tx.commit()
+            .map_err(|e| anyhow::anyhow!("Failed to commit delete transaction: {}", e))?;
+
+        // No file node to remove from index
+        Ok(DeleteResult {
+            symbols_deleted: 0,
+            references_deleted,
+            calls_deleted,
+            chunks_deleted,
+            edges_deleted: 0,
+        })
     }
+}
 
-    tx.commit()
-        .map_err(|e| anyhow::anyhow!("Failed to commit delete transaction: {}", e))?;
+/// Count Reference nodes with matching file_path.
+///
+/// Used to verify deletion completeness.
+fn count_references_in_file(graph: &CodeGraph, path: &str) -> usize {
+    graph
+        .references
+        .backend
+        .entity_ids()
+        .map(|ids| {
+            ids.iter()
+                .filter_map(|id| graph.references.backend.get_node(*id).ok())
+                .filter(|node| {
+                    node.kind == "Reference"
+                        && node
+                            .data
+                            .get("file")
+                            .and_then(|v| v.as_str())
+                            .map(|f| f == path)
+                            .unwrap_or(false)
+                })
+                .count()
+        })
+        .unwrap_or(0)
+}
 
-    // Remove from in-memory index AFTER successful commit.
-    graph.files.file_index.remove(path);
+/// Count Call nodes with matching file_path.
+///
+/// Used to verify deletion completeness.
+fn count_calls_in_file(graph: &CodeGraph, path: &str) -> usize {
+    graph
+        .calls
+        .backend
+        .entity_ids()
+        .map(|ids| {
+            ids.iter()
+                .filter_map(|id| graph.calls.backend.get_node(*id).ok())
+                .filter(|node| {
+                    node.kind == "Call"
+                        && node
+                            .data
+                            .get("file")
+                            .and_then(|v| v.as_str())
+                            .map(|f| f == path)
+                            .unwrap_or(false)
+                })
+                .count()
+        })
+        .unwrap_or(0)
+}
 
-    Ok(())
+/// Count code chunks for a file path.
+///
+/// Used to verify deletion completeness.
+fn count_chunks_for_file(graph: &CodeGraph, path: &str) -> usize {
+    graph
+        .chunks
+        .connect()
+        .ok()
+        .and_then(|conn| {
+            conn.query_row(
+                "SELECT COUNT(*) FROM code_chunks WHERE file_path = ?1",
+                &[path],
+                |row| row.get::<_, i64>(0),
+            )
+            .ok()
+        })
+        .map(|count| count as usize)
+        .unwrap_or(0)
 }
 
 /// Reconcile a file path against filesystem + content hash.
@@ -273,7 +492,8 @@ pub fn reconcile_file_path(
 
     // 1) Check if file exists on filesystem
     if !path.exists() {
-        delete_file_facts(graph, path_key)?;
+        // DeleteResult is ignored - we only care that deletion succeeded
+        let _ = delete_file_facts(graph, path_key)?;
         return Ok(ReconcileOutcome::Deleted);
     }
 
@@ -302,7 +522,8 @@ pub fn reconcile_file_path(
     }
 
     // 5) Delete all existing facts for this file, then re-index
-    delete_file_facts(graph, path_key)?;
+    // DeleteResult is ignored - we only care that deletion succeeded
+    let _ = delete_file_facts(graph, path_key)?;
 
     let symbols = index_file(graph, path_key, &source)?;
     query::index_references(graph, path_key, &source)?;

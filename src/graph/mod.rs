@@ -17,7 +17,7 @@ mod symbols;
 pub mod validation;
 
 // Re-export small public types from ops.
-pub use ops::ReconcileOutcome;
+pub use ops::{DeleteResult, ReconcileOutcome};
 
 // Re-export symbol ID generation function
 pub use symbols::generate_symbol_id;
@@ -150,14 +150,20 @@ impl CodeGraph {
     ///
     /// This delegates to `delete_file_facts` which removes *all* file-derived facts
     /// (symbols, references, calls, chunks, file node).
-    pub fn delete_file(&mut self, path: &str) -> Result<()> {
+    ///
+    /// # Returns
+    /// DeleteResult with counts of deleted entities
+    pub fn delete_file(&mut self, path: &str) -> Result<DeleteResult> {
         ops::delete_file(self, path)
     }
 
     /// Delete ALL facts derived from a file path.
     ///
     /// This is the authoritative deletion path used by reconcile.
-    pub fn delete_file_facts(&mut self, path: &str) -> Result<()> {
+    ///
+    /// # Returns
+    /// DeleteResult with counts of deleted entities
+    pub fn delete_file_facts(&mut self, path: &str) -> Result<DeleteResult> {
         ops::delete_file_facts(self, path)
     }
 

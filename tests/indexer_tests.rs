@@ -86,12 +86,25 @@ fn test_modify_event_reindexes_file() {
     let file_path = root_path.join("test.rs");
     let path_str = file_path.to_string_lossy().to_string();
 
-    // Create and index initial file (use full path consistently)
-    let initial_source = b"fn foo() {}";
-    let mut graph = CodeGraph::open(&db_path).unwrap();
-    graph.index_file(&path_str, initial_source).unwrap();
-    let symbols = graph.symbols_in_file(&path_str).unwrap();
-    assert_eq!(symbols.len(), 1, "Initial state: 1 symbol");
+    // Create and index initial file using indexer (not direct CodeGraph::open)
+    // This avoids the "database is locked" issue from having multiple CodeGraph instances
+    let file_path_init = file_path.clone();
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(50));
+        write_and_sync(&file_path_init, b"fn foo() {}").unwrap();
+        touch_and_sync(&file_path_init).unwrap();
+    });
+    magellan::run_indexer_n(root_path.clone(), db_path.clone(), 3).unwrap();
+
+    // Give SQLite time to release locks
+    thread::sleep(Duration::from_millis(50));
+
+    // Verify initial state - explicitly drop graph before next indexer run
+    {
+        let mut graph = CodeGraph::open(&db_path).unwrap();
+        let symbols = graph.symbols_in_file(&path_str).unwrap();
+        assert_eq!(symbols.len(), 1, "Initial state: 1 symbol");
+    }
 
     // Modify file (add bar function and call) - spawn thread to do it after watcher starts
     let file_path_clone = file_path.clone();
@@ -129,14 +142,25 @@ fn test_delete_event_removes_file_data() {
     let file_path = root_path.join("test.rs");
     let path_str = file_path.to_string_lossy().to_string();
 
-    // Create and index a file (use full path consistently)
+    // Create and index a file using indexer (avoids multiple CodeGraph instances)
     let source = b"fn foo() {}";
-    fs::write(&file_path, source).unwrap();
+    let file_path_init = file_path.clone();
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(50));
+        write_and_sync(&file_path_init, source).unwrap();
+        touch_and_sync(&file_path_init).unwrap();
+    });
+    magellan::run_indexer_n(root_path.clone(), db_path.clone(), 3).unwrap();
 
-    let mut graph = CodeGraph::open(&db_path).unwrap();
-    graph.index_file(&path_str, source).unwrap();
-    let symbols = graph.symbols_in_file(&path_str).unwrap();
-    assert_eq!(symbols.len(), 1, "Should have 1 symbol before delete");
+    // Give SQLite time to release locks
+    thread::sleep(Duration::from_millis(50));
+
+    // Verify initial state - explicitly drop graph before next indexer run
+    {
+        let mut graph = CodeGraph::open(&db_path).unwrap();
+        let symbols = graph.symbols_in_file(&path_str).unwrap();
+        assert_eq!(symbols.len(), 1, "Should have 1 symbol before delete");
+    }
 
     // Delete the file - spawn thread to do it after watcher starts
     let file_path_clone = file_path.clone();
@@ -183,9 +207,14 @@ fn test_multiple_sequential_events_produce_correct_final_state() {
     // Process MODIFY events
     magellan::run_indexer_n(root_path1, db_path1, 3).unwrap();
 
-    let mut graph = CodeGraph::open(&db_path).unwrap();
-    let symbols = graph.symbols_in_file(&path_str).unwrap();
-    assert_eq!(symbols.len(), 1, "After initial write: 1 symbol");
+    // Give SQLite time to release locks
+    thread::sleep(Duration::from_millis(50));
+
+    {
+        let mut graph = CodeGraph::open(&db_path).unwrap();
+        let symbols = graph.symbols_in_file(&path_str).unwrap();
+        assert_eq!(symbols.len(), 1, "After initial write: 1 symbol");
+    }
 
     // Event 2: Modify file (add bar)
     let root_path2 = root_path.clone();
@@ -200,9 +229,14 @@ fn test_multiple_sequential_events_produce_correct_final_state() {
     // Process MODIFY events
     magellan::run_indexer_n(root_path2, db_path2, 3).unwrap();
 
-    let mut graph = CodeGraph::open(&db_path).unwrap();
-    let symbols = graph.symbols_in_file(&path_str).unwrap();
-    assert_eq!(symbols.len(), 2, "After adding bar: 2 symbols");
+    // Give SQLite time to release locks
+    thread::sleep(Duration::from_millis(50));
+
+    {
+        let mut graph = CodeGraph::open(&db_path).unwrap();
+        let symbols = graph.symbols_in_file(&path_str).unwrap();
+        assert_eq!(symbols.len(), 2, "After adding bar: 2 symbols");
+    }
 
     // Event 3: Modify again (add call from bar to foo)
     let root_path3 = root_path.clone();
