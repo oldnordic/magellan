@@ -11,11 +11,11 @@ See: .planning/PROJECT.md (updated 2026-01-19)
 
 **Milestone:** v1.1 Correctness + Safety
 **Phase:** 10 of 13 (Path Traversal Validation)
-**Plan:** 3 of 4 in current phase
+**Plan:** 2 of 4 in current phase
 **Status:** In progress
-**Last activity:** 2026-01-19 — Completed 10-03: Integrate Path Validation into Scan
+**Last activity:** 2026-01-19 — Completed 10-02: Integrate Path Validation into Watcher
 
-**Progress bar:** [███░░░░░░░░] 11% v1.1 (2/18 plans) | [██████████] 100% v1.0 (29/29 plans)
+**Progress bar:** [██░░░░░░░░░] 6% v1.1 (2/18 plans) | [██████████] 100% v1.0 (29/29 plans)
 
 ## Success Definition (v1.1)
 
@@ -79,11 +79,11 @@ Magellan v1.1 is "done" when:
 - Three or more parents always flagged (>= 3 ../ patterns)
 - Mixed patterns (./subdir/../) always flagged regardless of count
 
-### Key Decisions (Phase 10-03: Scan Integration)
-- Path validation placed after `is_dir()` check, before filter application
-- WalkDir's `follow_links=false` provides primary defense against symlink escapes
-- Path validation is defense-in-depth - WalkDir should keep us within bounds, but we validate anyway
-- All PathValidationError variants handled with appropriate diagnostics
+### Key Decisions (Phase 10-02: Watcher Integration)
+- root_path in WatcherConfig automatically set to watched directory
+- WARNING-level logging for rejected paths (defensive: don't crash on bad events)
+- Silent skip for CannotCanonicalize errors (normal for deleted files)
+- Path validation called for each event path in extract_dirty_paths()
 
 ### Blockers / Concerns
 
@@ -97,12 +97,12 @@ Magellan v1.1 is "done" when:
 ## Session Continuity
 
 - **Last session:** 2026-01-19
-- **Stopped at:** Completed 10-03: Integrate Path Validation into Scan
+- **Stopped at:** Completed 10-02: Integrate Path Validation into Watcher
 - **Resume file:** None
 
 If resuming later, start by:
 1. Read `.planning/ROADMAP.md` for phase structure
 2. Read `.planning/PROJECT.md` for requirements and constraints
-3. Read `.planning/phases/10-path-traversal-validation/10-03-SUMMARY.md` for what was built
+3. Read `.planning/phases/10-path-traversal-validation/10-02-SUMMARY.md` for what was built
 4. Run `cargo test --workspace` to verify baseline health
-5. Execute `/gsd:execute-plan 10-path-traversal-validation/10-04` for cross-platform tests
+5. Execute `/gsd:execute-plan 10-path-traversal-validation/10-03` for scan integration
