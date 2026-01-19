@@ -814,7 +814,15 @@ fn run_export(db_path: PathBuf) -> Result<()> {
 
 fn run_files(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
     let mut graph = CodeGraph::open(&db_path)?;
+    let mut tracker = ExecutionTracker::new(
+        vec!["files".to_string()],
+        None,
+        db_path.to_string_lossy().to_string(),
+    );
+    tracker.start(&graph)?;
+
     let file_nodes = graph.all_file_nodes()?;
+    tracker.set_counts(file_nodes.len(), 0, 0);
 
     // Handle JSON output mode
     if output_format == OutputFormat::Json {
@@ -822,8 +830,9 @@ fn run_files(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
         files.sort(); // Deterministic ordering
 
         let response = magellan::output::FilesResponse { files };
-        let exec_id = magellan::output::generate_execution_id();
+        let exec_id = tracker.exec_id().to_string();
         let json_response = magellan::output::JsonResponse::new(response, &exec_id);
+        tracker.finish(&graph)?;
         return magellan::output::output_json(&json_response);
     }
 
@@ -839,6 +848,7 @@ fn run_files(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
         }
     }
 
+    tracker.finish(&graph)?;
     Ok(())
 }
 
