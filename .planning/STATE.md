@@ -11,11 +11,11 @@ See: .planning/PROJECT.md (updated 2026-01-19)
 
 **Milestone:** v1.1 Correctness + Safety
 **Phase:** 10 of 13 (Path Traversal Validation)
-**Plan:** 0 of 4 in current phase
-**Status:** Ready to plan
-**Last activity:** 2026-01-19 — Roadmap created for v1.1 milestone
+**Plan:** 1 of 4 in current phase
+**Status:** In progress
+**Last activity:** 2026-01-19 — Completed 10-01: Create Path Validation Module
 
-**Progress bar:** [░░░░░░░░░░] 0% v1.1 (0/18 plans) | [██████████] 100% v1.0 (29/29 plans)
+**Progress bar:** [██░░░░░░░░░] 6% v1.1 (1/18 plans) | [██████████] 100% v1.0 (29/29 plans)
 
 ## Success Definition (v1.1)
 
@@ -72,6 +72,13 @@ Magellan v1.1 is "done" when:
 - Transactional deletes following generation/mod.rs pattern
 - SCIP round-trip tests to verify export format
 
+### Key Decisions (Phase 10-01: Path Validation Module)
+- Symlink policy: resolve-then-validate, reject escapes
+- Single-parent paths (../) with shallow depth flagged as suspicious
+- Double-parent paths (../../) allowed for nested project structures
+- Three or more parents always flagged (>= 3 ../ patterns)
+- Mixed patterns (./subdir/../) always flagged regardless of count
+
 ### Blockers / Concerns
 
 **Phase 11 (FQN):**
@@ -79,17 +86,17 @@ Magellan v1.1 is "done" when:
 - Per-language edge cases (anonymous namespaces, closures, trait impls, generics)
 
 **Phase 10 (Path):**
-- Symlink behavior policy decision needed (reject vs follow-then-validate)
 - Cross-platform path testing needed (Linux, macOS, Windows)
 
 ## Session Continuity
 
 - **Last session:** 2026-01-19
-- **Stopped at:** v1.1 roadmap created, ready to begin Phase 10 planning
+- **Stopped at:** Completed 10-01: Create Path Validation Module
 - **Resume file:** None
 
 If resuming later, start by:
 1. Read `.planning/ROADMAP.md` for phase structure
 2. Read `.planning/PROJECT.md` for requirements and constraints
-3. Run `cargo test --workspace` to verify baseline health
-4. Execute `/gsd:plan-phase 10` to begin Phase 10
+3. Read `.planning/phases/10-path-traversal-validation/10-01-SUMMARY.md` for what was built
+4. Run `cargo test --workspace` to verify baseline health
+5. Execute `/gsd:execute-plan 10-path-traversal-validation/10-02` for watcher integration
