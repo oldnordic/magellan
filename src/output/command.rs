@@ -546,8 +546,9 @@ impl SymbolMatch {
 /// Reference match result for refs command
 ///
 /// Represents a reference to a symbol, including the location of the reference
-/// ([`Span`]), the name of the symbol being referenced, and an optional reference
-/// kind for categorization (e.g., "call", "read", "write").
+/// ([`Span`]), the name of the symbol being referenced, an optional reference
+/// kind for categorization (e.g., "call", "read", "write"), and the stable
+/// symbol ID of the referenced symbol for cross-run correlation.
 ///
 /// # Examples
 ///
@@ -561,10 +562,12 @@ impl SymbolMatch {
 ///     span,
 ///     "println".into(),  // referenced_symbol
 ///     Some("call".into()), // reference_kind
+///     Some("abc123def456".into()), // target_symbol_id
 /// );
 ///
 /// assert_eq!(reference.referenced_symbol, "println");
 /// assert_eq!(reference.reference_kind, Some("call".into()));
+/// assert_eq!(reference.target_symbol_id, Some("abc123def456".into()));
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReferenceMatch {
@@ -584,6 +587,16 @@ pub struct ReferenceMatch {
     /// Examples: "call", "read", "write", "type_ref", etc.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reference_kind: Option<String>,
+    /// Stable symbol ID of the referenced symbol
+    ///
+    /// This is the stable identifier (computed from language, FQN, and span) of the
+    /// symbol being referenced. When present, it enables stable correlation across
+    /// different indexing runs and database snapshots.
+    ///
+    /// This field is optional for backward compatibility with existing JSON consumers.
+    /// Symbols indexed before this feature was added will have `None` here.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_symbol_id: Option<String>,
 }
 
 impl ReferenceMatch {
@@ -639,6 +652,7 @@ impl ReferenceMatch {
     /// - `span`: Location where the reference occurs in source code
     /// - `referenced_symbol`: Name of the symbol being referenced
     /// - `reference_kind`: Optional kind categorization (e.g., "call", "read", "write")
+    /// - `target_symbol_id`: Optional stable symbol ID of the referenced symbol
     ///
     /// # Examples
     ///
@@ -650,15 +664,18 @@ impl ReferenceMatch {
     ///     span,
     ///     "println".into(),
     ///     Some("call".into()),
+    ///     Some("abc123def456".into()),
     /// );
     ///
     /// assert_eq!(reference.referenced_symbol, "println");
     /// assert!(!reference.match_id.is_empty());
+    /// assert_eq!(reference.target_symbol_id, Some("abc123def456".into()));
     /// ```
     pub fn new(
         span: Span,
         referenced_symbol: String,
         reference_kind: Option<String>,
+        target_symbol_id: Option<String>,
     ) -> Self {
         let match_id = Self::generate_match_id(&referenced_symbol, &span.file_path, span.byte_start);
         ReferenceMatch {
@@ -666,6 +683,7 @@ impl ReferenceMatch {
             span,
             referenced_symbol,
             reference_kind,
+            target_symbol_id,
         }
     }
 }

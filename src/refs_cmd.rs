@@ -4,7 +4,9 @@
 
 use anyhow::Result;
 use magellan::{CallFact, CodeGraph};
+use magellan::graph::query;
 use magellan::output::{JsonResponse, OutputFormat, RefsResponse, ReferenceMatch, Span, output_json};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 /// Resolve a file path against an optional root directory
@@ -107,7 +109,7 @@ pub fn run_refs(
             None,
             0, 0, 0,
         )?;
-        return output_json_mode(&name, &path_str, &direction, calls, &exec_id);
+        return output_json_mode(&db_path, &name, &path_str, &direction, calls, &exec_id);
     }
 
     // Human mode (existing behavior)
@@ -153,6 +155,7 @@ pub fn run_refs(
 
 /// Output refs results in JSON format
 fn output_json_mode(
+    db_path: &PathBuf,
     symbol_name: &str,
     file_path: &str,
     direction: &str,
@@ -165,6 +168,38 @@ fn output_json_mode(
             .cmp(&b.file_path)
             .then_with(|| a.byte_start.cmp(&b.byte_start))
     });
+
+    // Build symbol_id lookup map: (file_path, symbol_name) -> symbol_id
+    let mut symbol_id_map: HashMap<(String, String), Option<String>> = HashMap::new();
+
+    // Try to open the graph and populate symbol IDs
+    if let Ok(mut graph) = CodeGraph::open(db_path) {
+        // For each unique (file, symbol) pair in the calls, look up the symbol_id
+        for call in &calls {
+            let target_name = if direction == "in" || direction == "incoming" {
+                &call.caller
+            } else {
+                &call.callee
+            };
+
+            let key = (call.file_path.to_string_lossy().to_string(), target_name.clone());
+            if !symbol_id_map.contains_key(&key) {
+                // Look up symbol nodes in the file to find symbol_id
+                if let Ok(symbol_nodes) = query::symbol_nodes_in_file_with_ids(
+                    &mut graph,
+                    &call.file_path.to_string_lossy()
+                ) {
+                    let symbol_id = symbol_nodes
+                        .into_iter()
+                        .find(|(_, fact, _)| fact.name.as_deref() == Some(target_name.as_str()))
+                        .and_then(|(_, _, id)| id);
+                    symbol_id_map.insert(key, symbol_id);
+                } else {
+                    symbol_id_map.insert(key, None);
+                }
+            }
+        }
+    }
 
     // Convert CallFact to ReferenceMatch
     let references: Vec<ReferenceMatch> = calls
@@ -188,7 +223,10 @@ fn output_json_mode(
                 call.callee.clone()
             };
 
-            ReferenceMatch::new(span, referenced_symbol, Some("call".to_string()))
+            let key = (call.file_path.to_string_lossy().to_string(), referenced_symbol.clone());
+            let target_symbol_id = symbol_id_map.get(&key).and_then(|id| id.clone());
+
+            ReferenceMatch::new(span, referenced_symbol, Some("call".to_string()), target_symbol_id)
         })
         .collect();
 
