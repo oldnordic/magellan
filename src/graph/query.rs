@@ -370,6 +370,7 @@ impl CodeGraph {
             if let Ok(node) = self.symbols.backend.get_node(entity_id) {
                 let symbol_node: SymbolNode =
                     serde_json::from_value(node.data).unwrap_or_else(|_| SymbolNode {
+                        symbol_id: None,
                         name: None,
                         kind: "Unknown".to_string(),
                         kind_normalized: None,
@@ -404,6 +405,7 @@ impl CodeGraph {
             if let Ok(node) = self.symbols.backend.get_node(entity_id) {
                 let symbol_node: SymbolNode =
                     serde_json::from_value(node.data).unwrap_or_else(|_| SymbolNode {
+                        symbol_id: None,
                         name: None,
                         kind: "Unknown".to_string(),
                         kind_normalized: None,

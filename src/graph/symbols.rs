@@ -22,6 +22,7 @@ impl SymbolOps {
     /// Insert a symbol node from SymbolFact
     pub fn insert_symbol_node(&self, fact: &SymbolFact) -> Result<NodeId> {
         let symbol_node = SymbolNode {
+            symbol_id: None, // Will be set in Task 4
             name: fact.name.clone(),
             kind: format!("{:?}", fact.kind),
             kind_normalized: Some(fact.kind_normalized.clone()),

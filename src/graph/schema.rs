@@ -20,6 +20,12 @@ pub struct FileNode {
 /// Symbol node payload stored in sqlitegraph
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SymbolNode {
+    /// Stable symbol ID derived from (language, fqn, span_id)
+    ///
+    /// Generated via SHA-256 hash of language:fqn:span_id.
+    /// This ID is deterministic and stable across runs for the same symbol.
+    #[serde(default)]
+    pub symbol_id: Option<String>,
     pub name: Option<String>,
     pub kind: String,
     #[serde(default)]
