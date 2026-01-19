@@ -5,19 +5,41 @@
 use anyhow::Result;
 use std::path::PathBuf;
 
-use crate::CodeGraph;
+use crate::{CodeGraph, generate_execution_id};
 
 pub fn run_get(
     db_path: PathBuf,
     file_path: String,
     symbol_name: String,
 ) -> Result<()> {
+    // Build args for execution tracking
+    let args = vec![
+        "get".to_string(),
+        "--db".to_string(),
+        db_path.to_string_lossy().to_string(),
+        "--file".to_string(),
+        file_path.clone(),
+        "--symbol".to_string(),
+        symbol_name.clone(),
+    ];
+
     let graph = CodeGraph::open(&db_path)?;
+    let exec_id = generate_execution_id();
+    let db_path_str = db_path.to_string_lossy().to_string();
+
+    graph.execution_log().start_execution(
+        &exec_id,
+        env!("CARGO_PKG_VERSION"),
+        &args,
+        None,
+        &db_path_str,
+    )?;
 
     let chunks = graph.get_code_chunks_for_symbol(&file_path, &symbol_name)?;
 
     if chunks.is_empty() {
         eprintln!("No code chunks found for symbol '{}' in file '{}'", symbol_name, file_path);
+        graph.execution_log().finish_execution(&exec_id, "success", None, 0, 0, 0)?;
         return Ok(());
     }
 
@@ -29,16 +51,37 @@ pub fn run_get(
         println!();
     }
 
+    graph.execution_log().finish_execution(&exec_id, "success", None, 0, 0, 0)?;
     Ok(())
 }
 
 pub fn run_get_file(db_path: PathBuf, file_path: String) -> Result<()> {
+    // Build args for execution tracking
+    let args = vec![
+        "get-file".to_string(),
+        "--db".to_string(),
+        db_path.to_string_lossy().to_string(),
+        "--file".to_string(),
+        file_path.clone(),
+    ];
+
     let graph = CodeGraph::open(&db_path)?;
+    let exec_id = generate_execution_id();
+    let db_path_str = db_path.to_string_lossy().to_string();
+
+    graph.execution_log().start_execution(
+        &exec_id,
+        env!("CARGO_PKG_VERSION"),
+        &args,
+        None,
+        &db_path_str,
+    )?;
 
     let chunks = graph.get_code_chunks(&file_path)?;
 
     if chunks.is_empty() {
         eprintln!("No code chunks found for file '{}'", file_path);
+        graph.execution_log().finish_execution(&exec_id, "success", None, 0, 0, 0)?;
         return Ok(());
     }
 
@@ -54,5 +97,6 @@ pub fn run_get_file(db_path: PathBuf, file_path: String) -> Result<()> {
         println!();
     }
 
+    graph.execution_log().finish_execution(&exec_id, "success", None, 0, 0, 0)?;
     Ok(())
 }
