@@ -16,12 +16,12 @@
 
 ### Path Traversal Security
 
-- [ ] **PATH-01**: Implement path canonicalization before validation for all file access
-- [ ] **PATH-02**: Create `validate_path_within_root()` function that rejects paths escaping project root
-- [ ] **PATH-03**: Add tests for traversal attempts (`../`, `..\\`, symlinks, UNC paths)
-- [ ] **PATH-04**: Integrate path validation into watcher.rs event filtering
-- [ ] **PATH-05**: Integrate path validation into scan.rs directory walking
-- [ ] **PATH-06**: Handle cross-platform path differences (Windows backslash, macOS case-insensitivity)
+- [x] **PATH-01**: Implement path canonicalization before validation for all file access
+- [x] **PATH-02**: Create `validate_path_within_root()` function that rejects paths escaping project root
+- [x] **PATH-03**: Add tests for traversal attempts (`../`, `..\\`, symlinks, UNC paths)
+- [x] **PATH-04**: Integrate path validation into watcher.rs event filtering
+- [x] **PATH-05**: Integrate path validation into scan.rs directory walking
+- [x] **PATH-06**: Handle cross-platform path differences (Windows backslash, macOS case-insensitivity)
 
 ### Delete Operations Safety
 
@@ -69,12 +69,12 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PATH-01 | Phase 10 | Pending |
-| PATH-02 | Phase 10 | Pending |
-| PATH-03 | Phase 10 | Pending |
-| PATH-04 | Phase 10 | Pending |
-| PATH-05 | Phase 10 | Pending |
-| PATH-06 | Phase 10 | Pending |
+| PATH-01 | Phase 10 | Complete |
+| PATH-02 | Phase 10 | Complete |
+| PATH-03 | Phase 10 | Complete |
+| PATH-04 | Phase 10 | Complete |
+| PATH-05 | Phase 10 | Complete |
+| PATH-06 | Phase 10 | Complete |
 | FQN-01 | Phase 11 | Pending |
 | FQN-02 | Phase 11 | Pending |
 | FQN-03 | Phase 11 | Pending |

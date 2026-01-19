@@ -5,15 +5,15 @@
 See: .planning/PROJECT.md (updated 2026-01-19)
 
 **Core value:** Produce correct, deterministic symbol + reference + call graph data from real codebases, continuously, without stopping on bad files.
-**Current focus:** Phase 10 - Path Traversal Validation
+**Current focus:** Phase 11 - FQN Extraction
 
 ## Current Position
 
 **Milestone:** v1.1 Correctness + Safety
-**Phase:** 10 of 13 (Path Traversal Validation)
-**Plan:** 4 of 4 in current phase
-**Status:** Phase complete
-**Last activity:** 2026-01-19 — Completed 10-04: Cross-Platform Path Tests
+**Phase:** 11 of 13 (FQN Extraction)
+**Plan:** 6 of 6 in current phase
+**Status:** Ready to plan
+**Last activity:** 2026-01-19 — Verified Phase 10: Path Traversal Validation (5/5 must-haves passed)
 
 **Progress bar:** [████░░░░░░░░] 22% v1.1 (4/18 plans) | [██████████] 100% v1.0 (29/29 plans)
 
@@ -97,25 +97,27 @@ Magellan v1.1 is "done" when:
 - Accept both SuspiciousTraversal and CannotCanonicalize for nonexistent paths
 - Documentation covers all three platforms (Linux, macOS, Windows)
 
+### Key Decisions (Phase 10 Verification)
+- All 5 must-haves verified against actual codebase
+- 63/63 tests passing across all test suites
+- Path validation integrated at watcher.rs:349 and scan.rs:76
+- Symlinks resolved-then-validated with proper rejection for escapes
+
 ### Blockers / Concerns
 
 **Phase 11 (FQN):**
 - Changing symbol_id breaks all existing references - migration plan required
 - Per-language edge cases (anonymous namespaces, closures, trait impls, generics)
 
-**Phase 10 (Path):**
-- ~~Cross-platform path testing needed (Linux, macOS, Windows)~~ COMPLETED in 10-04
-- Windows and macOS testing would be beneficial for full coverage (currently only Linux tested)
-
 ## Session Continuity
 
 - **Last session:** 2026-01-19
-- **Stopped at:** Completed 10-04: Cross-Platform Path Tests (Phase 10 complete)
+- **Stopped at:** Verified Phase 10: Path Traversal Validation
 - **Resume file:** None
 
 If resuming later, start by:
 1. Read `.planning/ROADMAP.md` for phase structure
 2. Read `.planning/PROJECT.md` for requirements and constraints
-3. Read `.planning/phases/10-path-traversal-validation/10-04-SUMMARY.md` for what was built
+3. Read `.planning/phases/10-path-traversal-validation/10-VERIFICATION.md` for verification results
 4. Run `cargo test --workspace` to verify baseline health
-5. Execute `/gsd:execute-plan 11-fqn-extraction/11-01` for FQN extraction phase
+5. Execute `/gsd:discuss-phase 11` to begin Phase 11 planning
