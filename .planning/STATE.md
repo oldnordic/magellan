@@ -9,9 +9,9 @@
 ## Current Position
 
 - **Current phase:** Phase 5 — Stable Identity + Execution Tracking
-- **Status:** In progress (1/3 plans executed)
-- **Last activity:** 2026-01-19 - Completed 05-01 (Stable Symbol ID Generation)
-- **Next action:** Continue Phase 5 Plan 05-02 (Execution Tracking)
+- **Status:** In progress (2/3 plans executed)
+- **Last activity:** 2026-01-19 - Completed 05-03 (Symbol ID in JSON Output)
+- **Next action:** Continue Phase 5 remaining plans
 
 **Progress bar:** [████████░░] 94% (17/18 total plans executed - Phase 5 in progress)
 
@@ -124,6 +124,12 @@ Magellan v1 is "done" when a user can:
 - Hash format: language:fqn:span_id (colon-separated)
 - 16 hex characters from first 8 bytes (64-bit space)
 
+### Key Decisions (from Phase 5 / Plan 03)
+- symbol_id is Option<String> with skip_serializing_if for backward compatibility
+- New symbol_nodes_in_file_with_ids() query function returns (node_id, SymbolFact, Option<String>)
+- Command handlers use symbol_nodes_in_file_with_ids() for JSON output paths only
+- SymbolMatch now includes symbol_id field for stable symbol correlation in JSON API
+
 ### Known Risks / Watch-outs
 - Mixed coordinate systems (byte vs char; inclusive vs exclusive).
 - "Stable IDs" accidentally derived from unstable sources (rowid, node id, iteration order).
@@ -135,11 +141,11 @@ Magellan v1 is "done" when a user can:
 
 ## Session Continuity
 
-- **Last session:** 2026-01-19T12:18:14Z
-- **Stopped at:** Completed 05-01 (Stable Symbol ID Generation)
+- **Last session:** 2026-01-19T12:38:00Z
+- **Stopped at:** Completed 05-03 (Symbol ID in JSON Output)
 - **Resume file:** None
 
 If resuming later, start by:
-1. Open `.planning/phases/05-stable-identity/05-01-SUMMARY.md` for context on completed work.
+1. Open `.planning/phases/05-stable-identity/05-03-SUMMARY.md` for context on completed work.
 2. Run `cargo test --workspace` to verify baseline health.
-3. Phase 5 is in progress - proceed to plan 05-02 (Execution Tracking).
+3. Phase 5 is in progress - proceed to remaining plans.
