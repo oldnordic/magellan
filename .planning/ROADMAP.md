@@ -109,6 +109,14 @@ Plans:
 
 **Requirements:** OUT-05, ID-02, ID-03, ID-04, DB-03
 
+**Plans:** 4 plans
+
+Plans:
+- [ ] 05-01-PLAN.md — Add stable symbol_id generation (SymbolNode + SymbolFact schema)
+- [ ] 05-02-PLAN.md — Create ExecutionLog module for run tracking
+- [ ] 05-03-PLAN.md — Add symbol_id to JSON output (SymbolMatch + query propagation)
+- [ ] 05-04-PLAN.md — Wire execution tracking in all command handlers
+
 **Success Criteria (observable):**
 1. Every run produces an `execution_id` that appears in CLI JSON outputs and is recorded in the database.
 2. For unchanged inputs, `span_id` values remain stable across repeated runs.
