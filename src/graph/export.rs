@@ -1,12 +1,111 @@
 //! JSON export functionality for CodeGraph
 //!
-//! Exports graph data to JSON format for LLM consumption.
+//! Exports graph data to JSON/JSONL format for LLM consumption.
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use sqlitegraph::{BackendDirection, GraphBackend, NeighborQuery};
 
 use super::{CallNode, CodeGraph, FileNode, ReferenceNode, SymbolNode};
+
+/// Export format options
+///
+/// Dot and Csv are placeholders for future plans (02-03).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExportFormat {
+    /// Standard JSON array format
+    Json,
+    /// JSON Lines format (one JSON record per line)
+    JsonL,
+    /// Graphviz DOT format (placeholder for Plan 02)
+    Dot,
+    /// CSV format (placeholder for Plan 03)
+    Csv,
+}
+
+impl ExportFormat {
+    /// Parse from string
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "json" => Some(ExportFormat::Json),
+            "jsonl" => Some(ExportFormat::JsonL),
+            "dot" => Some(ExportFormat::Dot),
+            "csv" => Some(ExportFormat::Csv),
+            _ => None,
+        }
+    }
+}
+
+/// Configuration for graph export
+#[derive(Debug, Clone)]
+pub struct ExportConfig {
+    /// Output format
+    pub format: ExportFormat,
+    /// Include symbols in export
+    pub include_symbols: bool,
+    /// Include references in export
+    pub include_references: bool,
+    /// Include calls in export
+    pub include_calls: bool,
+    /// Use minified JSON (no pretty-printing)
+    pub minify: bool,
+    /// Optional filters for export (placeholder for future filtering)
+    pub filters: Option<ExportFilters>,
+}
+
+/// Export filters (placeholder for future filtering capabilities)
+#[derive(Debug, Clone)]
+pub struct ExportFilters {
+    // Future: file path filters, kind filters, etc.
+    _private: (),
+}
+
+impl Default for ExportConfig {
+    fn default() -> Self {
+        ExportConfig {
+            format: ExportFormat::Json,
+            include_symbols: true,
+            include_references: true,
+            include_calls: true,
+            minify: false,
+            filters: None,
+        }
+    }
+}
+
+impl ExportConfig {
+    /// Create a new export config with the specified format
+    pub fn new(format: ExportFormat) -> Self {
+        ExportConfig {
+            format,
+            ..Default::default()
+        }
+    }
+
+    /// Set whether to include symbols
+    pub fn with_symbols(mut self, include: bool) -> Self {
+        self.include_symbols = include;
+        self
+    }
+
+    /// Set whether to include references
+    pub fn with_references(mut self, include: bool) -> Self {
+        self.include_references = include;
+        self
+    }
+
+    /// Set whether to include calls
+    pub fn with_calls(mut self, include: bool) -> Self {
+        self.include_calls = include;
+        self
+    }
+
+    /// Set whether to minify JSON output
+    pub fn with_minify(mut self, minify: bool) -> Self {
+        self.minify = minify;
+        self
+    }
+}
 
 /// JSON export structure containing all graph data
 #[derive(Debug, Clone, Serialize, Deserialize)]
