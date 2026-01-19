@@ -47,15 +47,15 @@ Plans:
   3. symbol_id is generated from hash(language, FQN, span_id) not from simple names
   4. FQN collision warnings are emitted when two symbols would have the same FQN
   5. Full re-index of all files produces correct FQNs throughout the graph
-**Plans**: TBD
+**Plans**: 6 plans in 5 waves
 
 Plans:
-- [ ] 11-01: Implement ScopeStack struct in src/ingest/mod.rs for tracking nesting during walk_tree
-- [ ] 11-02: Add per-language scope tracking (Rust mod/impl/trait, Python class, Java package)
-- [ ] 11-03: Refactor symbol lookup maps from simple_name → symbol_id to FQN → symbol_id
-- [ ] 11-04: Update symbol_id generation to use hash(language, FQN, span_id)
-- [ ] 11-05: Add FQN collision detection and warning emission
-- [ ] 11-06: Create data migration plan and tests for full re-index after FQN changes
+- [ ] 11-01 — Implement ScopeStack struct in src/ingest/mod.rs for tracking nesting during walk_tree (Wave 1)
+- [ ] 11-02 — Add Rust parser scope tracking (mod/impl/trait) with walk_tree_with_scope (Wave 2)
+- [ ] 11-03 — Add Python/Java/JavaScript/TypeScript parser scope tracking with Dot separator (Wave 3)
+- [ ] 11-04 — Add C/C++ parser scope tracking (C: no-op, C++: namespaces with :: separator) (Wave 3)
+- [ ] 11-05 — Update symbol lookup maps to use FQN → symbol_id (query.rs, references.rs, calls.rs) (Wave 4)
+- [ ] 11-06 — Complete symbol_id generation from FQN and add integration tests (Wave 5)
 
 #### Phase 12: Transactional Deletes
 **Goal**: All delete operations are atomic all-or-nothing, preventing orphaned records on partial failures.
