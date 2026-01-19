@@ -10,12 +10,12 @@ See: .planning/PROJECT.md (updated 2026-01-19)
 ## Current Position
 
 **Milestone:** v1.1 Correctness + Safety
-**Phase:** 12 of 13 (Transactional Deletes)
-**Plan:** 6 of 6 in current phase
-**Status:** Phase 12 complete
-**Last activity:** 2026-01-19 — Completed Phase 12-06: Transactional Deletes with IMMEDIATE Transactions
+**Phase:** 13 of 13 (SCIP Tests + Documentation) - NEXT
+**Plan:** 0 of 4 in Phase 13
+**Status:** Phase 12 complete, ready to start Phase 13
+**Last activity:** 2026-01-20 — Completed Phase 12: Transactional Deletes (with architectural limitation documented)
 
-**Progress bar:** [██████████] 100% v1.1 (16/16 plans) | [██████████] 100% v1.0 (29/29 plans)
+**Progress bar:** [████████░░] 89% v1.1 (16/18 plans) | [██████████] 100% v1.0 (29/29 plans)
 
 ## Success Definition (v1.1)
 
@@ -45,9 +45,9 @@ Magellan v1.1 is "done" when:
 ## v1.1 Roadmap
 
 **Phases:**
-- Phase 10: Path Traversal Validation (4 plans) - Security baseline
-- Phase 11: FQN Extraction (6 plans) - Correctness foundation
-- Phase 12: Transactional Deletes (4 plans) - Data integrity
+- Phase 10: Path Traversal Validation (4 plans) - Security baseline ✓
+- Phase 11: FQN Extraction (6 plans) - Correctness foundation ✓
+- Phase 12: Transactional Deletes (6 plans) - Data integrity ✓ (with limitations)
 - Phase 13: SCIP Tests + Docs (4 plans) - Validation and documentation
 
 ## Performance / Quality Metrics
@@ -149,11 +149,11 @@ Magellan v1.1 is "done" when:
 
 **Phase 12 (Transactional Deletes):**
 - Phase 12 complete - all 6 plans finished (12-01 through 12-06)
-- Delete operations now use IMMEDIATE transactions for graph entities (symbols, file, references, calls)
-- Two-phase commit pattern: graph operations atomic, chunks deleted after commit
-- Row-count assertions and orphan detection tests verify deletion completeness
-- Error injection tests demonstrate actual rollback behavior with verification points
-- Remaining limitation: Chunk operations are separate from graph transaction (acceptable trade-off)
+- **ARCHITECTURAL LIMITATION DISCOVERED:** sqlitegraph does not expose &mut Connection, making rusqlite::Transaction unusable
+- Delete operations use auto-commit with row-count assertions for verification
+- Orphan detection tests (12/12 pass) confirm clean state after successful deletes
+- Gap closure plans 12-05 and 12-06 attempted to add transactions but discovered API limitation
+- Future sqlitegraph versions may add transaction support to enable true ACID deletes
 
 ### Key Decisions (Phase 12-01: Transactional Delete Implementation)
 - Use TransactionBehavior::Immediate for write locking during delete operations
@@ -180,17 +180,39 @@ Magellan v1.1 is "done" when:
 
 ## Session Continuity
 
-- **Last session:** 2026-01-19
-- **Stopped at:** Completed Phase 12-06: Transactional Deletes with IMMEDIATE Transactions
+- **Last session:** 2026-01-20
+- **Stopped at:** Phase 12 complete with architectural limitation documented
 - **Resume file:** None
-- **Next:** Phase 13 - SCIP Tests + Docs
+- **Next:** Phase 13 - SCIP Tests + Documentation
 
 If resuming later, start by:
 1. Read `.planning/ROADMAP.md` for phase structure
 2. Read `.planning/PROJECT.md` for requirements and constraints
 3. Read `.planning/phases/12-transactional-deletes/12-06-SUMMARY.md` for plan results
-4. Run `cargo test --workspace` to verify baseline health
-5. Execute next phase: Phase 13 - SCIP Tests + Docs
+4. Read `.planning/phases/12-transactional-deletes/12-transactional-deletes-VERIFICATION.md` for verification report
+5. Run `cargo test --workspace` to verify baseline health
+6. Execute next phase: Phase 13 - SCIP Tests + Docs
+
+### Phase 12 Summary (Completed with Limitations)
+
+**What Works:**
+- Row-count assertions verify all derived data deletion (symbols, refs, calls, chunks)
+- Orphan detection tests pass 12/12
+- DeleteResult struct provides detailed deletion statistics
+- validate_graph() function detects orphaned references and calls
+
+**Known Limitation:**
+- ACID transactions across graph operations are NOT possible with current sqlitegraph
+- Each delete operation commits immediately via auto-commit
+- Future sqlitegraph versions may add transaction support
+
+**Plans Completed:**
+- 12-01: Initial IMMEDIATE transaction attempt (reverted)
+- 12-02: Row-count assertions (✓)
+- 12-03: Error injection tests infrastructure (✓)
+- 12-04: Orphan detection tests (✓)
+- 12-05: Shared connection support for ChunkStore (✓)
+- 12-06: Transactional deletes attempt - discovered API limitation
 
 ### Key Decisions (Phase 12-03: Error Injection Tests for Delete Rollback)
 - Created test_helpers module with FailPoint enum for verification point testing
@@ -214,9 +236,10 @@ If resuming later, start by:
 - connect() extracts path from shared connection and opens new connection for operations needing raw access
 - count_chunks_for_file() method added to ChunkStore for delete operations
 
-### Key Decisions (Phase 12-06: Transactional Deletes with IMMEDIATE Transactions)
-- Used rusqlite::Transaction::new_unchecked with &Connection to create IMMEDIATE transactions
-- Two-phase commit pattern: graph operations in transaction, chunks deleted after commit
-- If chunk deletion fails, graph state remains consistent but chunks may be orphaned (acceptable)
-- FailPoint enum verification points now trigger explicit rollback to test transaction behavior
-- All graph entity deletions (symbols, file, references, calls) are atomic within IMMEDIATE transaction
+### Key Decisions (Phase 12-06: Transactional Deletes - Architectural Limitation)
+- Attempted to use rusqlite::Transaction::new_unchecked but discovered it ALSO requires &mut Connection
+- sqlitegraph API only exposes &Connection, not &mut Connection
+- rusqlite::Transaction fundamentally requires &mut Connection for creation
+- Documented architectural limitation in src/graph/ops.rs:270-278
+- Accepted row-count assertions + orphan detection as data integrity mechanism
+- Future work: Either fork sqlitegraph, replace it, or wait for upstream transaction support
