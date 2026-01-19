@@ -12,6 +12,9 @@ mod references;
 mod scan;
 mod schema;
 mod symbols;
+
+// Re-export small public types from ops.
+pub use ops::ReconcileOutcome;
 #[cfg(test)]
 mod tests;
 
@@ -130,17 +133,17 @@ impl CodeGraph {
 
     /// Delete a file and all derived data from the graph
     ///
-    /// # Behavior
-    /// 1. Find File node by path
-    /// 2. Delete all DEFINES edges from File
-    /// 3. Delete all Symbol nodes that were defined by this File
-    /// 4. Delete the File node itself
-    /// 5. Remove from in-memory index
-    ///
-    /// # Arguments
-    /// * `path` - File path to delete
+    /// This delegates to `delete_file_facts` which removes *all* file-derived facts
+    /// (symbols, references, calls, chunks, file node).
     pub fn delete_file(&mut self, path: &str) -> Result<()> {
         ops::delete_file(self, path)
+    }
+
+    /// Delete ALL facts derived from a file path.
+    ///
+    /// This is the authoritative deletion path used by reconcile.
+    pub fn delete_file_facts(&mut self, path: &str) -> Result<()> {
+        ops::delete_file_facts(self, path)
     }
 
     /// Query all symbols defined in a file
@@ -287,6 +290,18 @@ impl CodeGraph {
     /// Count total number of references in the graph
     pub fn count_references(&self) -> Result<usize> {
         count::count_references(self)
+    }
+
+    /// Count total number of calls in the graph
+    pub fn count_calls(&self) -> Result<usize> {
+        count::count_calls(self)
+    }
+
+    /// Reconcile a file path against filesystem + content hash.
+    ///
+    /// This is the deterministic primitive used by scan and watcher updates.
+    pub fn reconcile_file_path(&mut self, path: &Path, path_key: &str) -> Result<ReconcileOutcome> {
+        ops::reconcile_file_path(self, path, path_key)
     }
 
     /// Scan a directory and index all Rust files found

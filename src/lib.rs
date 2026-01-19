@@ -13,7 +13,7 @@ pub mod watcher;
 
 pub use generation::{ChunkStore, CodeChunk};
 pub use graph::query::SymbolQueryResult;
-pub use graph::{CodeGraph, ScanProgress, MAGELLAN_SCHEMA_VERSION};
+pub use graph::{CodeGraph, ReconcileOutcome, ScanProgress, MAGELLAN_SCHEMA_VERSION};
 pub use indexer::{run_indexer, run_indexer_n};
 pub use ingest::detect::{detect_language, Language};
 pub use ingest::{Parser, SymbolFact, SymbolKind};

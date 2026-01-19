@@ -3,9 +3,24 @@
 //! Provides file indexing and deletion operations.
 
 use anyhow::Result;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+use sqlitegraph::GraphBackend;
 
 use super::CodeGraph;
+use super::query;
+
+/// Deterministic reconcile outcome.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReconcileOutcome {
+    Deleted,
+    Unchanged,
+    Reindexed {
+        symbols: usize,
+        references: usize,
+        calls: usize,
+    },
+}
 
 /// Index a file into the graph (idempotent)
 ///
@@ -144,26 +159,176 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
 /// * `graph` - CodeGraph instance
 /// * `path` - File path to delete
 pub fn delete_file(graph: &mut CodeGraph, path: &str) -> Result<()> {
-    let file_id = match graph.files.find_file_node(path)? {
-        Some(id) => id,
-        None => return Ok(()), // File doesn't exist, nothing to delete
-    };
+    // Delegate to the authoritative deletion path.
+    delete_file_facts(graph, path)
+}
 
-    // Delete all symbols for this file
-    graph.symbols.delete_file_symbols(file_id)?;
+/// Delete ALL facts derived from a file path.
+///
+/// Semantics:
+/// - Deletes Symbols defined by the file (via File -> DEFINES), plus edges touching those entities
+/// - Deletes Reference nodes whose persisted file_path or embedded `ReferenceNode.file` matches
+/// - Deletes Call nodes whose persisted file_path or embedded `CallNode.file` matches
+/// - Deletes code chunks for the file
+/// - Deletes the File node itself and removes it from in-memory index
+///
+/// Determinism:
+/// - Any multi-entity deletion gathers candidate IDs, sorts ascending, deletes in that order.
+pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<()> {
+    use crate::graph::schema::delete_edges_touching_entities;
 
-    // Delete all code chunks for this file
-    let _ = graph.chunks.delete_chunks_for_file(path);
+    // We'll gather all entity IDs we intend to delete and perform edge cleanup for them.
+    let mut deleted_entity_ids: Vec<i64> = Vec::new();
 
-    // Delete the file node using underlying SqliteGraph
-    graph
-        .files
-        .backend
-        .graph()
-        .delete_entity(file_id.as_i64())?;
+    // 1) Symbols defined by this file (if file exists).
+    if let Some(file_id) = graph.files.find_file_node(path)? {
+        // Capture symbol IDs before deletion.
+        let symbol_ids = graph.files.backend.neighbors(
+            file_id.as_i64(),
+            sqlitegraph::NeighborQuery {
+                direction: sqlitegraph::BackendDirection::Outgoing,
+                edge_type: Some("DEFINES".to_string()),
+            },
+        )?;
 
-    // Remove from in-memory index
-    graph.files.file_index.remove(path);
+        let mut symbol_ids_sorted = symbol_ids;
+        symbol_ids_sorted.sort_unstable();
+
+        // Delete each symbol node (sqlitegraph deletes edges touching entity).
+        for symbol_id in &symbol_ids_sorted {
+            graph.files.backend.graph().delete_entity(*symbol_id)?;
+        }
+
+        deleted_entity_ids.extend(symbol_ids_sorted);
+
+        // 4) Delete code chunks for this file.
+        let _ = graph.chunks.delete_chunks_for_file(path);
+
+        // 5) Delete the File node itself.
+        graph
+            .files
+            .backend
+            .graph()
+            .delete_entity(file_id.as_i64())?;
+        deleted_entity_ids.push(file_id.as_i64());
+
+        // Remove from in-memory index.
+        graph.files.file_index.remove(path);
+    } else {
+        // Even if there's no File node, we still delete chunks for this path string.
+        let _ = graph.chunks.delete_chunks_for_file(path);
+    }
+
+    // 2) References in this file.
+    let reference_deleted = graph.references.delete_references_in_file(path)?;
+
+    // 3) Calls in this file.
+    let call_deleted = graph.calls.delete_calls_in_file(path)?;
+
+    // Collect candidate IDs for reference/call deletes by scanning again and matching counts isn't possible.
+    // We can conservatively clean edges by removing all edges that touch any non-existent entity IDs during tests,
+    // but here we want explicit deletion for known entity IDs. To do that, re-scan and capture ids again.
+    // Instead: we rely on sqlitegraph's delete_entity edge cleanup for those entity deletions.
+    // We still perform a final bulk edge cleanup for all entities deleted above (symbols + file).
+    // (Reference/Call deletions already removed their touching edges via delete_entity.)
+
+    // Explicit edge cleanup for deleted IDs (symbols + file) to ensure no rows remain.
+    deleted_entity_ids.sort_unstable();
+    deleted_entity_ids.dedup();
+    let conn = graph.chunks.connect()?;
+    let _ = delete_edges_touching_entities(&conn, &deleted_entity_ids)?;
+
+    // Silence unused warnings for counts (useful for debugging, kept deterministic).
+    let _ = (reference_deleted, call_deleted);
 
     Ok(())
+}
+
+/// Reconcile a file path against filesystem + content hash.
+///
+/// This is the deterministic primitive used by scan and watcher updates.
+/// Behavior:
+/// 1. If file doesn't exist → delete all facts, return Deleted
+/// 2. If exists → compute hash, compare to stored
+/// 3. If unchanged → return Unchanged without mutating DB
+/// 4. If changed/new → delete facts, re-index, return Reindexed
+pub fn reconcile_file_path(
+    graph: &mut CodeGraph,
+    path: &Path,
+    path_key: &str,
+) -> Result<ReconcileOutcome> {
+    use std::fs;
+
+    // 1) Check if file exists on filesystem
+    if !path.exists() {
+        delete_file_facts(graph, path_key)?;
+        return Ok(ReconcileOutcome::Deleted);
+    }
+
+    // 2) Read file and compute hash
+    let source = fs::read(path)?;
+    let new_hash = graph.files.compute_hash(&source);
+
+    // 3) Check if hash matches stored file node
+    let unchanged = if let Some(file_id) = graph.files.find_file_node(path_key)? {
+        let node = graph.files.backend.get_node(file_id.as_i64())?;
+        let file_node: crate::graph::schema::FileNode =
+            serde_json::from_value(node.data).unwrap_or_else(|_| crate::graph::schema::FileNode {
+                path: path_key.to_string(),
+                hash: String::new(),
+                last_indexed_at: 0,
+                last_modified: 0,
+            });
+        file_node.hash == new_hash
+    } else {
+        false // File doesn't exist in DB, needs to be indexed
+    };
+
+    // 4) If unchanged, skip reindexing
+    if unchanged {
+        return Ok(ReconcileOutcome::Unchanged);
+    }
+
+    // 5) Delete all existing facts for this file, then re-index
+    delete_file_facts(graph, path_key)?;
+
+    let symbols = index_file(graph, path_key, &source)?;
+    query::index_references(graph, path_key, &source)?;
+
+    // Count calls (index_file already indexed calls internally)
+    let calls = graph
+        .calls
+        .backend
+        .entity_ids()?
+        .into_iter()
+        .filter(|id| {
+            graph
+                .calls
+                .backend
+                .get_node(*id)
+                .map(|n| n.kind == "Call")
+                .unwrap_or(false)
+        })
+        .count();
+
+    let references = graph
+        .references
+        .backend
+        .entity_ids()?
+        .into_iter()
+        .filter(|id| {
+            graph
+                .references
+                .backend
+                .get_node(*id)
+                .map(|n| n.kind == "Reference")
+                .unwrap_or(false)
+        })
+        .count();
+
+    Ok(ReconcileOutcome::Reindexed {
+        symbols,
+        references,
+        calls,
+    })
 }
