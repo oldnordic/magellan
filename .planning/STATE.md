@@ -11,11 +11,11 @@ See: .planning/PROJECT.md (updated 2026-01-19)
 
 **Milestone:** v1.1 Correctness + Safety
 **Phase:** 11 of 13 (FQN Extraction)
-**Plan:** 6 of 6 in current phase
-**Status:** Ready to plan
-**Last activity:** 2026-01-19 — Verified Phase 10: Path Traversal Validation (5/5 must-haves passed)
+**Plan:** 1 of 6 in current phase
+**Status:** In progress
+**Last activity:** 2026-01-19 — Completed Phase 11-01: ScopeStack Infrastructure
 
-**Progress bar:** [████░░░░░░░░] 22% v1.1 (4/18 plans) | [██████████] 100% v1.0 (29/29 plans)
+**Progress bar:** [████░░░░░░░░] 28% v1.1 (5/18 plans) | [██████████] 100% v1.0 (29/29 plans)
 
 ## Success Definition (v1.1)
 
@@ -103,6 +103,13 @@ Magellan v1.1 is "done" when:
 - Path validation integrated at watcher.rs:349 and scan.rs:76
 - Symlinks resolved-then-validated with proper rejection for escapes
 
+### Key Decisions (Phase 11-01: ScopeStack Infrastructure)
+- ScopeStack uses Vec<String> for component storage with language-specific separator
+- ScopeSeparator enum provides type-safe :: vs . separator selection
+- Anonymous symbols (empty name) use parent scope via fqn_for_symbol("")
+- Push/pop pattern for entering/exiting scopes during tree-sitter traversal
+- Module + type-level scope tracking (excludes impl blocks, closures, local scopes)
+
 ### Blockers / Concerns
 
 **Phase 11 (FQN):**
@@ -112,12 +119,12 @@ Magellan v1.1 is "done" when:
 ## Session Continuity
 
 - **Last session:** 2026-01-19
-- **Stopped at:** Verified Phase 10: Path Traversal Validation
+- **Stopped at:** Completed Phase 11-01: ScopeStack Infrastructure
 - **Resume file:** None
 
 If resuming later, start by:
 1. Read `.planning/ROADMAP.md` for phase structure
 2. Read `.planning/PROJECT.md` for requirements and constraints
-3. Read `.planning/phases/10-path-traversal-validation/10-VERIFICATION.md` for verification results
+3. Read `.planning/phases/11-fqn-extraction/11-01-SUMMARY.md` for plan results
 4. Run `cargo test --workspace` to verify baseline health
-5. Execute `/gsd:discuss-phase 11` to begin Phase 11 planning
+5. Execute next plan in Phase 11 (11-02 through 11-06)
