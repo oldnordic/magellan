@@ -8,12 +8,12 @@
 
 ## Current Position
 
-- **Current phase:** Phase 5 — Stable Identity + Execution Tracking
-- **Status:** In progress (3/3 plans executed)
-- **Last activity:** 2026-01-19 - Completed 05-04 (CLI Execution Tracking Integration)
-- **Next action:** Phase 5 ready for completion or next phase
+- **Current phase:** Phase 6 — Query UX (Definitions, References, Call Graph, File Listing)
+- **Status:** In progress (1/4 plans executed)
+- **Last activity:** 2026-01-19 - Completed 06-01 (Find Command symbol_id Propagation)
+- **Next action:** Continue with Phase 6 query UX improvements
 
-**Progress bar:** [██████████] 100% (18/18 total plans executed - Phase 5 complete)
+**Progress bar:** [█        ] 6% (1/18 total plans executed - Phase 6 started)
 
 ## Success Definition (v1)
 
@@ -139,6 +139,11 @@ Magellan v1 is "done" when a user can:
 - Human-output commands still track execution even without JSON response
 - Watch mode treated as single execution with outcome set at exit
 
+### Key Decisions (from Phase 6 / Plan 01)
+- Find command must support --output flag like status/query commands for explicit format control
+- symbol_id propagation must be consistent across all query paths (find-by-name and glob-listing)
+- ReferenceMatch::new requires 4th parameter (target_symbol_id) for future reference ID tracking
+
 ### Known Risks / Watch-outs
 - Mixed coordinate systems (byte vs char; inclusive vs exclusive).
 - "Stable IDs" accidentally derived from unstable sources (rowid, node id, iteration order).
@@ -150,11 +155,11 @@ Magellan v1 is "done" when a user can:
 
 ## Session Continuity
 
-- **Last session:** 2026-01-19T12:40:15Z
-- **Stopped at:** Completed 05-04 (CLI Execution Tracking Integration)
+- **Last session:** 2026-01-19T13:07:05Z
+- **Stopped at:** Completed 06-01 (Find Command symbol_id Propagation)
 - **Resume file:** None
 
 If resuming later, start by:
-1. Open `.planning/phases/05-stable-identity/05-04-SUMMARY.md` for context on completed work.
+1. Open `.planning/phases/06-query-ux/06-01-SUMMARY.md` for context on completed work.
 2. Run `cargo test --workspace` to verify baseline health.
-3. Phase 5 is complete - ready for next phase.
+3. Phase 6-01 complete - ready for 06-02 (target_symbol_id for references).
