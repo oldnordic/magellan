@@ -11,6 +11,7 @@ mod watch_cmd;
 
 use anyhow::Result;
 use magellan::{CodeGraph, OutputFormat, WatcherConfig};
+use magellan::output::{JsonResponse, StatusResponse, generate_execution_id, output_json};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -112,7 +113,7 @@ enum Command {
     Export {
         db_path: PathBuf,
     },
-    Status {
+    Status { output_format: OutputFormat,
         db_path: PathBuf,
     },
     Query {
@@ -264,6 +265,7 @@ fn parse_args() -> Result<Command> {
         }
         "status" => {
             let mut db_path: Option<PathBuf> = None;
+            let mut output_format = OutputFormat::Human;
 
             let mut i = 2;
             while i < args.len() {
@@ -275,6 +277,14 @@ fn parse_args() -> Result<Command> {
                         db_path = Some(PathBuf::from(&args[i + 1]));
                         i += 2;
                     }
+                    "--output" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--output requires an argument"));
+                        }
+                        output_format = OutputFormat::from_str(&args[i + 1])
+                            .ok_or_else(|| anyhow::anyhow!("Invalid output format: {}", args[i + 1]))?;
+                        i += 2;
+                    }
                     _ => {
                         return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
                     }
@@ -283,7 +293,7 @@ fn parse_args() -> Result<Command> {
 
             let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
 
-            Ok(Command::Status { db_path })
+            Ok(Command::Status { output_format, db_path })
         }
         "query" => {
             let mut db_path: Option<PathBuf> = None;
@@ -683,18 +693,36 @@ fn parse_args() -> Result<Command> {
     }
 }
 
-fn run_status(db_path: PathBuf) -> Result<()> {
+fn run_status(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
     let graph = CodeGraph::open(&db_path)?;
 
     let file_count = graph.count_files()?;
     let symbol_count = graph.count_symbols()?;
     let reference_count = graph.count_references()?;
+    let call_count = graph.count_calls()?;
     let chunk_count = graph.count_chunks()?;
 
-    println!("files: {}", file_count);
-    println!("symbols: {}", symbol_count);
-    println!("references: {}", reference_count);
-    println!("code_chunks: {}", chunk_count);
+    match output_format {
+        OutputFormat::Json => {
+            let response = StatusResponse {
+                files: file_count,
+                symbols: symbol_count,
+                references: reference_count,
+                calls: call_count,
+                code_chunks: chunk_count,
+            };
+            let exec_id = generate_execution_id();
+            let json_response = JsonResponse::new(response, &exec_id);
+            output_json(&json_response)?;
+        }
+        OutputFormat::Human => {
+            println!("files: {}", file_count);
+            println!("symbols: {}", symbol_count);
+            println!("references: {}", reference_count);
+            println!("calls: {}", call_count);
+            println!("code_chunks: {}", chunk_count);
+        }
+    }
 
     Ok(())
 }
@@ -830,8 +858,8 @@ fn main() -> ExitCode {
         .unwrap_or(OutputFormat::Human);
 
     match parse_args() {
-        Ok(Command::Status { db_path }) => {
-            if let Err(e) = run_status(db_path) {
+        Ok(Command::Status { output_format, db_path }) => {
+            if let Err(e) = run_status(db_path, output_format) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
