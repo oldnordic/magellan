@@ -38,9 +38,9 @@
 
 ### Exports
 
-- [ ] **EXP-01**: Export graph snapshot to JSON/JSONL (nodes + edges) with stable IDs and deterministic ordering.
-- [ ] **EXP-02**: Export DOT (Graphviz) for caller→callee graphs and/or selected subgraphs.
-- [ ] **EXP-03**: Export CSV for core entities/edges (symbols, references, calls) with stable IDs.
+- [x] **EXP-01**: Export graph snapshot to JSON/JSONL (nodes + edges) with stable IDs and deterministic ordering.
+- [x] **EXP-02**: Export DOT (Graphviz) for caller→callee graphs and/or selected subgraphs.
+- [x] **EXP-03**: Export CSV for core entities/edges (symbols, references, calls) with stable IDs.
 - [ ] **EXP-04**: Export to SCIP and/or LSIF with documented position encoding and symbol identity rules.
 
 ### Persistence & Validation
@@ -93,9 +93,9 @@
 | QRY-02 | Phase 6 | Complete |
 | QRY-03 | Phase 6 | Complete |
 | QRY-04 | Phase 6 | Complete |
-| EXP-01 | Phase 7 | Pending |
-| EXP-02 | Phase 7 | Pending |
-| EXP-03 | Phase 7 | Pending |
+| EXP-01 | Phase 7 | Complete |
+| EXP-02 | Phase 7 | Complete |
+| EXP-03 | Phase 7 | Complete |
 | DB-04 | Phase 8 | Pending |
 | EXP-04 | Phase 9 | Pending |
 

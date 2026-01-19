@@ -160,9 +160,9 @@ Plans:
 **Plans:** 3 plans
 
 Plans:
-- [ ] 07-01-PLAN.md — JSON/JSONL export with stable IDs and deterministic ordering
-- [ ] 07-02-PLAN.md — DOT (Graphviz) export for call graphs
-- [ ] 07-03-PLAN.md — CSV export for core entities (symbols, references, calls)
+- [x] 07-01-PLAN.md — JSON/JSONL export with stable IDs and deterministic ordering
+- [x] 07-02-PLAN.md — DOT (Graphviz) export for call graphs
+- [x] 07-03-PLAN.md — CSV export for core entities (symbols, references, calls)
 
 **Success Criteria (observable):**
 1. User can export a full graph snapshot to JSON/JSONL with stable IDs and deterministic ordering.
@@ -210,6 +210,6 @@ Plans:
 | 4 | Canonical Span Model + Span-Aware Results | Complete |
 | 5 | Stable Identity + Execution Tracking | Complete |
 | 6 | Query UX | Complete |
-| 7 | Deterministic Exports | Ready for execution |
+| 7 | Deterministic Exports | Complete |
 | 8 | Validation Hooks | Planned |
 | 9 | Interop Export (SCIP / LSIF) | Planned |

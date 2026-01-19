@@ -8,12 +8,12 @@
 
 ## Current Position
 
-- **Current phase:** Phase 7 — Deterministic Exports (JSON/JSONL, DOT, CSV)
-- **Status:** In Progress (Plans 01, 02 complete; Plan 03 already done)
-- **Last activity:** 2026-01-19 - Completed Phase 7 Plan 02 (DOT Export)
-- **Next action:** Phase 7 is complete - all export formats implemented
+- **Current phase:** Phase 8 — Validation Hooks (Pre/Post) Surfaced via JSON
+- **Status:** Planned
+- **Last activity:** 2026-01-19 - Completed Phase 7 (Deterministic Exports)
+- **Next action:** Plan Phase 8 (Validation Hooks)
 
-**Progress bar:** [█████████░] 76% (24/33 total plans executed - Phase 7 complete)
+**Progress bar:** [██████████] 81% (27/33 total plans executed - Phase 7 complete)
 
 ## Success Definition (v1)
 
@@ -198,11 +198,11 @@ Magellan v1 is "done" when a user can:
 
 ## Session Continuity
 
-- **Last session:** 2026-01-19T15:45:00Z
-- **Stopped at:** Completed Phase 7 Plan 02 (DOT Export)
+- **Last session:** 2026-01-19T15:15:00Z
+- **Stopped at:** Phase 7 complete and verified
 - **Resume file:** None
 
 If resuming later, start by:
-1. Open `.planning/phases/07-deterministic-exports/07-02-SUMMARY.md` for context on completed plan.
+1. Open `.planning/phases/07-deterministic-exports/07-VERIFICATION.md` for context on completed phase.
 2. Run `cargo test --workspace` to verify baseline health.
-3. Phase 7 is complete - all export formats (JSON/JSONL, DOT, CSV) implemented.
+3. Phase 7 is complete - ready for Phase 8 (Validation Hooks).
