@@ -47,13 +47,18 @@ impl WatcherBatch {
 /// Filesystem watcher configuration
 #[derive(Debug, Clone)]
 pub struct WatcherConfig {
+    /// Root directory for path validation
+    pub root_path: PathBuf,
     /// Debounce delay in milliseconds
     pub debounce_ms: u64,
 }
 
 impl Default for WatcherConfig {
     fn default() -> Self {
-        Self { debounce_ms: 500 }
+        Self {
+            root_path: PathBuf::from("."),
+            debounce_ms: 500,
+        }
     }
 }
 
