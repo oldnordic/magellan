@@ -433,6 +433,14 @@ pub struct SymbolMatch {
     /// this field contains the parent symbol's name.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent: Option<String>,
+    /// Stable symbol ID
+    ///
+    /// Generated from language, fully-qualified name, and defining span.
+    /// Corresponds to the symbol's stable identifier across runs.
+    /// This ID is computed by [`crate::graph::schema::generate_symbol_id`]
+    /// and stored in the graph's SymbolNode data.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub symbol_id: Option<String>,
 }
 
 impl SymbolMatch {
@@ -482,6 +490,8 @@ impl SymbolMatch {
     /// - `kind`: The symbol kind (e.g., "Function", "Struct", "Variable")
     /// - `span`: Location of the symbol in source code
     /// - `parent`: Optional parent symbol name for nested definitions
+    /// - `symbol_id`: Optional stable symbol ID from the graph (computed from
+    ///   language, fully-qualified name, and span)
     ///
     /// # Examples
     ///
@@ -494,16 +504,32 @@ impl SymbolMatch {
     ///     "Function".into(),
     ///     span,
     ///     None,
+    ///     Some("a1b2c3d4e5f6g7h8".into()),  // symbol_id
     /// );
     ///
     /// assert_eq!(symbol.name, "main");
     /// assert!(!symbol.match_id.is_empty());
+    /// assert_eq!(symbol.symbol_id, Some("a1b2c3d4e5f6g7h8".into()));
     /// ```
+    ///
+    /// # Symbol ID Stability
+    ///
+    /// The `symbol_id` field provides a stable identifier for the symbol across
+    /// different indexing runs. When present, it can be used to correlate the
+    /// same symbol across different database snapshots or execution runs.
+    ///
+    /// The ID is computed from:
+    /// - Language (e.g., "rust", "python")
+    /// - Fully-qualified name (FQN)
+    /// - Span ID (stable position-based identifier)
+    ///
+    /// See [`crate::graph::schema::generate_symbol_id`] for details.
     pub fn new(
         name: String,
         kind: String,
         span: Span,
         parent: Option<String>,
+        symbol_id: Option<String>,
     ) -> Self {
         let match_id = Self::generate_match_id(&name, &span.file_path, span.byte_start);
         SymbolMatch {
@@ -512,6 +538,7 @@ impl SymbolMatch {
             name,
             kind,
             parent,
+            symbol_id,
         }
     }
 }
