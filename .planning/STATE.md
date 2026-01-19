@@ -9,15 +9,15 @@
 ## Current Position
 
 - **Current phase:** Phase 2 — Deterministic Watch & Indexing Pipeline
-- **Status:** In progress (2/3 plans complete)
-- **Last activity:** 2026-01-19 - Completed 02-02-PLAN.md
-- **Next action:** Begin Plan 02-03 (if exists) or next roadmap phase
+- **Status:** In progress (3/3 plans complete)
+- **Last activity:** 2026-01-19 - Completed 02-03-PLAN.md
+- **Next action:** Begin Phase 3 (Structured JSON Output) or next roadmap phase
 
-**Progress bar:** [█████████░] 67% (6/9 plans complete)
+**Progress bar:** [██████████] 100% (3/3 plans in Phase 2 complete, 7/9 total plans)
 
 ## Success Definition (v1)
 
-Magellan v1 is “done” when a user can:
+Magellan v1 is "done" when a user can:
 - Run watch/index against a repo deterministically (baseline then incremental),
 - Query defs/refs/callers/callees with span-aware stable IDs,
 - Export graph data deterministically,
@@ -64,21 +64,29 @@ Magellan v1 is “done” when a user can:
 - Use reconcile_file_path for all watcher events (debouncer doesn't preserve event types)
 - Add WatcherBatch type containing only sorted paths (no timestamps) for determinism
 
+### Key Decisions (from Phase 2 / Plan 03)
+- Use `ignore` crate v0.4.25 instead of hand-rolled gitignore parsing for correctness
+- Deterministic filtering precedence: Internal > Gitignore > Include > Exclude
+- Sort diagnostics at output time for deterministic ordering regardless of walkdir order
+- Internal ignores always win over gitignore for security (db files, .git/, target/, etc.)
+- Per-path Result wrapping ensures watch continues on bad files
+
 ### Known Risks / Watch-outs
 - Mixed coordinate systems (byte vs char; inclusive vs exclusive).
-- “Stable IDs” accidentally derived from unstable sources (rowid, node id, iteration order).
+- "Stable IDs" accidentally derived from unstable sources (rowid, node id, iteration order).
 - Watch event storms creating nondeterministic intermediate states.
+- Nested .gitignore files not yet supported (only root .gitignore/.ignore loaded)
 
 ### Blockers
 - None currently (roadmap created). If constraints change (e.g., interop export moved to v2), revisit Phase 9.
 
 ## Session Continuity
 
-- **Last session:** 2026-01-19T09:14:22Z
-- **Stopped at:** Completed 02-02-PLAN.md
+- **Last session:** 2026-01-19T09:56:50Z
+- **Stopped at:** Completed 02-03-PLAN.md (Phase 2 complete)
 - **Resume file:** None
 
 If resuming later, start by:
-1. Open `.planning/ROADMAP.md` and confirm Phase 2 scope.
+1. Open `.planning/ROADMAP.md` and confirm Phase 3 scope.
 2. Run `cargo test --workspace` to verify baseline health.
 3. Keep a running log of determinism acceptance tests/golden fixtures as they're introduced.
