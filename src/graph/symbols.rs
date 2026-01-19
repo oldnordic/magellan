@@ -56,7 +56,7 @@ use crate::ingest::SymbolFact;
 /// # Examples
 ///
 /// ```
-/// use magellan::graph::symbols::generate_symbol_id;
+/// use magellan::graph::generate_symbol_id;
 ///
 /// let id1 = generate_symbol_id("rust", "my_crate::main", "a1b2c3d4e5f6g7h8");
 /// let id2 = generate_symbol_id("rust", "my_crate::main", "a1b2c3d4e5f6g7h8");

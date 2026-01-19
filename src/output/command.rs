@@ -407,6 +407,7 @@ impl Span {
 ///     "Function".into(), // kind
 ///     span,
 ///     None,             // no parent
+///     None,             // no symbol_id
 /// );
 ///
 /// assert_eq!(symbol.name, "main");
