@@ -10,10 +10,10 @@
 
 - **Current phase:** Phase 8 — Validation Hooks (Pre/Post) Surfaced via JSON
 - **Status:** In progress
-- **Last activity:** 2026-01-19 - Completed Phase 8 Plan 01 (Validation Module)
+- **Last activity:** 2026-01-19 - Completed Phase 8 Plan 02 (JSON Validation Output Types)
 - **Next action:** Continue Phase 8 (CLI integration of validation)
 
-**Progress bar:** [██████████] 84% (28/33 total plans executed - Phase 8 Plan 01 complete)
+**Progress bar:** [██████████] 87% (29/33 total plans executed - Phase 8 Plan 02 complete)
 
 ## Success Definition (v1)
 
@@ -195,6 +195,12 @@ Magellan v1 is "done" when a user can:
 - Validation module is internal API (no re-exports from mod.rs) - called from CLI handlers
 - Error vectors sorted deterministically by code then message for consistent JSON output
 
+### Key Decisions (from Phase 8 / Plan 02)
+- Public output types duplicate internal graph types for JSON API contract
+- ValidationResponse, ValidationError, ValidationWarning exported from output module
+- From<ValidationReport> implementation converts internal types to public JSON types
+- Made validation module pub(crate) to enable From implementation from output module
+
 ### Known Risks / Watch-outs
 - Mixed coordinate systems (byte vs char; inclusive vs exclusive).
 - "Stable IDs" accidentally derived from unstable sources (rowid, node id, iteration order).
@@ -206,11 +212,11 @@ Magellan v1 is "done" when a user can:
 
 ## Session Continuity
 
-- **Last session:** 2026-01-19T15:03:00Z
-- **Stopped at:** Completed Phase 8 Plan 01 (Validation Module)
+- **Last session:** 2026-01-19T15:08:12Z
+- **Stopped at:** Completed Phase 8 Plan 02 (JSON Validation Output Types)
 - **Resume file:** None
 
 If resuming later, start by:
-1. Open `.planning/phases/08-validation-hooks/08-01-SUMMARY.md` for context on completed plan.
+1. Open `.planning/phases/08-validation-hooks/08-02-SUMMARY.md` for context on completed plan.
 2. Run `cargo test --workspace` to verify baseline health.
-3. Phase 8 Plan 01 is complete - validation module ready for CLI integration.
+3. Phase 8 Plan 02 is complete - ValidationResponse types ready for CLI integration.
