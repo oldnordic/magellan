@@ -179,6 +179,14 @@ Plans:
 
 **Requirements:** DB-04
 
+**Plans:** 4 plans
+
+Plans:
+- [ ] 08-01-PLAN.md — Create validation module (ValidationReport, orphan detection)
+- [ ] 08-02-PLAN.md — Add ValidationResponse type for JSON output
+- [ ] 08-03-PLAN.md — Wire validation hooks into CLI (--validate, --validate-only)
+- [ ] 08-04-PLAN.md — Add validation module tests
+
 **Success Criteria (observable):**
 1. User can enable validation and receive a pre-run manifest/checksum summary and post-run invariant results in JSON output.
 2. When a post-run invariant fails, Magellan exits non-zero and returns structured diagnostics that identify the failure class.
@@ -193,6 +201,8 @@ Plans:
 **Dependencies:** Phases 4, 5, 7
 
 **Requirements:** EXP-04
+
+**Plans:** TBD
 
 **Success Criteria (observable):**
 1. User can export to SCIP and/or LSIF with documented position encoding and symbol identity rules.
