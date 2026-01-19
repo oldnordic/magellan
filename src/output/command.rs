@@ -1133,4 +1133,129 @@ mod tests {
         assert_ne!(id1, id3, "Relative vs absolute path should differ");
         assert_ne!(id2, id3, "Different path forms should differ");
     }
+
+    // === Task 05-03.5: SymbolMatch symbol_id tests ===
+
+    #[test]
+    fn test_symbol_match_with_symbol_id() {
+        // Verify SymbolMatch includes symbol_id when present
+        let span = Span::new("main.rs".into(), 3, 7, 1, 3, 1, 7);
+        let symbol_id = Some("a1b2c3d4e5f6g7h8".to_string());
+
+        let symbol = SymbolMatch::new(
+            "main".into(),
+            "Function".into(),
+            span,
+            None,
+            symbol_id.clone(),
+        );
+
+        assert_eq!(symbol.symbol_id, symbol_id);
+        assert_eq!(symbol.name, "main");
+        assert_eq!(symbol.kind, "Function");
+    }
+
+    #[test]
+    fn test_symbol_match_without_symbol_id() {
+        // Verify SymbolMatch works without symbol_id
+        let span = Span::new("lib.rs".into(), 10, 20, 2, 5, 2, 10);
+
+        let symbol = SymbolMatch::new(
+            "helper".into(),
+            "Function".into(),
+            span,
+            None,
+            None,
+        );
+
+        assert_eq!(symbol.symbol_id, None);
+        assert_eq!(symbol.name, "helper");
+    }
+
+    #[test]
+    fn test_symbol_match_symbol_id_serialization_includes_when_present() {
+        // Verify symbol_id is included in JSON when present
+        let span = Span::new("test.rs".into(), 0, 10, 1, 0, 1, 10);
+        let symbol = SymbolMatch::new(
+            "foo".into(),
+            "Function".into(),
+            span,
+            None,
+            Some("abc123def456".to_string()),
+        );
+
+        let json = serde_json::to_string(&symbol).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        assert!(parsed["symbol_id"].is_string());
+        assert_eq!(parsed["symbol_id"], "abc123def456");
+    }
+
+    #[test]
+    fn test_symbol_match_symbol_id_serialization_skips_when_none() {
+        // Verify symbol_id is not included in JSON when None (skip_serializing_if)
+        let span = Span::new("test.rs".into(), 0, 10, 1, 0, 1, 10);
+        let symbol = SymbolMatch::new(
+            "foo".into(),
+            "Function".into(),
+            span,
+            None,
+            None,
+        );
+
+        let json = serde_json::to_string(&symbol).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        // symbol_id key should not be present when None
+        assert!(parsed.get("symbol_id").is_none());
+    }
+
+    #[test]
+    fn test_symbol_match_symbol_id_deserialization() {
+        // Verify SymbolMatch can be deserialized with symbol_id
+        let json_with_id = r#"{
+            "match_id": "12345",
+            "span": {
+                "span_id": "abcd1234",
+                "file_path": "main.rs",
+                "byte_start": 3,
+                "byte_end": 7,
+                "start_line": 1,
+                "start_col": 3,
+                "end_line": 1,
+                "end_col": 7
+            },
+            "name": "main",
+            "kind": "Function",
+            "symbol_id": "xyz789"
+        }"#;
+
+        let symbol: SymbolMatch = serde_json::from_str(json_with_id).unwrap();
+        assert_eq!(symbol.symbol_id, Some("xyz789".to_string()));
+        assert_eq!(symbol.name, "main");
+    }
+
+    #[test]
+    fn test_symbol_match_symbol_id_deserialization_without_id() {
+        // Verify SymbolMatch can be deserialized without symbol_id (backward compatible)
+        let json_without_id = r#"{
+            "match_id": "12345",
+            "span": {
+                "span_id": "abcd1234",
+                "file_path": "main.rs",
+                "byte_start": 3,
+                "byte_end": 7,
+                "start_line": 1,
+                "start_col": 3,
+                "end_line": 1,
+                "end_col": 7
+            },
+            "name": "main",
+            "kind": "Function"
+        }"#;
+
+        let symbol: SymbolMatch = serde_json::from_str(json_without_id).unwrap();
+        assert_eq!(symbol.symbol_id, None);
+        assert_eq!(symbol.name, "main");
+    }
 }
