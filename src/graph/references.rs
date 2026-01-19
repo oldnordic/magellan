@@ -72,13 +72,12 @@ impl ReferenceOps {
     /// # Arguments
     /// * `path` - File path
     /// * `source` - File contents as bytes
-    /// * `file_id` - Node ID of the file
-    /// * `symbol_ids` - Map of symbol names to their node IDs (ALL symbols in database)
+    /// * `symbol_fqn_to_id` - Map of FQNs to their node IDs (ALL symbols in database)
     pub fn index_references(
         &self,
         path: &str,
         source: &[u8],
-        symbol_ids: &HashMap<String, i64>,
+        symbol_fqn_to_id: &HashMap<String, i64>,
     ) -> Result<usize> {
         let path_buf = PathBuf::from(path);
         let language = detect_language(&path_buf);
@@ -107,6 +106,13 @@ impl ReferenceOps {
                             // Validate file_path is valid UTF-8 before creating SymbolFact
                             let file_path_str = node.file_path.as_deref().unwrap_or("");
                             if std::str::from_utf8(file_path_str.as_bytes()).is_ok() {
+                                // Extract FQN, fall back to name for backward compatibility
+                                let fqn = symbol_node
+                                    .fqn
+                                    .clone()
+                                    .or(symbol_node.name.clone())
+                                    .unwrap_or_default();
+
                                 all_symbol_facts.push(crate::ingest::SymbolFact {
                                     file_path: PathBuf::from(file_path_str),
                                     kind: match symbol_node.kind_normalized.as_deref() {
@@ -123,7 +129,7 @@ impl ReferenceOps {
                                         .clone()
                                         .unwrap_or(symbol_node.kind.clone()),
                                     name: Some(name.clone()),
-                                    fqn: Some(name.clone()),
+                                    fqn: if fqn.is_empty() { None } else { Some(fqn) },
                                     byte_start: symbol_node.byte_start as usize,
                                     byte_end: symbol_node.byte_end as usize,
                                     start_line: symbol_node.start_line as usize,
@@ -174,7 +180,7 @@ impl ReferenceOps {
 
         // Insert reference nodes and REFERENCES edges
         for reference in &references {
-            if let Some(&target_symbol_id) = symbol_ids.get(&reference.referenced_symbol) {
+            if let Some(&target_symbol_id) = symbol_fqn_to_id.get(&reference.referenced_symbol) {
                 let reference_id = self.insert_reference_node(reference)?;
                 self.insert_references_edge(
                     reference_id,
