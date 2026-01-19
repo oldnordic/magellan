@@ -123,6 +123,7 @@ enum Command {
         scan_initial: bool,
         validate: bool,
         validate_only: bool,
+        output_format: OutputFormat,
     },
     Export {
         db_path: PathBuf,
@@ -212,6 +213,7 @@ fn parse_args() -> Result<Command> {
             let mut scan_initial = true; // Default: true (scan on startup)
             let mut validate = false;
             let mut validate_only = false;
+            let mut output_format = OutputFormat::Human;
 
             let mut i = 2;
             while i < args.len() {
@@ -253,6 +255,14 @@ fn parse_args() -> Result<Command> {
                         validate_only = true;
                         i += 1;
                     }
+                    "--output" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--output requires an argument"));
+                        }
+                        output_format = OutputFormat::from_str(&args[i + 1])
+                            .ok_or_else(|| anyhow::anyhow!("Invalid output format: {}", args[i + 1]))?;
+                        i += 2;
+                    }
                     _ => {
                         return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
                     }
@@ -275,6 +285,7 @@ fn parse_args() -> Result<Command> {
                 scan_initial,
                 validate,
                 validate_only,
+                output_format,
             })
         }
         "export" => {
@@ -1275,6 +1286,7 @@ fn main() -> ExitCode {
             scan_initial,
             validate,
             validate_only,
+            output_format,
         }) => {
             if let Err(e) = watch_cmd::run_watch(
                 root_path,
