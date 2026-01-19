@@ -11,11 +11,11 @@ See: .planning/PROJECT.md (updated 2026-01-19)
 
 **Milestone:** v1.1 Correctness + Safety
 **Phase:** 11 of 13 (FQN Extraction)
-**Plan:** 2 of 6 in current phase
+**Plan:** 3 of 6 in current phase
 **Status:** In progress
-**Last activity:** 2026-01-19 — Completed Phase 11-02: Rust Parser FQN Extraction
+**Last activity:** 2026-01-19 — Completed Phase 11-03: Dot-Separated Language FQN Extraction
 
-**Progress bar:** [█████░░░░░░░] 33% v1.1 (6/18 plans) | [██████████] 100% v1.0 (29/29 plans)
+**Progress bar:** [█████░░░░░░░] 39% v1.1 (7/18 plans) | [██████████] 100% v1.0 (29/29 plans)
 
 ## Success Definition (v1.1)
 
@@ -116,6 +116,12 @@ Magellan v1.1 is "done" when:
 - mod_item, trait_item create symbols AND track child scope
 - walk_tree_with_scope pattern: scope boundary nodes push/pop in match arms
 
+### Key Decisions (Phase 11-03: Dot-Separated Language FQN Extraction)
+- All dot-separated languages use ScopeSeparator::Dot for FQN construction
+- Java package scope split on '.' to create com.example.Class.method FQNs
+- extract_symbol_with_fqn handles type scope nodes for symbol creation
+- Package declaration symbol extracted before pushing to scope stack
+
 ### Blockers / Concerns
 
 **Phase 11 (FQN):**
@@ -125,12 +131,12 @@ Magellan v1.1 is "done" when:
 ## Session Continuity
 
 - **Last session:** 2026-01-19
-- **Stopped at:** Completed Phase 11-02: Rust Parser FQN Extraction
+- **Stopped at:** Completed Phase 11-03: Dot-Separated Language FQN Extraction
 - **Resume file:** None
 
 If resuming later, start by:
 1. Read `.planning/ROADMAP.md` for phase structure
 2. Read `.planning/PROJECT.md` for requirements and constraints
-3. Read `.planning/phases/11-fqn-extraction/11-02-SUMMARY.md` for plan results
+3. Read `.planning/phases/11-fqn-extraction/11-03-SUMMARY.md` for plan results
 4. Run `cargo test --workspace` to verify baseline health
-5. Execute next plan in Phase 11 (11-03 through 11-06)
+5. Execute next plan in Phase 11 (11-04 through 11-06)
