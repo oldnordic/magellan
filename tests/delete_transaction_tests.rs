@@ -1,19 +1,31 @@
-//! Error injection tests for delete operations.
+//! Error injection and rollback tests for delete operations.
 //!
-//! These tests verify that the delete_file_facts() correctly deletes all derived data
-//! (symbols, references, calls, code chunks) for a file.
+//! These tests verify that delete_file_facts() correctly uses IMMEDIATE transactions
+//! for graph entity deletion and properly rolls back on errors.
 //!
-//! NOTE: Due to SQLite's limitation with multiple connections and write locking,
-//! true transactional rollback testing requires architectural changes to share
-//! connections between ChunkStore and SqliteGraphBackend.
+//! ## Two-Phase Commit Pattern
 //!
-//! Current approach: Tests verify deletion completeness at each stage.
+//! Due to architectural constraints (ChunkStore and SqliteGraphBackend use separate
+//! connections), we use a two-phase commit pattern:
 //!
-//! Test approach:
-//! 1. Create a file with symbols, references, calls, and code chunks
-//! 2. Call delete_file_facts_with_injection() with verification points
-//! 3. Verify that deletion stops at the verification point
-//! 4. Verify that subsequent operations complete the deletion
+//! 1. **Phase 1 (Graph Transaction):** IMMEDIATE transaction wraps all graph entity
+//!    deletions (symbols, file, references, calls). If any error occurs, the entire
+//!    transaction is rolled back.
+//!
+//! 2. **Phase 2 (Chunk Deletion):** After graph transaction commits, code chunks are
+//!    deleted on a separate connection. If this fails, graph state remains consistent
+//!    but chunks may be orphaned (acceptable since chunks are derived data).
+//!
+//! ## Test Approach
+//!
+//! Tests use verification points (FailPoint enum) to simulate failures at specific
+//! stages of deletion. When a verification point is reached:
+//! - The transaction is explicitly rolled back
+//! - Graph entities are restored to their pre-deletion state
+//! - Chunks are not deleted (they happen after commit)
+//! - Subsequent full deletion completes successfully
+//!
+//! This demonstrates true transactional rollback behavior for graph entities.
 
 use magellan::{delete_file_facts_with_injection, CodeGraph, FailPoint};
 use tempfile::TempDir;
