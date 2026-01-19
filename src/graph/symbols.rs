@@ -1,8 +1,32 @@
 //! Symbol node operations for CodeGraph
 //!
 //! Handles symbol node CRUD operations and DEFINES edge management.
+//!
+//! # Symbol ID Generation
+//!
+//! Symbol IDs are stable identifiers derived from a symbol's defining characteristics:
+//! - **Language**: The programming language (e.g., "rust", "python", "javascript")
+//! - **Fully-Qualified Name (FQN)**: The complete hierarchical name of the symbol
+//! - **Span ID**: The stable identifier of the defining span in the source file
+//!
+//! The symbol ID format is: `SHA256(language:fqn:span_id)[0..16]` (16 hex characters)
+//!
+//! ## Stability Guarantees
+//!
+//! Symbol IDs are **stable** when:
+//! - The same symbol is re-indexed after content changes elsewhere in the file
+//! - The file path remains the same (span_id depends on file path)
+//! - The language detection is consistent
+//! - The fully-qualified name doesn't change
+//!
+//! Symbol IDs **change** when:
+//! - The symbol is renamed (FQN changes)
+//! - The symbol is moved to a different location (span_id changes)
+//! - The file is renamed or moved (span_id depends on file path)
+//! - The symbol's defining signature changes (affects FQN in future versions)
 
 use anyhow::Result;
+use sha2::{Digest, Sha256};
 use sqlitegraph::{
     add_label, BackendDirection, EdgeSpec, GraphBackend, NeighborQuery, NodeId, NodeSpec,
     SqliteGraphBackend,
@@ -12,6 +36,60 @@ use std::rc::Rc;
 use crate::detect_language;
 use crate::graph::schema::SymbolNode;
 use crate::ingest::SymbolFact;
+
+/// Generate a stable symbol ID from (language, fqn, span_id)
+///
+/// Uses SHA-256 for platform-independent, deterministic symbol IDs.
+///
+/// # Algorithm
+///
+/// The hash is computed from: `language + ":" + fqn + ":" + span_id`
+/// The first 8 bytes (64 bits) of the hash are formatted as 16 hex characters.
+///
+/// # Properties
+///
+/// This ensures symbol IDs are:
+/// - **Deterministic**: same inputs always produce the same ID
+/// - **Platform-independent**: SHA-256 produces consistent results across architectures
+/// - **Collision-resistant**: 64-bit space with good distribution
+///
+/// # Examples
+///
+/// ```
+/// use magellan::graph::symbols::generate_symbol_id;
+///
+/// let id1 = generate_symbol_id("rust", "my_crate::main", "a1b2c3d4e5f6g7h8");
+/// let id2 = generate_symbol_id("rust", "my_crate::main", "a1b2c3d4e5f6g7h8");
+/// let id3 = generate_symbol_id("python", "my_module.main", "a1b2c3d4e5f6g7h8");
+///
+/// assert_eq!(id1, id2);  // Same inputs = same ID
+/// assert_ne!(id1, id3);  // Different language = different ID
+/// assert_eq!(id1.len(), 16);  // Always 16 hex characters
+/// ```
+pub fn generate_symbol_id(language: &str, fqn: &str, span_id: &str) -> String {
+    let mut hasher = Sha256::new();
+
+    // Hash language
+    hasher.update(language.as_bytes());
+
+    // Separator to distinguish language from fqn
+    hasher.update(b":");
+
+    // Hash fully-qualified name
+    hasher.update(fqn.as_bytes());
+
+    // Separator to distinguish fqn from span_id
+    hasher.update(b":");
+
+    // Hash span_id
+    hasher.update(span_id.as_bytes());
+
+    // Take first 8 bytes (64 bits) and format as hex
+    let result = hasher.finalize();
+    format!("{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+            result[0], result[1], result[2], result[3],
+            result[4], result[5], result[6], result[7])
+}
 
 /// Symbol operations for CodeGraph
 pub struct SymbolOps {
