@@ -1,6 +1,6 @@
 //! Export command implementation
 //!
-//! Exports graph data to JSON/JSONL/CSV formats with stable IDs.
+//! Exports graph data to JSON/JSONL/CSV/DOT formats with stable IDs.
 
 use anyhow::Result;
 use magellan::CodeGraph;
@@ -12,7 +12,7 @@ use std::path::PathBuf;
 
 /// Run the export command
 ///
-/// Exports graph data to JSON/JSONL/CSV format with stable IDs.
+/// Exports graph data to JSON/JSONL/CSV/DOT format with stable IDs.
 /// Output goes to stdout by default, or to a file if --output is specified.
 ///
 /// # Arguments
@@ -23,6 +23,7 @@ use std::path::PathBuf;
 /// * `include_references` - Whether to include references in export
 /// * `include_calls` - Whether to include calls in export
 /// * `minify` - Whether to minify JSON output
+/// * `filters` - Export filters for DOT format (file, symbol, kind, max_depth, cluster)
 ///
 /// # Returns
 /// Result indicating success or failure
@@ -34,6 +35,7 @@ pub fn run_export(
     include_references: bool,
     include_calls: bool,
     minify: bool,
+    filters: ExportFilters,
 ) -> Result<()> {
     let mut graph = CodeGraph::open(&db_path)?;
     let exec_id = generate_execution_id();
@@ -58,6 +60,25 @@ pub fn run_export(
     if minify {
         args.push("--minify".to_string());
     }
+    if let Some(ref file) = filters.file {
+        args.push("--file".to_string());
+        args.push(file.clone());
+    }
+    if let Some(ref symbol) = filters.symbol {
+        args.push("--symbol".to_string());
+        args.push(symbol.clone());
+    }
+    if let Some(ref kind) = filters.kind {
+        args.push("--kind".to_string());
+        args.push(kind.clone());
+    }
+    if let Some(max_depth) = filters.max_depth {
+        args.push("--max-depth".to_string());
+        args.push(max_depth.to_string());
+    }
+    if filters.cluster {
+        args.push("--cluster".to_string());
+    }
 
     // Start execution tracking
     graph.execution_log().start_execution(
@@ -68,14 +89,14 @@ pub fn run_export(
         &db_path.to_string_lossy(),
     )?;
 
-    // Build export config with empty filters for JSON/JSONL export
+    // Build export config with filters
     let config = ExportConfig {
         format,
         include_symbols,
         include_references,
         include_calls,
         minify,
-        filters: ExportFilters::default(),
+        filters,
     };
 
     // Export graph data

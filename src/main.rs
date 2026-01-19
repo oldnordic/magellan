@@ -13,6 +13,7 @@ mod watch_cmd;
 
 use anyhow::Result;
 use magellan::{CodeGraph, ExportFormat, OutputFormat, WatcherConfig};
+use magellan::graph::export::ExportFilters;
 use magellan::output::{JsonResponse, StatusResponse, generate_execution_id, output_json};
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -127,6 +128,7 @@ enum Command {
         include_references: bool,
         include_calls: bool,
         minify: bool,
+        filters: ExportFilters,
     },
     Status { output_format: OutputFormat,
         db_path: PathBuf,
@@ -265,6 +267,11 @@ fn parse_args() -> Result<Command> {
             let mut include_references = true;
             let mut include_calls = true;
             let mut minify = false;
+            let mut filter_file: Option<String> = None;
+            let mut filter_symbol: Option<String> = None;
+            let mut filter_kind: Option<String> = None;
+            let mut filter_max_depth: Option<usize> = None;
+            let mut filter_cluster = false;
 
             let mut i = 2;
             while i < args.len() {
@@ -307,6 +314,39 @@ fn parse_args() -> Result<Command> {
                         include_calls = false;
                         i += 1;
                     }
+                    "--file" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--file requires an argument"));
+                        }
+                        filter_file = Some(args[i + 1].clone());
+                        i += 2;
+                    }
+                    "--symbol" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--symbol requires an argument"));
+                        }
+                        filter_symbol = Some(args[i + 1].clone());
+                        i += 2;
+                    }
+                    "--kind" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--kind requires an argument"));
+                        }
+                        filter_kind = Some(args[i + 1].clone());
+                        i += 2;
+                    }
+                    "--max-depth" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--max-depth requires an argument"));
+                        }
+                        filter_max_depth = Some(args[i + 1].parse()
+                            .map_err(|_| anyhow::anyhow!("--max-depth must be a number"))?);
+                        i += 2;
+                    }
+                    "--cluster" => {
+                        filter_cluster = true;
+                        i += 1;
+                    }
                     _ => {
                         return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
                     }
@@ -314,6 +354,13 @@ fn parse_args() -> Result<Command> {
             }
 
             let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+            let filters = ExportFilters {
+                file: filter_file,
+                symbol: filter_symbol,
+                kind: filter_kind,
+                max_depth: filter_max_depth,
+                cluster: filter_cluster,
+            };
 
             Ok(Command::Export {
                 db_path,
@@ -323,6 +370,7 @@ fn parse_args() -> Result<Command> {
                 include_references,
                 include_calls,
                 minify,
+                filters,
             })
         }
         "status" => {
@@ -1078,6 +1126,7 @@ fn main() -> ExitCode {
             include_references,
             include_calls,
             minify,
+            filters,
         }) => {
             if let Err(e) = export_cmd::run_export(
                 db_path,
@@ -1087,6 +1136,7 @@ fn main() -> ExitCode {
                 include_references,
                 include_calls,
                 minify,
+                filters,
             ) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
