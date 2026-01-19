@@ -855,7 +855,9 @@ fn main() -> ExitCode {
             path,
             glob_pattern,
         }) => {
-            if let Err(e) = find_cmd::run_find(db_path, name, root, path, glob_pattern) {
+            if let Err(e) =
+                find_cmd::run_find(db_path, name, root, path, glob_pattern, OutputFormat::Human)
+            {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
