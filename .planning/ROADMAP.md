@@ -1,0 +1,113 @@
+# Roadmap: Magellan
+
+## Milestones
+
+- ✅ **v1.0 MVP** - Phases 1-9 (shipped 2025-12-XX)
+- 🚧 **v1.1 Correctness + Safety** - Phases 10-13 (in progress)
+
+## Phases
+
+<details>
+<summary>✅ v1.0 MVP (Phases 1-9) - SHIPPED 2025-12-XX</summary>
+
+v1.0 delivered deterministic codebase mapping with tree-sitter AST extraction, SQLite graph persistence, file watching, and multi-format export (JSON/NDJSON/DOT/CSV/SCIP).
+
+</details>
+
+### 🚧 v1.1 Correctness + Safety (In Progress)
+
+**Milestone Goal:** Fix correctness issues (FQN collisions), harden security (path traversal), and ensure data integrity (transactional deletes).
+
+#### Phase 10: Path Traversal Validation
+**Goal**: All file access operations validate that resolved paths cannot escape the project root, preventing CVE-2025-68705 class vulnerabilities.
+**Depends on**: v1.0 complete
+**Requirements**: PATH-01, PATH-02, PATH-03, PATH-04, PATH-05, PATH-06
+**Success Criteria** (what must be TRUE):
+  1. Attempting to watch a path containing `../` or `..\\` is rejected before any file access
+  2. Watcher events referencing paths outside project root are filtered and logged
+  3. Directory scan in scan.rs validates each path before recursing
+  4. Symlinks pointing outside project root are either rejected or resolved-then-validated
+  5. Cross-platform path tests pass (Windows backslash, macOS case-insensitivity)
+**Plans**: TBD
+
+Plans:
+- [ ] 10-01: Create `src/validation.rs` with path canonicalization and validation utilities
+- [ ] 10-02: Integrate path validation into watcher.rs event filtering
+- [ ] 10-03: Integrate path validation into scan.rs directory walking
+- [ ] 10-04: Add traversal tests for malicious paths, symlinks, and cross-platform edge cases
+
+#### Phase 11: FQN Extraction
+**Goal**: Symbol lookup uses fully-qualified names (FQN) as keys, eliminating collisions from simple-name-first-match wins.
+**Depends on**: Phase 10
+**Requirements**: FQN-01, FQN-02, FQN-03, FQN-04, FQN-05, FQN-06
+**Success Criteria** (what must be TRUE):
+  1. Symbol map keys are FQN strings (e.g., `crate::module::Struct::method`) not simple names
+  2. Rust symbols use `::` separator, Python/Java/TypeScript use `.` separator
+  3. symbol_id is generated from hash(language, FQN, span_id) not from simple names
+  4. FQN collision warnings are emitted when two symbols would have the same FQN
+  5. Full re-index of all files produces correct FQNs throughout the graph
+**Plans**: TBD
+
+Plans:
+- [ ] 11-01: Implement ScopeStack struct in src/ingest/mod.rs for tracking nesting during walk_tree
+- [ ] 11-02: Add per-language scope tracking (Rust mod/impl/trait, Python class, Java package)
+- [ ] 11-03: Refactor symbol lookup maps from simple_name → symbol_id to FQN → symbol_id
+- [ ] 11-04: Update symbol_id generation to use hash(language, FQN, span_id)
+- [ ] 11-05: Add FQN collision detection and warning emission
+- [ ] 11-06: Create data migration plan and tests for full re-index after FQN changes
+
+#### Phase 12: Transactional Deletes
+**Goal**: All delete operations are atomic all-or-nothing, preventing orphaned records on partial failures.
+**Depends on**: Phase 10
+**Requirements**: DELETE-01, DELETE-02, DELETE-03, DELETE-04
+**Success Criteria** (what must be TRUE):
+  1. delete_file_facts() is wrapped in rusqlite IMMEDIATE transaction
+  2. Partial delete failures roll back completely (no orphaned edges or properties)
+  3. Row-count assertions verify all derived data is deleted (symbols, refs, calls, edges)
+  4. Error injection tests demonstrate transaction rollback works correctly
+  5. Orphan detection test confirms no dangling edges after delete operations
+**Plans**: TBD
+
+Plans:
+- [ ] 12-01: Wrap delete_file_facts() in rusqlite IMMEDIATE transaction following generation/mod.rs pattern
+- [ ] 12-02: Add row-count assertions to verify all derived data is deleted
+- [ ] 12-03: Implement error injection tests for transaction rollback verification
+- [ ] 12-04: Add invariant test for orphan detection after file delete
+
+#### Phase 13: SCIP Tests + Documentation
+**Goal**: SCIP export is verified by round-trip tests, and users have clear security guidance.
+**Depends on**: Phase 10, Phase 11, Phase 12
+**Requirements**: SCIP-01, SCIP-02, DOC-01, DOC-02
+**Success Criteria** (what must be TRUE):
+  1. SCIP export can be parsed by the scip crate without format errors
+  2. At least one integration test exports then parses SCIP to verify correctness
+  3. User documentation recommends placing .db outside watched directories
+  4. Security best practices are documented in user-facing docs
+**Plans**: TBD
+
+Plans:
+- [ ] 13-01: Export SCIP from test fixture and parse with scip crate
+- [ ] 13-02: Add integration test that verifies SCIP round-trip correctness
+- [ ] 13-03: Document .db location recommendations in user docs
+- [ ] 13-04: Update user documentation with security best practices
+
+### 📋 v1.2 Performance (Planned)
+
+**Milestone Goal:** Improve indexing performance through caching and incremental optimization.
+
+Deferred to v1.2: PERF-01, PERF-02, XREF-01, GIT-01
+
+## Progress
+
+**Execution Order:**
+Phases execute in numeric order: 10 → 11 → 12 → 13
+
+| Phase | Milestone | Plans Complete | Status | Completed |
+|-------|-----------|----------------|--------|-----------|
+| 1-9 | v1.0 | 29/29 | Complete | 2025-12-XX |
+| 10. Path Traversal Validation | v1.1 | 0/4 | Not started | - |
+| 11. FQN Extraction | v1.1 | 0/6 | Not started | - |
+| 12. Transactional Deletes | v1.1 | 0/4 | Not started | - |
+| 13. SCIP Tests + Docs | v1.1 | 0/4 | Not started | - |
+
+**v1.1 Progress:** [░░░░░░░░░░] 0% (0/18 plans)
