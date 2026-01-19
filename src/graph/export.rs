@@ -71,6 +71,113 @@ pub struct ExportFilters {
     pub cluster: bool,
 }
 
+/// Escape a string for use as a DOT label
+///
+/// DOT labels must be wrapped in double quotes and escape special characters.
+/// According to the DOT specification:
+/// - Backslashes must be escaped as \\
+/// - Double quotes must be escaped as \"
+/// - Newlines can be represented as \n for labels
+///
+/// # Arguments
+/// * `s` - The string to escape
+///
+/// # Returns
+/// A quoted and escaped string suitable for use as a DOT label
+fn escape_dot_label(s: &str) -> String {
+    format!(
+        "\"{}\"",
+        s.replace('\\', "\\\\")
+            .replace('"', r#"\""#)
+            .replace('\n', "\\n")
+    )
+}
+
+/// Create a valid DOT identifier from a string
+///
+/// DOT identifiers should not contain special characters.
+/// If symbol_id is available, it's used as a stable identifier.
+/// Otherwise, falls back to a sanitized name.
+///
+/// # Arguments
+/// * `symbol_id` - Optional stable symbol ID
+/// * `name` - Symbol name to use as fallback
+///
+/// # Returns
+/// A valid DOT identifier string
+fn escape_dot_id(symbol_id: &Option<String>, name: &str) -> String {
+    if let Some(ref id) = symbol_id {
+        // SHA-256 based IDs are already safe (hex only)
+        id.clone()
+    } else {
+        // Sanitize name: replace non-alphanumeric with underscore
+        name.chars()
+            .map(|c| if c.is_alphanumeric() { c } else { '_' })
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_escape_dot_label_basic() {
+        assert_eq!(escape_dot_label("simple"), "\"simple\"");
+        assert_eq!(escape_dot_label("with spaces"), "\"with spaces\"");
+    }
+
+    #[test]
+    fn test_escape_dot_label_quotes() {
+        assert_eq!(escape_dot_label("say \"hello\""), r#""say \"hello\"""#);
+    }
+
+    #[test]
+    fn test_escape_dot_label_backslash() {
+        assert_eq!(escape_dot_label(r"C:\path"), r#""C:\\path""#);
+        assert_eq!(escape_dot_label("a\\b"), r#""a\\b""#);
+    }
+
+    #[test]
+    fn test_escape_dot_label_newlines() {
+        assert_eq!(escape_dot_label("line1\nline2"), r#""line1\nline2""#);
+    }
+
+    #[test]
+    fn test_escape_dot_label_empty() {
+        assert_eq!(escape_dot_label(""), "\"\"");
+    }
+
+    #[test]
+    fn test_escape_dot_label_special_chars() {
+        // Tabs and other special characters
+        assert_eq!(escape_dot_label("a\tb"), "\"a\tb\"");
+        // Unicode characters should pass through
+        assert_eq!(escape_dot_label("hello世界"), "\"hello世界\"");
+    }
+
+    #[test]
+    fn test_escape_dot_id_with_symbol_id() {
+        // Symbol ID (hex) is used directly
+        let symbol_id = Some("a1b2c3d4e5f6".to_string());
+        assert_eq!(escape_dot_id(&symbol_id, "fallback"), "a1b2c3d4e5f6");
+    }
+
+    #[test]
+    fn test_escape_dot_id_without_symbol_id() {
+        // Falls back to sanitized name
+        assert_eq!(escape_dot_id(&None, "simple_name"), "simple_name");
+        assert_eq!(escape_dot_id(&None, "name-with-dashes"), "name_with_dashes");
+        assert_eq!(escape_dot_id(&None, "name.with.dots"), "name_with_dots");
+        assert_eq!(escape_dot_id(&None, "name with spaces"), "name_with_spaces");
+    }
+
+    #[test]
+    fn test_escape_dot_id_empty_name() {
+        assert_eq!(escape_dot_id(&None, ""), "");
+    }
+}
+
 impl Default for ExportConfig {
     fn default() -> Self {
         ExportConfig {
