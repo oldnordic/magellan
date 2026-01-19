@@ -3,6 +3,7 @@ mod call_ops;
 mod calls;
 mod count;
 mod db_compat;
+mod execution_log;
 mod export;
 mod files;
 pub mod filter;
@@ -16,6 +17,9 @@ mod symbols;
 
 // Re-export small public types from ops.
 pub use ops::ReconcileOutcome;
+
+// Re-export symbol ID generation function
+pub use symbols::generate_symbol_id;
 #[cfg(test)]
 mod tests;
 
@@ -56,6 +60,9 @@ pub struct CodeGraph {
 
     /// Code chunk storage module
     chunks: ChunkStore,
+
+    /// Execution log module for tracking Magellan runs
+    execution_log: execution_log::ExecutionLog,
 }
 
 impl CodeGraph {
@@ -98,6 +105,10 @@ impl CodeGraph {
         let chunks = ChunkStore::new(&db_path_buf);
         chunks.ensure_schema()?;
 
+        // Initialize ExecutionLog and ensure schema exists
+        let execution_log = execution_log::ExecutionLog::new(&db_path_buf);
+        execution_log.ensure_schema()?;
+
         Ok(Self {
             files,
             symbols: symbols::SymbolOps {
@@ -108,6 +119,7 @@ impl CodeGraph {
             },
             calls: call_ops::CallOps { backend },
             chunks,
+            execution_log,
         })
     }
 
