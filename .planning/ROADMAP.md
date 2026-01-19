@@ -44,9 +44,9 @@ Plans:
 **Plans:** 3 plans
 
 Plans:
-- [ ] 02-01-PLAN.md — Per-file reconcile + delete_file_facts (true idempotency; no ghost nodes)
-- [ ] 02-02-PLAN.md — Debounced batching + buffer events during scan-initial (storm determinism)
-- [ ] 02-03-PLAN.md — Include/exclude rules + structured diagnostics (skip reasons + per-file errors)
+- [x] 02-01-PLAN.md — Per-file reconcile + delete_file_facts (true idempotency; no ghost nodes)
+- [x] 02-02-PLAN.md — Debounced batching + buffer events during scan-initial (storm determinism)
+- [x] 02-03-PLAN.md — Include/exclude rules + structured diagnostics (skip reasons + per-file errors)
 
 **Success Criteria (observable):**
 1. User runs `watch` and observes a complete **scan-initial baseline** before any incremental updates are applied.
@@ -168,7 +168,7 @@ Plans:
 | Phase | Name | Status |
 |------:|------|--------|
 | 1 | Persistence Compatibility Baseline | Complete |
-| 2 | Deterministic Watch & Indexing Pipeline | Planned |
+| 2 | Deterministic Watch & Indexing Pipeline | Complete |
 | 3 | CLI Output Contract | Planned |
 | 4 | Canonical Span Model + Span-Aware Results | Planned |
 | 5 | Stable Identity + Execution Tracking | Planned |

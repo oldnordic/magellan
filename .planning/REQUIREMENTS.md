@@ -22,11 +22,11 @@
 
 ### Watch / Indexing
 
-- [ ] **WATCH-01**: `watch` supports **scan-initial + then watch** as the default behavior (unless user opts out) and produces deterministic baseline indexing.
-- [ ] **WATCH-02**: File events are **debounced and coalesced** deterministically to handle editor storms without nondeterministic ordering.
-- [ ] **WATCH-03**: Support ignore/include/exclude rules (gitignore-style plus explicit CLI globs) and report skip reasons in diagnostics.
-- [ ] **WATCH-04**: Indexing updates are idempotent: re-indexing a file fully replaces its derived facts (no ghost nodes/edges).
-- [ ] **WATCH-05A**: Per-file failures do not stop watch mode; errors are recorded as **structured diagnostics** and surfaced deterministically in human-readable output (stderr).
+- [x] **WATCH-01**: `watch` supports **scan-initial + then watch** as the default behavior (unless user opts out) and produces deterministic baseline indexing.
+- [x] **WATCH-02**: File events are **debounced and coalesced** deterministically to handle editor storms without nondeterministic ordering.
+- [x] **WATCH-03**: Support ignore/include/exclude rules (gitignore-style plus explicit CLI globs) and report skip reasons in diagnostics.
+- [x] **WATCH-04**: Indexing updates are idempotent: re-indexing a file fully replaces its derived facts (no ghost nodes/edges).
+- [x] **WATCH-05A**: Per-file failures do not stop watch mode; errors are recorded as **structured diagnostics** and surfaced deterministically in human-readable output (stderr).
 - [ ] **WATCH-05B**: Structured watch diagnostics are exposed via the **Phase 3 JSON output contract** (schema-versioned + deterministic ordering + stdout/stderr discipline).
 
 ### Queries
@@ -73,11 +73,11 @@
 |-------------|-------|--------|
 | DB-01 | Phase 1 | Satisfied |
 | DB-02 | Phase 1 | Satisfied |
-| WATCH-01 | Phase 2 | Pending |
-| WATCH-02 | Phase 2 | Pending |
-| WATCH-03 | Phase 2 | Pending |
-| WATCH-04 | Phase 2 | Pending |
-| WATCH-05A | Phase 2 | Pending |
+| WATCH-01 | Phase 2 | Complete |
+| WATCH-02 | Phase 2 | Complete |
+| WATCH-03 | Phase 2 | Complete |
+| WATCH-04 | Phase 2 | Complete |
+| WATCH-05A | Phase 2 | Complete |
 | WATCH-05B | Phase 3 | Pending |
 | OUT-01 | Phase 3 | Pending |
 | OUT-02 | Phase 3 | Pending |
