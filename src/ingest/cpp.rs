@@ -2,7 +2,7 @@
 //!
 //! Extracts functions, classes, structs, namespaces, and templates from C++ source code.
 
-use crate::ingest::{SymbolFact, SymbolKind};
+use crate::ingest::{SymbolFact, SymbolKind, ScopeSeparator, ScopeStack};
 use crate::references::{CallFact, ReferenceFact};
 use anyhow::Result;
 use std::path::PathBuf;
@@ -44,9 +44,9 @@ impl CppParser {
 
         let root_node = tree.root_node();
         let mut facts = Vec::new();
+        let mut scope_stack = ScopeStack::new(ScopeSeparator::DoubleColon);
 
-        // Walk the tree and extract symbols
-        self.walk_tree(&root_node, source, &file_path, &mut facts);
+        self.walk_tree_with_scope(&root_node, source, &file_path, &mut facts, &mut scope_stack);
 
         facts
     }
@@ -167,6 +167,96 @@ impl CppParser {
         }
 
         None
+    }
+
+    /// Walk tree-sitter tree recursively with scope tracking for FQN extraction.
+    fn walk_tree_with_scope(
+        &self,
+        node: &tree_sitter::Node,
+        source: &[u8],
+        file_path: &PathBuf,
+        facts: &mut Vec<SymbolFact>,
+        scope_stack: &mut ScopeStack,
+    ) {
+        let kind = node.kind();
+
+        // Skip template_declaration wrapper - recurse into children
+        if kind == "template_declaration" {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack);
+            }
+            return;
+        }
+
+        // Track namespace scope
+        if kind == "namespace_definition" {
+            if let Some(name) = self.extract_name(node, source, kind) {
+                // Handle anonymous namespaces (empty name or unnamed)
+                if !name.is_empty() {
+                    scope_stack.push(&name);
+                }
+                // Recurse into namespace body
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack);
+                }
+                if !name.is_empty() {
+                    scope_stack.pop();
+                }
+                return;
+            }
+        }
+
+        // Extract symbol with FQN from scope stack
+        if let Some(fact) = self.extract_symbol_with_fqn(node, source, file_path, scope_stack) {
+            facts.push(fact);
+        }
+
+        // Recurse into children
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack);
+        }
+    }
+
+    /// Extract a symbol fact with FQN from a tree-sitter node, if applicable.
+    fn extract_symbol_with_fqn(
+        &self,
+        node: &tree_sitter::Node,
+        source: &[u8],
+        file_path: &PathBuf,
+        scope_stack: &ScopeStack,
+    ) -> Option<SymbolFact> {
+        let kind = node.kind();
+
+        let symbol_kind = match kind {
+            "function_definition" => SymbolKind::Function,
+            "class_specifier" => SymbolKind::Class,
+            "struct_specifier" => SymbolKind::Class,
+            "namespace_definition" => SymbolKind::Namespace,
+            _ => return None, // Not a symbol we track
+        };
+
+        let name = self.extract_name(node, source, kind)?;
+        let normalized_kind = symbol_kind.normalized_key().to_string();
+
+        // Build FQN from scope stack + symbol name
+        let fqn = scope_stack.fqn_for_symbol(&name);
+
+        Some(SymbolFact {
+            file_path: file_path.clone(),
+            kind: symbol_kind,
+            kind_normalized: normalized_kind,
+            name: Some(name.clone()),
+            fqn: Some(fqn),
+            byte_start: node.start_byte() as usize,
+            byte_end: node.end_byte() as usize,
+            start_line: node.start_position().row + 1,
+            start_col: node.start_position().column,
+            end_line: node.end_position().row + 1,
+            end_col: node.end_position().column,
+        })
     }
 
     /// Extract reference facts from C++ source code.
@@ -554,5 +644,67 @@ namespace Baz {
         assert_eq!(facts.len(), 1);
         assert_eq!(facts[0].name, Some("template_func".to_string()));
         assert_eq!(facts[0].kind, SymbolKind::Function);
+    }
+
+    #[test]
+    fn test_fqn_simple_namespace() {
+        let mut parser = CppParser::new().unwrap();
+        let source = b"
+namespace MyNamespace {
+    void my_function() {}
+}
+";
+        let facts = parser.extract_symbols(PathBuf::from("test.cpp"), source);
+
+        let funcs: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Function)
+            .collect();
+
+        assert_eq!(funcs.len(), 1);
+        assert_eq!(funcs[0].fqn, Some("MyNamespace::my_function".to_string()));
+    }
+
+    #[test]
+    fn test_fqn_nested_namespace() {
+        let mut parser = CppParser::new().unwrap();
+        let source = b"
+namespace Outer {
+    namespace Inner {
+        class MyClass {};
+    }
+}
+";
+        let facts = parser.extract_symbols(PathBuf::from("test.cpp"), source);
+
+        let classes: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Class)
+            .collect();
+
+        assert_eq!(classes.len(), 1);
+        assert_eq!(classes[0].fqn, Some("Outer::Inner::MyClass".to_string()));
+    }
+
+    #[test]
+    fn test_fqn_class_in_namespace() {
+        let mut parser = CppParser::new().unwrap();
+        let source = b"
+namespace ns {
+    struct Point {
+        int x;
+        int y;
+    };
+}
+";
+        let facts = parser.extract_symbols(PathBuf::from("test.cpp"), source);
+
+        let classes: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Class)
+            .collect();
+
+        assert_eq!(classes.len(), 1);
+        assert_eq!(classes[0].fqn, Some("ns::Point".to_string()));
     }
 }
