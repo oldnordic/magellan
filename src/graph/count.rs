@@ -60,3 +60,21 @@ pub fn count_references(graph: &CodeGraph) -> Result<usize> {
         })
         .count())
 }
+
+/// Count total number of calls in the graph
+pub fn count_calls(graph: &CodeGraph) -> Result<usize> {
+    Ok(graph
+        .calls
+        .backend
+        .entity_ids()?
+        .into_iter()
+        .filter(|id| {
+            graph
+                .calls
+                .backend
+                .get_node(*id)
+                .map(|n| n.kind == "Call")
+                .unwrap_or(false)
+        })
+        .count())
+}
