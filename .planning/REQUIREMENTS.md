@@ -31,10 +31,10 @@
 
 ### Queries
 
-- [ ] **QRY-01**: Provide definition lookup (by symbol name/kind) returning span-aware results and stable IDs.
-- [ ] **QRY-02**: Provide reference lookup (by symbol) returning span-aware results and stable IDs.
-- [ ] **QRY-03**: Provide callers/callees queries returning stable IDs and deterministic ordering.
-- [ ] **QRY-04**: Provide file/module listing (symbols + counts) for a given file.
+- [x] **QRY-01**: Provide definition lookup (by symbol name/kind) returning span-aware results and stable IDs.
+- [x] **QRY-02**: Provide reference lookup (by symbol) returning span-aware results and stable IDs.
+- [x] **QRY-03**: Provide callers/callees queries returning stable IDs and deterministic ordering.
+- [x] **QRY-04**: Provide file/module listing (symbols + counts) for a given file.
 
 ### Exports
 
@@ -89,10 +89,10 @@
 | ID-03 | Phase 5 | Complete |
 | ID-04 | Phase 5 | Complete |
 | DB-03 | Phase 5 | Complete |
-| QRY-01 | Phase 6 | Pending |
-| QRY-02 | Phase 6 | Pending |
-| QRY-03 | Phase 6 | Pending |
-| QRY-04 | Phase 6 | Pending |
+| QRY-01 | Phase 6 | Complete |
+| QRY-02 | Phase 6 | Complete |
+| QRY-03 | Phase 6 | Complete |
+| QRY-04 | Phase 6 | Complete |
 | EXP-01 | Phase 7 | Pending |
 | EXP-02 | Phase 7 | Pending |
 | EXP-03 | Phase 7 | Pending |
