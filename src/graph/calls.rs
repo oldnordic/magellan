@@ -21,9 +21,9 @@ use super::CodeGraph;
 /// # Returns
 /// Number of calls indexed
 pub fn index_calls(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<usize> {
-    // Build map: symbol name -> node ID from ALL symbols in database.
+    // Build map: FQN -> node ID from ALL symbols in database.
     // Prefer symbols defined in the current file for duplicate names.
-    let mut symbol_name_to_id: HashMap<String, (i64, bool)> = HashMap::new();
+    let mut symbol_fqn_to_id: HashMap<String, (i64, bool)> = HashMap::new();
     let entity_ids = graph.files.backend.entity_ids()?;
     for entity_id in entity_ids {
         if let Ok(node) = graph.files.backend.get_node(entity_id) {
@@ -36,27 +36,33 @@ pub fn index_calls(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<u
                 Err(_) => continue,
             };
 
-            let Some(name) = symbol_node.name else {
+            // Use FQN as key, fall back to name
+            let fqn = symbol_node
+                .fqn
+                .or(symbol_node.name)
+                .unwrap_or_default();
+
+            if fqn.is_empty() {
                 continue;
-            };
+            }
 
             let is_current_file = node.file_path.as_deref() == Some(path);
-            match symbol_name_to_id.get(&name) {
+            match symbol_fqn_to_id.get(&fqn) {
                 Some((_, existing_is_current)) if *existing_is_current || !is_current_file => {}
                 _ => {
-                    symbol_name_to_id.insert(name, (entity_id, is_current_file));
+                    symbol_fqn_to_id.insert(fqn, (entity_id, is_current_file));
                 }
             }
         }
     }
 
-    let symbol_name_to_id: HashMap<String, i64> = symbol_name_to_id
+    let symbol_fqn_to_id: HashMap<String, i64> = symbol_fqn_to_id
         .into_iter()
-        .map(|(name, (id, _))| (name, id))
+        .map(|(fqn, (id, _))| (fqn, id))
         .collect();
 
     // Index calls using CallOps
-    graph.calls.index_calls(path, source, &symbol_name_to_id)
+    graph.calls.index_calls(path, source, &symbol_fqn_to_id)
 }
 
 /// Query all calls FROM a specific symbol (forward call graph)
