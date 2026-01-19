@@ -4,212 +4,193 @@
 
 ## Pattern Overview
 
-**Overall:** Layered graph database with filesystem watching and multi-language AST parsing
+**Overall:** Layered graph-based indexing system with local-first persistence
 
 **Key Characteristics:**
-- Graph-based persistence using sqlitegraph (nodes + edges in SQLite)
-- Multi-language symbol extraction via tree-sitter parsers
-- Deterministic, idempotent indexing operations
-- File system watching with debounced event processing
-- Language-agnostic symbol representation with normalized kinds
+- Deterministic: Same inputs produce identical graph state (sorted paths, hash-based identity)
+- Local-first: Single-file SQLite database, no network dependencies
+- Incremental: Watch mode with debounced batch updates
+- Multi-language: tree-sitter based parsing for 7 languages
 
 ## Layers
 
-**CLI Layer:**
+**CLI Layer (`src/main.rs`):**
 - Purpose: Command-line interface and argument parsing
 - Location: `src/main.rs`
-- Contains: Command definitions, argument parsing, command routing
-- Depends on: Library layer (`magellan` crate)
+- Contains: Command definitions, argument parsing, execution tracking
+- Depends on: Graph layer, indexer, watcher
 - Used by: End users via CLI
 
-**Command Modules:**
-- Purpose: Per-command implementation handlers
-- Location: `src/*_cmd.rs` (e.g., `src/query_cmd.rs`, `src/find_cmd.rs`, `src/refs_cmd.rs`, `src/get_cmd.rs`, `src/watch_cmd.rs`, `src/verify_cmd.rs`)
-- Contains: Command-specific logic that bridges CLI and library
-- Depends on: `graph` module for database operations
-- Used by: `main.rs` command router
+**Graph Persistence Layer (`src/graph/`):**
+- Purpose: Code graph storage using sqlitegraph backend
+- Location: `src/graph/mod.rs`
+- Contains: FileOps, SymbolOps, ReferenceOps, CallOps, ChunkStore, ExecutionLog
+- Depends on: sqlitegraph crate, rusqlite
+- Used by: All commands that query or modify the graph
 
-**Graph Persistence Layer:**
-- Purpose: Core graph database operations and schema management
-- Location: `src/graph/mod.rs`, `src/graph/*.rs`
-- Contains: `CodeGraph` struct, node/edge definitions, query operations, CRUD operations
-- Depends on: `sqlitegraph` crate for graph storage, `ingest` for parsing, `generation` for code chunks, `references` for call graph
-- Used by: All commands that read/write indexed data
+**Language Ingestion Layer (`src/ingest/`):**
+- Purpose: Parse source code and extract symbols/references/calls
+- Location: `src/ingest/mod.rs`, `src/ingest/{rust,python,c,cpp,java,javascript,typescript}.rs`
+- Contains: Parser trait, language-specific parsers, Language detection
+- Depends on: tree-sitter grammars
+- Used by: Graph indexing operations
 
-**Ingestion Layer:**
-- Purpose: Parse source code and extract symbol facts
-- Location: `src/ingest/mod.rs`, `src/ingest/*.rs`
-- Contains: Language-specific parsers (`c.rs`, `cpp.rs`, `java.rs`, `javascript.rs`, `python.rs`, `typescript.rs`), language detection, symbol kind definitions
-- Depends on: `tree-sitter` and language grammars
-- Used by: Graph layer during file indexing
+**Indexer/Watcher Layer (`src/indexer.rs`, `src/watcher.rs`):**
+- Purpose: Coordinate file watching and incremental updates
+- Location: `src/indexer.rs`, `src/watcher.rs`
+- Contains: FileSystemWatcher, WatchPipeline, reconcile operations
+- Depends on: notify, notify-debouncer-mini
+- Used by: Watch command
 
-**Reference Extraction Layer:**
-- Purpose: Extract references and calls between symbols
-- Location: `src/references.rs`
-- Contains: `ReferenceExtractor`, `CallExtractor`, fact structures
-- Depends on: `tree-sitter` for AST traversal, `ingest` for symbol definitions
-- Used by: Graph layer for cross-file reference indexing
+**Export Layer (`src/graph/export/`):**
+- Purpose: Serialize graph data to external formats
+- Location: `src/graph/export.rs`, `src/graph/export/scip.rs`
+- Contains: JSON, JSONL, CSV, DOT, SCIP exporters
+- Depends on: serde, csv, scip, protobuf
+- Used by: Export command
 
-**Code Generation/Storage Layer:**
-- Purpose: Store and retrieve source code chunks
-- Location: `src/generation/mod.rs`, `src/generation/schema.rs`
-- Contains: `ChunkStore`, `CodeChunk` schema, chunk storage operations
-- Depends on: `rusqlite` for direct database access (bypasses sqlitegraph)
-- Used by: Graph layer for symbol code retrieval
+**Output Layer (`src/output/`):**
+- Purpose: Structured JSON responses for CLI commands
+- Location: `src/output/mod.rs`, `src/output/command.rs`
+- Contains: Response types, execution ID generation
+- Depends on: serde_json
+- Used by: All CLI commands
 
-**Watcher Layer:**
-- Purpose: Monitor filesystem for changes
-- Location: `src/watcher.rs`
-- Contains: `FileSystemWatcher`, `FileEvent` types, debouncing logic
-- Depends on: `notify` crate for filesystem events
-- Used by: `indexer.rs` for real-time indexing
-
-**Indexer Layer:**
-- Purpose: Coordinate between watcher and graph updates
-- Location: `src/indexer.rs`
-- Contains: Event handlers, indexing loop orchestration
-- Depends on: `watcher` for events, `graph` for persistence
-- Used by: `watch_cmd.rs` for watch mode
-
-**Verification Layer:**
-- Purpose: Compare database state vs filesystem
-- Location: `src/verify.rs`
-- Contains: `verify_graph`, `VerifyReport`
-- Depends on: `graph` for database queries, `walkdir` for filesystem scanning
-- Used by: `verify_cmd.rs`
+**Diagnostics Layer (`src/diagnostics/`):**
+- Purpose: Track skipped files, errors, and warnings
+- Location: `src/diagnostics/mod.rs`, `src/diagnostics/watch_diagnostics.rs`
+- Contains: WatchDiagnostic, DiagnosticStage, SkipReason
+- Depends on: None (pure data types)
+- Used by: Scan, watch operations
 
 ## Data Flow
 
-**Initial Indexing (watch command with --scan-initial):**
+**Initial Scan Flow:**
 
-1. CLI parses `watch` command with `--scan-initial` flag
-2. `CodeGraph::open()` creates/opens database at specified path
-3. `CodeGraph::scan_directory()` walks filesystem recursively
-4. For each source file:
-   - `reconcile_file_path()` computes SHA-256 hash
-   - `index_file()` detects language, extracts symbols via tree-sitter
-   - Symbols inserted as Symbol nodes with DEFINES edges from File node
-   - Code chunks stored in separate `code_chunks` table
-   - References extracted and linked via REFERENCES edges
-   - Calls extracted and linked via CALLS edges
-5. Progress reported via callback (current/total file counts)
+1. User invokes `magellan watch --root <DIR> --db <FILE>`
+2. `src/watch_cmd.rs` creates WatchPipelineConfig with root/db paths
+3. `src/indexer.rs::run_watch_pipeline()`:
+   - Starts FileSystemWatcher thread (begins buffering events immediately)
+   - Calls `graph.scan_directory()` for baseline
+   - Drains any events that arrived during scan
+   - Enters main watch loop
+4. `src/graph/scan.rs::scan_directory()`:
+   - Walks directory tree with walkdir
+   - Applies FileFilter rules (ignores, gitignore, include/exclude)
+   - For each file: calls `graph.index_file()` and `graph.index_references()`
+5. `src/graph/ops.rs::index_file()`:
+   - Computes SHA-256 hash of source
+   - Deletes old symbols/edges for file (if exists)
+   - Detects language via `src/ingest/detect.rs`
+   - Parses symbols with language-specific parser
+   - Inserts Symbol nodes and DEFINES edges
+   - Stores code chunks in ChunkStore
+   - Indexes calls
 
-**File Change Event Processing:**
+**Watch Mode Flow:**
 
-1. `FileSystemWatcher` thread receives `notify::Event`
-2. Event converted to `FileEvent` (Create/Modify/Delete), filtered to exclude DB files
-3. `run_indexer()` or `run_indexer_n()` receives event via channel
-4. `handle_event()` delegates to `CodeGraph`:
-   - Create/Modify: `delete_file()` then `index_file()` with new contents
-   - Delete: `delete_file()` to remove all derived data
-5. Database updated atomically per event
+1. FileSystemWatcher detects file changes via notify crate
+2. notify-debouncer-mini coalesces events within debounce window (default 500ms)
+3. WatcherBatch emitted with sorted, deduplicated paths
+4. Main thread receives batch via `recv_batch_timeout()`
+5. For each path: `graph.reconcile_file_path()`:
+   - If file deleted: calls `delete_file_facts()`
+   - If file exists and hash unchanged: skip (ReconcileOutcome::Unchanged)
+   - If file exists and hash changed: delete old data, re-index
+6. Output logged: MODIFY/DELETE/UNCHANGED with counts
 
-**Query Flow (e.g., `magellan query --db file.db --file src/main.rs`):**
+**Query Flow (e.g., `magellan query --db <DB> --file <PATH>`):**
 
-1. CLI parses `query` command
-2. `query_cmd::run_query()` opens `CodeGraph`
-3. `symbols_in_file()` queries File node by path
-4. Neighbors retrieved via DEFINES edges (outgoing from File)
-5. Symbol nodes deserialized and returned as `SymbolFact` vector
-6. Results printed to stdout
+1. `src/query_cmd.rs::run_query()` parses arguments
+2. Opens CodeGraph at db_path
+3. Calls `graph.symbols_in_file()` or `graph.symbol_nodes_in_file_with_ids()`
+4. `src/graph/query.rs` queries sqlitegraph:
+   - Finds File node by path
+   - Gets outgoing DEFINES edges to Symbol nodes
+   - Returns sorted results (by line, column, byte offset)
+5. Output formatted as human-readable or JSON
 
-**Call Graph Traversal:**
+**Export Flow:**
 
-1. `calls_from_symbol()` finds caller's Symbol node
-2. Query outgoing CALLS edges from caller
-3. Call nodes deserialized to `CallFact` vector
-4. Reverse direction uses incoming CALLS edges
+1. `src/export_cmd.rs::run_export()` parses format and filters
+2. Calls appropriate export function:
+   - JSON/JSONL: `export_graph()` from `src/graph/export.rs`
+   - CSV: `export_csv()`
+   - DOT: `export_dot()`
+   - SCIP: `export_scip()` from `src/graph/export/scip.rs`
+3. Export functions iterate all graph entities via `backend.entity_ids()`
+4. Results written to stdout or file
 
 ## Key Abstractions
 
 **CodeGraph:**
-- Purpose: Single entry point for all graph database operations
-- Examples: `src/graph/mod.rs:40-422`
-- Pattern: Facade over sqlitegraph with domain-specific methods. Internally delegates to specialized sub-modules (`files`, `symbols`, `references`, `calls`).
+- Purpose: Central graph database wrapper
+- Examples: `src/graph/mod.rs` (CodeGraph struct)
+- Pattern: Builder-like initialization with `open()`, then method calls
 
-**SymbolFact:**
-- Purpose: Language-agnostic representation of a code symbol
-- Examples: `src/ingest/mod.rs:69-90`
-- Pattern: Pure data structure with byte/line/column extents, kind classification, and optional name. No behavior methods.
+**Node Types (via sqlitegraph):**
+- FileNode: `{path, hash, last_indexed_at, last_modified}`
+- SymbolNode: `{symbol_id, name, kind, kind_normalized, byte_start, byte_end, start_line, start_col, end_line, end_col}`
+- ReferenceNode: `{file, byte_start, byte_end, start_line, start_col, end_line, end_col}`
+- CallNode: `{file, caller, callee, caller_symbol_id, callee_symbol_id, byte_start, byte_end, start_line, start_col, end_line, end_col}`
 
-**FileNode/SymbolNode/ReferenceNode/CallNode:**
-- Purpose: Node payloads persisted in sqlitegraph
-- Examples: `src/graph/schema.rs:10-59`
-- Pattern: Serde-serializable structs stored as JSON in sqlitegraph's node data field.
+**Edge Types:**
+- DEFINES: File -> Symbol (file defines a symbol)
+- REFERENCES: Reference -> Symbol (reference points to symbol)
+- CALLER: Symbol -> Call (caller symbol invokes call)
+- CALLS: Call -> Symbol (call targets callee symbol)
 
-**Parser Trait (Per-Language):**
-- Purpose: Extract symbols from source code
-- Examples: `src/ingest/python.rs`, `src/ingest/java.rs`, etc.
-- Pattern: Each language has a `*Parser` struct with `extract_symbols(file_path, source) -> Vec<SymbolFact>`. Stateless, pure function.
-
-**Reconciliation:**
-- Purpose: Determine if file needs reindexing based on content hash
-- Examples: `src/graph/ops.rs:reconcile_file_path`
-- Pattern: Compare stored hash vs computed hash. Return `ReconcileOutcome` (Deleted/Unchanged/Reindexed).
+**Stable IDs:**
+- span_id: Byte-range based identifier for code spans
+- symbol_id: SHA-256 hash of `language:fqn:span_id` for cross-run symbol identity
+- execution_id: UUID for tracking individual command executions
 
 ## Entry Points
 
-**Binary Entry Point:**
-- Location: `src/main.rs:792-923`
-- Triggers: User runs `magellan <command>` executable
-- Responsibilities: Argument parsing, command routing, error handling
+**`src/main.rs::main()`:**
+- Location: `src/main.rs:1126`
+- Triggers: CLI invocation
+- Responsibilities: Parse args, dispatch to command handlers, return exit code
 
-**Library Entry Points:**
-- Location: `src/lib.rs`
-- Triggers: External code links `magellan` as dependency
-- Responsibilities: Re-exports public API (CodeGraph, types, functions)
-
-**Watch Mode Entry Point:**
-- Location: `src/watch_cmd.rs` → `src/indexer.rs`
-- Triggers: User runs `magellan watch --root <dir> --db <file>`
-- Responsibilities: Creates watcher, opens graph, runs event loop
-
-**Database Open Sequence:**
-- Location: `src/graph/mod.rs:68-110`
-- Triggers: `CodeGraph::open(&db_path)`
-- Responsibilities:
-  1. Compatibility preflight (`db_compat::preflight_sqlitegraph_compat`)
-  2. sqlitegraph initialization with schema migrations
-  3. Magellan metadata table creation (`db_compat::ensure_magellan_meta`)
-  4. ChunkStore schema initialization
+**Command Handlers:**
+- `run_watch()`: `src/watch_cmd.rs` - Watch and index directory
+- `run_export()`: `src/export_cmd.rs` - Export graph data
+- `run_query()`: `src/query_cmd.rs` - Query symbols in file
+- `run_find()`: `src/find_cmd.rs` - Find symbol by name
+- `run_refs()`: `src/refs_cmd.rs` - Show callers/callees
+- `run_status()`: `src/main.rs` - Show database statistics
+- `run_verify()`: `src/verify_cmd.rs` - Verify DB vs filesystem
 
 ## Error Handling
 
-**Strategy:** Result propagation with anyhow::Result
+**Strategy:** anyhow::Result with context preservation
 
 **Patterns:**
-- Functions return `anyhow::Result<T>` for error propagation
-- Context added via `.map_err(|e| anyhow::anyhow!("Context: {}", e))`
-- CLI layer prints errors and exits with non-zero status
-- No error swallowing: all errors propagate to caller
+- Functions return `Result<T>` from anyhow crate
+- Errors are propagated with `?` operator
+- Context added via `.map_err(|e| anyhow::anyhow!("context: {}", e))`
+- Watch/index operations continue on individual file errors (collected as diagnostics)
 
 **Validation:**
-- File existence checked before indexing
-- Hash comparison prevents unnecessary re-indexing
-- Language detection returns `None` for unknown extensions (not an error)
+- Pre-run validation: `src/graph/validation.rs::pre_run_validate()`
+- Post-run validation: `src/graph/validation.rs::validate_graph()`
+- Checks: orphan references, orphan calls, missing paths
 
 ## Cross-Cutting Concerns
 
-**Logging:** None (no structured logging framework). Errors printed to stderr via `eprintln!`.
+**Logging:** stderr eprintln! for errors/diagnostics, stdout for results
 
 **Validation:**
-- File path validation via `std::path::Path`
-- Hash verification before re-indexing
-- Language detection via extension table (no content inference)
+- Pre-run: Check root/db paths exist
+- Post-run: Check for orphan nodes (references/calls with missing targets)
 
-**Authentication:** Not applicable (local filesystem tool).
-
-**Concurrency:**
-- Watcher runs in dedicated thread (`std::thread::spawn`)
-- Event channel uses `std::sync::mpsc`
-- Graph operations are single-threaded (synchronous)
-- Database access protected by SQLite's internal locking
+**Authentication:** Not applicable (local-only tool)
 
 **Determinism:**
-- File iteration sorted alphabetically
-- Symbol output sorted by line/column/byte offset
-- Entity IDs sorted before batch deletions
+- Sorted file processing (BTreeSet for paths)
+- Hash-based content identity (SHA-256)
+- Stable symbol IDs from language+fqn+span
+- Deterministic sorting in all query outputs
 
 ---
-
 *Architecture analysis: 2026-01-19*

@@ -4,227 +4,139 @@
 
 ## Tech Debt
 
-### Cross-File Symbol Resolution (Not Implemented)
-- Issue: References and calls are only resolved within the same file. Cross-file references return zero results.
-- Files: `src/references.rs`, `src/graph/tests.rs:58-69`
-- Impact: ~50% effective precision. Call graphs are incomplete. Queries miss references across files.
-- Fix approach: Implement import-aware AST analysis to track `use` statements and resolve symbols across module boundaries. See `docs/CROSS_FILE_ROADMAP.md` for 6-phase implementation plan.
+**Symbol Name Collisions:**
+- Issue: `symbol_name_to_id` HashMap in `src/graph/query.rs::index_references()` keeps first occurrence
+- Files: `src/graph/query.rs:263-282`
+- Impact: Cross-file references may target wrong symbol when names collide
+- Fix approach: Use fully-qualified names (fqn) as key, or implement disambiguation logic
 
-### Name Collision Handling (TODO)
-- Issue: When multiple symbols share the same name across files, only the first one is kept. No disambiguation strategy implemented.
-- Files: `src/graph/query.rs:195-196`
-- Impact: Symbol lookups return wrong results when names collide.
-- Fix approach: Implement disambiguation using module paths or return all matches with context for user selection.
+**Legacy Single-Event Watcher API:**
+- Issue: `FileSystemWatcher` has deprecated `try_recv_event()` and `recv_event()` methods
+- Files: `src/watcher.rs:136-261`
+- Impact: Code complexity, maintenance burden
+- Fix approach: Remove after confirming no external consumers
 
-### Main.rs File Size
-- Issue: Main file is 923 lines, exceeding the 300 LOC per file guideline.
-- Files: `src/main.rs`
-- Impact: Harder to navigate and maintain. CLI argument parsing mixed with command execution.
-- Fix approach: Extract argument parsing to separate `args.rs` module. Move command runners to individual files in a `cli/` directory.
-
-### Large Ingest Modules
-- Issue: Language-specific ingest files are 500-650 lines each.
-- Files: `src/ingest/typescript.rs` (646 LOC), `src/ingest/python.rs` (588 LOC), `src/ingest/javascript.rs` (586 LOC), `src/ingest/java.rs` (559 LOC), `src/ingest/cpp.rs` (554 LOC), `src/ingest/c.rs` (483 LOC)
-- Impact: Files approaching double the recommended 300 LOC limit.
-- Fix approach: Consider splitting into smaller modules by functionality (symbol extraction vs reference extraction vs utilities).
+**Incomplete FQN (Fully Qualified Names):**
+- Issue: `SymbolFact.fqn` set to simple name instead of proper hierarchical name
+- Files: `src/ingest/mod.rs:188`, `src/graph/query.rs:152`
+- Impact: symbol_id generation may not be truly unique for nested symbols
+- Fix approach: Build proper FQN from AST traversal (module::struct::method)
 
 ## Known Bugs
 
-### Cross-File Reference Resolution Fails
-- Symptoms: Test `test_cross_file_references` explicitly fails. References from one file to symbols defined in another file are not indexed.
-- Files: `src/graph/tests.rs:24-71`
-- Trigger: Calling a function defined in a different file
-- Workaround: None. This is a fundamental limitation of the current implementation.
-- Status: Known and documented. The test exists to demonstrate the bug.
-
-### Native V2 Backend Edge Operations Broken
-- Symptoms: Edge insertion fails with "Corrupt node record 0: Invalid V2 node record version 0"
-- Files: `tests/native_v2_backend.rs`
-- Trigger: Using `native-v2` feature flag for sqlitegraph backend
-- Workaround: Use default SQLite backend (already default)
-- Status: Documented in `docs/NATIVE_V2_BACKEND_FINDINGS.md`. Issue is upstream in sqlitegraph.
+**None documented:**
+- No active bug trackers found in codebase
+- Issues tracked via GitHub (repository level)
 
 ## Security Considerations
 
-### No Validation of File Paths
-- Risk: Malicious paths could cause unintended filesystem access
-- Files: `src/main.rs` (all command handlers), `src/watcher.rs`
-- Current mitigation: None documented
-- Recommendations: Add path validation to prevent directory traversal attacks when `--root` or `--db` arguments point outside expected workspace
+**Path Traversal:**
+- Risk: Malicious file paths could cause unintended file access
+- Files: `src/graph/filter.rs:239-243` (relative_path computation)
+- Current mitigation: Path stripping via `strip_prefix()`
+- Recommendations: Validate paths don't escape root directory
 
-### SQLite Injection via Query Parameters
-- Risk: User-provided symbol names and file paths are used in database queries
-- Files: `src/graph/query.rs`, `src/graph/ops.rs`
-- Current mitigation: rusqlite's parameterized queries provide some protection
-- Recommendations: Audit all SQL construction to ensure parameterized queries are used consistently
-
-### Unbounded File Event Processing
-- Risk: Large file change storms could exhaust memory
-- Files: `src/watcher.rs`
-- Current mitigation: Debounce configuration (default 500ms)
-- Recommendations: Add maximum buffer size and backpressure handling
+**Database File Location:**
+- Risk: Writing .db files in watched directory could cause feedback loop
+- Files: `src/watcher.rs:339-351` (is_database_file check)
+- Current mitigation: Database files excluded from watching
+- Recommendations: Document requirement to place db outside watched dir
 
 ## Performance Bottlenecks
 
-### Full Re-Indexing on File Changes
-- Problem: Each file change triggers full re-parsing and re-indexing without incremental update capability
-- Files: `src/watcher.rs`, `src/indexer.rs`
-- Cause: No differential update mechanism - entire file is re-processed
-- Improvement path: Implement incremental AST parsing where only changed subtrees are updated
+**Full Symbol Scan for References:**
+- Problem: `index_references()` scans all symbols in database
+- Files: `src/graph/query.rs:254-288`
+- Cause: Cross-file reference resolution requires symbol map
+- Improvement path: Cache symbol map, incremental updates
 
-### No Query Result Caching
-- Problem: Repeated queries re-scan the database without caching
-- Files: `src/graph/query.rs`, `src/graph/ops.rs`
-- Cause: No caching layer in CodeGraph API
-- Improvement path: Add LRU cache for frequently queried symbols and references
-
-### Synchronous Indexing During Watch
-- Problem: File indexing blocks event processing during watch mode
-- Files: `src/watcher.rs`, `src/watch_cmd.rs`
-- Cause: Single-threaded event loop
-- Improvement path: Move indexing to worker thread pool with bounded queue
-
-### Large Database Export Can Be Slow
-- Problem: `export` command loads entire graph into memory before serializing
-- Files: `src/graph/export.rs`
-- Cause: Single-shot JSON serialization of all nodes/edges
-- Improvement path: Implement streaming JSON/JSONL export with bounded memory usage
+**Linear Search in reconcile_file_path:**
+- Problem: `find_file_node()` does HashMap lookup but `find_or_create_file_node()` may still iterate
+- Files: `src/graph/files.rs` (not directly read, inferred from usage)
+- Cause: File index rebuild on open
+- Improvement path: Persist file index to database
 
 ## Fragile Areas
 
-### Database Schema Compatibility
-- Files: `src/graph/db_compat.rs` (418 LOC)
-- Why fragile: Hand-rolled schema version checking. Changes to sqlitegraph upstream could break compatibility detection.
-- Safe modification: Always update expected schema version constants when upgrading sqlitegraph dependency. Run `tests/phase1_persistence_compatibility.rs` after any changes.
-- Test coverage: Good - dedicated compatibility test suite exists
+**Symbol ID Generation:**
+- Files: `src/graph/symbols.rs` (generate_symbol_id function)
+- Why fragile: Depends on FQN being correct; currently using simple name
+- Safe modification: Update FQN extraction first, then symbol_id generation
+- Test coverage: `tests/` has symbol tests but FQN correctness not explicitly tested
 
-### Symbol Name Mapping
-- Files: `src/graph/query.rs:190-201`
-- Why fragile: Name-to-ID mapping using `HashMap` can lose information when duplicate names exist.
-- Safe modification: Replace with `HashMap<String, Vec<i64>>` to track all symbol IDs for each name.
-- Test coverage: Minimal - no tests for name collision scenarios
+**SCIP Export:**
+- Files: `src/graph/export/scip.rs`
+- Why fragile: Complex mapping from Magellan graph to SCIP format
+- Safe modification: Add round-trip tests (export -> parse -> verify)
+- Test coverage: Unit tests present (`test_to_scip_*`), but no integration tests
 
-### File Hash Computation
-- Files: `src/graph/files.rs`
-- Why fragile: SHA-256 hash is computed on entire file content. Large files or encoding issues could cause problems.
-- Safe modification: Consider incremental hashing or streaming for large files.
-- Test coverage: Basic hash computation tests exist (`src/graph/tests.rs:6-22`)
-
-### Tree-Sitter Parser Initialization
-- Files: `src/references.rs:194`, `src/references.rs:207`, `src/references.rs:232`
-- Why fragile: Parser created via `.expect()` on `new()`. Failure mode is panic.
-- Safe modification: Change to `?` propagation or handle gracefully.
-- Test coverage: Test-only usage of `.expect()` acceptable, but production code should avoid.
+**Delete Operations:**
+- Files: `src/graph/ops.rs:delete_file_facts()`
+- Why fragile: Must delete from multiple tables (symbols, references, calls, chunks, edges)
+- Safe modification: Always use `delete_file_facts()` as authoritative path
+- Test coverage: Orphan detection tests in `src/graph/validation.rs`
 
 ## Scaling Limits
 
-### Database Size
-- Current capacity: Unknown, no documented limits
-- Limit: SQLite practical limit is ~140 TB, but single-query performance degrades with large datasets
-- Scaling path: Implement sharding or per-module databases for monorepos
+**File Count:**
+- Current capacity: Tested with small to medium projects
+- Limit: SQLite scaling (typically millions of rows)
+- Scaling path: Partitioning, sharding for very large codebases
 
-### In-Memory Graph Loading
-- Current capacity: Entire graph loaded into `CodeGraph` struct
-- Limit: Available RAM
-- Scaling path: Move to cursor-based access pattern that doesn't require full graph in memory
-
-### Watch Mode File Count
-- Current capacity: Limited by inotify limits (typically ~8192 watches per user)
-- Limit: OS-level file descriptor limits
-- Scaling path: Document how to increase inotify limits; implement recursive watch optimization
-
-### Multi-Language Parser State
-- Current capacity: One parser instance per language per extractor
-- Limit: Each parser holds compiled grammar in memory (~1-5 MB each)
-- Scaling path: Shared parser instances or parser pooling
+**Symbol Count:**
+- Current capacity: Thousands of symbols per project
+- Limit: In-memory HashMap sizes
+- Scaling path: Streaming queries, pagination
 
 ## Dependencies at Risk
 
-### sqlitegraph (v1.0.0)
-- Risk: Hard dependency on specific schema version. Upstream schema changes require Magellan schema version bump.
-- Impact: Database compatibility breaks on sqlitegraph version mismatch
-- Migration plan: Use `src/graph/db_compat.rs` version checking. Document upgrade path for users.
+**sqlitegraph v1.0.0:**
+- Risk: External crate with custom API
+- Impact: Breaking changes would require significant refactoring
+- Migration plan: Abstract graph operations behind trait, version compatibility checks in `src/graph/db_compat.rs`
 
-### tree-sitter-* Grammar Versions (v0.21)
-- Risk: Grammar updates could change AST structure, breaking symbol extraction
-- Impact: Missing symbols or incorrect positions after grammar update
-- Migration plan: Pin grammar versions in Cargo.lock. Run full test suite on grammar updates.
-
-### notify (v7.0)
-- Risk: File watcher API changes could break watch mode
-- Impact: Watch mode fails to detect file changes
-- Migration plan: Minimal surface area usage. Abstraction via `src/watcher.rs` provides isolation.
+**tree-sitter grammars:**
+- Risk: Grammar updates may break parsing
+- Impact: Symbol extraction could fail or produce incorrect results
+- Migration plan: Pin grammar versions, test with known code samples
 
 ## Missing Critical Features
 
-### Delete Propagation
-- Problem: When a file is deleted, references to its symbols are not cleaned up
-- Files: `src/watch_cmd.rs`, `src/graph/files.rs`
-- Blocks: Accurate reference counts, stale reference detection
-- Status: Addressed in Phase 2 of roadmap (`02-01-PLAN.md` - delete_file_facts)
+**Incremental Reference Indexing:**
+- Problem: References re-indexed from all symbols on every file change
+- Blocks: Efficient watch mode for large projects
+- Fix approach: Cache symbol-to-ID mapping, update incrementally
 
-### Include/Exclude Rules
-- Problem: No way to specify patterns to ignore during indexing (tests, build directories, vendor)
-- Files: `src/indexer.rs`, `src/watch_cmd.rs`
-- Blocks: Efficient indexing of real-world projects
-- Status: Planned for Phase 2 (`02-03-PLAN.md`)
-
-### JSON Output Mode
-- Problem: CLI output is human-only, no machine-readable option
-- Files: `src/main.rs`, all command modules
-- Blocks: Scripting, LLM integration, automated workflows
-- Status: Planned for Phase 3 (CLI Output Contract)
-
-### Execution Tracking
-- Problem: No `execution_id` to correlate runs or operations
-- Files: None - not implemented
-- Blocks: Diff/compare operations, operation replayability
-- Status: Planned for Phase 5 (Stable Identity + Execution Tracking)
+**Cross-File Call Resolution:**
+- Problem: Call indexing uses symbol name matching (first match wins)
+- Blocks: Accurate call graphs for projects with name collisions
+- Fix approach: Use FQN or symbol_id for disambiguation
 
 ## Test Coverage Gaps
 
-### Name Collision Resolution
-- What's not tested: Multiple symbols with same name in different files
-- Files: `src/graph/query.rs`, `src/references.rs`
-- Risk: Silent incorrect results
-- Priority: High
+**SCIP Export Round-Trips:**
+- What's not tested: Exported SCIP files parsed and verified
+- Files: `src/graph/export/scip.rs`
+- Risk: Export format errors undetected
+- Priority: Medium (SCIP is new feature)
 
-### Cross-File References (Currently Broken)
-- What's not tested: Working cross-file resolution (because feature doesn't exist)
-- Files: `src/references.rs`, `src/graph/references.rs`
-- Risk: N/A - feature gap, not a gap in testing of existing functionality
-- Priority: N/A - covered by Phase 2 implementation
+**FQN Correctness:**
+- What's not tested: Fully-qualified names are hierarchical
+- Files: `src/ingest/mod.rs`
+- Risk: symbol_id collisions for nested symbols
+- Priority: High (affects stable identity)
 
-### Error Paths in Watcher
-- What's not tested: Watcher behavior when filesystem errors occur
-- Files: `src/watcher.rs`
-- Risk: Silent failures, watch mode stops working
-- Priority: Medium
+**Cross-File Reference Accuracy:**
+- What's not tested: References target correct symbol across files
+- Files: `src/graph/query.rs`, `src/graph/references.rs`
+- Risk: Incorrect reference resolution in multi-file projects
+- Priority: Medium (current implementation uses first-match)
 
-### Large File Handling
-- What's not tested: Files >10k LOC, non-ASCII encodings, unusual syntax
-- Files: All ingest modules
-- Risk: Parse failures or incorrect results on edge cases
-- Priority: Low
-
-### Database Corruption Recovery
-- What's not tested: Behavior when database is corrupted or partially written
-- Files: `src/graph/db_compat.rs`
-- Risk: Unclear error messages, data loss
-- Priority: Medium
-
-### Concurrent Access
-- What's not tested: Multiple Magellan instances accessing same database
-- Files: All database access
-- Risk: Database locking, corruption
-- Priority: Low (documented as single-user tool)
-
-### Empty Return Values
-- What's not tested: Commands that return empty results (no matches found)
-- Files: `src/find_cmd.rs`, `src/refs_cmd.rs`, `src/query_cmd.rs`
-- Risk: Poor UX when queries return nothing
-- Priority: Low
+**Watcher Event Ordering:**
+- What's not tested: Events processed in deterministic order
+- Files: `src/indexer.rs`, `src/watcher.rs`
+- Risk: Non-deterministic behavior in concurrent scenarios
+- Priority: Low (BTreeSet ensures sorting)
 
 ---
-
 *Concerns audit: 2026-01-19*

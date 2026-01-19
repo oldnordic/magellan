@@ -4,104 +4,97 @@
 
 ## APIs & External Services
 
-**None:** Magellan is a standalone CLI tool with no external API calls or cloud services.
-
-**MCP (Model Context Protocol):**
-- Configuration present in `.mcp.json` for local codemcp server
-- This is a local development tool integration, not an external service
-- Location: `/home/feanor/Projects/magellan/.mcp.json`
+**None - local-only tool:**
+- Magellan does not make network calls or use external APIs
+- All processing is local to the machine
 
 ## Data Storage
 
 **Databases:**
-- SQLite (via sqlitegraph 1.0.0)
-  - Connection: User-provided path via `--db <FILE>` CLI argument
-  - Client/ORM: sqlitegraph (`SqliteGraphBackend`, `GraphBackend`) for graph operations
-  - Direct access: rusqlite 0.31 for side tables (`code_chunks`, metadata tables)
-
-**Database Schema Components:**
-- `graph_meta` - sqlitegraph internal table
-- `graph_nodes` - sqlitegraph node storage
-- `graph_edges` - sqlitegraph edge storage
-- `graph_labels` - sqlitegraph label storage
-- `code_chunks` - Magellan side table for storing source code fragments
-- `magellan_meta` - Magellan metadata including schema version
+- SQLite (via sqlitegraph crate)
+- Connection: Local file path passed via `--db` flag
+- Client: rusqlite v0.31, sqlitegraph v1.0.0
+- Schema: Managed by sqlitegraph, extended by Magellan side-tables
 
 **File Storage:**
 - Local filesystem only
-- No cloud storage integration
-- All file paths are local/absolute paths
+- Source files: Read from user-specified `--root` directory
+- Output: stdout or file path via `--output` flag
 
 **Caching:**
-- `.fastembed_cache/` - FastEmbed cache directory (excluded from git)
-- Used only for embedding-related features if enabled
+- No external caching
+- In-memory file index: `HashMap<String, i64>` in `FileOps`
 
 ## Authentication & Identity
 
 **Auth Provider:**
-- None (no authentication required)
-- Local filesystem access only
-- No network services
+- None (local-only tool)
+
+**Implementation:**
+- No authentication mechanisms
+- No user accounts or permissions
 
 ## Monitoring & Observability
 
 **Error Tracking:**
-- None (local CLI tool)
+- None (errors printed to stderr)
 
 **Logs:**
-- stdout/stderr for CLI output
+- stdout: User-facing results (JSON or human-readable)
+- stderr: Errors, warnings, diagnostic information
 - No structured logging framework
-- Error reporting via anyhow::Error
 
 ## CI/CD & Deployment
 
 **Hosting:**
-- GitHub repository: https://github.com/feanor/magellan
-- No CI/CD configuration detected
+- crates.io (Rust package registry)
+- GitHub releases (for binaries)
 
 **CI Pipeline:**
-- None detected (no `.github/workflows/`, `.gitlab-ci.yml`, etc.)
+- None defined in repository (no .github/workflows/ detected)
 
 ## Environment Configuration
 
 **Required env vars:**
-- None (CLI is fully configured via command-line arguments)
-
-**Optional env vars:**
-- `RUST_LOG` - For debug logging when running as MCP server (see `.mcp.json`)
-- `ANTHROPIC_AUTH_TOKEN` - Only for codemcp MCP integration
-- `ANTHROPIC_BASE_URL` - Only for codemcp MCP integration
+- None (all configuration via CLI arguments)
 
 **Secrets location:**
-- `.mcp.json` (local only, gitignored)
-- No secrets required for core magellan functionality
+- N/A (no secrets used)
 
 ## Webhooks & Callbacks
 
 **Incoming:**
-- None (no HTTP server)
+- None
 
 **Outgoing:**
-- None (no HTTP client)
+- None
 
-## Language Parsers (Tree-sitter Grammars)
+## File Format Integrations
 
-**Supported Languages:**
-- Rust - `tree-sitter-rust 0.21` (used in `src/ingest/`, `src/references.rs`)
-- Python - `tree-sitter-python 0.21` (used in `src/ingest/python.rs`)
-- C - `tree-sitter-c 0.21` (used in `src/ingest/c.rs`)
-- C++ - `tree-sitter-cpp 0.21` (used in `src/ingest/cpp.rs`)
-- Java - `tree-sitter-java 0.21` (used in `src/ingest/java.rs`)
-- JavaScript - `tree-sitter-javascript 0.21` (used in `src/ingest/javascript.rs`)
-- TypeScript - `tree-sitter-typescript 0.21` (used in `src/ingest/typescript.rs`)
+**SCIP (Source Code Intelligence Protocol):**
+- SDK/Client: scip v0.6.1 crate
+- Purpose: Export graph data to SCIP binary format
+- Implementation: `src/graph/export/scip.rs`
+- Output: Binary protobuf file (.scip)
 
-**Parser Implementation Pattern:**
-Each language has a parser module in `src/ingest/` that:
-1. Creates a `tree_sitter::Parser`
-2. Sets the language grammar (e.g., `tree_sitter_rust::language()`)
-3. Walks the AST to extract `SymbolFact` structs
-4. Returns facts for persistence in the graph
+**JSON/JSONL:**
+- Purpose: Structured data export for LLM consumption
+- Implementation: serde_json
+
+**CSV:**
+- Purpose: Tabular data export
+- Implementation: csv crate
+
+**DOT (Graphviz):**
+- Purpose: Call graph visualization
+- Implementation: Custom formatter in `src/graph/export.rs`
+
+## Language Parsers
+
+**tree-sitter Integration:**
+- tree-sitter v0.22: Parser framework
+- Language grammars: tree-sitter-rust, tree-sitter-python, tree-sitter-c, tree-sitter-cpp, tree-sitter-java, tree-sitter-javascript, tree-sitter-typescript
+- Purpose: Parse source code to extract symbols and references
 
 ---
-
 *Integration audit: 2026-01-19*
