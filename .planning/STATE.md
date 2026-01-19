@@ -9,11 +9,11 @@
 ## Current Position
 
 - **Current phase:** Phase 7 — Deterministic Exports (JSON/JSONL, DOT, CSV)
-- **Status:** In Progress (Plan 07-01 complete)
-- **Last activity:** 2026-01-19 - Completed Phase 7 Plan 01 (JSON/JSONL Export)
-- **Next action:** Continue Phase 7 (DOT or CSV format)
+- **Status:** Phase 7 Complete (Plans 01, 02, 03 all done)
+- **Last activity:** 2026-01-19 - Completed Phase 7 Plan 03 (CSV Export)
+- **Next action:** Continue to Phase 08
 
-**Progress bar:** [████████░░] 70% (23/33 total plans executed - Phase 7 Plan 1 complete)
+**Progress bar:** [█████████░] 76% (24/33 total plans executed - Phase 7 complete)
 
 ## Success Definition (v1)
 
@@ -163,13 +163,29 @@ Magellan v1 is "done" when a user can:
 - Count symbols per file using existing symbols_in_file() query function from graph/query module
 
 ### Key Decisions (from Phase 7 / Plan 01)
-- ExportFormat enum with Json/JsonL/Dot/Csv variants (Dot and CSV are placeholders for future plans)
+- ExportFormat enum with Json/JsonL/Dot/Csv variants
 - ExportConfig struct with format selection and content filters (include_symbols, include_references, include_calls)
 - JSONL format uses tagged enum serialization with #[serde(tag = "type")] for type discrimination
 - Preserve existing export_json() for backward compatibility, add export_graph(config) for new features
 - All stable ID fields use #[serde(default)] for backward compatibility with existing consumers
 - Deterministic sorting by type (File < Symbol < Reference < Call) then by keys for reproducible output
 - Minify flag uses serde_json::to_string() instead of to_string_pretty() for compact JSON
+
+### Key Decisions (from Phase 7 / Plan 02)
+- DOT export generates strict digraph format for Graphviz rendering
+- Node labels use symbol_id as internal identifier when available, sanitized name fallback
+- Supports clustering by file via subgraph "cluster_" prefix
+- Filter flags: --file <PATH>, --symbol <NAME>, --kind <KIND>, --max-depth <N>, --cluster
+- Deterministic sorting by (file, caller, callee) for reproducible DOT output
+- ExportFilters struct with DOT-specific filter fields
+
+### Key Decisions (from Phase 7 / Plan 03)
+- Combined CSV output with record_type column for single-file export (simpler than separate files)
+- csv crate for RFC 4180 compliance (handles quoting, escaping, newlines in fields)
+- Flat CSV row structures (SymbolCsvRow, ReferenceCsvRow, CallCsvRow) optimized for tabular data
+- Deterministic sorting: record_type, then file, then entity keys
+- Stable IDs (symbol_id, caller_symbol_id, callee_symbol_id) included in all CSV rows
+- target_symbol_id set to None for references (acceptable for v1, future: add reverse index)
 
 ### Known Risks / Watch-outs
 - Mixed coordinate systems (byte vs char; inclusive vs exclusive).
@@ -182,11 +198,11 @@ Magellan v1 is "done" when a user can:
 
 ## Session Continuity
 
-- **Last session:** 2026-01-19T14:12:35Z
-- **Stopped at:** Completed Phase 7 Plan 01 (JSON/JSONL Export)
+- **Last session:** 2026-01-19T14:36:00Z
+- **Stopped at:** Completed Phase 7 Plan 03 (CSV Export)
 - **Resume file:** None
 
 If resuming later, start by:
-1. Open `.planning/phases/07-deterministic-exports/07-01-SUMMARY.md` for context on completed plan.
+1. Open `.planning/phases/07-deterministic-exports/07-03-SUMMARY.md` for context on completed plan.
 2. Run `cargo test --workspace` to verify baseline health.
-3. Phase 7 Plan 01 is complete - ready for Phase 7 Plan 02 (DOT format) or Plan 03 (CSV format).
+3. Phase 7 is complete - all export formats (JSON/JSONL, DOT, CSV) implemented.
