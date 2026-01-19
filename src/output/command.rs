@@ -2,6 +2,134 @@
 //!
 //! Provides schema-versioned, span-aware response types for all query commands.
 //! Follows Phase 3 CLI Output Contract specification.
+//!
+//! # Span Model
+//!
+//! A [`Span`] represents a half-open range in source code with stable identification.
+//! Spans are the foundation for all symbol locations, references, and call graph data.
+//!
+//! ## Range Semantics
+//!
+//! Spans use **half-open ranges** `[start, end)` where:
+//! - `start` is **inclusive** — the first byte INCLUDED in the span
+//! - `end` is **exclusive** — the first byte NOT included in the span
+//!
+//! ### Example
+//!
+//! ```text
+//! Source: "fn main() {}"
+//!          0123456789...
+//!
+//! Span for "main": byte_start=3, byte_end=7
+//!   - start=3 points to 'm' (INCLUDED)
+//!   - end=7 points to '(' (NOT included)
+//!   - Length = 7 - 3 = 4
+//!   - Slice: source[3..7] == "main"
+//! ```
+//!
+//! Half-open ranges enable:
+//! - Simple length calculation: `length = end - start`
+//! - Adjacent spans without overlap: `[0, 5)` and `[5, 10)` are contiguous
+//! - Empty spans: `start == end` represents a zero-width position
+//!
+//! ## UTF-8 Byte Offsets
+//!
+//! All offsets are **UTF-8 byte offsets**, not character indices. This matches:
+//! - Tree-sitter's byte-based API (`start_byte()`, `end_byte()`)
+//! - Rust's string slicing (`&str[start..end]`)
+//! - The SCIP protocol's UTF-8 encoding option
+//!
+//! ### Column Convention
+//!
+//! - `start_col` and `end_col` are **byte offsets within the line** (not character columns)
+//! - Multi-byte UTF-8 characters (emoji, CJK) occupy multiple column positions
+//!
+//! Example: In `"let x = 🚀;"`, the emoji occupies 4 bytes in UTF-8.
+//!
+//! ## Line Numbering
+//!
+//! - Lines are **1-indexed** for user-friendliness (matches editor line numbers)
+//! - Tree-sitter internally uses 0-indexed lines, so we add 1 during conversion
+//!
+//! ## Span ID Generation
+//!
+//! Each [`Span`] has a stable `span_id` generated via SHA-256:
+//!
+//! ```text
+//! input = file_path + ":" + byte_start + ":" + byte_end
+//! hash = SHA256(input)
+//! span_id = first 8 bytes of hash (16 hex characters)
+//! ```
+//!
+//! ### Stability Guarantees
+//!
+//! The span ID is **position-based only** (not content-based):
+//!
+//! - **Stable across:** Content changes at the same position, whitespace changes elsewhere
+//! - **Changes when:** The position shifts (edits before the span), file path changes
+//! - **Never depends on:** The actual source code content
+//!
+//! This design ensures the span ID identifies "the span at position X in file Y,"
+//! which is appropriate for static analysis tools.
+//!
+//! ## Usage Examples
+//!
+//! ### Extracting Text from a Span
+//!
+//! ```rust
+//! use magellan::output::command::Span;
+//!
+//! let source = "fn main() { println!(\"Hello\"); }";
+//! let span = Span::new("main.rs".into(), 3, 7, 1, 3, 1, 7);
+//!
+//! // Safe extraction using get()
+//! let text = source.get(span.byte_start..span.byte_end).unwrap();
+//! assert_eq!(text, "main");
+//! ```
+//!
+//! ### Validating Spans
+//!
+//! ```rust
+//! use magellan::output::command::Span;
+//!
+//! fn validate_span(source: &str, span: &Span) -> bool {
+//!     if span.byte_start > span.byte_end {
+//!         return false;
+//!     }
+//!     if span.byte_end > source.len() {
+//!         return false;
+//!     }
+//!     // Check UTF-8 boundaries
+//!     source.is_char_boundary(span.byte_start)
+//!         && source.is_char_boundary(span.byte_end)
+//! }
+//! ```
+//!
+//! ### Serialization
+//!
+//! [`Span`] implements `Serialize` and `Deserialize` for JSON output:
+//!
+//! ```rust
+//! let span = Span::new("file.rs".into(), 10, 20, 2, 0, 2, 10);
+//! let json = serde_json::to_string(&span).unwrap();
+//! ```
+//!
+//! ## Standards Alignment
+//!
+//! Magellan's span model aligns with industry standards:
+//!
+//! | Aspect | Magellan | LSP | SCIP | Tree-sitter |
+//! |--------|----------|-----|------|-------------|
+//! | Range | Half-open `[start, end)` | Half-open | Half-open | Half-open |
+//! | Offset basis | UTF-8 bytes | UTF-16 units | Configurable | UTF-8 bytes |
+//! | Lines | 1-indexed | 0-indexed | 0-indexed | 0-indexed |
+//! | Columns | Byte-based | UTF-16 units | Configurable | Byte-based |
+//!
+//! ## Further Reading
+//!
+//! - Phase 4 Research: `.planning/phases/04-canonical-span-model/04-RESEARCH.md`
+//! - LSP Specification: <https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/>
+//! - SCIP Protocol: <https://github.com/sourcegraph/scip>
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
