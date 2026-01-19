@@ -126,6 +126,9 @@ pub struct FileExport {
 /// Symbol entry for JSON export
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SymbolExport {
+    /// Stable symbol ID for cross-run correlation
+    #[serde(default)]
+    pub symbol_id: Option<String>,
     pub name: Option<String>,
     pub kind: String,
     pub kind_normalized: Option<String>,
@@ -143,6 +146,9 @@ pub struct SymbolExport {
 pub struct ReferenceExport {
     pub file: String,
     pub referenced_symbol: String,
+    /// Stable ID of referenced symbol
+    #[serde(default)]
+    pub target_symbol_id: Option<String>,
     pub byte_start: usize,
     pub byte_end: usize,
     pub start_line: usize,
@@ -157,6 +163,12 @@ pub struct CallExport {
     pub file: String,
     pub caller: String,
     pub callee: String,
+    /// Stable ID of caller symbol
+    #[serde(default)]
+    pub caller_symbol_id: Option<String>,
+    /// Stable ID of callee symbol
+    #[serde(default)]
+    pub callee_symbol_id: Option<String>,
     pub byte_start: usize,
     pub byte_end: usize,
     pub start_line: usize,
@@ -197,6 +209,7 @@ pub fn export_json(graph: &mut CodeGraph) -> Result<String> {
                     let file = get_file_path_from_symbol(graph, entity_id)?;
 
                     symbols.push(SymbolExport {
+                        symbol_id: symbol_node.symbol_id,
                         name: symbol_node.name,
                         kind: symbol_node.kind,
                         kind_normalized: symbol_node.kind_normalized,
@@ -222,6 +235,7 @@ pub fn export_json(graph: &mut CodeGraph) -> Result<String> {
                     references.push(ReferenceExport {
                         file: ref_node.file,
                         referenced_symbol,
+                        target_symbol_id: None, // Would need symbol lookup; defer to Task 3
                         byte_start: ref_node.byte_start as usize,
                         byte_end: ref_node.byte_end as usize,
                         start_line: ref_node.start_line as usize,
@@ -237,6 +251,8 @@ pub fn export_json(graph: &mut CodeGraph) -> Result<String> {
                         file: call_node.file,
                         caller: call_node.caller,
                         callee: call_node.callee,
+                        caller_symbol_id: call_node.caller_symbol_id,
+                        callee_symbol_id: call_node.callee_symbol_id,
                         byte_start: call_node.byte_start as usize,
                         byte_end: call_node.byte_end as usize,
                         start_line: call_node.start_line as usize,
