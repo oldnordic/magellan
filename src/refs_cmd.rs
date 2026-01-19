@@ -4,7 +4,7 @@
 
 use anyhow::Result;
 use magellan::{CallFact, CodeGraph};
-use magellan::output::{JsonResponse, OutputFormat, RefsResponse, ReferenceMatch, Span, generate_execution_id, output_json};
+use magellan::output::{JsonResponse, OutputFormat, RefsResponse, ReferenceMatch, Span, output_json};
 use std::path::PathBuf;
 
 /// Resolve a file path against an optional root directory
@@ -44,27 +44,70 @@ pub fn run_refs(
     direction: String,
     output_format: OutputFormat,
 ) -> Result<()> {
-    let mut graph = CodeGraph::open(&db_path)?;
+    // Build args for execution tracking
+    let mut args = vec!["refs".to_string()];
+    args.push("--name".to_string());
+    args.push(name.clone());
+    if let Some(ref root_path) = root {
+        args.push("--root".to_string());
+        args.push(root_path.to_string_lossy().to_string());
+    }
+    args.push("--path".to_string());
+    args.push(path.to_string_lossy().to_string());
+    args.push("--direction".to_string());
+    args.push(direction.clone());
+
+    let graph = CodeGraph::open(&db_path)?;
+    let exec_id = magellan::output::generate_execution_id();
+    let root_str = root.as_ref().map(|p| p.to_string_lossy().to_string());
+    let db_path_str = db_path.to_string_lossy().to_string();
+
+    graph.execution_log().start_execution(
+        &exec_id,
+        env!("CARGO_PKG_VERSION"),
+        &args,
+        root_str.as_deref(),
+        &db_path_str,
+    )?;
 
     let path_str = resolve_path(&path, &root);
 
     let calls: Vec<CallFact> = match direction.as_str() {
         "in" | "incoming" => {
             // Get callers of this symbol
-            graph.callers_of_symbol(&path_str, &name)?
+            {
+                let mut graph_mut = CodeGraph::open(&db_path)?;
+                graph_mut.callers_of_symbol(&path_str, &name)?
+            }
         }
         "out" | "outgoing" => {
             // Get calls from this symbol
-            graph.calls_from_symbol(&path_str, &name)?
+            {
+                let mut graph_mut = CodeGraph::open(&db_path)?;
+                graph_mut.calls_from_symbol(&path_str, &name)?
+            }
         }
         _ => {
-            anyhow::bail!("Invalid direction: '{}'. Use 'in' or 'out'", direction);
+            let err_msg = format!("Invalid direction: '{}'. Use 'in' or 'out'", direction);
+            graph.execution_log().finish_execution(
+                &exec_id,
+                "error",
+                Some(err_msg.as_str()),
+                0, 0, 0,
+            )?;
+            anyhow::bail!(err_msg);
         }
     };
 
     // Handle JSON output mode
     if output_format == OutputFormat::Json {
-        return output_json_mode(&name, &path_str, &direction, calls);
+        graph.execution_log().finish_execution(
+            &exec_id,
+            "success",
+            None,
+            0, 0, 0,
+        )?;
+        return output_json_mode(&name, &path_str, &direction, calls, &exec_id);
     }
 
     // Human mode (existing behavior)
@@ -99,6 +142,12 @@ pub fn run_refs(
         }
     }
 
+    graph.execution_log().finish_execution(
+        &exec_id,
+        "success",
+        None,
+        0, 0, 0,
+    )?;
     Ok(())
 }
 
@@ -108,6 +157,7 @@ fn output_json_mode(
     file_path: &str,
     direction: &str,
     mut calls: Vec<CallFact>,
+    exec_id: &str,
 ) -> Result<()> {
     // Sort deterministically: by file_path, byte_start
     calls.sort_by(|a, b| {
@@ -149,8 +199,7 @@ fn output_json_mode(
         direction: direction.to_string(),
     };
 
-    let exec_id = generate_execution_id();
-    let json_response = JsonResponse::new(response, &exec_id);
+    let json_response = JsonResponse::new(response, exec_id);
     output_json(&json_response)?;
 
     Ok(())
