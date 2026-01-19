@@ -873,6 +873,7 @@ mod tests {
         let response = JsonResponse::new(
             FilesResponse {
                 files: vec!["a.rs".to_string(), "b.rs".to_string()],
+                symbol_counts: None,
             },
             "test-exec-123",
         );

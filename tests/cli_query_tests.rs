@@ -1141,6 +1141,118 @@ fn caller2() {
     assert_eq!(data["direction"], "in");
 }
 
+#[test]
+fn test_refs_callees_includes_symbol_id() {
+    // Test that refs JSON output includes target_symbol_id for outgoing calls
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("magellan.db");
+    let file_path = temp_dir.path().join("test.rs");
+
+    let bin_path = std::env::var("CARGO_BIN_EXE_magellan").unwrap_or_else(|_| {
+        let mut path = std::env::current_exe().unwrap();
+        path.pop();
+        path.pop();
+        path.push("magellan");
+        path.to_str().unwrap().to_string()
+    });
+
+    // Create file with a function calling multiple other functions
+    let source = r#"
+fn helper() {}
+fn other() {}
+
+fn main() {
+    helper();
+    other();
+}
+"#;
+    fs::write(&file_path, source).unwrap();
+
+    // Index the file and calls
+    {
+        let mut graph = magellan::CodeGraph::open(&db_path).unwrap();
+        let source_bytes = fs::read(&file_path).unwrap();
+        let path_str = file_path.to_string_lossy().to_string();
+        graph.index_file(&path_str, &source_bytes).unwrap();
+        graph.index_calls(&path_str, &source_bytes).unwrap();
+    }
+
+    // Run refs --name main --direction out --output json
+    let output = Command::new(&bin_path)
+        .arg("refs")
+        .arg("--db")
+        .arg(&db_path)
+        .arg("--name")
+        .arg("main")
+        .arg("--path")
+        .arg(&file_path)
+        .arg("--direction")
+        .arg("out")
+        .arg("--output")
+        .arg("json")
+        .output()
+        .expect("Failed to execute magellan refs");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "Process should exit successfully\nstdout: {}\nstderr: {}",
+        stdout,
+        stderr
+    );
+
+    // Parse JSON and verify structure
+    let json: serde_json::Value = serde_json::from_str(&stdout)
+        .expect("Output should be valid JSON");
+
+    // Verify response wrapper
+    assert_eq!(
+        json["schema_version"], "1.0.0",
+        "Schema version should be 1.0.0"
+    );
+    assert!(
+        json["execution_id"].is_string(),
+        "Should have execution_id"
+    );
+
+    // Verify data structure
+    let data = &json["data"];
+    assert!(data.is_object(), "Should have data object");
+
+    let references = &data["references"];
+    assert!(references.is_array(), "Should have references array");
+
+    let references_array = references.as_array().unwrap();
+    assert!(
+        !references_array.is_empty(),
+        "Should find at least one call from 'main'"
+    );
+
+    // Verify target_symbol_id field exists and is non-empty for callees
+    let first_ref = &references_array[0];
+    assert!(
+        first_ref["target_symbol_id"].is_string(),
+        "target_symbol_id should be a string in JSON output for out direction, got: {}",
+        first_ref
+    );
+
+    let target_symbol_id = first_ref["target_symbol_id"].as_str().unwrap();
+    assert!(
+        !target_symbol_id.is_empty(),
+        "target_symbol_id should be non-empty for callees"
+    );
+
+    // Verify other expected fields
+    assert_eq!(first_ref["reference_kind"], "call");
+    assert!(first_ref["span"].is_object());
+
+    // Verify symbol_name and direction in response
+    assert_eq!(data["symbol_name"], "main");
+    assert_eq!(data["direction"], "out");
+}
+
 // ============================================================================
 // Phase 4: Files Command Tests
 // ============================================================================
@@ -1316,3 +1428,93 @@ fn test_files_empty_database() {
         stdout
     );
 }
+
+#[test]
+fn test_files_with_symbol_counts() {
+    // Test --symbols flag shows counts per file
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("magellan.db");
+    let file1 = temp_dir.path().join("file1.rs");
+    let file2 = temp_dir.path().join("file2.rs");
+
+    let bin_path = std::env::var("CARGO_BIN_EXE_magellan").unwrap_or_else(|_| {
+        let mut path = std::env::current_exe().unwrap();
+        path.pop();
+        path.pop();
+        path.push("magellan");
+        path.to_str().unwrap().to_string()
+    });
+
+    // Create files with varying symbol counts
+    // file1.rs has 2 functions
+    fs::write(&file1, "fn func1() {}\nfn func2() {}").unwrap();
+    // file2.rs has 1 function
+    fs::write(&file2, "fn func3() {}").unwrap();
+
+    // Index files
+    {
+        let mut graph = magellan::CodeGraph::open(&db_path).unwrap();
+        let path_str1 = file1.to_string_lossy().to_string();
+        let path_str2 = file2.to_string_lossy().to_string();
+        graph
+            .index_file(&path_str1, fs::read(&file1).unwrap().as_slice())
+            .unwrap();
+        graph
+            .index_file(&path_str2, fs::read(&file2).unwrap().as_slice())
+            .unwrap();
+    }
+
+    // Run files --db test.db --output json --symbols
+    let output = Command::new(&bin_path)
+        .arg("files")
+        .arg("--db")
+        .arg(&db_path)
+        .arg("--symbols")
+        .arg("--output")
+        .arg("json")
+        .output()
+        .expect("Failed to execute magellan files");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "Process should exit successfully\nstdout: {}\nstderr: {}",
+        stdout,
+        stderr
+    );
+
+    // Parse JSON and verify structure
+    let json: serde_json::Value = serde_json::from_str(&stdout)
+        .expect("Output should be valid JSON");
+
+    // Verify response wrapper
+    assert_eq!(json["schema_version"], "1.0.0");
+    assert!(json["execution_id"].is_string());
+
+    // Verify data structure
+    let data = &json["data"];
+    assert!(data.is_object());
+
+    // Verify files array
+    let files = &data["files"];
+    assert!(files.is_array());
+    let files_array = files.as_array().unwrap();
+    assert_eq!(files_array.len(), 2, "Should have 2 files");
+
+    // Verify symbol_counts field exists and is not None
+    let symbol_counts = &data["symbol_counts"];
+    assert!(symbol_counts.is_object(), "symbol_counts should be an object");
+
+    // Verify counts match actual symbols
+    let counts_obj = symbol_counts.as_object().unwrap();
+    assert_eq!(counts_obj.len(), 2, "Should have counts for 2 files");
+
+    // Each file should have a count > 0
+    for (_file_path, count) in counts_obj.iter() {
+        let count_val = count.as_u64().expect("Count should be a number");
+        assert!(count_val > 0, "Each file should have at least 1 symbol");
+    }
+}
+
