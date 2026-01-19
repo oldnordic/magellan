@@ -11,11 +11,11 @@ See: .planning/PROJECT.md (updated 2026-01-19)
 
 **Milestone:** v1.1 Correctness + Safety
 **Phase:** 12 of 13 (Transactional Deletes)
-**Plan:** 4 of 4 in current phase
-**Status:** Ready to plan
-**Last activity:** 2026-01-19 — Verified Phase 11: FQN Extraction (5/5 must-haves passed)
+**Plan:** 1 of 4 in current phase
+**Status:** In progress
+**Last activity:** 2026-01-19 — Completed Phase 12-01: Transactional Delete Implementation
 
-**Progress bar:** [██████░░░░] 56% v1.1 (10/18 plans) | [██████████] 100% v1.0 (29/29 plans)
+**Progress bar:** [███████░░░] 61% v1.1 (11/18 plans) | [██████████] 100% v1.0 (29/29 plans)
 
 ## Success Definition (v1.1)
 
@@ -148,18 +148,24 @@ Magellan v1.1 is "done" when:
 - None - complete. Database version bump handles migration.
 
 **Phase 12 (Transactional Deletes):**
-- Not started
-- Will use FQN for symbol identification
+- Plan 12-01 complete: delete_file_facts() now uses IMMEDIATE transaction
+- Plans 12-02, 12-03, 12-04 remain
+
+### Key Decisions (Phase 12-01: Transactional Delete Implementation)
+- Use TransactionBehavior::Immediate for write locking during delete operations
+- In-memory index removal occurs only after successful database commit
+- Automatic rollback on any failure via Rust's Drop trait
+- Transaction pattern follows generation/mod.rs style with explicit commit error handling
 
 ## Session Continuity
 
 - **Last session:** 2026-01-19
-- **Stopped at:** Completed Phase 11-06: FQN Implementation Complete
+- **Stopped at:** Completed Phase 12-01: Transactional Delete Implementation
 - **Resume file:** None
 
 If resuming later, start by:
 1. Read `.planning/ROADMAP.md` for phase structure
 2. Read `.planning/PROJECT.md` for requirements and constraints
-3. Read `.planning/phases/11-fqn-extraction/11-06-SUMMARY.md` for plan results
+3. Read `.planning/phases/12-transactional-deletes/12-01-SUMMARY.md` for plan results
 4. Run `cargo test --workspace` to verify baseline health
-5. Execute next phase: Phase 12 - Transactional Deletes
+5. Execute next plan: Phase 12-02 - Remaining Transactional Cleanup
