@@ -75,6 +75,12 @@ pub struct SymbolFact {
     pub kind_normalized: String,
     /// Symbol name (if any - some symbols like impl blocks may not have names)
     pub name: Option<String>,
+    /// Fully-qualified name for stable symbol_id generation
+    ///
+    /// For v1, this is set to the simple symbol name for top-level symbols.
+    /// Future versions will build proper hierarchical FQN (e.g., "module::Struct::method").
+    #[serde(default)]
+    pub fqn: Option<String>,
     /// Byte offset where symbol starts in file
     pub byte_start: usize,
     /// Byte offset where symbol ends in file
@@ -179,11 +185,13 @@ impl Parser {
         let name = self.extract_name(node, source);
 
         let normalized_kind = symbol_kind.normalized_key().to_string();
+        let fqn = name.clone(); // For v1, FQN is just the symbol name
         Some(SymbolFact {
             file_path: file_path.clone(),
             kind: symbol_kind,
             kind_normalized: normalized_kind,
             name,
+            fqn,
             byte_start: node.start_byte() as usize,
             byte_end: node.end_byte() as usize,
             start_line: node.start_position().row + 1, // tree-sitter is 0-indexed
@@ -254,6 +262,7 @@ mod tests {
             kind: SymbolKind::Function,
             kind_normalized: SymbolKind::Function.normalized_key().to_string(),
             name: Some("test_fn".to_string()),
+            fqn: Some("test_fn".to_string()),
             byte_start: 0,
             byte_end: 100,
             start_line: 1,
@@ -268,6 +277,7 @@ mod tests {
         assert_eq!(fact.file_path, deserialized.file_path);
         assert_eq!(fact.kind, deserialized.kind);
         assert_eq!(fact.name, deserialized.name);
+        assert_eq!(fact.fqn, deserialized.fqn);
     }
 
     #[test]

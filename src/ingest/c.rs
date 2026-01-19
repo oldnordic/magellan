@@ -92,11 +92,13 @@ impl CParser {
         let name = self.extract_name(node, source);
 
         let normalized_kind = symbol_kind.normalized_key().to_string();
+        let fqn = name.clone(); // For v1, FQN is just the symbol name
         Some(SymbolFact {
             file_path: file_path.clone(),
             kind: symbol_kind,
             kind_normalized: normalized_kind,
             name,
+            fqn,
             byte_start: node.start_byte() as usize,
             byte_end: node.end_byte() as usize,
             start_line: node.start_position().row + 1, // tree-sitter is 0-indexed

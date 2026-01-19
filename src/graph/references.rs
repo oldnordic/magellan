@@ -123,6 +123,7 @@ impl ReferenceOps {
                                         .clone()
                                         .unwrap_or(symbol_node.kind.clone()),
                                     name: Some(name.clone()),
+                                    fqn: Some(name.clone()),
                                     byte_start: symbol_node.byte_start as usize,
                                     byte_end: symbol_node.byte_end as usize,
                                     start_line: symbol_node.start_line as usize,
