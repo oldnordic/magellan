@@ -8,6 +8,7 @@ pub mod get_cmd;
 pub mod graph;
 pub mod indexer;
 pub mod ingest;
+pub mod output;
 pub mod references;
 pub mod verify;
 pub mod watcher;
