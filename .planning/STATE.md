@@ -9,11 +9,11 @@
 ## Current Position
 
 - **Current phase:** Phase 3 — CLI Output Contract (Schema + Determinism + Stdout Discipline)
-- **Status:** In progress (1/3 plans complete)
-- **Last activity:** 2026-01-19 - Completed 03-01 (Output Module Foundation)
-- **Next action:** Execute remaining Phase 3 plans (03-02, 03-03)
+- **Status:** Phase 3 complete (3/3 plans executed)
+- **Last activity:** 2026-01-19 - Completed 03-03 (JSON Output for Query Commands)
+- **Next action:** Execute Phase 4 plans (04-stable-ids)
 
-**Progress bar:** [████████░░] 42% (1/3 plans executed in Phase 3, 11/12 total plans executed)
+**Progress bar:** [████████░░] 42% (0/3 plans executed in Phase 4, 11/12 total plans executed)
 
 ## Success Definition (v1)
 
@@ -84,6 +84,18 @@ Magellan v1 is "done" when a user can:
 - Execution ID format: 16 hex chars from timestamp (8) + PID (8)
 - output_json() function using serde_json::to_string_pretty for human-readable JSON
 
+### Key Decisions (from Phase 3 / Plan 02)
+- StatusResponse and ErrorResponse types for JSON error/status reporting
+- ErrorResponse used for structured error output in JSON mode
+- StatusResponse includes files, symbols, references, calls, code_chunks counts
+
+### Key Decisions (from Phase 3 / Plan 03)
+- Span type with hash-based span_id placeholder (proper generation in Phase 4)
+- SymbolMatch for query/find results with match_id, span, name, kind, parent
+- ReferenceMatch for refs results with match_id, span, referenced_symbol, reference_kind
+- Global --output flag parsed once in main() and passed to command runners
+- Deterministic sorting for all JSON arrays (file_path, start_line, start_col ordering)
+
 ### Known Risks / Watch-outs
 - Mixed coordinate systems (byte vs char; inclusive vs exclusive).
 - "Stable IDs" accidentally derived from unstable sources (rowid, node id, iteration order).
@@ -96,11 +108,11 @@ Magellan v1 is "done" when a user can:
 
 ## Session Continuity
 
-- **Last session:** 2026-01-19T10:35:30Z
-- **Stopped at:** Completed 03-01 (Output Module Foundation)
+- **Last session:** 2026-01-19T10:47:05Z
+- **Stopped at:** Completed Phase 3 - all 3 plans (03-01, 03-02, 03-03) executed
 - **Resume file:** None
 
 If resuming later, start by:
-1. Open `.planning/phases/03-cli-output-contract/03-01-SUMMARY.md` for context on completed work.
+1. Open `.planning/phases/03-cli-output-contract/03-03-SUMMARY.md` for context on completed work.
 2. Run `cargo test --workspace` to verify baseline health.
-3. Execute next Phase 3 plan: `/gsd:execute-phase 03-cli-output-contract` (will pick 03-02)
+3. Execute Phase 4 plans: `/gsd:execute-phase 04-stable-ids`
