@@ -147,13 +147,10 @@ impl SymbolOps {
         let file_path_str = fact.file_path.to_string_lossy();
         let span_id = generate_span_id(&file_path_str, fact.byte_start, fact.byte_end);
 
-        // Get FQN for symbol_id generation
-        // Use name as fallback if fqn is not set (v1 compatibility)
-        let name_for_fqn = fact.name.as_deref().unwrap_or("");
-        let fqn = fact.fqn.as_deref().unwrap_or(name_for_fqn);
-
-        // Generate stable symbol_id
-        let symbol_id = generate_symbol_id(&language, fqn, &span_id);
+        // Generate stable symbol_id from (language, FQN, span_id)
+        // FQN prevents collisions; span_id ensures uniqueness within FQN
+        let fqn_for_id = fact.fqn.as_deref().unwrap_or("");
+        let symbol_id = generate_symbol_id(&language, fqn_for_id, &span_id);
 
         let symbol_node = SymbolNode {
             symbol_id: Some(symbol_id),
