@@ -693,6 +693,77 @@ fn parse_args() -> Result<Command> {
     }
 }
 
+/// Execution tracking wrapper
+///
+/// Records execution start/finish in execution_log.
+/// Handles both success and error outcomes.
+struct ExecutionTracker {
+    exec_id: String,
+    tool_version: String,
+    args: Vec<String>,
+    root: Option<String>,
+    db_path: String,
+    outcome: String,
+    error_message: Option<String>,
+    files_indexed: usize,
+    symbols_indexed: usize,
+    references_indexed: usize,
+}
+
+impl ExecutionTracker {
+    fn new(args: Vec<String>, root: Option<String>, db_path: String) -> Self {
+        Self {
+            exec_id: generate_execution_id(),
+            tool_version: env!("CARGO_PKG_VERSION").to_string(),
+            args,
+            root,
+            db_path,
+            outcome: "success".to_string(),
+            error_message: None,
+            files_indexed: 0,
+            symbols_indexed: 0,
+            references_indexed: 0,
+        }
+    }
+
+    fn start(&self, graph: &CodeGraph) -> Result<()> {
+        graph.execution_log().start_execution(
+            &self.exec_id,
+            &self.tool_version,
+            &self.args,
+            self.root.as_deref(),
+            &self.db_path,
+        )?;
+        Ok(())
+    }
+
+    fn finish(&self, graph: &CodeGraph) -> Result<()> {
+        graph.execution_log().finish_execution(
+            &self.exec_id,
+            &self.outcome,
+            self.error_message.as_deref(),
+            self.files_indexed,
+            self.symbols_indexed,
+            self.references_indexed,
+        )
+    }
+
+    fn set_error(&mut self, msg: String) {
+        self.outcome = "error".to_string();
+        self.error_message = Some(msg);
+    }
+
+    fn set_counts(&mut self, files: usize, symbols: usize, references: usize) {
+        self.files_indexed = files;
+        self.symbols_indexed = symbols;
+        self.references_indexed = references;
+    }
+
+    fn exec_id(&self) -> &str {
+        &self.exec_id
+    }
+}
+
 fn run_status(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
     let graph = CodeGraph::open(&db_path)?;
 
