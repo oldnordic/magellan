@@ -25,7 +25,7 @@ fn print_usage() {
     eprintln!("  magellan --help");
     eprintln!();
     eprintln!("  magellan watch --root <DIR> --db <FILE> [--debounce-ms <N>] [--watch-only]");
-    eprintln!("  magellan export --db <FILE> [--format json|jsonl] [--output <PATH>] [--minify]");
+    eprintln!("  magellan export --db <FILE> [--format json|jsonl|csv] [--output <PATH>] [--minify]");
     eprintln!("  magellan status --db <FILE>");
     eprintln!("  magellan query --db <FILE> --file <PATH> [--kind <KIND>]");
     eprintln!("  magellan find --db <FILE> --name <NAME> [--path <PATH>]");
@@ -38,7 +38,7 @@ fn print_usage() {
     eprintln!();
     eprintln!("Commands:");
     eprintln!("  watch     Watch directory and index changes");
-    eprintln!("  export    Export graph data to JSON/JSONL");
+    eprintln!("  export    Export graph data to JSON/JSONL/CSV");
     eprintln!("  status    Show database statistics");
     eprintln!("  query     List symbols in a file");
     eprintln!("  find      Find a symbol by name");
@@ -61,7 +61,7 @@ fn print_usage() {
     eprintln!();
     eprintln!("Export arguments:");
     eprintln!("  --db <FILE>         Path to sqlitegraph database");
-    eprintln!("  --format <FORMAT>   Export format: json (default) or jsonl");
+    eprintln!("  --format <FORMAT>   Export format: json (default), jsonl, or csv");
     eprintln!("  --output <PATH>     Write to file instead of stdout");
     eprintln!("  --minify            Use compact JSON (no pretty-printing)");
     eprintln!("  --no-symbols        Exclude symbols from export");

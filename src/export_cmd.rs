@@ -1,6 +1,6 @@
 //! Export command implementation
 //!
-//! Exports graph data to JSON/JSONL formats with stable IDs.
+//! Exports graph data to JSON/JSONL/CSV formats with stable IDs.
 
 use anyhow::Result;
 use magellan::CodeGraph;
@@ -12,7 +12,7 @@ use std::path::PathBuf;
 
 /// Run the export command
 ///
-/// Exports graph data to JSON or JSONL format with stable IDs.
+/// Exports graph data to JSON/JSONL/CSV format with stable IDs.
 /// Output goes to stdout by default, or to a file if --output is specified.
 ///
 /// # Arguments
