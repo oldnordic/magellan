@@ -68,9 +68,9 @@ Plans:
 **Plans:** 3 plans
 
 Plans:
-- [ ] 03-01-PLAN.md — Output module foundation (JsonResponse, OutputFormat, execution_id, stdout/stderr helpers)
-- [ ] 03-02-PLAN.md — CLI --output flag + status command JSON output (proof of concept)
-- [ ] 03-03-PLAN.md — Query/find/refs/files commands JSON output (span-aware results)
+- [x] 03-01-PLAN.md — Output module foundation (JsonResponse, OutputFormat, execution_id, stdout/stderr helpers)
+- [x] 03-02-PLAN.md — CLI --output flag + status command JSON output (proof of concept)
+- [x] 03-03-PLAN.md — Query/find/refs/files commands JSON output (span-aware results)
 
 **Success Criteria (observable):**
 1. For every user-facing command, user can request JSON output (or get JSON in machine mode) that includes `schema_version` and documented fields.
@@ -176,7 +176,7 @@ Plans:
 |------:|------|--------|
 | 1 | Persistence Compatibility Baseline | Complete |
 | 2 | Deterministic Watch & Indexing Pipeline | Complete |
-| 3 | CLI Output Contract | Planned |
+| 3 | CLI Output Contract | Complete |
 | 4 | Canonical Span Model + Span-Aware Results | Planned |
 | 5 | Stable Identity + Execution Tracking | Planned |
 | 6 | Query UX | Planned |

@@ -7,9 +7,9 @@
 
 ### Output Contract (CLI JSON)
 
-- [ ] **OUT-01**: Every user-facing command supports `--output json` (or defaults to JSON in machine mode) with a **schema_version** field and explicit, documented fields.
-- [ ] **OUT-02**: CLI output is **deterministic**: stable ordering of arrays/records (sorted by stable keys) and no HashMap iteration order leaks.
-- [ ] **OUT-03**: Enforce stdout discipline: **stdout = data only**, **stderr = logs/diagnostics**.
+- [x] **OUT-01**: Every user-facing command supports `--output json` (or defaults to JSON in machine mode) with a **schema_version** field and explicit, documented fields.
+- [x] **OUT-02**: CLI output is **deterministic**: stable ordering of arrays/records (sorted by stable keys) and no HashMap iteration order leaks.
+- [x] **OUT-03**: Enforce stdout discipline: **stdout = data only**, **stderr = logs/diagnostics**.
 - [ ] **OUT-04**: Every match/result that points into source is **span-aware**, returning byte offsets and line/col with explicit range semantics.
 - [ ] **OUT-05**: Every response includes stable identifiers where applicable: `execution_id`, and per-result `match_id` / `span_id` / `symbol_id`.
 
@@ -27,7 +27,7 @@
 - [x] **WATCH-03**: Support ignore/include/exclude rules (gitignore-style plus explicit CLI globs) and report skip reasons in diagnostics.
 - [x] **WATCH-04**: Indexing updates are idempotent: re-indexing a file fully replaces its derived facts (no ghost nodes/edges).
 - [x] **WATCH-05A**: Per-file failures do not stop watch mode; errors are recorded as **structured diagnostics** and surfaced deterministically in human-readable output (stderr).
-- [ ] **WATCH-05B**: Structured watch diagnostics are exposed via the **Phase 3 JSON output contract** (schema-versioned + deterministic ordering + stdout/stderr discipline).
+- [x] **WATCH-05B**: Structured watch diagnostics are exposed via the **Phase 3 JSON output contract** (schema-versioned + deterministic ordering + stdout/stderr discipline).
 
 ### Queries
 
@@ -78,10 +78,10 @@
 | WATCH-03 | Phase 2 | Complete |
 | WATCH-04 | Phase 2 | Complete |
 | WATCH-05A | Phase 2 | Complete |
-| WATCH-05B | Phase 3 | Pending |
-| OUT-01 | Phase 3 | Pending |
-| OUT-02 | Phase 3 | Pending |
-| OUT-03 | Phase 3 | Pending |
+| WATCH-05B | Phase 3 | Complete |
+| OUT-01 | Phase 3 | Complete |
+| OUT-02 | Phase 3 | Complete |
+| OUT-03 | Phase 3 | Complete |
 | ID-01 | Phase 4 | Pending |
 | OUT-04 | Phase 4 | Pending |
 | OUT-05 | Phase 5 | Pending |
