@@ -242,6 +242,30 @@ pub struct FilesResponse {
     pub files: Vec<String>,
 }
 
+/// Response for status command
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StatusResponse {
+    /// Number of indexed files
+    pub files: usize,
+    /// Number of indexed symbols
+    pub symbols: usize,
+    /// Number of indexed references
+    pub references: usize,
+    /// Number of indexed calls
+    pub calls: usize,
+    /// Number of code chunks
+    pub code_chunks: usize,
+}
+
+/// Response for errors in JSON mode
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ErrorResponse {
+    /// Error category/type
+    pub error: String,
+    /// Human-readable error message
+    pub message: String,
+}
+
 /// Output format for commands
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputFormat {
@@ -358,5 +382,39 @@ mod tests {
         assert_eq!(OutputFormat::from_str("human"), Some(OutputFormat::Human));
         assert_eq!(OutputFormat::from_str("text"), Some(OutputFormat::Human));
         assert_eq!(OutputFormat::from_str("invalid"), None);
+    }
+
+    #[test]
+    fn test_status_response_serialization() {
+        let response = StatusResponse {
+            files: 10,
+            symbols: 100,
+            references: 50,
+            calls: 25,
+            code_chunks: 200,
+        };
+
+        let json = serde_json::to_string(&response).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed["files"], 10);
+        assert_eq!(parsed["symbols"], 100);
+        assert_eq!(parsed["references"], 50);
+        assert_eq!(parsed["calls"], 25);
+        assert_eq!(parsed["code_chunks"], 200);
+    }
+
+    #[test]
+    fn test_error_response_serialization() {
+        let response = ErrorResponse {
+            error: "file_not_found".to_string(),
+            message: "The requested file does not exist".to_string(),
+        };
+
+        let json = serde_json::to_string(&response).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed["error"], "file_not_found");
+        assert_eq!(parsed["message"], "The requested file does not exist");
     }
 }

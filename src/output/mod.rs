@@ -5,7 +5,7 @@
 pub mod command;
 
 pub use command::{
-    generate_execution_id, output_json, FilesResponse,
+    generate_execution_id, output_json, ErrorResponse, FilesResponse,
     FindResponse, JsonResponse, OutputFormat, QueryResponse, RefsResponse, ReferenceMatch, Span,
-    SymbolMatch,
+    StatusResponse, SymbolMatch,
 };
