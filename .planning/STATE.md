@@ -11,11 +11,11 @@ See: .planning/PROJECT.md (updated 2026-01-19)
 
 **Milestone:** v1.1 Correctness + Safety
 **Phase:** 11 of 13 (FQN Extraction)
-**Plan:** 5 of 6 in current phase
-**Status:** In progress
-**Last activity:** 2026-01-19 — Completed Phase 11-05: FQN-Based Symbol Lookup
+**Plan:** 6 of 6 in current phase
+**Status:** Phase complete
+**Last activity:** 2026-01-19 — Completed Phase 11-06: FQN Implementation Complete
 
-**Progress bar:** [██████░░░░░░] 44% v1.1 (8/18 plans) | [██████████] 100% v1.0 (29/29 plans)
+**Progress bar:** [███████░░░░░] 50% v1.1 (9/18 plans) | [██████████] 100% v1.0 (29/29 plans)
 
 ## Success Definition (v1.1)
 
@@ -134,21 +134,32 @@ Magellan v1.1 is "done" when:
 - Backward compatibility: fqn.or(name).unwrap_or_default() fallback pattern
 - SymbolNode schema includes fqn field for unique identification
 
+### Key Decisions (Phase 11-06: FQN Implementation Complete)
+- symbol_id generation explicitly uses FQN: hash(language, fqn, span_id)
+- Fixed bug: symbol_fact_from_node was using name instead of fqn field
+- C++ namespaces now create symbols with proper FQNs
+- Database version bumped from 2 to 3 (breaking change for symbol_id)
+- Migration error message provides clear re-index instructions
+- Integration tests verify FQN extraction across Rust, Java, Python, C++
+
 ### Blockers / Concerns
 
 **Phase 11 (FQN):**
-- Changing symbol_id breaks all existing references - migration plan required
-- Per-language edge cases (anonymous namespaces, closures, trait impls, generics)
+- None - complete. Database version bump handles migration.
+
+**Phase 12 (Transactional Deletes):**
+- Not started
+- Will use FQN for symbol identification
 
 ## Session Continuity
 
 - **Last session:** 2026-01-19
-- **Stopped at:** Completed Phase 11-05: FQN-Based Symbol Lookup
+- **Stopped at:** Completed Phase 11-06: FQN Implementation Complete
 - **Resume file:** None
 
 If resuming later, start by:
 1. Read `.planning/ROADMAP.md` for phase structure
 2. Read `.planning/PROJECT.md` for requirements and constraints
-3. Read `.planning/phases/11-fqn-extraction/11-05-SUMMARY.md` for plan results
+3. Read `.planning/phases/11-fqn-extraction/11-06-SUMMARY.md` for plan results
 4. Run `cargo test --workspace` to verify baseline health
-5. Execute next plan in Phase 11 (11-06)
+5. Execute next phase: Phase 12 - Transactional Deletes
