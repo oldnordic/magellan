@@ -49,15 +49,26 @@ pub struct ExportConfig {
     pub include_calls: bool,
     /// Use minified JSON (no pretty-printing)
     pub minify: bool,
-    /// Optional filters for export (placeholder for future filtering)
-    pub filters: Option<ExportFilters>,
+    /// Filters for export (file, symbol, kind, max_depth, cluster)
+    pub filters: ExportFilters,
 }
 
-/// Export filters (placeholder for future filtering capabilities)
-#[derive(Debug, Clone)]
+/// Export filters for DOT export
+///
+/// Filters allow restricting the exported graph to specific files,
+/// symbols, or limiting traversal depth.
+#[derive(Debug, Clone, Default)]
 pub struct ExportFilters {
-    // Future: file path filters, kind filters, etc.
-    _private: (),
+    /// Only include calls from/to symbols in this file path
+    pub file: Option<String>,
+    /// Only include calls from/to this specific symbol name
+    pub symbol: Option<String>,
+    /// Only include symbols of this kind (e.g., "Function", "Method")
+    pub kind: Option<String>,
+    /// Maximum depth for call graph traversal (None = unlimited)
+    pub max_depth: Option<usize>,
+    /// Group nodes by file in subgraphs (DOT cluster feature)
+    pub cluster: bool,
 }
 
 impl Default for ExportConfig {
@@ -68,7 +79,7 @@ impl Default for ExportConfig {
             include_references: true,
             include_calls: true,
             minify: false,
-            filters: None,
+            filters: ExportFilters::default(),
         }
     }
 }

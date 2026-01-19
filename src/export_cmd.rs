@@ -4,7 +4,7 @@
 
 use anyhow::Result;
 use magellan::CodeGraph;
-use magellan::graph::export::{export_graph, ExportConfig, ExportFormat};
+use magellan::graph::export::{export_graph, ExportConfig, ExportFilters, ExportFormat};
 use magellan::output::generate_execution_id;
 use std::fs::File;
 use std::io::Write;
@@ -68,14 +68,14 @@ pub fn run_export(
         &db_path.to_string_lossy(),
     )?;
 
-    // Build export config
+    // Build export config with empty filters for JSON/JSONL export
     let config = ExportConfig {
         format,
         include_symbols,
         include_references,
         include_calls,
         minify,
-        filters: None,
+        filters: ExportFilters::default(),
     };
 
     // Export graph data
