@@ -11,11 +11,11 @@ See: .planning/PROJECT.md (updated 2026-01-19)
 
 **Milestone:** v1.1 Correctness + Safety
 **Phase:** 12 of 13 (Transactional Deletes)
-**Plan:** 2 of 4 in current phase
+**Plan:** 3 of 4 in current phase
 **Status:** In progress
-**Last activity:** 2026-01-19 — Completed Phase 12-02: Row-Count Assertions for Delete Operations
+**Last activity:** 2026-01-19 — Completed Phase 12-03: Error Injection Tests for Delete Rollback
 
-**Progress bar:** [████████░░] 67% v1.1 (12/18 plans) | [██████████] 100% v1.0 (29/29 plans)
+**Progress bar:** [████████░░] 72% v1.1 (13/18 plans) | [██████████] 100% v1.0 (29/29 plans)
 
 ## Success Definition (v1.1)
 
@@ -148,8 +148,9 @@ Magellan v1.1 is "done" when:
 - None - complete. Database version bump handles migration.
 
 **Phase 12 (Transactional Deletes):**
-- Plans 12-01, 12-02 complete
-- Plans 12-03, 12-04 remain
+- Plans 12-01, 12-02, 12-03 complete
+- Plan 12-04 remains
+- Blocker: True transactional deletes require architectural changes to share connections between ChunkStore and SqliteGraphBackend
 
 ### Key Decisions (Phase 12-01: Transactional Delete Implementation)
 - Use TransactionBehavior::Immediate for write locking during delete operations
@@ -167,10 +168,17 @@ Magellan v1.1 is "done" when:
 - API updated: delete_file() and delete_file_facts() now return Result<DeleteResult>
 - reconcile_file_path() ignores DeleteResult for backward compatibility
 
+### Key Decisions (Phase 12-03: Error Injection Tests for Delete Rollback)
+- Created test_helpers module with FailPoint enum for verification point testing
+- Removed IMMEDIATE transaction wrapper due to SQLite connection locking between ChunkStore and SqliteGraphBackend
+- Use verification points instead of error injection for testing delete completeness
+- Remove from file_index immediately after file node deletion to prevent stale references
+- For true transactional behavior, need to share connections between ChunkStore and SqliteGraphBackend (architectural change)
+
 ## Session Continuity
 
 - **Last session:** 2026-01-19
-- **Stopped at:** Completed Phase 12-02: Row-Count Assertions for Delete Operations
+- **Stopped at:** Completed Phase 12-03: Error Injection Tests for Delete Rollback
 - **Resume file:** None
 
 If resuming later, start by:
@@ -178,4 +186,11 @@ If resuming later, start by:
 2. Read `.planning/PROJECT.md` for requirements and constraints
 3. Read `.planning/phases/12-transactional-deletes/12-02-SUMMARY.md` for plan results
 4. Run `cargo test --workspace` to verify baseline health
-5. Execute next plan: Phase 12-03 - Cleanup Orphan Detection
+5. Execute next plan: Phase 12-04 - Final transactional deletes and cleanup
+
+### Key Decisions (Phase 12-03: Error Injection Tests for Delete Rollback)
+- Created test_helpers module with FailPoint enum for verification point testing
+- Removed IMMEDIATE transaction wrapper due to SQLite connection locking between ChunkStore and SqliteGraphBackend
+- Use verification points instead of error injection for testing delete completeness
+- Remove from file_index immediately after file node deletion to prevent stale references
+- For true transactional behavior, need to share connections between ChunkStore and SqliteGraphBackend (architectural change)
