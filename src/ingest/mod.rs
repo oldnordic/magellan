@@ -424,7 +424,7 @@ impl Parser {
         }
 
         let symbol_kind = match kind {
-            "function_item" => SymbolKind::Function,
+            "function_item" | "function_signature_item" => SymbolKind::Function,
             "struct_item" => SymbolKind::Class,
             "enum_item" => SymbolKind::Enum,
             _ => return None,
@@ -583,16 +583,113 @@ impl Default for MyStruct {
         let mut parser = Parser::new().unwrap();
         let facts = parser.extract_symbols(PathBuf::from("/test.rs"), content.as_bytes());
 
-        // Should find: struct, inherent impl, trait impl
-        let impl_facts: Vec<_> = facts
+        // With FQN-aware extraction, impl blocks don't create symbols.
+        // Instead, methods get the impl type in their FQN.
+        // Should find: struct, new, default
+        let methods: Vec<_> = facts
             .iter()
-            .filter(|f| f.kind == SymbolKind::Unknown)
+            .filter(|f| f.kind == SymbolKind::Function)
             .collect();
 
-        // Both impls should have MyStruct as their name
-        assert_eq!(impl_facts.len(), 2);
-        assert_eq!(impl_facts[0].name, Some("MyStruct".to_string()));
-        assert_eq!(impl_facts[1].name, Some("MyStruct".to_string()));
+        assert_eq!(methods.len(), 2);
+        // Both methods should have MyStruct in their FQN
+        assert!(methods[0].fqn.as_ref().unwrap().contains("MyStruct"));
+        assert!(methods[1].fqn.as_ref().unwrap().contains("MyStruct"));
+    }
+
+    #[test]
+    fn test_fqn_top_level_function() {
+        let mut parser = Parser::new().unwrap();
+        let source = b"pub fn top_function() {}\n";
+        let facts = parser.extract_symbols(PathBuf::from("test.rs"), source);
+
+        assert_eq!(facts.len(), 1);
+        assert_eq!(facts[0].fqn, Some("top_function".to_string()));
+    }
+
+    #[test]
+    fn test_fqn_module_function() {
+        let mut parser = Parser::new().unwrap();
+        let source = b"
+mod my_module {
+    pub fn module_function() {}
+}
+";
+        let facts = parser.extract_symbols(PathBuf::from("test.rs"), source);
+
+        let funcs: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Function)
+            .collect();
+
+        assert_eq!(funcs.len(), 1);
+        assert_eq!(funcs[0].fqn, Some("my_module::module_function".to_string()));
+    }
+
+    #[test]
+    fn test_fqn_nested_modules() {
+        let mut parser = Parser::new().unwrap();
+        let source = b"
+mod outer {
+    pub fn outer_fn() {}
+
+    mod inner {
+        pub fn inner_fn() {}
+    }
+}
+";
+        let facts = parser.extract_symbols(PathBuf::from("test.rs"), source);
+
+        let funcs: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Function)
+            .collect();
+
+        assert_eq!(funcs.len(), 2);
+        assert_eq!(funcs[0].fqn, Some("outer::outer_fn".to_string()));
+        assert_eq!(funcs[1].fqn, Some("outer::inner::inner_fn".to_string()));
+    }
+
+    #[test]
+    fn test_fqn_impl_method() {
+        let mut parser = Parser::new().unwrap();
+        let source = b"
+pub struct MyStruct;
+
+impl MyStruct {
+    pub fn my_method(&self) {}
+}
+";
+        let facts = parser.extract_symbols(PathBuf::from("test.rs"), source);
+
+        let methods: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Function)
+            .collect();
+
+        assert_eq!(methods.len(), 1);
+        assert_eq!(methods[0].fqn, Some("MyStruct::my_method".to_string()));
+    }
+
+    #[test]
+    fn test_fqn_trait_method() {
+        let mut parser = Parser::new().unwrap();
+        let source = b"
+pub trait MyTrait {
+    fn trait_method(&self);
+}
+";
+        let facts = parser.extract_symbols(PathBuf::from("test.rs"), source);
+
+        // Find the trait method (function-like node inside trait)
+        let methods: Vec<_> = facts
+            .iter()
+            .filter(|f| matches!(f.kind, SymbolKind::Function))
+            .collect();
+
+        assert!(!methods.is_empty(), "Should find trait method");
+        let method = methods.first().unwrap();
+        assert_eq!(method.fqn, Some("MyTrait::trait_method".to_string()));
     }
 }
 
