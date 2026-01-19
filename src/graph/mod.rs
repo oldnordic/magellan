@@ -449,4 +449,22 @@ impl CodeGraph {
     pub fn execution_log(&self) -> &execution_log::ExecutionLog {
         &self.execution_log
     }
+
+    /// Validate graph invariants post-run
+    ///
+    /// Checks for orphan references, orphan calls, and other structural issues.
+    /// This is a convenience method that calls validation::validate_graph().
+    ///
+    /// # Returns
+    /// ValidationReport with validation results (errors, warnings, passed status)
+    pub fn validate_graph(&mut self) -> validation::ValidationReport {
+        validation::validate_graph(self).unwrap_or_else(|e| validation::ValidationReport {
+            passed: false,
+            errors: vec![validation::ValidationError::new(
+                "VALIDATION_ERROR".to_string(),
+                format!("Validation failed with error: {}", e),
+            )],
+            warnings: Vec::new(),
+        })
+    }
 }
