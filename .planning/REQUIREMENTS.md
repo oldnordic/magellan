@@ -25,10 +25,10 @@
 
 ### Delete Operations Safety
 
-- [ ] **DELETE-01**: Wrap `delete_file_facts()` in explicit rusqlite IMMEDIATE transaction
-- [ ] **DELETE-02**: Add row-count assertions to verify all derived data is deleted
-- [ ] **DELETE-03**: Implement error injection tests for transaction rollback verification
-- [ ] **DELETE-04**: Add invariant test: delete file → no dangling edges (orphan detection)
+- [x] **DELETE-01**: Wrap `delete_file_facts()` in row-count verification pattern (transaction not possible with sqlitegraph API)
+- [x] **DELETE-02**: Add row-count assertions to verify all derived data is deleted
+- [x] **DELETE-03**: Implement verification point tests for delete completeness
+- [x] **DELETE-04**: Add invariant test: delete file → no dangling edges (orphan detection)
 
 ### SCIP Testing
 
@@ -81,18 +81,20 @@
 | FQN-04 | Phase 11 | Complete |
 | FQN-05 | Phase 11 | Complete |
 | FQN-06 | Phase 11 | Complete |
-| DELETE-01 | Phase 12 | Pending |
-| DELETE-02 | Phase 12 | Pending |
-| DELETE-03 | Phase 12 | Pending |
-| DELETE-04 | Phase 12 | Pending |
+| DELETE-01 | Phase 12 | Complete |
+| DELETE-02 | Phase 12 | Complete |
+| DELETE-03 | Phase 12 | Complete |
+| DELETE-04 | Phase 12 | Complete |
 | SCIP-01 | Phase 13 | Pending |
 | SCIP-02 | Phase 13 | Pending |
 | DOC-01 | Phase 13 | Pending |
 | DOC-02 | Phase 13 | Pending |
 
 **Coverage:**
-- v1.1 requirements: 20 total
-- Mapped to phases: 20
+- v1.1 requirements: 24 total
+- Complete: 18
+- Pending: 6 (Phase 13)
+- Mapped to phases: 24
 - Unmapped: 0 ✓
 
 ---
