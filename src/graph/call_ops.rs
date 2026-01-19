@@ -84,8 +84,11 @@ impl CallOps {
         let language = detect_language(&path_buf);
 
         // Build symbol facts from persisted symbols to enable cross-file call matching.
+        // Also build stable symbol_id lookup map: (file_path, symbol_name) -> stable_symbol_id
         let mut symbol_facts = Vec::new();
         let mut current_file_facts = Vec::new();
+        let mut stable_symbol_ids: HashMap<(String, String), Option<String>> = HashMap::new();
+
         for symbol_id in symbol_ids.values() {
             let node = match self.backend.get_node(*symbol_id) {
                 Ok(value) => value,
@@ -96,10 +99,22 @@ impl CallOps {
                 continue;
             }
 
+            // Extract SymbolNode to get stable symbol_id
+            let symbol_node: Option<crate::graph::schema::SymbolNode> =
+                serde_json::from_value(node.data.clone()).ok();
+
+            let stable_id = symbol_node.as_ref().and_then(|n| n.symbol_id.clone());
+
             let symbol_fact = match self.symbol_fact_from_node(&node) {
                 Some(value) => value,
                 None => continue,
             };
+
+            // Build stable symbol_id lookup key: (file_path, symbol_name)
+            if let Some(ref name) = symbol_fact.name {
+                let key = (symbol_fact.file_path.to_string_lossy().to_string(), name.clone());
+                stable_symbol_ids.insert(key, stable_id);
+            }
 
             if node.file_path.as_deref() == Some(path) {
                 current_file_facts.push(symbol_fact);
@@ -143,11 +158,20 @@ impl CallOps {
             None => Vec::new(),
         };
 
+        let call_count = calls.len();
+
         // Insert call nodes and edges
-        for call in &calls {
+        for mut call in calls {
+            // Look up stable symbol_ids for caller and callee
+            let caller_key = (call.file_path.to_string_lossy().to_string(), call.caller.clone());
+            let callee_key = (call.file_path.to_string_lossy().to_string(), call.callee.clone());
+
+            call.caller_symbol_id = stable_symbol_ids.get(&caller_key).and_then(|id| id.clone());
+            call.callee_symbol_id = stable_symbol_ids.get(&callee_key).and_then(|id| id.clone());
+
             if let Some(&callee_symbol_id) = symbol_ids.get(&call.callee) {
                 if let Some(&caller_symbol_id) = symbol_ids.get(&call.caller) {
-                    let call_id = self.insert_call_node(call)?;
+                    let call_id = self.insert_call_node(&call)?;
                     // CALLER edge: caller Symbol -> Call node
                     self.insert_caller_edge(NodeId::from(caller_symbol_id), call_id)?;
                     // CALLS edge: Call node -> callee Symbol
@@ -156,7 +180,7 @@ impl CallOps {
             }
         }
 
-        Ok(calls.len())
+        Ok(call_count)
     }
 
     /// Query all calls FROM a specific symbol (forward call graph)
