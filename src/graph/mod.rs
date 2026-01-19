@@ -19,6 +19,10 @@ pub mod validation;
 // Re-export small public types from ops.
 pub use ops::{DeleteResult, ReconcileOutcome};
 
+// Re-export test helpers for integration tests.
+// The test_helpers module is public in ops.rs for use by delete_transaction_tests.rs
+pub use ops::test_helpers;
+
 // Re-export symbol ID generation function
 pub use symbols::generate_symbol_id;
 #[cfg(test)]
