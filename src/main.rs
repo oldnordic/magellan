@@ -766,6 +766,12 @@ impl ExecutionTracker {
 
 fn run_status(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
     let graph = CodeGraph::open(&db_path)?;
+    let tracker = ExecutionTracker::new(
+        vec!["status".to_string()],
+        None,
+        db_path.to_string_lossy().to_string(),
+    );
+    tracker.start(&graph)?;
 
     let file_count = graph.count_files()?;
     let symbol_count = graph.count_symbols()?;
@@ -782,7 +788,7 @@ fn run_status(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
                 calls: call_count,
                 code_chunks: chunk_count,
             };
-            let exec_id = generate_execution_id();
+            let exec_id = tracker.exec_id().to_string();
             let json_response = JsonResponse::new(response, &exec_id);
             output_json(&json_response)?;
         }
@@ -795,6 +801,7 @@ fn run_status(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
         }
     }
 
+    tracker.finish(&graph)?;
     Ok(())
 }
 
