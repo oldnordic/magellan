@@ -4,6 +4,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use anyhow::Result;
+
 /// File node payload stored in sqlitegraph
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileNode {
@@ -54,4 +56,48 @@ pub struct CallNode {
     pub start_col: u64,
     pub end_line: u64,
     pub end_col: u64,
+}
+
+/// A single edge endpoint row for orphan detection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EdgeEndpoints {
+    pub from_id: i64,
+    pub to_id: i64,
+}
+
+/// Delete edges whose from_id OR to_id is in the provided set of entity IDs.
+///
+/// Determinism: IDs must be pre-sorted by caller.
+pub fn delete_edges_touching_entities(
+    conn: &rusqlite::Connection,
+    entity_ids_sorted: &[i64],
+) -> Result<usize> {
+    use rusqlite::params_from_iter;
+
+    if entity_ids_sorted.is_empty() {
+        return Ok(0);
+    }
+
+    // Build placeholders for IN list.
+    let placeholders = std::iter::repeat("?")
+        .take(entity_ids_sorted.len())
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let sql = format!(
+        "DELETE FROM graph_edges WHERE from_id IN ({}) OR to_id IN ({})",
+        placeholders, placeholders
+    );
+
+    // Params are duplicated (for from_id and to_id IN lists).
+    let params = entity_ids_sorted
+        .iter()
+        .chain(entity_ids_sorted.iter())
+        .map(|id| *id);
+
+    let affected = conn
+        .execute(&sql, params_from_iter(params))
+        .map_err(|e| anyhow::anyhow!("Failed to delete edges touching entities: {}", e))?;
+
+    Ok(affected)
 }

@@ -8,7 +8,7 @@ use sqlitegraph::{BackendDirection, GraphBackend, NeighborQuery};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::graph::schema::SymbolNode;
+use crate::graph::schema::{EdgeEndpoints, SymbolNode};
 use crate::ingest::{SymbolFact, SymbolKind};
 use crate::references::ReferenceFact;
 
@@ -218,6 +218,34 @@ pub fn references_to_symbol(graph: &mut CodeGraph, symbol_id: i64) -> Result<Vec
     graph.references.references_to_symbol(symbol_id)
 }
 
+/// Enumerate edge endpoints for orphan detection.
+///
+/// This intentionally exposes only (from_id, to_id) so tests can assert that every
+/// endpoint refers to an existing entity, without guessing sqlite table names.
+pub fn edge_endpoints(graph: &CodeGraph) -> Result<Vec<EdgeEndpoints>> {
+    // sqlitegraph doesn't currently provide a public API to list edge endpoints.
+    // We therefore query the underlying tables via a rusqlite connection to the same DB file,
+    // using the ChunkStore connection (same file).
+    let conn = graph.chunks.connect()?;
+
+    let mut stmt = conn
+        .prepare_cached("SELECT from_id, to_id FROM graph_edges ORDER BY id")
+        .map_err(|e| anyhow::anyhow!("Failed to prepare edge endpoint query: {}", e))?;
+
+    let endpoints = stmt
+        .query_map([], |row: &rusqlite::Row| {
+            Ok(EdgeEndpoints {
+                from_id: row.get(0)?,
+                to_id: row.get(1)?,
+            })
+        })
+        .map_err(|e| anyhow::anyhow!("Failed to query edge endpoints: {}", e))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| anyhow::anyhow!("Failed to collect edge endpoints: {}", e))?;
+
+    Ok(endpoints)
+}
+
 // ============================================================================
 // Label-based queries (Phase 2: Label and Property Integration)
 // ============================================================================
@@ -307,7 +335,7 @@ impl CodeGraph {
 
         let mut stmt = conn
             .prepare_cached("SELECT DISTINCT label FROM graph_labels ORDER BY label")
-                .map_err(|e| anyhow::anyhow!("Failed to prepare labels query: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to prepare labels query: {}", e))?;
 
         let labels = stmt
             .query_map([], |row: &rusqlite::Row| row.get::<_, String>(0))
@@ -340,8 +368,8 @@ impl CodeGraph {
 
         for entity_id in entity_ids {
             if let Ok(node) = self.symbols.backend.get_node(entity_id) {
-                let symbol_node: SymbolNode = serde_json::from_value(node.data)
-                    .unwrap_or_else(|_| SymbolNode {
+                let symbol_node: SymbolNode =
+                    serde_json::from_value(node.data).unwrap_or_else(|_| SymbolNode {
                         name: None,
                         kind: "Unknown".to_string(),
                         kind_normalized: None,
@@ -374,8 +402,8 @@ impl CodeGraph {
 
         for entity_id in entity_ids {
             if let Ok(node) = self.symbols.backend.get_node(entity_id) {
-                let symbol_node: SymbolNode = serde_json::from_value(node.data)
-                    .unwrap_or_else(|_| SymbolNode {
+                let symbol_node: SymbolNode =
+                    serde_json::from_value(node.data).unwrap_or_else(|_| SymbolNode {
                         name: None,
                         kind: "Unknown".to_string(),
                         kind_normalized: None,
