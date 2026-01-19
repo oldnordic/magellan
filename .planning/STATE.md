@@ -10,10 +10,10 @@
 
 - **Current phase:** Phase 8 — Validation Hooks (Pre/Post) Surfaced via JSON
 - **Status:** In progress
-- **Last activity:** 2026-01-19 - Completed Phase 8 Plan 03 (CLI Validation Hooks)
+- **Last activity:** 2026-01-19 - Completed Phase 8 Plan 04 (Validation Module Tests)
 - **Next action:** Continue Phase 8 or review for Phase 9
 
-**Progress bar:** [██████████] 90% (30/33 total plans executed - Phase 8 Plan 03 complete)
+**Progress bar:** [██████████] 91% (31/33 total plans executed - Phase 8 Plan 04 complete)
 
 ## Success Definition (v1)
 
@@ -210,6 +210,14 @@ Magellan v1 is "done" when a user can:
 - Validation failures exit with code 1 for CI/CD integration
 - Validation output wrapped in JsonResponse with execution_id for correlation
 
+### Key Decisions (from Phase 8 / Plan 04)
+- Validation tests use sqlitegraph backend directly to create orphan scenarios
+- tempfile crate used for temporary directories in pre-run validation tests
+- Orphan tests create nodes without edges to simulate invalid graph states
+- Tests verify deterministic sorting of errors by code for consistent JSON output
+- Error code format verified as SCREAMING_SNAKE_CASE (ORPHAN_REFERENCE, DB_PARENT_MISSING, etc.)
+- Comprehensive test coverage includes clean/invalid graph scenarios for all validation checks
+
 ### Known Risks / Watch-outs
 - Mixed coordinate systems (byte vs char; inclusive vs exclusive).
 - "Stable IDs" accidentally derived from unstable sources (rowid, node id, iteration order).
@@ -221,11 +229,11 @@ Magellan v1 is "done" when a user can:
 
 ## Session Continuity
 
-- **Last session:** 2026-01-19T15:19:36Z
-- **Stopped at:** Completed Phase 8 Plan 03 (CLI Validation Hooks)
+- **Last session:** 2026-01-19T15:25:19Z
+- **Stopped at:** Completed Phase 8 Plan 04 (Validation Module Tests)
 - **Resume file:** None
 
 If resuming later, start by:
-1. Open `.planning/phases/08-validation-hooks/08-03-SUMMARY.md` for context on completed plan.
+1. Open `.planning/phases/08-validation-hooks/08-04-SUMMARY.md` for context on completed plan.
 2. Run `cargo test --workspace` to verify baseline health.
-3. Phase 8 Plan 03 is complete - CLI validation hooks integrated with --validate and --validate-only flags.
+3. Phase 8 Plan 04 is complete - validation module has comprehensive test coverage with 21 passing tests.
