@@ -548,4 +548,138 @@ mod tests {
         let id3 = Span::generate_id(file_path, 1_000_001, 1_000_100);
         assert_ne!(id1, id3, "Different start positions with large offsets should differ");
     }
+
+    // === Task 04-02.2: UTF-8 safety tests ===
+
+    #[test]
+    fn test_span_id_utf8_file_path() {
+        // Non-ASCII characters in file path handled correctly
+        let byte_start = 0;
+        let byte_end = 10;
+
+        // UTF-8 encoded paths with non-ASCII characters
+        let id1 = Span::generate_id("src/test.rs", byte_start, byte_end);
+        let id2 = Span::generate_id("src/test.rs", byte_start, byte_end);
+        let id3 = Span::generate_id("src/test文件.rs", byte_start, byte_end);  // Chinese characters
+        let id4 = Span::generate_id("src/testфайл.rs", byte_start, byte_end);  // Cyrillic characters
+
+        assert_eq!(id1, id2, "ASCII path should produce stable ID");
+        assert_eq!(id1.len(), 16, "ASCII path span ID should be 16 characters");
+        assert_eq!(id3.len(), 16, "Chinese path span ID should be 16 characters");
+        assert_eq!(id4.len(), 16, "Cyrillic path span ID should be 16 characters");
+
+        assert_ne!(id1, id3, "Different paths (ASCII vs Chinese) should produce different IDs");
+        assert_ne!(id1, id4, "Different paths (ASCII vs Cyrillic) should produce different IDs");
+        assert_ne!(id3, id4, "Different paths (Chinese vs Cyrillic) should produce different IDs");
+    }
+
+    #[test]
+    fn test_span_id_multibyte_characters() {
+        // Emoji, CJK characters in file path
+        let byte_start = 5;
+        let byte_end = 15;
+
+        // Emoji in path (rocket is 3 bytes in UTF-8)
+        let id_emoji = Span::generate_id("src/test.rs", byte_start, byte_end);
+        let id_with_emoji = Span::generate_id("src/test-test.rs", byte_start, byte_end);
+
+        assert_eq!(id_emoji.len(), 16, "Span ID with emoji path should be 16 characters");
+        assert_eq!(id_with_emoji.len(), 16, "Span ID with emoji in name should be 16 characters");
+        assert_ne!(id_emoji, id_with_emoji, "Different paths should produce different IDs");
+
+        // CJK (Chinese/Japanese/Korean) characters are multi-byte
+        let id_cjk = Span::generate_id("src/テスト.rs", byte_start, byte_end);
+        assert_eq!(id_cjk.len(), 16, "CJK path span ID should be 16 characters");
+
+        // Korean characters
+        let id_korean = Span::generate_id("src/테스트.rs", byte_start, byte_end);
+        assert_eq!(id_korean.len(), 16, "Korean path span ID should be 16 characters");
+
+        // All different
+        assert_ne!(id_emoji, id_cjk, "Different paths (ASCII vs CJK) should differ");
+        assert_ne!(id_cjk, id_korean, "Different paths (Japanese vs Korean) should differ");
+    }
+
+    #[test]
+    fn test_utf8_safe_extraction() {
+        // Demonstrate using source.get(byte_start..byte_end) for safe slicing
+        let source = "fn main() { let x = 42; }";
+
+        // Safe extraction using get() returns Option<&str>
+        let byte_start = 3;
+        let byte_end = 7;
+
+        let extracted = source.get(byte_start..byte_end);
+        assert_eq!(extracted, Some("main"), "Safe extraction should work for valid UTF-8");
+
+        // Out of bounds returns None instead of panic
+        let out_of_bounds = source.get(10..1000);
+        assert_eq!(out_of_bounds, None, "Out of bounds extraction should return None");
+    }
+
+    #[test]
+    fn test_utf8_validation() {
+        // Use source.is_char_boundary() to validate offsets
+        // Use a multi-byte Unicode character (e with acute accent: \u{e9} = 0xc3 0xa9 in UTF-8)
+        let source = "Hello\u{e9}";  // "Hello" (5) + "é" (2) = 7 bytes
+
+        // Valid boundaries
+        assert!(source.is_char_boundary(0), "Byte 0 is always a valid boundary");
+        assert!(source.is_char_boundary(5), "After 'Hello' is valid (start of multi-byte char)");
+        assert!(source.is_char_boundary(7), "After 'é' is valid (end of string)");
+        assert!(source.is_char_boundary(source.len()), "End of string is valid boundary");
+
+        // Invalid boundaries (middle of the 2-byte 'é' character)
+        assert!(!source.is_char_boundary(6), "Byte 6 is in the middle of the 2-byte 'é'");
+    }
+
+    #[test]
+    fn test_utf8_validation_three_byte_char() {
+        // Test with a 3-byte UTF-8 character (CJK)
+        let source = "test\u{4e2d}";  // "test" (4) + "" (3) = 7 bytes
+
+        assert!(source.is_char_boundary(0), "Start is boundary");
+        assert!(source.is_char_boundary(4), "After 'test' is boundary");
+        assert!(source.is_char_boundary(7), "After Chinese char is boundary");
+        assert!(source.is_char_boundary(source.len()), "End of string is valid");
+
+        // Middle of the 3-byte Chinese character
+        assert!(!source.is_char_boundary(5), "Byte 5 is in the middle of 3-byte char");
+        assert!(!source.is_char_boundary(6), "Byte 6 is in the middle of 3-byte char");
+    }
+
+    #[test]
+    fn test_span_id_unicode_normalization_difference() {
+        // Different Unicode representations of the same visual character
+        // produce different span IDs (by design - we use bytes as-is)
+        let byte_start = 0;
+        let byte_end = 10;
+
+        // "cafe" with combining acute accent (e + combining acute)
+        let decomposed = "cafe\u{0301}.rs";  // 5 bytes for "cafe" + 2 for combining acute + 3 for ".rs"
+        let id1 = Span::generate_id(decomposed, byte_start, byte_end);
+
+        // "cafe" with precomposed 'é' character
+        let precomposed = "caf\u{e9}.rs";  // 4 bytes for "caf" + 2 for é + 3 for ".rs"
+        let id2 = Span::generate_id(precomposed, byte_start, byte_end);
+
+        assert_ne!(id1, id2,
+            "Different Unicode representations should produce different span IDs (by design)");
+    }
+
+    #[test]
+    fn test_span_id_with_path_separator_variants() {
+        // Different path representations produce different IDs
+        // (Important: users should canonicalize paths before use)
+        let byte_start = 10;
+        let byte_end = 20;
+
+        let id1 = Span::generate_id("src/test.rs", byte_start, byte_end);
+        let id2 = Span::generate_id("./src/test.rs", byte_start, byte_end);
+        let id3 = Span::generate_id("/abs/path/src/test.rs", byte_start, byte_end);
+
+        assert_ne!(id1, id2, "Relative vs explicit path should differ");
+        assert_ne!(id1, id3, "Relative vs absolute path should differ");
+        assert_ne!(id2, id3, "Different path forms should differ");
+    }
 }
