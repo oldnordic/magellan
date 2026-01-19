@@ -3,6 +3,7 @@
 //! Provides file indexing and deletion operations.
 
 use anyhow::Result;
+use rusqlite::TransactionBehavior;
 use std::path::{Path, PathBuf};
 
 use sqlitegraph::GraphBackend;
@@ -174,8 +175,15 @@ pub fn delete_file(graph: &mut CodeGraph, path: &str) -> Result<()> {
 ///
 /// Determinism:
 /// - Any multi-entity deletion gathers candidate IDs, sorts ascending, deletes in that order.
+/// - All deletions occur within an IMMEDIATE transaction for atomicity.
 pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<()> {
     use crate::graph::schema::delete_edges_touching_entities;
+
+    let mut conn = graph.chunks.connect()?;
+
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|e| anyhow::anyhow!("Failed to start delete transaction: {}", e))?;
 
     // We'll gather all entity IDs we intend to delete and perform edge cleanup for them.
     let mut deleted_entity_ids: Vec<i64> = Vec::new();
@@ -212,34 +220,38 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<()> {
             .delete_entity(file_id.as_i64())?;
         deleted_entity_ids.push(file_id.as_i64());
 
-        // Remove from in-memory index.
-        graph.files.file_index.remove(path);
+        // 2) References in this file.
+        let reference_deleted = graph.references.delete_references_in_file(path)?;
+
+        // 3) Calls in this file.
+        let call_deleted = graph.calls.delete_calls_in_file(path)?;
+
+        // Explicit edge cleanup for deleted IDs (symbols + file) to ensure no rows remain.
+        deleted_entity_ids.sort_unstable();
+        deleted_entity_ids.dedup();
+        let _ = delete_edges_touching_entities(&tx, &deleted_entity_ids)?;
+
+        // Silence unused warnings for counts (useful for debugging, kept deterministic).
+        let _ = (reference_deleted, call_deleted);
     } else {
         // Even if there's no File node, we still delete chunks for this path string.
         let _ = graph.chunks.delete_chunks_for_file(path);
+
+        // 2) References in this file.
+        let reference_deleted = graph.references.delete_references_in_file(path)?;
+
+        // 3) Calls in this file.
+        let call_deleted = graph.calls.delete_calls_in_file(path)?;
+
+        // Silence unused warnings for counts (useful for debugging, kept deterministic).
+        let _ = (reference_deleted, call_deleted);
     }
 
-    // 2) References in this file.
-    let reference_deleted = graph.references.delete_references_in_file(path)?;
+    tx.commit()
+        .map_err(|e| anyhow::anyhow!("Failed to commit delete transaction: {}", e))?;
 
-    // 3) Calls in this file.
-    let call_deleted = graph.calls.delete_calls_in_file(path)?;
-
-    // Collect candidate IDs for reference/call deletes by scanning again and matching counts isn't possible.
-    // We can conservatively clean edges by removing all edges that touch any non-existent entity IDs during tests,
-    // but here we want explicit deletion for known entity IDs. To do that, re-scan and capture ids again.
-    // Instead: we rely on sqlitegraph's delete_entity edge cleanup for those entity deletions.
-    // We still perform a final bulk edge cleanup for all entities deleted above (symbols + file).
-    // (Reference/Call deletions already removed their touching edges via delete_entity.)
-
-    // Explicit edge cleanup for deleted IDs (symbols + file) to ensure no rows remain.
-    deleted_entity_ids.sort_unstable();
-    deleted_entity_ids.dedup();
-    let conn = graph.chunks.connect()?;
-    let _ = delete_edges_touching_entities(&conn, &deleted_entity_ids)?;
-
-    // Silence unused warnings for counts (useful for debugging, kept deterministic).
-    let _ = (reference_deleted, call_deleted);
+    // Remove from in-memory index AFTER successful commit.
+    graph.files.file_index.remove(path);
 
     Ok(())
 }
