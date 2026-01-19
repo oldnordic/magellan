@@ -92,6 +92,87 @@ pub fn symbol_nodes_in_file(graph: &mut CodeGraph, path: &str) -> Result<Vec<(i6
     Ok(entries)
 }
 
+/// Query symbols in a file with their node IDs and stable symbol IDs.
+///
+/// # Returns
+/// Vector of (node_id, SymbolFact, symbol_id) tuples.
+/// The symbol_id is the stable identifier computed from language, FQN, and span.
+///
+/// # Note
+/// This function directly accesses the SymbolNode data to extract symbol_id,
+/// which is not available through SymbolFact.
+pub fn symbol_nodes_in_file_with_ids(
+    graph: &mut CodeGraph,
+    path: &str,
+) -> Result<Vec<(i64, SymbolFact, Option<String>)>> {
+    let file_id = match graph.files.find_file_node(path)? {
+        Some(id) => id,
+        None => return Ok(Vec::new()),
+    };
+
+    let path_buf = PathBuf::from(path);
+
+    let neighbor_ids = graph.files.backend.neighbors(
+        file_id.as_i64(),
+        NeighborQuery {
+            direction: BackendDirection::Outgoing,
+            edge_type: Some("DEFINES".to_string()),
+        },
+    )?;
+
+    let mut entries = Vec::new();
+    for symbol_node_id in neighbor_ids {
+        if let Ok(node) = graph.files.backend.get_node(symbol_node_id) {
+            if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data.clone()) {
+                // Convert to SymbolFact
+                let kind = match symbol_node.kind.as_str() {
+                    "Function" => SymbolKind::Function,
+                    "Method" => SymbolKind::Method,
+                    "Class" => SymbolKind::Class,
+                    "Interface" => SymbolKind::Interface,
+                    "Enum" => SymbolKind::Enum,
+                    "Module" => SymbolKind::Module,
+                    "Union" => SymbolKind::Union,
+                    "Namespace" => SymbolKind::Namespace,
+                    "TypeAlias" => SymbolKind::TypeAlias,
+                    "Unknown" => SymbolKind::Unknown,
+                    _ => SymbolKind::Unknown,
+                };
+
+                let kind_normalized = symbol_node
+                    .kind_normalized
+                    .clone()
+                    .unwrap_or_else(|| kind.normalized_key().to_string());
+
+                let fact = SymbolFact {
+                    file_path: path_buf.clone(),
+                    kind,
+                    kind_normalized,
+                    name: symbol_node.name.clone(),
+                    fqn: symbol_node.name,
+                    byte_start: symbol_node.byte_start,
+                    byte_end: symbol_node.byte_end,
+                    start_line: symbol_node.start_line,
+                    start_col: symbol_node.start_col,
+                    end_line: symbol_node.end_line,
+                    end_col: symbol_node.end_col,
+                };
+
+                entries.push((symbol_node_id, fact, symbol_node.symbol_id));
+            }
+        }
+    }
+
+    entries.sort_by(|(_, a, _), (_, b, _)| {
+        a.start_line
+            .cmp(&b.start_line)
+            .then_with(|| a.start_col.cmp(&b.start_col))
+            .then_with(|| a.byte_start.cmp(&b.byte_start))
+    });
+
+    Ok(entries)
+}
+
 /// Lookup symbol extents (byte + line range) by name within a file.
 pub fn symbol_extents(
     graph: &mut CodeGraph,

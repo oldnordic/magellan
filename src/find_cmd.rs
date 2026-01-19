@@ -5,6 +5,7 @@
 use anyhow::{Context, Result};
 use globset::GlobBuilder;
 use magellan::{CodeGraph, SymbolKind};
+use magellan::graph::query;
 use magellan::output::{JsonResponse, OutputFormat, FindResponse, Span, SymbolMatch, generate_execution_id, output_json};
 use std::path::PathBuf;
 
@@ -23,6 +24,7 @@ struct FoundSymbol {
     end_line: usize,
     end_col: usize,
     node_id: i64,
+    symbol_id: Option<String>,
 }
 
 /// Format a SymbolKind for display
@@ -60,16 +62,11 @@ fn resolve_path(file_path: &PathBuf, root: &Option<PathBuf>) -> String {
 
 /// Find a symbol in a specific file by name
 ///
-/// Returns the first matching symbol with its node ID
+/// Returns the first matching symbol with its node ID and symbol_id
 fn find_in_file(graph: &mut CodeGraph, file_path: &str, name: &str) -> Result<Option<FoundSymbol>> {
-    let node_id = match graph.symbol_id_by_name(file_path, name)? {
-        Some(id) => id,
-        None => return Ok(None),
-    };
+    let entries = query::symbol_nodes_in_file_with_ids(graph, file_path)?;
 
-    let symbols = graph.symbols_in_file(file_path)?;
-
-    for symbol in symbols {
+    for (node_id, symbol, symbol_id) in entries {
         if let Some(symbol_name) = &symbol.name {
             if symbol_name == name {
                 return Ok(Some(FoundSymbol {
@@ -86,6 +83,7 @@ fn find_in_file(graph: &mut CodeGraph, file_path: &str, name: &str) -> Result<Op
                     end_line: symbol.end_line,
                     end_col: symbol.end_col,
                     node_id,
+                    symbol_id,
                 }));
             }
         }
@@ -105,28 +103,27 @@ fn find_all_files(graph: &mut CodeGraph, name: &str) -> Result<Vec<FoundSymbol>>
 
     // Search each file for the symbol
     for file_path in file_nodes.keys() {
-        if let Some(node_id) = graph.symbol_id_by_name(file_path, name)? {
-            let symbols = graph.symbols_in_file(file_path)?;
-            for symbol in symbols {
-                if let Some(symbol_name) = &symbol.name {
-                    if symbol_name == name {
-                        results.push(FoundSymbol {
-                            name: symbol_name.clone(),
-                            kind: symbol.kind.clone(),
-                            kind_normalized: symbol.kind_normalized.clone(),
-                            file: symbol.file_path.to_string_lossy().to_string(),
-                            byte_start: symbol.byte_start,
-                            byte_end: symbol.byte_end,
-                            line: symbol.start_line,
-                            col: symbol.start_col,
-                            start_line: symbol.start_line,
-                            start_col: symbol.start_col,
-                            end_line: symbol.end_line,
-                            end_col: symbol.end_col,
-                            node_id,
-                        });
-                        break; // Found in this file, move to next
-                    }
+        let entries = query::symbol_nodes_in_file_with_ids(graph, file_path)?;
+        for (node_id, symbol, symbol_id) in entries {
+            if let Some(symbol_name) = &symbol.name {
+                if symbol_name == name {
+                    results.push(FoundSymbol {
+                        name: symbol_name.clone(),
+                        kind: symbol.kind.clone(),
+                        kind_normalized: symbol.kind_normalized.clone(),
+                        file: symbol.file_path.to_string_lossy().to_string(),
+                        byte_start: symbol.byte_start,
+                        byte_end: symbol.byte_end,
+                        line: symbol.start_line,
+                        col: symbol.start_col,
+                        start_line: symbol.start_line,
+                        start_col: symbol.start_col,
+                        end_line: symbol.end_line,
+                        end_col: symbol.end_col,
+                        node_id,
+                        symbol_id,
+                    });
+                    break; // Found in this file, move to next
                 }
             }
         }
@@ -243,7 +240,7 @@ fn output_json_mode(
                 s.end_line,
                 s.end_col,
             );
-            SymbolMatch::new(s.name, s.kind_normalized, span, None)
+            SymbolMatch::new(s.name, s.kind_normalized, span, None, None)
         })
         .collect();
 
@@ -271,8 +268,8 @@ fn run_glob_listing(graph: &mut CodeGraph, pattern: &str, output_format: OutputF
     let file_nodes = graph.all_file_nodes()?;
 
     for file_path in file_nodes.keys() {
-        let entries = graph.symbol_nodes_in_file(file_path)?;
-        for (node_id, fact) in entries {
+        let entries = query::symbol_nodes_in_file_with_ids(graph, file_path)?;
+        for (node_id, fact, symbol_id) in entries {
             if let Some(name) = &fact.name {
                 if glob_matcher.is_match(name) {
                     matches.push(FoundSymbol {
@@ -289,6 +286,7 @@ fn run_glob_listing(graph: &mut CodeGraph, pattern: &str, output_format: OutputF
                         end_line: fact.end_line,
                         end_col: fact.end_col,
                         node_id,
+                        symbol_id,
                     });
                 }
             }
@@ -316,7 +314,7 @@ fn run_glob_listing(graph: &mut CodeGraph, pattern: &str, output_format: OutputF
                     s.end_line,
                     s.end_col,
                 );
-                SymbolMatch::new(s.name, s.kind_normalized, span, None)
+                SymbolMatch::new(s.name, s.kind_normalized, span, None, s.symbol_id)
             })
             .collect();
 
