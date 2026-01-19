@@ -9,11 +9,11 @@
 ## Current Position
 
 - **Current phase:** Phase 6 — Query UX (Definitions, References, Call Graph, File Listing)
-- **Status:** In progress (1/4 plans executed)
-- **Last activity:** 2026-01-19 - Completed 06-01 (Find Command symbol_id Propagation)
+- **Status:** In progress (2/4 plans executed)
+- **Last activity:** 2026-01-19 - Completed 06-02 (Target Symbol ID in References)
 - **Next action:** Continue with Phase 6 query UX improvements
 
-**Progress bar:** [█        ] 6% (1/18 total plans executed - Phase 6 started)
+**Progress bar:** [██       ] 11% (2/18 total plans executed - Phase 6 in progress)
 
 ## Success Definition (v1)
 
@@ -144,6 +144,11 @@ Magellan v1 is "done" when a user can:
 - symbol_id propagation must be consistent across all query paths (find-by-name and glob-listing)
 - ReferenceMatch::new requires 4th parameter (target_symbol_id) for future reference ID tracking
 
+### Key Decisions (from Phase 6 / Plan 02)
+- Use skip_serializing_if for target_symbol_id to maintain backward compatibility with existing JSON consumers
+- Add --output flag parsing to refs command (consuming but not storing, using global output_format)
+- Build symbol_id lookup map to efficiently fetch target IDs without repeated graph queries
+
 ### Known Risks / Watch-outs
 - Mixed coordinate systems (byte vs char; inclusive vs exclusive).
 - "Stable IDs" accidentally derived from unstable sources (rowid, node id, iteration order).
@@ -155,11 +160,11 @@ Magellan v1 is "done" when a user can:
 
 ## Session Continuity
 
-- **Last session:** 2026-01-19T13:07:05Z
-- **Stopped at:** Completed 06-01 (Find Command symbol_id Propagation)
+- **Last session:** 2026-01-19T13:09:10Z
+- **Stopped at:** Completed 06-02 (Target Symbol ID in References)
 - **Resume file:** None
 
 If resuming later, start by:
-1. Open `.planning/phases/06-query-ux/06-01-SUMMARY.md` for context on completed work.
+1. Open `.planning/phases/06-query-ux/06-02-SUMMARY.md` for context on completed work.
 2. Run `cargo test --workspace` to verify baseline health.
-3. Phase 6-01 complete - ready for 06-02 (target_symbol_id for references).
+3. Phase 6-02 complete - ready for next plan in Phase 6.
