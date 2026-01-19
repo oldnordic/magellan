@@ -8,12 +8,12 @@
 
 ## Current Position
 
-- **Current phase:** Phase 4 — Stable Span IDs
-- **Status:** Phase 3 complete (3/3 plans executed)
-- **Last activity:** 2026-01-19 - Completed 03-03 (JSON Output for Query Commands)
-- **Next action:** Execute Phase 4 plans (04-stable-span-ids)
+- **Current phase:** Phase 4 — Canonical Span Model
+- **Status:** In progress (1/3 plans executed in Phase 4)
+- **Last activity:** 2026-01-19 - Completed 04-01 (SHA-256 Span ID Generation)
+- **Next action:** Execute remaining Phase 4 plans (04-02, 04-03)
 
-**Progress bar:** [████████░░] 42% (0/3 plans executed in Phase 4, 12/12 total plans executed)
+**Progress bar:** [█████████░] 45% (1/3 plans executed in Phase 4, 13/15 total plans executed)
 
 ## Success Definition (v1)
 
@@ -96,23 +96,28 @@ Magellan v1 is "done" when a user can:
 - Global --output flag parsed once in main() and passed to command runners
 - Deterministic sorting for all JSON arrays (file_path, start_line, start_col ordering)
 
+### Key Decisions (from Phase 4 / Plan 01)
+- SHA-256 for span_id generation (platform-independent, deterministic)
+- 16 hex characters from first 8 bytes of SHA-256 hash
+- Format: file_path + ':' + byte_start(big-endian) + ':' + byte_end(big-endian)
+- No content hashing in span_id (position-based only for stability)
+
 ### Known Risks / Watch-outs
 - Mixed coordinate systems (byte vs char; inclusive vs exclusive).
 - "Stable IDs" accidentally derived from unstable sources (rowid, node id, iteration order).
 - Watch event storms creating nondeterministic intermediate states.
 - Nested .gitignore files not yet supported (only root .gitignore/.ignore loaded)
-- span_id generation deferred to Phase 4 (using placeholders in Phase 3)
 
 ### Blockers
 - None currently (roadmap created). If constraints change (e.g., interop export moved to v2), revisit Phase 9.
 
 ## Session Continuity
 
-- **Last session:** 2026-01-19T10:47:05Z
-- **Stopped at:** Completed Phase 3 - all 3 plans (03-01, 03-02, 03-03) executed
+- **Last session:** 2026-01-19T11:16:13Z
+- **Stopped at:** Completed 04-01 (SHA-256 Span ID Generation)
 - **Resume file:** None
 
 If resuming later, start by:
-1. Open `.planning/phases/03-cli-output-contract/03-03-SUMMARY.md` for context on completed work.
+1. Open `.planning/phases/04-canonical-span-model/04-01-SUMMARY.md` for context on completed work.
 2. Run `cargo test --workspace` to verify baseline health.
-3. Execute Phase 4 plans: `/gsd:execute-phase 04-stable-ids`
+3. Execute remaining Phase 4 plans: `/gsd:execute-phase 04-canonical-span-model`
