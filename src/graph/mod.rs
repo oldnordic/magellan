@@ -14,7 +14,7 @@ mod references;
 pub mod scan;
 mod schema;
 mod symbols;
-pub(crate) mod validation;
+pub mod validation;
 
 // Re-export small public types from ops.
 pub use ops::ReconcileOutcome;

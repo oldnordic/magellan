@@ -25,7 +25,7 @@ fn print_usage() {
     eprintln!("  magellan <command> [arguments]");
     eprintln!("  magellan --help");
     eprintln!();
-    eprintln!("  magellan watch --root <DIR> --db <FILE> [--debounce-ms <N>] [--watch-only]");
+    eprintln!("  magellan watch --root <DIR> --db <FILE> [--debounce-ms <N>] [--watch-only] [--validate] [--validate-only]");
     eprintln!("  magellan export --db <FILE> [--format json|jsonl|csv] [--output <PATH>] [--minify]");
     eprintln!("  magellan status --db <FILE>");
     eprintln!("  magellan query --db <FILE> --file <PATH> [--kind <KIND>]");
@@ -59,6 +59,8 @@ fn print_usage() {
     eprintln!("  --debounce-ms <N>   Debounce delay in milliseconds (default: 500)");
     eprintln!("  --watch-only        Watch for changes only; skip initial directory scan baseline");
     eprintln!("  --scan-initial      Scan directory for source files on startup (default: true; disabled by --watch-only)");
+    eprintln!("  --validate          Enable pre-run and post-run validation checks");
+    eprintln!("  --validate-only     Run validation without indexing (pre + post validation, no watch)");
     eprintln!();
     eprintln!("Export arguments:");
     eprintln!("  --db <FILE>         Path to sqlitegraph database");
@@ -119,6 +121,8 @@ enum Command {
         db_path: PathBuf,
         config: WatcherConfig,
         scan_initial: bool,
+        validate: bool,
+        validate_only: bool,
     },
     Export {
         db_path: PathBuf,
@@ -206,6 +210,8 @@ fn parse_args() -> Result<Command> {
             let mut debounce_ms: u64 = 500;
             let mut watch_only = false;
             let mut scan_initial = true; // Default: true (scan on startup)
+            let mut validate = false;
+            let mut validate_only = false;
 
             let mut i = 2;
             while i < args.len() {
@@ -239,6 +245,14 @@ fn parse_args() -> Result<Command> {
                         scan_initial = true;
                         i += 1;
                     }
+                    "--validate" => {
+                        validate = true;
+                        i += 1;
+                    }
+                    "--validate-only" => {
+                        validate_only = true;
+                        i += 1;
+                    }
                     _ => {
                         return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
                     }
@@ -251,12 +265,16 @@ fn parse_args() -> Result<Command> {
 
             // Precedence: --watch-only forces scan_initial to false
             let scan_initial = if watch_only { false } else { scan_initial };
+            // Precedence: --validate-only implies validate=true
+            let validate = if validate_only { true } else { validate };
 
             Ok(Command::Watch {
                 root_path,
                 db_path,
                 config,
                 scan_initial,
+                validate,
+                validate_only,
             })
         }
         "export" => {
@@ -1255,8 +1273,18 @@ fn main() -> ExitCode {
             db_path,
             config,
             scan_initial,
+            validate,
+            validate_only,
         }) => {
-            if let Err(e) = watch_cmd::run_watch(root_path, db_path, config, scan_initial) {
+            if let Err(e) = watch_cmd::run_watch(
+                root_path,
+                db_path,
+                config,
+                scan_initial,
+                validate,
+                validate_only,
+                output_format,
+            ) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
