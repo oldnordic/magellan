@@ -11,11 +11,11 @@ See: .planning/PROJECT.md (updated 2026-01-19)
 
 **Milestone:** v1.1 Correctness + Safety
 **Phase:** 11 of 13 (FQN Extraction)
-**Plan:** 1 of 6 in current phase
+**Plan:** 2 of 6 in current phase
 **Status:** In progress
-**Last activity:** 2026-01-19 — Completed Phase 11-01: ScopeStack Infrastructure
+**Last activity:** 2026-01-19 — Completed Phase 11-02: Rust Parser FQN Extraction
 
-**Progress bar:** [████░░░░░░░░] 28% v1.1 (5/18 plans) | [██████████] 100% v1.0 (29/29 plans)
+**Progress bar:** [█████░░░░░░░] 33% v1.1 (6/18 plans) | [██████████] 100% v1.0 (29/29 plans)
 
 ## Success Definition (v1.1)
 
@@ -110,6 +110,12 @@ Magellan v1.1 is "done" when:
 - Push/pop pattern for entering/exiting scopes during tree-sitter traversal
 - Module + type-level scope tracking (excludes impl blocks, closures, local scopes)
 
+### Key Decisions (Phase 11-02: Rust Parser FQN Extraction)
+- function_signature_item node kind for trait method declarations (not function_item)
+- impl_item does not create symbols; only tracks scope for methods
+- mod_item, trait_item create symbols AND track child scope
+- walk_tree_with_scope pattern: scope boundary nodes push/pop in match arms
+
 ### Blockers / Concerns
 
 **Phase 11 (FQN):**
@@ -119,12 +125,12 @@ Magellan v1.1 is "done" when:
 ## Session Continuity
 
 - **Last session:** 2026-01-19
-- **Stopped at:** Completed Phase 11-01: ScopeStack Infrastructure
+- **Stopped at:** Completed Phase 11-02: Rust Parser FQN Extraction
 - **Resume file:** None
 
 If resuming later, start by:
 1. Read `.planning/ROADMAP.md` for phase structure
 2. Read `.planning/PROJECT.md` for requirements and constraints
-3. Read `.planning/phases/11-fqn-extraction/11-01-SUMMARY.md` for plan results
+3. Read `.planning/phases/11-fqn-extraction/11-02-SUMMARY.md` for plan results
 4. Run `cargo test --workspace` to verify baseline health
-5. Execute next plan in Phase 11 (11-02 through 11-06)
+5. Execute next plan in Phase 11 (11-03 through 11-06)
