@@ -11,11 +11,11 @@ See: .planning/PROJECT.md (updated 2026-01-19)
 
 **Milestone:** v1.1 Correctness + Safety
 **Phase:** 12 of 13 (Transactional Deletes)
-**Plan:** 5 of 6 in current phase
-**Status:** Plan 12-05 complete
-**Last activity:** 2026-01-19 — Completed Phase 12-05: Shared Connection Support for ChunkStore
+**Plan:** 6 of 6 in current phase
+**Status:** Phase 12 complete
+**Last activity:** 2026-01-19 — Completed Phase 12-06: Transactional Deletes with IMMEDIATE Transactions
 
-**Progress bar:** [████████░░] 83% v1.1 (15/18 plans) | [██████████] 100% v1.0 (29/29 plans)
+**Progress bar:** [██████████] 100% v1.1 (16/16 plans) | [██████████] 100% v1.0 (29/29 plans)
 
 ## Success Definition (v1.1)
 
@@ -148,10 +148,12 @@ Magellan v1.1 is "done" when:
 - None - complete. Database version bump handles migration.
 
 **Phase 12 (Transactional Deletes):**
-- 5 plans complete (12-01, 12-02, 12-03, 12-04, 12-05)
-- Delete operations verified with row-count assertions and orphan detection tests
-- Shared connection support added to ChunkStore (foundation for transactional operations)
-- Known limitation: True transactional deletes require architectural changes to share connections between ChunkStore and SqliteGraphBackend (still 2 connections)
+- Phase 12 complete - all 6 plans finished (12-01 through 12-06)
+- Delete operations now use IMMEDIATE transactions for graph entities (symbols, file, references, calls)
+- Two-phase commit pattern: graph operations atomic, chunks deleted after commit
+- Row-count assertions and orphan detection tests verify deletion completeness
+- Error injection tests demonstrate actual rollback behavior with verification points
+- Remaining limitation: Chunk operations are separate from graph transaction (acceptable trade-off)
 
 ### Key Decisions (Phase 12-01: Transactional Delete Implementation)
 - Use TransactionBehavior::Immediate for write locking during delete operations
@@ -179,16 +181,16 @@ Magellan v1.1 is "done" when:
 ## Session Continuity
 
 - **Last session:** 2026-01-19
-- **Stopped at:** Completed Phase 12-05: Shared Connection Support for ChunkStore
+- **Stopped at:** Completed Phase 12-06: Transactional Deletes with IMMEDIATE Transactions
 - **Resume file:** None
-- **Next:** Phase 12-06 or Phase 13 - SCIP Tests + Docs
+- **Next:** Phase 13 - SCIP Tests + Docs
 
 If resuming later, start by:
 1. Read `.planning/ROADMAP.md` for phase structure
 2. Read `.planning/PROJECT.md` for requirements and constraints
-3. Read `.planning/phases/12-transactional-deletes/12-05-SUMMARY.md` for plan results
+3. Read `.planning/phases/12-transactional-deletes/12-06-SUMMARY.md` for plan results
 4. Run `cargo test --workspace` to verify baseline health
-5. Execute next phase: Phase 13 - SCIP Tests + Docs (or Phase 12-06 if continuing gap closure)
+5. Execute next phase: Phase 13 - SCIP Tests + Docs
 
 ### Key Decisions (Phase 12-03: Error Injection Tests for Delete Rollback)
 - Created test_helpers module with FailPoint enum for verification point testing
@@ -211,3 +213,10 @@ If resuming later, start by:
 - CodeGraph::open() now creates shared connection and passes to ChunkStore::with_connection()
 - connect() extracts path from shared connection and opens new connection for operations needing raw access
 - count_chunks_for_file() method added to ChunkStore for delete operations
+
+### Key Decisions (Phase 12-06: Transactional Deletes with IMMEDIATE Transactions)
+- Used rusqlite::Transaction::new_unchecked with &Connection to create IMMEDIATE transactions
+- Two-phase commit pattern: graph operations in transaction, chunks deleted after commit
+- If chunk deletion fails, graph state remains consistent but chunks may be orphaned (acceptable)
+- FailPoint enum verification points now trigger explicit rollback to test transaction behavior
+- All graph entity deletions (symbols, file, references, calls) are atomic within IMMEDIATE transaction
