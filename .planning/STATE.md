@@ -10,12 +10,12 @@ See: .planning/PROJECT.md (updated 2026-01-19)
 ## Current Position
 
 **Milestone:** v1.1 Correctness + Safety
-**Phase:** 13 of 13 (SCIP Tests + Documentation) - NEXT
-**Plan:** 0 of 4 in Phase 13
-**Status:** Phase 12 complete, ready to start Phase 13
-**Last activity:** 2026-01-20 — Completed Phase 12: Transactional Deletes (with architectural limitation documented)
+**Phase:** 13 of 13 (SCIP Tests + Documentation)
+**Plan:** 1 of 4 in Phase 13
+**Status:** Phase 13-01 complete (SCIP export implementation)
+**Last activity:** 2026-01-20 — Completed Phase 13-01: SCIP Export Implementation
 
-**Progress bar:** [████████░░] 89% v1.1 (16/18 plans) | [██████████] 100% v1.0 (29/29 plans)
+**Progress bar:** [█████████░] 94% v1.1 (17/18 plans) | [██████████] 100% v1.0 (29/29 plans)
 
 ## Success Definition (v1.1)
 
@@ -181,9 +181,9 @@ Magellan v1.1 is "done" when:
 ## Session Continuity
 
 - **Last session:** 2026-01-20
-- **Stopped at:** Phase 12 complete with architectural limitation documented
+- **Stopped at:** Completed Phase 13-01: SCIP Export Implementation
 - **Resume file:** None
-- **Next:** Phase 13 - SCIP Tests + Documentation
+- **Next:** Phase 13-02 - SCIP Round-trip Tests
 
 If resuming later, start by:
 1. Read `.planning/ROADMAP.md` for phase structure
@@ -243,3 +243,11 @@ If resuming later, start by:
 - Documented architectural limitation in src/graph/ops.rs:270-278
 - Accepted row-count assertions + orphan detection as data integrity mechanism
 - Future work: Either fork sqlitegraph, replace it, or wait for upstream transaction support
+
+### Key Decisions (Phase 13-01: SCIP Export Implementation)
+- Use direct field assignment for protobuf types (scip 0.6.1 uses pub fields instead of setters)
+- Use EnumOrUnknown::new() wrapper for all SCIP enum types (PositionEncoding, ProtocolVersion, SymbolRole, Kind)
+- SCIP symbol format: "magellan language/namespace1/namespace2/symbol." with language-specific separators
+- Set position_encoding to UTF8CodeUnitOffsetFromLineStart for all documents (matches Magellan's UTF-8 byte offsets)
+- Use ReadAccess (8) for reference occurrences (no Reference role exists in SCIP SymbolRole enum)
+- Store SymbolInformation in document.symbols separately from Occurrence in document.occurrences
