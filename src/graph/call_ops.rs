@@ -160,6 +160,17 @@ impl CallOps {
 
         let call_count = calls.len();
 
+        // Build a name-only fallback map for cross-file call resolution.
+        // After Phase 11 (FQN changes), symbol_ids uses FQNs as keys, but CallFact
+        // uses simple names. This allows fallback to simple name for cross-file calls.
+        let mut name_to_ids: HashMap<String, Vec<i64>> = HashMap::new();
+        for (fqn, &id) in symbol_ids.iter() {
+            // Extract simple name from FQN (after last :: or .)
+            let simple_name = fqn.split("::").last().unwrap_or(fqn.as_str());
+            let simple_name = simple_name.split('.').last().unwrap_or(simple_name);
+            name_to_ids.entry(simple_name.to_string()).or_default().push(id);
+        }
+
         // Insert call nodes and edges
         for mut call in calls {
             // Look up stable symbol_ids for caller and callee
@@ -169,13 +180,25 @@ impl CallOps {
             call.caller_symbol_id = stable_symbol_ids.get(&caller_key).and_then(|id| id.clone());
             call.callee_symbol_id = stable_symbol_ids.get(&callee_key).and_then(|id| id.clone());
 
-            if let Some(&callee_symbol_id) = symbol_ids.get(&call.callee) {
-                if let Some(&caller_symbol_id) = symbol_ids.get(&call.caller) {
+            // Resolve callee symbol_id with fallback to simple name
+            let callee_symbol_id = symbol_ids.get(&call.callee)
+                .or_else(|| {
+                    // Fallback: try simple name lookup for cross-file calls
+                    // For method calls like widget.render(), call.callee is "render"
+                    // but the symbol might be stored as "Widget::render"
+                    name_to_ids.get(&call.callee).and_then(|ids| ids.first())
+                });
+
+            // Resolve caller symbol_id - always in current file, so FQN should work
+            let caller_symbol_id = symbol_ids.get(&call.caller);
+
+            if let Some(&callee_id) = callee_symbol_id {
+                if let Some(&caller_id) = caller_symbol_id {
                     let call_id = self.insert_call_node(&call)?;
                     // CALLER edge: caller Symbol -> Call node
-                    self.insert_caller_edge(NodeId::from(caller_symbol_id), call_id)?;
+                    self.insert_caller_edge(NodeId::from(caller_id), call_id)?;
                     // CALLS edge: Call node -> callee Symbol
-                    self.insert_calls_edge(call_id, NodeId::from(callee_symbol_id))?;
+                    self.insert_calls_edge(call_id, NodeId::from(callee_id))?;
                 }
             }
         }

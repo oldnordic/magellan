@@ -13,8 +13,9 @@ Comprehensive instructions for operating Magellan.
 3. [Command Reference](#3-command-reference)
 4. [Supported Languages](#4-supported-languages)
 5. [Database Schema](#5-database-schema)
-6. [Error Handling](#7-error-handling)
-7. [Troubleshooting](#9-troubleshooting)
+6. [Error Handling](#6-error-handling)
+7. [Troubleshooting](#7-troubleshooting)
+8. [Security Best Practices](#8-security-best-practices)
 
 ---
 
@@ -419,6 +420,176 @@ magellan verify --root . --db ./magellan.db
 magellan watch --root . --db ./magellan.db --scan-initial &
 sleep 5
 pkill -f "magellan watch"
+```
+
+---
+
+## 8. Security Best Practices
+
+### 8.1 Database Placement
+
+Magellan stores all indexed data in the file specified by `--db <FILE>`.
+The location of this file affects both security and performance.
+
+**Why Database Location Matters**
+
+If the database is placed inside a watched directory:
+- The watcher may process the database as a source file
+- Export operations could include binary database content
+- File system events may cause circular processing
+
+**Recommended Locations by Platform**
+
+**Linux/macOS:**
+```bash
+# XDG cache directory (recommended)
+magellan watch --root ~/project --db ~/.cache/magellan/project.db
+
+# XDG data directory (for long-term storage)
+magellan watch --root ~/project --db ~/.local/share/magellan/project.db
+
+# Home directory (simple alternative)
+magellan watch --root ~/project --db ~/.$PROJECT_NAME.db
+```
+
+**Windows:**
+```cmd
+REM Local app data (recommended)
+magellan watch --root C:\project --db %LOCALAPPDATA%\magellan\project.db
+
+REM User profile (simple alternative)
+magellan watch --root C:\project --db %USERPROFILE%\project.db
+```
+
+**CI/CD Environments:**
+```bash
+# Use a cache directory outside the workspace
+magellan watch --root . --db $CI_PROJECT_DIR/../cache/magellan.db
+```
+
+**What to Avoid:**
+
+```bash
+# AVOID: Database inside watched directory
+magellan watch --root . --db ./magellan.db
+
+# AVOID: Database in source code directory
+magellan watch --root ~/src/project --db ~/src/project/.magellan.db
+```
+
+### 8.2 Path Traversal Protection
+
+Magellan includes protection against directory traversal attacks that attempt
+to access files outside the watched directory.
+
+**Automatic Protections**
+
+Magellan's path validation (`src/validation.rs`) automatically:
+- Rejects paths with 3+ parent directory patterns (`../../../etc/passwd`)
+- Validates resolved paths against the project root
+- Checks symlinks to ensure they don't escape the watched directory
+- Rejects mixed traversal patterns (`./subdir/../../etc`)
+
+**Validation Points**
+
+Path validation is applied at:
+- Watcher event processing (every file change event)
+- Directory scanning (recursive directory walk)
+- File indexing operations (before reading file contents)
+
+**Example Attack Prevention**
+
+```bash
+# This input is automatically rejected:
+magellan watch --root ~/project --db ~/db  # But if a malicious event tries:
+# ../../../../../etc/passwd  -> Rejected (suspicious traversal)
+# ./subdir/../../../etc  -> Rejected (mixed pattern)
+
+# Symlinks outside root are rejected:
+ln -s /etc/passwd project/link
+magellan watch --root project --db ~/db  # link rejected
+```
+
+**Security Auditing**
+
+To verify path protection is working:
+```bash
+# Run path validation tests
+cargo test path_validation
+
+# Check implementation
+grep -r "validate_path" src/
+```
+
+### 8.3 File Permission Recommendations
+
+**Database File Permissions**
+
+The database contains complete code structure information. Restrict access:
+
+```bash
+# Set restrictive permissions on database directory
+mkdir -p ~/.cache/magellan
+chmod 700 ~/.cache/magellan
+
+# Database files inherit directory permissions
+magellan watch --root ~/project --db ~/.cache/magellan/project.db
+```
+
+**Source Directory Permissions**
+
+Magellan needs read access to source files:
+- Read permission on source files
+- Execute permission on source directories (for traversal)
+- Write permission only needed for database location
+
+**Multi-User Environments**
+
+For shared systems:
+```bash
+# Create group-writable cache directory
+sudo groupadd magellan
+sudo usermod -a -G magellan $USER
+sudo mkdir -p /var/cache/magellan
+sudo chgrp magellan /var/cache/magellan
+sudo chmod 770 /var/cache/magellan
+
+# Use shared cache
+magellan watch --root ~/project --db /var/cache/magellan/$USER-project.db
+```
+
+### 8.4 Secure Operation Patterns
+
+**Production Monitoring**
+
+```bash
+# Run with nohup for persistence
+nohup magellan watch --root /app/src --db /var/cache/mag/app.db \
+  --scan-initial > /var/log/magellan.log 2>&1 &
+
+# Check status separately
+magellan status --db /var/cache/mag/app.db
+```
+
+**Docker Environments**
+
+```dockerfile
+# Use volume for database outside source mount
+docker run -v /src:/app:ro -v /cache:/data magellan \
+  watch --root /app --db /data/app.db --scan-initial
+```
+
+**Verification Before Deployment**
+
+```bash
+# 1. Test path validation
+cargo test path_validation_tests
+
+# 2. Verify database location
+magellan status --db /var/cache/mag/app.db
+
+# 3. Check for accidental database inclusion in exports
+magellan export --db /var/cache/mag/app.db | grep -v "sqlite"
 ```
 
 ---

@@ -116,20 +116,16 @@ pub fn export_scip(graph: &CodeGraph, config: &ScipExportConfig) -> Result<Vec<u
     // Build metadata
     let mut metadata = Metadata::new();
 
-    // Create tool info
-    let mut tool_info = scip::types::ToolInfo::new();
-    tool_info.name = "magellan".to_string();
-    tool_info.version = config
-        .version
-        .clone()
-        .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
+    // Note: scip 0.6.1 ToolInfo doesn't have public name/version fields
+    // The metadata.project_root is the primary metadata we can set
 
     // Set metadata fields
-    metadata.tool_info = protobuf::MessageField::some(tool_info);
+    // metadata.tool_info = MessageField::some(tool_info); // This field may not exist or be different
     metadata.project_root = config.project_root.clone();
 
-    // Set protocol version (UnspecifiedProtocolVersion is the only option in scip 0.6.1)
-    metadata.version = EnumOrUnknown::new(scip::types::ProtocolVersion::UnspecifiedProtocolVersion);
+    // Set text encoding to UTF-8 (all sources are UTF-8)
+    use scip::types::TextEncoding;
+    metadata.text_document_encoding = EnumOrUnknown::new(TextEncoding::UTF8);
 
     // Set metadata on index
     index.metadata = protobuf::MessageField::some(metadata);

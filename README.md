@@ -46,7 +46,7 @@ cargo build --release
 
 ```bash
 # Start watching a project with initial scan
-magellan watch --root /path/to/project --db /path/to/magellan.db --scan-initial
+magellan watch --root /path/to/project --db ~/.cache/magellan/project.db --scan-initial
 
 # Check status
 magellan status --db /path/to/magellan.db
@@ -225,6 +225,49 @@ magellan export --db <FILE>
 ```
 
 Export all graph data to JSON format.
+
+### Security
+
+#### Database File Placement
+
+Magellan's database (`--db <FILE>`) stores all indexed code information.
+
+**Recommended:** Place `.db` files outside watched directories.
+
+Placing the database inside a watched directory can cause:
+- The watcher to process the database as if it's a source file
+- Export operations to include binary database content
+- Circular file system events
+
+**Examples:**
+
+```bash
+# Recommended: database outside watched directory
+magellan watch --root /path/to/project --db ~/.cache/magellan/project.db --scan-initial
+
+# Discouraged: database inside watched directory
+magellan watch --root . --db ./magellan.db --scan-initial
+```
+
+#### Recommended Database Locations
+
+- **Linux/macOS:** `~/.cache/magellan/` or `~/.local/share/magellan/`
+- **Windows:** `%LOCALAPPDATA%\magellan\`
+- **CI/CD:** Use a cache directory outside the workspace
+
+#### Path Traversal Protection
+
+Magellan validates all file paths to prevent directory traversal attacks:
+- Paths with `../` patterns are validated before access
+- Symlinks pointing outside the project root are rejected
+- Absolute paths outside the watched directory are blocked
+
+These protections are implemented in `src/validation.rs` and applied during:
+- Watcher event processing
+- Directory scanning
+- File indexing operations
+
+See Phase 10 of the development roadmap for implementation details.
 
 ### label
 

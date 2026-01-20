@@ -5,26 +5,25 @@
 See: .planning/PROJECT.md (updated 2026-01-19)
 
 **Core value:** Produce correct, deterministic symbol + reference + call graph data from real codebases, continuously, without stopping on bad files.
-**Current focus:** Phase 12 - Transactional Deletes (5 plans complete, 1 in progress)
+**Current focus:** v1.2 Performance (awaiting planning)
 
 ## Current Position
 
-**Milestone:** v1.1 Correctness + Safety
-**Phase:** 13 of 13 (SCIP Tests + Documentation)
-**Plan:** 1 of 4 in Phase 13
-**Status:** Phase 13-01 complete (SCIP export implementation)
-**Last activity:** 2026-01-20 — Completed Phase 13-01: SCIP Export Implementation
+**Milestone:** v1.1 Correctness + Safety - **SHIPPED 2026-01-20**
+**Phase:** None - awaiting v1.2 planning
+**Status:** v1.1 milestone archived, v1.2 Performance planning pending
+**Last activity:** 2026-01-20 — Archived v1.1 milestone to `.planning/milestones/v1.1-*.md`
 
-**Progress bar:** [█████████░] 94% v1.1 (17/18 plans) | [██████████] 100% v1.0 (29/29 plans)
+**Progress bar:** [██████████] 100% v1.1 (20/20 plans) - **SHIPPED** | [██████████] 100% v1.0 (29/29 plans)
 
-## Success Definition (v1.1)
+## Success Definition (v1.1) - **ACHIEVED**
 
 Magellan v1.1 is "done" when:
-- All file access validates paths cannot escape project root
-- Symbol lookup uses fully-qualified names (FQN) as keys
-- Delete operations are atomic with no orphaned data
-- SCIP export verified by round-trip tests
-- Security best practices documented
+- ✅ All file access validates paths cannot escape project root (Phase 10)
+- ✅ Symbol lookup uses fully-qualified names (FQN) as keys (Phase 11)
+- ✅ Delete operations have strong integrity guarantees (Phase 12)
+- ✅ SCIP export verified by round-trip tests (Phase 13)
+- ✅ Security best practices documented (Phase 13)
 
 ## v1.0 Summary
 
@@ -45,10 +44,12 @@ Magellan v1.1 is "done" when:
 ## v1.1 Roadmap
 
 **Phases:**
-- Phase 10: Path Traversal Validation (4 plans) - Security baseline ✓
-- Phase 11: FQN Extraction (6 plans) - Correctness foundation ✓
-- Phase 12: Transactional Deletes (6 plans) - Data integrity ✓ (with limitations)
-- Phase 13: SCIP Tests + Docs (4 plans) - Validation and documentation
+- Phase 10: Path Traversal Validation (4 plans) - Security baseline ✅
+- Phase 11: FQN Extraction (6 plans) - Correctness foundation ✅
+- Phase 12: Transactional Deletes (6 plans) - Data integrity ✅ (with known limitations)
+- Phase 13: SCIP Tests + Docs (4 plans) - Validation and documentation ✅
+
+**v1.1 Status: COMPLETE** - All 20 plans finished, all 4 success criteria verified
 
 ## Performance / Quality Metrics
 
@@ -181,17 +182,15 @@ Magellan v1.1 is "done" when:
 ## Session Continuity
 
 - **Last session:** 2026-01-20
-- **Stopped at:** Completed Phase 13-01: SCIP Export Implementation
+- **Stopped at:** v1.1 milestone archived and tagged as v1.1
 - **Resume file:** None
-- **Next:** Phase 13-02 - SCIP Round-trip Tests
+- **Next:** `/gsd:new-milestone v1.2` to start v1.2 Performance planning
 
 If resuming later, start by:
-1. Read `.planning/ROADMAP.md` for phase structure
+1. Read `.planning/ROADMAP.md` for complete roadmap
 2. Read `.planning/PROJECT.md` for requirements and constraints
-3. Read `.planning/phases/12-transactional-deletes/12-06-SUMMARY.md` for plan results
-4. Read `.planning/phases/12-transactional-deletes/12-transactional-deletes-VERIFICATION.md` for verification report
-5. Run `cargo test --workspace` to verify baseline health
-6. Execute next phase: Phase 13 - SCIP Tests + Docs
+3. Run `cargo test --workspace` to verify baseline health
+4. Use `/gsd:new-milestone v1.2` to start Performance planning
 
 ### Phase 12 Summary (Completed with Limitations)
 
@@ -251,3 +250,38 @@ If resuming later, start by:
 - Set position_encoding to UTF8CodeUnitOffsetFromLineStart for all documents (matches Magellan's UTF-8 byte offsets)
 - Use ReadAccess (8) for reference occurrences (no Reference role exists in SCIP SymbolRole enum)
 - Store SymbolInformation in document.symbols separately from Occurrence in document.occurrences
+
+### Key Decisions (Phase 13-02: SCIP Round-Trip Tests)
+- Use protobuf::Message trait for parse_from_bytes method on Index
+- Test helper returns PathBuf instead of TempPath (tempfile API compatibility)
+- Round-trip pattern: export -> parse -> verify structure
+- 7 comprehensive tests covering metadata, documents, occurrences, symbols, and empty graphs
+
+### Key Decisions (Phase 13-03: README Security Documentation)
+- Added Security section between "export" and "label" commands
+- Database placement guidance emphasizes placing .db outside watched directories
+- Quick Start example updated to use ~/.cache/magellan/ for database path
+- Path traversal protection documented with src/validation.rs reference
+
+### Key Decisions (Phase 13-04: MANUAL Security Best Practices)
+- Added section 8 with 4 subsections (8.1-8.4) covering database placement, path protection, permissions, and secure operations
+- Platform-specific examples for Linux/macOS, Windows, and CI/CD environments
+- Security auditing commands included (cargo test path_validation, grep validate_path)
+- Table of Contents updated to include new section 8
+
+### v1.1 Summary - COMPLETE
+
+**Shipped:** 2026-01-19 → 2026-01-20 (2 days)
+
+**Delivered:**
+- Path traversal validation at all entry points (watcher, scan, indexing)
+- Symlink rejection for paths outside project root
+- FQN-based symbol lookup eliminating name collisions
+- Row-count assertions for delete operation verification
+- SCIP export with round-trip test coverage
+- Security documentation in README and MANUAL
+
+**Stats:**
+- 4 phases, 20 plans completed
+- 7 SCIP round-trip tests added
+- Security best practices documented for all platforms

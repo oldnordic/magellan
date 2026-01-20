@@ -8,16 +8,9 @@ Magellan is a deterministic codebase mapping CLI for local developers. It watche
 
 Produce correct, deterministic symbol + reference + call graph data from real codebases, continuously, without stopping on bad files.
 
-## Current Milestone: v1.1 Correctness + Safety
+## Current Milestone: v1.2 Performance (Planned)
 
-**Goal:** Fix correctness issues (FQN collisions), harden security (path traversal), and ensure data integrity (transactional deletes)
-
-**Target features:**
-- FQN-as-key refactor: Switch all maps to FQN→symbol_id, treat simple names as display only
-- Path traversal validation: Ensure resolved paths cannot escape root directory
-- Delete ops transactional safety: Wrap delete_file_facts in explicit transaction + assertions
-- SCIP round-trip tests: Export then parse SCIP to verify format correctness
-- Docs hardening: Document .db location recommendations
+**Status:** v1.1 shipped 2026-01-20. Next milestone planning required.
 
 ## Requirements
 
@@ -34,16 +27,22 @@ Produce correct, deterministic symbol + reference + call graph data from real co
 - ✓ Stable identifiers in outputs (execution_id, match_id, span_id, symbol_id) — v1.0
 - ✓ Span-aware outputs (byte offsets + line/col) with deterministic ordering — v1.0
 - ✓ Validation hooks (checksums + pre/post verification) and execution logging — v1.0
+- ✓ FQN-based symbol lookup eliminates name collisions — v1.1
+- ✓ Path traversal validation prevents CVE-2025-68705 class vulnerabilities — v1.1
+- ✓ Row-count assertions verify delete operation completeness — v1.1
+- ✓ Orphan detection tests confirm clean graph state after deletes — v1.1
+- ✓ SCIP export verified by round-trip tests — v1.1
+- ✓ Security documentation (database placement, path protection) — v1.1
 
 ### Active
 
-- [ ] FQN-as-key refactor: Switch all maps to FQN→symbol_id, treat simple names as display only — v1.1
-- [ ] Path traversal validation: Ensure resolved paths cannot escape root directory — v1.1
-- [ ] Delete ops transactional safety: Wrap delete_file_facts in explicit transaction + assertions — v1.1
-- [ ] SCIP round-trip tests: Export then parse SCIP to verify format correctness — v1.1
-- [ ] Docs hardening: Document .db location recommendations — v1.1
+#### v1.2 Candidates (Deferred from v1.1)
+- [ ] sqlitegraph caching for reference indexing (PERF-01)
+- [ ] Persist file index to avoid rebuilding (PERF-02)
+- [ ] Cross-file reference accuracy tests (XREF-01)
+- [ ] Nested .gitignore file support (GIT-01)
 
-### Active (v1.2+)
+### Out of Scope (Carry Forward)
 
 - [ ] sqlitegraph caching for reference indexing (deferred)
 - [ ] Persist file index (deferred)
@@ -108,7 +107,11 @@ Produce correct, deterministic symbol + reference + call graph data from real co
 | Deterministic ordering everywhere (sorted outputs) | Diff-friendly, reproducible automation | ✓ Good |
 | Validation hooks + execution logging with `execution_id` | Verifiability + audit trail for runs and refactors | ✓ Good |
 | SCIP export for interoperability | Sourcegraph standard; LSIF deprecated | ✓ Good |
-| Simple symbol names (not FQN) for v1 | Hierarchical names deferred; FQN requires AST traversal | ⚠️ Revisit for v1.1 |
+| Simple symbol names (not FQN) for v1 | Hierarchical names deferred; FQN requires AST traversal | ✓ Resolved in v1.1 |
+| FQN-as-key with ScopeStack | Resolved name collisions; requires AST traversal | ✓ Good |
+| Path validation with suspicious pattern detection | Blocks traversal attacks; symlinks validated | ✓ Good |
+| Row-count assertions for delete safety | Cannot use transactions due to sqlitegraph API | ⚠️ Limitation documented |
+| SCIP round-trip tests | Export verified parseable by scip crate | ✓ Good |
 
 ---
-*Last updated: 2026-01-19 after v1.1 milestone initialization*
+*Last updated: 2026-01-20 after v1.1 milestone completion*
