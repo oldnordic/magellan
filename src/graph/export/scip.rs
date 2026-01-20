@@ -308,3 +308,88 @@ pub fn export_scip(graph: &CodeGraph, config: &ScipExportConfig) -> Result<Vec<u
     let bytes = index.write_to_bytes()?;
     Ok(bytes)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_magellan_symbol_to_scip_rust() {
+        // Test Rust symbol conversion (:: separator)
+        let result = magellan_symbol_to_scip("crate::module::function", "rust");
+        assert_eq!(result, "magellan rust/crate/module/function.");
+    }
+
+    #[test]
+    fn test_magellan_symbol_to_scip_rust_simple() {
+        // Test simple Rust symbol (no namespace)
+        let result = magellan_symbol_to_scip("myfunction", "rust");
+        assert_eq!(result, "magellan rust/myfunction.");
+    }
+
+    #[test]
+    fn test_magellan_symbol_to_scip_python() {
+        // Test Python symbol conversion (. separator)
+        let result = magellan_symbol_to_scip("package.module.function", "python");
+        assert_eq!(result, "magellan python/package/module/function.");
+    }
+
+    #[test]
+    fn test_magellan_symbol_to_scip_java() {
+        // Test Java symbol conversion
+        let result = magellan_symbol_to_scip("com.example.Class.method", "java");
+        assert_eq!(result, "magellan java/com/example/Class/method.");
+    }
+
+    #[test]
+    fn test_magellan_symbol_to_scip_cpp() {
+        // Test C++ symbol conversion (:: separator)
+        let result = magellan_symbol_to_scip("std::vector::push_back", "cpp");
+        assert_eq!(result, "magellan cpp/std/vector/push_back.");
+    }
+
+    #[test]
+    fn test_magellan_symbol_to_scip_javascript() {
+        // Test JavaScript symbol conversion
+        let result = magellan_symbol_to_scip("module.function", "javascript");
+        assert_eq!(result, "magellan javascript/module/function.");
+    }
+
+    #[test]
+    fn test_magellan_symbol_to_scip_typescript() {
+        // Test TypeScript symbol conversion
+        let result = magellan_symbol_to_scip("namespace.Class.method", "typescript");
+        assert_eq!(result, "magellan typescript/namespace/Class/method.");
+    }
+
+    #[test]
+    fn test_magellan_symbol_to_scip_unknown_language() {
+        // Test unknown language (no separator)
+        let result = magellan_symbol_to_scip("some_symbol", "unknown");
+        assert_eq!(result, "magellan unknown/some_symbol.");
+    }
+
+    #[test]
+    fn test_map_symbol_kind() {
+        // Test symbol kind mapping
+        assert_eq!(map_symbol_kind("Function"), Kind::Function);
+        assert_eq!(map_symbol_kind("Method"), Kind::Method);
+        assert_eq!(map_symbol_kind("Struct"), Kind::Class);
+        assert_eq!(map_symbol_kind("Enum"), Kind::Enum);
+        assert_eq!(map_symbol_kind("Module"), Kind::Namespace);
+        assert_eq!(map_symbol_kind("Class"), Kind::Class);
+        assert_eq!(map_symbol_kind("Interface"), Kind::Interface);
+        assert_eq!(map_symbol_kind("TypeAlias"), Kind::TypeAlias);
+        assert_eq!(map_symbol_kind("Union"), Kind::Union);
+        assert_eq!(map_symbol_kind("Namespace"), Kind::Namespace);
+        assert_eq!(map_symbol_kind("Unknown"), Kind::UnspecifiedKind);
+    }
+
+    #[test]
+    fn test_scip_export_config_default() {
+        let config = ScipExportConfig::default();
+        assert_eq!(config.project_root, ".");
+        assert!(config.project_name.is_none());
+        assert!(config.version.is_none());
+    }
+}
