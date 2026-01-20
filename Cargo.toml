@@ -1,12 +1,13 @@
 [package]
 name = "magellan"
-version = "0.5.3"
+version = "1.1.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
-repository = "https://github.com/feanor/magellan"
+repository = "https://github.com/oldnordic/magellan"
 readme = "README.md"
-description = "A dumb, deterministic codebase mapping tool for Rust projects"
-keywords = ["code-indexing", "code-analysis", "ast", "source-code"]
+documentation = "https://github.com/oldnordic/magellan/blob/main/MANUAL.md"
+description = "Deterministic codebase mapping tool for local development"
+keywords = ["code-indexing", "code-analysis", "ast", "source-code", "cli"]
 categories = ["development-tools", "command-line-utilities"]
 exclude = [
     ".mcp.json",
@@ -17,6 +18,7 @@ exclude = [
     "docs/SQLITEGRAPH_ARCHITECTURE.md",
     "docs/codemcp_manual.md",
     "docs/codemcp-rename-bug.md",
+    ".planning/",
 ]
 
 [[bin]]

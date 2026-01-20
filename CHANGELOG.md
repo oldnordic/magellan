@@ -3,6 +3,32 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-01-20
+
+### Added
+- FQN (Fully Qualified Name) based symbol lookup to eliminate name collisions
+- Path traversal validation at all entry points (watcher, scan, indexing)
+- Symlink rejection for paths outside project root
+- Row-count assertions for delete operation verification
+- Orphan detection tests to verify clean graph state after deletes
+- SCIP export format with round-trip test coverage
+- Security documentation in README and MANUAL
+
+### Changed
+- Symbol map keys changed from simple names to FQNs (e.g., `crate::module::Struct::method`)
+- Database version bumped from 2 to 3 (breaking change - requires re-index)
+- Call indexing now includes fallback lookup for cross-file method calls
+
+### Fixed
+- Cross-file method call resolution regression from FQN changes
+- Path traversal vulnerability class (CVE-2025-68705)
+
+### Security
+- Added path canonicalization before validation for all file access
+- Suspicious pattern detection (3+ `../` patterns, mixed patterns)
+- Symlinks outside project root are rejected
+- Database placement guidance in documentation
+
 ## [0.5.3] - 2026-01-13
 
 ### Fixed
@@ -207,8 +233,27 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-**Project Status:** Stable
+**Project Status:** Active Development
 
-Magellan is a deterministic codebase mapping tool. It does NOT perform semantic analysis, build LSP servers, use async runtimes, or provide web APIs.
+Magellan is a deterministic codebase mapping tool for local development.
 
-It DOES watch directories for source file changes, extract AST-level facts, and persist to a graph database.
+What it does:
+- Watches directories for source file changes
+- Extracts AST-level facts (symbols, references, call graphs)
+- Persists to a SQLite graph database
+- Exports to JSON, JSONL, DOT, CSV, SCIP formats
+
+What it does NOT do:
+- Semantic analysis or type checking
+- LSP server or IDE integration
+- Async runtimes or background thread pools
+- Web APIs or network services
+- Configuration files
+
+Testing:
+- Primary development and testing on Linux
+- Path validation: 24 tests
+- Orphan detection: 12 tests
+- SCIP export: 7 round-trip tests
+- Call graph: 5 tests
+- Per-language symbol extraction tests for all 7 supported languages

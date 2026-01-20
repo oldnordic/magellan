@@ -24,7 +24,12 @@ A deterministic codebase mapping tool. Watches source files, extracts AST-level 
 ## Installation
 
 ```bash
-git clone https://github.com/feanor/magellan
+cargo install magellan
+```
+
+Or build from source:
+```bash
+git clone https://github.com/oldnordic/magellan
 cd magellan
 cargo build --release
 
@@ -40,7 +45,7 @@ cargo build --release
 ### Features
 
 - **Help**: Use `--help` or `-h` with any command to see usage information
-- **Native-v2 Backend**: Build with `--features native-v2` for improved performance (2-3x faster inserts)
+- **Native-v2 Backend**: Build with `--features native-v2` for improved performance
 
 ## Quick Start
 
@@ -267,8 +272,6 @@ These protections are implemented in `src/validation.rs` and applied during:
 - Directory scanning
 - File indexing operations
 
-See Phase 10 of the development roadmap for implementation details.
-
 ### label
 
 ```bash
@@ -421,27 +424,36 @@ src/
 cargo test
 ```
 
-Test coverage: 172+ tests across 25+ test suites. All tests pass in <15 seconds.
+Test coverage:
+- Path validation tests: 24 tests for traversal protection, symlink handling, cross-platform paths
+- Orphan detection tests: 12 tests verifying clean state after delete operations
+- SCIP export tests: 7 round-trip tests verifying parseable protobuf output
+- Call graph tests: 5 tests for cross-file method call resolution
+- Symbol extraction tests: per-language tests for Rust, Python, Java, JavaScript, TypeScript, C, C++
+- Graph operations tests: insert, delete, query operations across all node types
+
+Tests pass on Linux (primary development platform). Other platforms not regularly tested.
 
 ## Current Status
 
-**Version:** 0.5.3
-**Status:** Stable
+**Version:** 1.1.0
 
-**Features:**
-- Symbol extraction for 7 languages ✅
-- Reference extraction for 7 languages ✅
-- Call graph indexing for 7 languages ✅
-- Rename refactoring support (via codemcp) for 7 languages ✅
-- Label-based queries for fast symbol lookup ✅ (NEW)
-- Code chunk storage (no file re-reading needed) ✅ (NEW)
-- Native-v2 backend support for improved performance ✅ (NEW)
+**What's Tested:**
+- Symbol extraction for 7 languages (Rust, Python, Java, JavaScript, TypeScript, C, C++)
+- Reference extraction and call graph indexing within files
+- Cross-file call resolution with FQN-based symbol lookup
+- Path traversal validation (CVE-2025-68705 class protections)
+- Delete operations with row-count verification and orphan detection
+- SCIP export format (round-trip verified with scip crate 0.6.1)
 
 **Known Limitations:**
-- Name-based reference matching (has false positives)
-- No cross-crate resolution; cross-file matching is name-based only
-- No incremental parsing
-- Single-threaded event processing
+- **Name-based cross-file matching**: Cross-file call resolution uses simple name fallback; may produce false positives when multiple symbols share the same name
+- **No semantic analysis**: AST-level only; no type checking or cross-module resolution
+- **No incremental parsing**: File changes trigger full re-parse of that file
+- **Single-threaded**: Event processing is sequential
+- **Delete operations**: Not transactional due to sqlitegraph API limitations; uses row-count assertions for verification
+- **Cross-crate resolution**: Rust symbols across crates are resolved by name only
+- **Testing**: Primary development and testing on Linux; Windows and macOS not regularly tested in CI
 
 ## License
 
