@@ -136,7 +136,11 @@ pub fn export_scip(graph: &CodeGraph, config: &ScipExportConfig) -> Result<Vec<u
 
     // Collect all entities by file
     let mut file_to_symbols: HashMap<String, Vec<(i64, SymbolNode)>> = HashMap::new();
-    let mut file_to_references: HashMap<String, Vec<Occurrence>> = HashMap::new();
+    let mut file_to_references: HashMap<String, Vec<super::ReferenceNode>> = HashMap::new();
+
+    // Global symbol map for cross-file reference resolution
+    // Maps (FQN or name) -> SCIP symbol string
+    let mut global_symbol_map: HashMap<String, String> = HashMap::new();
 
     // Get all entity IDs
     let entity_ids = graph.files.backend.entity_ids()?;
@@ -171,6 +175,28 @@ pub fn export_scip(graph: &CodeGraph, config: &ScipExportConfig) -> Result<Vec<u
                         continue;
                     };
 
+                    // Detect language for this file to encode the symbol
+                    let language = detect_language(std::path::Path::new(&file_path))
+                        .map(|l| l.as_str().to_string())
+                        .unwrap_or_else(|| "unknown".to_string());
+
+                    // Build SCIP symbol for global map
+                    let fqn = symbol_node.fqn.as_deref().unwrap_or("");
+                    let scip_symbol = if !fqn.is_empty() {
+                        magellan_symbol_to_scip(fqn, &language)
+                    } else {
+                        let name = symbol_node.name.as_deref().unwrap_or("");
+                        format!("magellan {}/{}.", language, name)
+                    };
+
+                    // Add to global symbol map (keyed by both FQN and name)
+                    if !fqn.is_empty() {
+                        global_symbol_map.insert(fqn.to_string(), scip_symbol.clone());
+                    }
+                    if let Some(ref name) = symbol_node.name {
+                        global_symbol_map.insert(name.clone(), scip_symbol.clone());
+                    }
+
                     file_to_symbols
                         .entry(file_path)
                         .or_insert_with(Vec::new)
@@ -180,34 +206,10 @@ pub fn export_scip(graph: &CodeGraph, config: &ScipExportConfig) -> Result<Vec<u
             "Reference" => {
                 // Extract file from reference node
                 if let Ok(ref_node) = serde_json::from_value::<super::ReferenceNode>(entity.data.clone()) {
-                    // For references, we'll create occurrences pointing to symbols
-                    // The symbol name is stored in the entity name as "ref to {symbol}"
-                    let symbol_name = entity
-                        .name
-                        .strip_prefix("ref to ")
-                        .unwrap_or("")
-                        .to_string();
-
-                    // Create SCIP occurrence for reference
-                    let mut occurrence = Occurrence::new();
-                    occurrence.range = vec![
-                        ref_node.start_line as i32,
-                        ref_node.start_col as i32,
-                        ref_node.end_line as i32,
-                        ref_node.end_col as i32,
-                    ];
-
-                    // For references, we use a placeholder symbol that will be resolved
-                    // to the actual definition symbol when we build the document
-                    occurrence.symbol = format!("ref_{}", symbol_name);
-
-                    // Set symbol roles: ReadAccess = 8 (used for references)
-                    occurrence.symbol_roles = SymbolRole::ReadAccess as i32;
-
                     file_to_references
                         .entry(ref_node.file.clone())
                         .or_insert_with(Vec::new)
-                        .push(occurrence);
+                        .push(ref_node);
                 }
             }
             _ => {
@@ -232,9 +234,6 @@ pub fn export_scip(graph: &CodeGraph, config: &ScipExportConfig) -> Result<Vec<u
 
         // Set position encoding to UTF-8 code units (line/col based)
         document.position_encoding = EnumOrUnknown::new(PositionEncoding::UTF8CodeUnitOffsetFromLineStart);
-
-        // Build symbol lookup for resolving references
-        let mut symbol_fqn_map: HashMap<String, String> = HashMap::new();
 
         // Add symbol occurrences (definitions)
         for (_node_id, symbol) in &symbols {
@@ -263,13 +262,6 @@ pub fn export_scip(graph: &CodeGraph, config: &ScipExportConfig) -> Result<Vec<u
             // Set symbol roles: Definition = 1
             occurrence.symbol_roles = SymbolRole::Definition as i32;
 
-            // Store for reference resolution
-            if let Some(ref fqn) = symbol.fqn {
-                symbol_fqn_map.insert(fqn.clone(), scip_symbol.clone());
-            } else if let Some(ref name) = symbol.name {
-                symbol_fqn_map.insert(name.clone(), scip_symbol.clone());
-            }
-
             document.occurrences.push(occurrence);
 
             // Add symbol information to document.symbols
@@ -287,28 +279,23 @@ pub fn export_scip(graph: &CodeGraph, config: &ScipExportConfig) -> Result<Vec<u
 
         // Add reference occurrences
         if let Some(refs) = file_to_references.get(&file_path) {
-            for mut occurrence in refs.clone() {
-                let ref_symbol = occurrence.symbol.clone();
+            for ref_node in refs {
+                let mut occurrence = Occurrence::new();
 
-                // Try to resolve the reference to a definition symbol
-                // Strip the "ref_" prefix we added earlier
-                let symbol_name = ref_symbol.strip_prefix("ref_").unwrap_or(&ref_symbol);
+                occurrence.range = vec![
+                    ref_node.start_line as i32,
+                    ref_node.start_col as i32,
+                    ref_node.end_line as i32,
+                    ref_node.end_col as i32,
+                ];
 
-                // Look for matching symbol by name in this file
-                let resolved_symbol = symbols
-                    .iter()
-                    .find(|(_, s)| s.name.as_deref() == Some(symbol_name))
-                    .and_then(|(_, s)| {
-                        s.fqn.as_ref().map(|fqn| magellan_symbol_to_scip(fqn, &language))
-                    })
-                    .or_else(|| {
-                        // Try FQN lookup
-                        symbol_fqn_map.get(symbol_name).cloned()
-                    });
+                // Set symbol roles: ReadAccess = 8 (used for references)
+                occurrence.symbol_roles = SymbolRole::ReadAccess as i32;
 
-                if let Some(symbol) = resolved_symbol {
-                    occurrence.symbol = symbol;
-                }
+                // For references, we don't have direct access to the target FQN.
+                // Use a placeholder indicating the reference couldn't be resolved.
+                // In a full implementation, we'd store the target symbol's FQN in the reference.
+                occurrence.symbol = "magellan unknown/.".to_string();
 
                 document.occurrences.push(occurrence);
             }
