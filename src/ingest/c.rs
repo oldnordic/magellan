@@ -645,4 +645,71 @@ enum Color {
         assert_eq!(facts.len(), 1);
         assert_eq!(facts[0].fqn, Some("my_function".to_string()));
     }
+
+    #[test]
+    fn test_canonical_fqn_format() {
+        let mut parser = CParser::new().unwrap();
+        let source = b"int my_function() {}\n";
+        let facts = parser.extract_symbols(PathBuf::from("src/test.c"), source);
+
+        assert_eq!(facts.len(), 1);
+        let fact = &facts[0];
+
+        // Canonical FQN format: package_name::file_path::Kind symbol_name
+        // For C: .::src/test.c::Function my_function
+        assert_eq!(
+            fact.canonical_fqn,
+            Some(".::src/test.c::Function my_function".to_string())
+        );
+    }
+
+    #[test]
+    fn test_display_fqn_format() {
+        let mut parser = CParser::new().unwrap();
+        let source = b"int my_function() {}\n";
+        let facts = parser.extract_symbols(PathBuf::from("src/test.c"), source);
+
+        assert_eq!(facts.len(), 1);
+        let fact = &facts[0];
+
+        // Display FQN format: package_name::symbol_name
+        // C has no namespaces, so display FQN is simpler
+        assert_eq!(fact.display_fqn, Some(".::my_function".to_string()));
+    }
+
+    #[test]
+    fn test_fqn_function() {
+        let mut parser = CParser::new().unwrap();
+        let source = b"void process_data(int x) { return; }\n";
+        let facts = parser.extract_symbols(PathBuf::from("lib/helpers.c"), source);
+
+        assert_eq!(facts.len(), 1);
+        let fact = &facts[0];
+
+        assert_eq!(fact.name, Some("process_data".to_string()));
+        assert_eq!(fact.kind, SymbolKind::Function);
+        assert_eq!(
+            fact.canonical_fqn,
+            Some(".::lib/helpers.c::Function process_data".to_string())
+        );
+        assert_eq!(fact.display_fqn, Some(".::process_data".to_string()));
+    }
+
+    #[test]
+    fn test_fqn_struct() {
+        let mut parser = CParser::new().unwrap();
+        let source = b"struct Point { int x; int y; };\n";
+        let facts = parser.extract_symbols(PathBuf::from("types/geometry.c"), source);
+
+        assert_eq!(facts.len(), 1);
+        let fact = &facts[0];
+
+        assert_eq!(fact.name, Some("Point".to_string()));
+        assert_eq!(fact.kind, SymbolKind::Class);
+        assert_eq!(
+            fact.canonical_fqn,
+            Some(".::types/geometry.c::Class Point".to_string())
+        );
+        assert_eq!(fact.display_fqn, Some(".::Point".to_string()));
+    }
 }
