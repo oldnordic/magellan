@@ -812,4 +812,111 @@ class Outer:
         assert_eq!(methods.len(), 1);
         assert_eq!(methods[0].fqn, Some("Outer.Inner.method".to_string()));
     }
+
+    #[test]
+    fn test_canonical_fqn_format() {
+        let mut parser = PythonParser::new().unwrap();
+        let source = b"def my_function():\n    pass\n";
+        let facts = parser.extract_symbols(PathBuf::from("test.py"), source);
+
+        assert_eq!(facts.len(), 1);
+        let fact = &facts[0];
+
+        // Canonical FQN format: package_name::file_path::Kind symbol_name
+        assert!(fact.canonical_fqn.is_some());
+        let canonical = fact.canonical_fqn.as_ref().unwrap();
+        assert!(canonical.contains("::Function my_function"));
+        assert!(canonical.contains("test.py"));
+        assert!(canonical.starts_with("."));
+    }
+
+    #[test]
+    fn test_display_fqn_format() {
+        let mut parser = PythonParser::new().unwrap();
+        let source = b"def my_function():\n    pass\n";
+        let facts = parser.extract_symbols(PathBuf::from("test.py"), source);
+
+        assert_eq!(facts.len(), 1);
+        let fact = &facts[0];
+
+        // Display FQN is human-readable, excludes file path
+        assert!(fact.display_fqn.is_some());
+        let display = fact.display_fqn.as_ref().unwrap();
+        // Package "." with "." separator produces ".." prefix
+        assert_eq!(display, "..my_function");
+    }
+
+    #[test]
+    fn test_fqn_with_class() {
+        let mut parser = PythonParser::new().unwrap();
+        let source = b"
+class MyClass:
+    def my_method(self):
+        pass
+";
+        let facts = parser.extract_symbols(PathBuf::from("test.py"), source);
+
+        let classes: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Class)
+            .collect();
+
+        assert_eq!(classes.len(), 1);
+        let class = classes[0];
+
+        // Class canonical FQN includes file path
+        assert!(class.canonical_fqn.is_some());
+        assert!(class.canonical_fqn.as_ref().unwrap().contains("::Struct MyClass"));
+
+        // Class display FQN is package.class
+        // Package "." with "." separator produces ".." prefix
+        assert_eq!(class.display_fqn.as_ref().unwrap(), "..MyClass");
+
+        let methods: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Function)
+            .collect();
+
+        assert_eq!(methods.len(), 1);
+        let method = methods[0];
+
+        // Method display FQN includes class scope
+        assert_eq!(method.display_fqn.as_ref().unwrap(), "..MyClass.my_method");
+    }
+
+    #[test]
+    fn test_fqn_nested_class_python() {
+        let mut parser = PythonParser::new().unwrap();
+        let source = b"
+class Outer:
+    class Inner:
+        def nested_method(self):
+            pass
+";
+        let facts = parser.extract_symbols(PathBuf::from("test.py"), source);
+
+        let classes: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Class)
+            .collect();
+
+        assert_eq!(classes.len(), 2);
+
+        // Outer class display FQN
+        // Package "." with "." separator produces ".." prefix
+        assert_eq!(classes[0].display_fqn.as_ref().unwrap(), "..Outer");
+
+        // Inner class display FQN includes outer class
+        assert_eq!(classes[1].display_fqn.as_ref().unwrap(), "..Outer.Inner");
+
+        let methods: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Function)
+            .collect();
+
+        assert_eq!(methods.len(), 1);
+
+        // Method display FQN includes full nesting
+        assert_eq!(methods[0].display_fqn.as_ref().unwrap(), "..Outer.Inner.nested_method");
+    }
 }
