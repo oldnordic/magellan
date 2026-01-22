@@ -60,7 +60,7 @@ fn print_usage() {
     eprintln!("  verify    Verify database vs filesystem");
     eprintln!();
     eprintln!("Global arguments:");
-    eprintln!("  --output <FORMAT>   Output format: human (default) or json");
+    eprintln!("  --output <FORMAT>   Output format: human (default), json (compact), or pretty (formatted)");
     eprintln!();
     eprintln!("Watch arguments:");
     eprintln!("  --root <DIR>        Directory to watch recursively");
@@ -196,6 +196,7 @@ enum Command {
         root: Option<PathBuf>,
         path: PathBuf,
         direction: String,
+        output_format: OutputFormat,
         with_context: bool,
         with_semantics: bool,
         with_checksums: bool,
@@ -205,6 +206,7 @@ enum Command {
         db_path: PathBuf,
         file_path: String,
         symbol_name: String,
+        output_format: OutputFormat,
         with_context: bool,
         with_semantics: bool,
         with_checksums: bool,
@@ -216,6 +218,7 @@ enum Command {
     },
     Files {
         db_path: PathBuf,
+        output_format: OutputFormat,
         with_symbols: bool,
     },
     Verify {
@@ -721,11 +724,11 @@ fn parse_args() -> Result<Command> {
             let mut root: Option<PathBuf> = None;
             let mut path: Option<PathBuf> = None;
             let mut direction = String::from("in"); // default
+            let mut output_format = OutputFormat::Human;
             let mut with_context = false;
             let mut with_semantics = false;
             let mut with_checksums = false;
             let mut context_lines = 3usize;
-            let mut _output_format = OutputFormat::Human; // Consume but don't store in Command
 
             let mut i = 2;
             while i < args.len() {
@@ -765,6 +768,14 @@ fn parse_args() -> Result<Command> {
                         direction = args[i + 1].clone();
                         i += 2;
                     }
+                    "--output" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--output requires an argument"));
+                        }
+                        output_format = OutputFormat::from_str(&args[i + 1])
+                            .ok_or_else(|| anyhow::anyhow!("Invalid output format: {}", args[i + 1]))?;
+                        i += 2;
+                    }
                     "--with-context" => {
                         with_context = true;
                         i += 1;
@@ -784,14 +795,6 @@ fn parse_args() -> Result<Command> {
                         context_lines = args[i + 1].parse().unwrap_or(3).min(100);
                         i += 2;
                     }
-                    "--output" => {
-                        if i + 1 >= args.len() {
-                            return Err(anyhow::anyhow!("--output requires an argument"));
-                        }
-                        _output_format = OutputFormat::from_str(&args[i + 1])
-                            .ok_or_else(|| anyhow::anyhow!("Invalid output format: {}", args[i + 1]))?;
-                        i += 2;
-                    }
                     _ => {
                         return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
                     }
@@ -808,6 +811,7 @@ fn parse_args() -> Result<Command> {
                 root,
                 path,
                 direction,
+                output_format,
                 with_context,
                 with_semantics,
                 with_checksums,
@@ -816,8 +820,8 @@ fn parse_args() -> Result<Command> {
         }
         "files" => {
             let mut db_path: Option<PathBuf> = None;
+            let mut output_format = OutputFormat::Human;
             let mut with_symbols = false;
-            let mut _output_format = OutputFormat::Human; // Consume but don't store in Command
 
             let mut i = 2;
             while i < args.len() {
@@ -829,17 +833,17 @@ fn parse_args() -> Result<Command> {
                         db_path = Some(PathBuf::from(&args[i + 1]));
                         i += 2;
                     }
-                    "--symbols" => {
-                        with_symbols = true;
-                        i += 1;
-                    }
                     "--output" => {
                         if i + 1 >= args.len() {
                             return Err(anyhow::anyhow!("--output requires an argument"));
                         }
-                        _output_format = OutputFormat::from_str(&args[i + 1])
+                        output_format = OutputFormat::from_str(&args[i + 1])
                             .ok_or_else(|| anyhow::anyhow!("Invalid output format: {}", args[i + 1]))?;
                         i += 2;
+                    }
+                    "--symbols" => {
+                        with_symbols = true;
+                        i += 1;
                     }
                     _ => {
                         return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
@@ -849,7 +853,7 @@ fn parse_args() -> Result<Command> {
 
             let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
 
-            Ok(Command::Files { db_path, with_symbols })
+            Ok(Command::Files { db_path, output_format, with_symbols })
         }
         "verify" => {
             let mut root_path: Option<PathBuf> = None;
@@ -887,11 +891,11 @@ fn parse_args() -> Result<Command> {
             let mut db_path: Option<PathBuf> = None;
             let mut file_path: Option<String> = None;
             let mut symbol_name: Option<String> = None;
+            let mut output_format = OutputFormat::Human;
             let mut with_context = false;
             let mut with_semantics = false;
             let mut with_checksums = false;
             let mut context_lines = 3usize;
-            let mut _output_format = OutputFormat::Human; // Consume but don't store in Command
 
             let mut i = 2;
             while i < args.len() {
@@ -917,6 +921,14 @@ fn parse_args() -> Result<Command> {
                         symbol_name = Some(args[i + 1].clone());
                         i += 2;
                     }
+                    "--output" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--output requires an argument"));
+                        }
+                        output_format = OutputFormat::from_str(&args[i + 1])
+                            .ok_or_else(|| anyhow::anyhow!("Invalid output format: {}", args[i + 1]))?;
+                        i += 2;
+                    }
                     "--with-context" => {
                         with_context = true;
                         i += 1;
@@ -936,14 +948,6 @@ fn parse_args() -> Result<Command> {
                         context_lines = args[i + 1].parse().unwrap_or(3).min(100);
                         i += 2;
                     }
-                    "--output" => {
-                        if i + 1 >= args.len() {
-                            return Err(anyhow::anyhow!("--output requires an argument"));
-                        }
-                        _output_format = OutputFormat::from_str(&args[i + 1])
-                            .ok_or_else(|| anyhow::anyhow!("Invalid output format: {}", args[i + 1]))?;
-                        i += 2;
-                    }
                     _ => {
                         return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
                     }
@@ -958,6 +962,7 @@ fn parse_args() -> Result<Command> {
                 db_path,
                 file_path,
                 symbol_name,
+                output_format,
                 with_context,
                 with_semantics,
                 with_checksums,
@@ -1142,7 +1147,7 @@ fn run_status(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
     let chunk_count = graph.count_chunks()?;
 
     match output_format {
-        OutputFormat::Json => {
+        OutputFormat::Json | OutputFormat::Pretty => {
             let response = StatusResponse {
                 files: file_count,
                 symbols: symbol_count,
@@ -1152,7 +1157,7 @@ fn run_status(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
             };
             let exec_id = tracker.exec_id().to_string();
             let json_response = JsonResponse::new(response, &exec_id);
-            output_json(&json_response)?;
+            output_json(&json_response, output_format)?;
         }
         OutputFormat::Human => {
             println!("files: {}", file_count);
@@ -1180,7 +1185,7 @@ fn run_files(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
     tracker.set_counts(file_nodes.len(), 0, 0);
 
     // Handle JSON output mode
-    if output_format == OutputFormat::Json {
+    if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
         let mut files: Vec<String> = file_nodes.keys().cloned().collect();
         files.sort(); // Deterministic ordering
 
@@ -1191,7 +1196,7 @@ fn run_files(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
         let exec_id = tracker.exec_id().to_string();
         let json_response = magellan::output::JsonResponse::new(response, &exec_id);
         tracker.finish(&graph)?;
-        return magellan::output::output_json(&json_response);
+        return magellan::output::output_json(&json_response, output_format);
     }
 
     // Human mode (existing behavior)
@@ -1426,6 +1431,7 @@ fn main() -> ExitCode {
             root,
             path,
             direction,
+            output_format,
             with_context,
             with_semantics,
             with_checksums,
@@ -1441,6 +1447,7 @@ fn main() -> ExitCode {
         }
         Ok(Command::Files {
             db_path,
+            output_format,
             with_symbols,
         }) => {
             if let Err(e) =
@@ -1455,6 +1462,7 @@ fn main() -> ExitCode {
             db_path,
             file_path,
             symbol_name,
+            output_format,
             with_context,
             with_semantics,
             with_checksums,
