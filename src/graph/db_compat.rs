@@ -166,7 +166,7 @@ pub enum DbCompatError {
         expected: i64,
     },
 
-    #[error("DB_COMPAT: magellan schema mismatch: {path} (found={found}, expected={expected})\n\nThis database was created by an older version of Magellan.\nTo upgrade, delete the database file and re-index your codebase.\n\n  rm {path}\n  magellan scan --db {path} <your-code-directory>\n\nNote: All symbol_id values have changed to use fully-qualified names (FQN).")]
+    #[error("DB_COMPAT: magellan schema mismatch: {path} (found={found}, expected={expected})\n\nThis database was created by an older version of Magellan.\nTo upgrade, delete the database file and re-index your codebase.\n\n  rm {path}\n  magellan scan --db {path} <your-code-directory>\n\nNote: Symbol IDs have changed to use BLAKE3-based identity with 32-character hex format.")]
     MagellanSchemaMismatch {
         path: PathBuf,
         found: i64,
