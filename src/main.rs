@@ -18,6 +18,15 @@ use magellan::output::{JsonResponse, StatusResponse, generate_execution_id, outp
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+fn version() {
+    let version = env!("CARGO_PKG_VERSION");
+    let commit = option_env!("MAGELLAN_COMMIT_SHA").unwrap_or("unknown");
+    let date = option_env!("MAGELLAN_BUILD_DATE").unwrap_or("unknown");
+    let rustc_version = option_env!("MAGELLAN_RUSTC_VERSION").unwrap_or("unknown");
+
+    println!("magellan {} ({} {}) rustc {}", version, commit, date, rustc_version);
+}
+
 fn print_usage() {
     eprintln!("Magellan - Multi-language codebase mapping tool");
     eprintln!();
@@ -231,6 +240,12 @@ fn parse_args() -> Result<Command> {
     }
 
     let command = &args[1];
+
+    // Handle --version and -V flags
+    if command == "--version" || command == "-V" {
+        version();
+        std::process::exit(0);
+    }
 
     // Handle --help and -h flags
     if command == "--help" || command == "-h" {
