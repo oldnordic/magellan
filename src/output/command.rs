@@ -152,6 +152,12 @@ pub struct JsonResponse<T> {
     pub execution_id: String,
     /// Response data
     pub data: T,
+    /// Tool name (e.g., "magellan")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool: Option<String>,
+    /// ISO 8601 timestamp
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<String>,
     /// Whether the response is partial (e.g., truncated)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub partial: Option<bool>,
