@@ -90,7 +90,11 @@ impl ChunkStore {
                     ))?;
                 // Get the database path from the existing connection
                 let path = conn.path().ok_or_else(|| {
-                    rusqlite::Error::InvalidParameterName("Cannot get database path".to_string())
+                    rusqlite::Error::InvalidParameterName(
+                        "Cannot get database path. :memory: databases have no file path. \
+                        Use a file-based database (e.g., --db magellan.db) instead. \
+                        See MANUAL.md for details.".to_string()
+                    )
                 })?;
                 // Open a new connection to the same database
                 rusqlite::Connection::open(path)

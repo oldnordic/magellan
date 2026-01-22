@@ -69,6 +69,21 @@ pub use schema::{CallNode, FileNode, ReferenceNode, SymbolNode};
 /// Receives (current_count, total_count) as scanning progresses
 pub type ScanProgress = dyn Fn(usize, usize) + Send + Sync;
 
+/// Check if a database path is an in-memory database.
+///
+/// # Arguments
+/// * `path` - Database path to check
+///
+/// # Returns
+/// true if the path is :memory:, false otherwise
+///
+/// # Note
+/// In-memory databases have no file path and cannot be used with operations
+/// that require file-based access (e.g., exports, some ChunkStore operations).
+fn is_memory_db(path: &Path) -> bool {
+    path.as_os_str() == ":memory:"
+}
+
 /// Graph database wrapper for Magellan
 ///
 /// Provides deterministic, idempotent operations for persisting code facts.
@@ -140,7 +155,7 @@ impl CodeGraph {
                 })
                 .map_err(|e| anyhow::anyhow!("Failed to set WAL mode: {}", e))?;
             // Only assert WAL mode for file-based databases (not :memory:)
-            if db_path_buf != PathBuf::from(":memory:") {
+            if !is_memory_db(&db_path_buf) {
                 debug_assert_eq!(journal_mode, "wal", "WAL mode should be enabled");
             }
 
