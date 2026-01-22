@@ -2,6 +2,7 @@
 //!
 //! Magellan observes files, extracts symbols and references, and persists facts to sqlitegraph.
 
+pub mod common;
 pub mod diagnostics;
 pub mod error_codes;
 pub mod generation;
@@ -30,3 +31,4 @@ pub use validation::{PathValidationError, canonicalize_path, validate_path_withi
 pub use watcher::{EventType, FileEvent, FileSystemWatcher, WatcherBatch, WatcherConfig};
 pub use output::{JsonResponse, OutputFormat, generate_execution_id, output_json};
 pub use output::command::{Span, SymbolMatch, ReferenceMatch};
+pub use common::{detect_language_from_path, format_symbol_kind, parse_symbol_kind, resolve_path};
