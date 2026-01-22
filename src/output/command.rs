@@ -418,6 +418,36 @@ impl Span {
             checksums: None,
         }
     }
+    /// Set context on the span
+    pub fn with_context(mut self, context: SpanContext) -> Self {
+        self.context = Some(context);
+        self
+    }
+
+    /// Set semantic information on the span
+    pub fn with_semantics(mut self, semantics: SpanSemantics) -> Self {
+        self.semantics = Some(semantics);
+        self
+    }
+
+    /// Set semantic information from kind and language strings
+    pub fn with_semantics_from(mut self, kind: String, language: String) -> Self {
+        self.semantics = Some(SpanSemantics::new(kind, language));
+        self
+    }
+
+    /// Set relationships on the span
+    pub fn with_relationships(mut self, relationships: SpanRelationships) -> Self {
+        self.relationships = Some(relationships);
+        self
+    }
+
+    /// Set checksums on the span
+    pub fn with_checksums(mut self, checksums: SpanChecksums) -> Self {
+        self.checksums = Some(checksums);
+        self
+    }
+
 }
 
 /// Symbol match result for query/find commands
@@ -1380,5 +1410,185 @@ mod tests {
         let symbol: SymbolMatch = serde_json::from_str(json_without_id).unwrap();
         assert_eq!(symbol.symbol_id, None);
         assert_eq!(symbol.name, "main");
+    }
+
+    // === Span builder method tests ===
+
+    #[test]
+    fn test_span_builder_with_context() {
+        use crate::output::rich::SpanContext;
+        let context = SpanContext {
+            before: vec!["before".to_string()],
+            selected: vec!["selected".to_string()],
+            after: vec!["after".to_string()],
+        };
+
+        let span = Span::new("test.rs".into(), 0, 10, 1, 0, 1, 10)
+            .with_context(context.clone());
+
+        assert!(span.context.is_some());
+        assert_eq!(span.context.as_ref().unwrap().before[0], "before");
+        assert_eq!(span.context.as_ref().unwrap().selected[0], "selected");
+        assert_eq!(span.context.as_ref().unwrap().after[0], "after");
+    }
+
+    #[test]
+    fn test_span_builder_with_semantics() {
+        use crate::output::rich::SpanSemantics;
+        let semantics = SpanSemantics::new("function".to_string(), "rust".to_string());
+
+        let span = Span::new("test.rs".into(), 0, 10, 1, 0, 1, 10)
+            .with_semantics(semantics.clone());
+
+        assert!(span.semantics.is_some());
+        assert_eq!(span.semantics.as_ref().unwrap().kind, Some("function".to_string()));
+        assert_eq!(span.semantics.as_ref().unwrap().language, Some("rust".to_string()));
+    }
+
+    #[test]
+    fn test_span_builder_with_semantics_from() {
+        let span = Span::new("test.rs".into(), 0, 10, 1, 0, 1, 10)
+            .with_semantics_from("function".to_string(), "rust".to_string());
+
+        assert!(span.semantics.is_some());
+        assert_eq!(span.semantics.as_ref().unwrap().kind, Some("function".to_string()));
+        assert_eq!(span.semantics.as_ref().unwrap().language, Some("rust".to_string()));
+    }
+
+    #[test]
+    fn test_span_builder_with_relationships() {
+        use crate::output::rich::{SpanRelationships, SymbolReference};
+        let relationships = SpanRelationships {
+            callers: vec![SymbolReference {
+                file: "caller.rs".to_string(),
+                symbol: "caller".to_string(),
+                byte_start: 0,
+                byte_end: 10,
+                line: 1,
+            }],
+            ..Default::default()
+        };
+
+        let span = Span::new("test.rs".into(), 0, 10, 1, 0, 1, 10)
+            .with_relationships(relationships);
+
+        assert!(span.relationships.is_some());
+        assert_eq!(span.relationships.as_ref().unwrap().callers.len(), 1);
+        assert_eq!(span.relationships.as_ref().unwrap().callers[0].symbol, "caller");
+    }
+
+    #[test]
+    fn test_span_builder_with_checksums() {
+        use crate::output::rich::SpanChecksums;
+        let checksums = SpanChecksums {
+            checksum_before: Some("sha256:abc123".to_string()),
+            file_checksum_before: Some("sha256:def456".to_string()),
+        };
+
+        let span = Span::new("test.rs".into(), 0, 10, 1, 0, 1, 10)
+            .with_checksums(checksums);
+
+        assert!(span.checksums.is_some());
+        assert_eq!(span.checksums.as_ref().unwrap().checksum_before, Some("sha256:abc123".to_string()));
+        assert_eq!(span.checksums.as_ref().unwrap().file_checksum_before, Some("sha256:def456".to_string()));
+    }
+
+    #[test]
+    fn test_span_serialization_skips_none_rich_fields() {
+        let span = Span::new("test.rs".into(), 0, 10, 1, 0, 1, 10);
+
+        let json = serde_json::to_string(&span).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        // Rich fields should not appear when None
+        assert!(value.get("context").is_none() || value["context"].is_null());
+        assert!(value.get("semantics").is_none() || value["semantics"].is_null());
+        assert!(value.get("relationships").is_none() || value["relationships"].is_null());
+        assert!(value.get("checksums").is_none() || value["checksums"].is_null());
+    }
+
+    #[test]
+    fn test_span_serialization_includes_rich_fields_when_set() {
+        use crate::output::rich::{SpanContext, SpanSemantics};
+        let context = SpanContext {
+            before: vec!["before".to_string()],
+            selected: vec!["selected".to_string()],
+            after: vec!["after".to_string()],
+        };
+        let semantics = SpanSemantics::new("function".to_string(), "rust".to_string());
+
+        let span = Span::new("test.rs".into(), 0, 10, 1, 0, 1, 10)
+            .with_context(context)
+            .with_semantics(semantics);
+
+        let json = serde_json::to_string(&span).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        // Rich fields should appear when set
+        assert!(!value.get("context").is_none() && !value["context"].is_null());
+        assert!(!value.get("semantics").is_none() && !value["semantics"].is_null());
+        assert_eq!(value["semantics"]["kind"], "function");
+        assert_eq!(value["semantics"]["language"], "rust");
+
+    }
+    // === Task 14-01.3: StandardSpan verification tests ===
+
+    #[test]
+    fn test_span_matches_standard_spec() {
+        // Verify field names match StandardSpan specification
+        let span = Span::new(
+            "test.rs".to_string(),
+            10,  // byte_start (inclusive)
+            20,  // byte_end (exclusive)
+            1,   // start_line (1-indexed)
+            5,   // start_col (0-indexed, byte-based)
+            2,   // end_line (1-indexed)
+            3,   // end_col (0-indexed, byte-based)
+        );
+
+        // Verify half-open range: length = end - start
+        assert_eq!(span.byte_end - span.byte_start, 10);
+
+        // Verify field names match StandardSpan
+        // These are the EXACT field names from the unified spec
+        assert_eq!(span.span_id.len(), 16); // 8 bytes = 16 hex chars
+        assert_eq!(span.file_path, "test.rs");
+        assert_eq!(span.byte_start, 10);
+        assert_eq!(span.byte_end, 20);
+        assert_eq!(span.start_line, 1);
+        assert_eq!(span.start_col, 5);
+        assert_eq!(span.end_line, 2);
+        assert_eq!(span.end_col, 3);
+
+        // Verify span_id is deterministic
+        let span2 = Span::new("test.rs".to_string(), 10, 20, 1, 5, 2, 3);
+        assert_eq!(span.span_id, span2.span_id);
+
+        // Verify span_id changes with different inputs
+        let span3 = Span::new("other.rs".to_string(), 10, 20, 1, 5, 2, 3);
+        assert_ne!(span.span_id, span3.span_id);
+    }
+
+    #[test]
+    fn test_span_serialization_includes_all_required_fields() {
+        let span = Span::new("test.rs".to_string(), 0, 10, 1, 0, 1, 10);
+        let json = serde_json::to_string(&span).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        // Verify all StandardSpan required fields are present in JSON
+        assert!(value.get("span_id").is_some());
+        assert!(value.get("file_path").is_some());
+        assert!(value.get("byte_start").is_some());
+        assert!(value.get("byte_end").is_some());
+        assert!(value.get("start_line").is_some());
+        assert!(value.get("start_col").is_some());
+        assert!(value.get("end_line").is_some());
+        assert!(value.get("end_col").is_some());
+
+        // Verify field names match StandardSpan exactly (NOT line_start, col_start, etc.)
+        assert!(value.get("line_start").is_none());
+        assert!(value.get("col_start").is_none());
+        assert!(value.get("line_end").is_none());
+        assert!(value.get("col_end").is_none());
     }
 }
