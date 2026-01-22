@@ -141,7 +141,9 @@ where
             parser.set_language(&tree_sitter_javascript::language())?;
             *parser_ref = Some(parser);
         }
-        Ok(f(parser_ref.as_mut().unwrap()))
+        Ok(f(parser_ref.as_mut().expect(
+            "JavaScript parser invariant violated: Option must be Some() after initialization"
+        )))
     })
 }
 
