@@ -12,11 +12,12 @@ Comprehensive instructions for operating Magellan.
 2. [Quick Start](#2-quick-start)
 3. [Position Conventions](#3-position-conventions)
 4. [Command Reference](#4-command-reference)
-5. [Supported Languages](#5-supported-languages)
-6. [Database Schema](#6-database-schema)
-7. [Error Handling](#7-error-handling)
-8. [Troubleshooting](#8-troubleshooting)
-9. [Security Best Practices](#9-security-best-practices)
+5. [Known Limitations](#5-known-limitations)
+6. [Supported Languages](#6-supported-languages)
+7. [Database Schema](#7-database-schema)
+8. [Error Handling](#8-error-handling)
+9. [Troubleshooting](#9-troubleshooting)
+10. [Security Best Practices](#10-security-best-practices)
 
 ---
 
@@ -381,7 +382,23 @@ Get all code chunks from a file. Useful for getting complete file contents witho
 
 ---
 
-## 5. Supported Languages
+## 5. Known Limitations
+
+### 5.1 In-Memory Databases
+
+Magellan uses SQLite Shared connections for concurrent access (via `sqlitegraph` and
+`ChunkStore`), which don't work with `:memory:` databases. Each thread would get its
+own separate in-memory database, breaking the shared state assumption.
+
+Additionally, operations that retrieve the database file path will fail for
+`:memory:` databases because in-memory databases have no file path.
+
+**Workaround:** Use file-based databases for all operations requiring concurrent
+access or path retrieval.
+
+---
+
+## 6. Supported Languages
 
 | Language | Extensions | Symbol Extraction | Reference Extraction | Call Graph |
 |----------|------------|-------------------|---------------------|------------|
@@ -395,9 +412,9 @@ Get all code chunks from a file. Useful for getting complete file contents witho
 
 ---
 
-## 6. Database Schema
+## 7. Database Schema
 
-### 6.1 Node Types
+### 7.1 Node Types
 
 **File Node:**
 ```json
@@ -431,7 +448,7 @@ Get all code chunks from a file. Useful for getting complete file contents witho
 }
 ```
 
-### 6.2 Edge Types
+### 7.2 Edge Types
 
 | Edge Type | Source | Target | Meaning |
 |-----------|--------|--------|---------|
@@ -442,9 +459,9 @@ Get all code chunks from a file. Useful for getting complete file contents witho
 
 ---
 
-## 7. Error Handling
+## 8. Error Handling
 
-### 7.1 Error Messages
+### 8.1 Error Messages
 
 **Permission Denied:**
 ```
@@ -461,7 +478,7 @@ ERROR /path/to/file.rs Permission denied (os error 13)
 - Only one process may access database at a time
 - Magellan exits cleanly
 
-### 6.2 Recovery
+### 8.2 Recovery
 
 ```bash
 # Check database integrity
@@ -474,7 +491,7 @@ magellan watch --root . --db magellan.db --scan-initial
 
 ---
 
-## 8. Troubleshooting
+## 9. Troubleshooting
 
 ### Files not being indexed
 
@@ -503,9 +520,9 @@ pkill -f "magellan watch"
 
 ---
 
-## 9. Security Best Practices
+## 10. Security Best Practices
 
-### 9.1 Database Placement
+### 10.1 Database Placement
 
 Magellan stores all indexed data in the file specified by `--db <FILE>`.
 The location of this file affects both security and performance.
@@ -556,7 +573,7 @@ magellan watch --root . --db ./magellan.db
 magellan watch --root ~/src/project --db ~/src/project/.magellan.db
 ```
 
-### 8.2 Path Traversal Protection
+### 10.2 Path Traversal Protection
 
 Magellan includes protection against directory traversal attacks that attempt
 to access files outside the watched directory.
@@ -600,7 +617,7 @@ cargo test path_validation
 grep -r "validate_path" src/
 ```
 
-### 8.3 File Permission Recommendations
+### 10.3 File Permission Recommendations
 
 **Database File Permissions**
 
@@ -637,7 +654,7 @@ sudo chmod 770 /var/cache/magellan
 magellan watch --root ~/project --db /var/cache/magellan/$USER-project.db
 ```
 
-### 8.4 Secure Operation Patterns
+### 10.4 Secure Operation Patterns
 
 **Production Monitoring**
 
@@ -670,6 +687,24 @@ magellan status --db /var/cache/mag/app.db
 # 3. Check for accidental database inclusion in exports
 magellan export --db /var/cache/mag/app.db | grep -v "sqlite"
 ```
+
+---
+
+## Architecture
+
+### Threading Model
+
+Magellan uses a hybrid threading model:
+
+- **Watcher:** Single-threaded design using `RefCell` for interior mutability.
+  Appropriate for the debounced event coalescing logic, which runs on one thread.
+
+- **CodeGraph:** Thread-safe design for concurrent database access from multiple
+  indexer threads. The graph database layer uses SQLite's built-in concurrency
+  support to handle simultaneous access.
+
+**Note:** `RefCell` is not thread-safe. If the watcher becomes multi-threaded in
+the future, replace `RefCell<T>` with `Arc<Mutex<T>>` to maintain thread safety.
 
 ---
 
