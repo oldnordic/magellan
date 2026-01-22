@@ -3,6 +3,7 @@ pub mod cpp;
 pub mod detect;
 pub mod java;
 pub mod javascript;
+pub mod pool;
 pub mod python;
 pub mod typescript;
 
