@@ -884,10 +884,19 @@ impl From<crate::graph::validation::ValidationReport> for ValidationResponse {
 /// Response for errors in JSON mode
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ErrorResponse {
+    /// Machine-readable error code (e.g., "MAG-REF-001")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
     /// Error category/type
     pub error: String,
     /// Human-readable error message
     pub message: String,
+    /// Related span for context (if applicable)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub span: Option<Span>,
+    /// Suggested remediation steps
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remediation: Option<String>,
 }
 
 /// Output format for commands
@@ -1048,8 +1057,11 @@ mod tests {
     #[test]
     fn test_error_response_serialization() {
         let response = ErrorResponse {
+            code: None,
             error: "file_not_found".to_string(),
             message: "The requested file does not exist".to_string(),
+            span: None,
+            remediation: None,
         };
 
         let json = serde_json::to_string(&response).unwrap();
@@ -1057,6 +1069,10 @@ mod tests {
 
         assert_eq!(parsed["error"], "file_not_found");
         assert_eq!(parsed["message"], "The requested file does not exist");
+        // Optional fields should not be present when None
+        assert!(parsed.get("code").is_none() || parsed["code"].is_null());
+        assert!(parsed.get("span").is_none() || parsed["span"].is_null());
+        assert!(parsed.get("remediation").is_none() || parsed["remediation"].is_null());
     }
 
     // === Task 04-02.1: Span ID determinism and uniqueness tests ===
