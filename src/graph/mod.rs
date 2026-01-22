@@ -1,6 +1,7 @@
 //! Graph persistence layer using sqlitegraph
 mod call_ops;
 mod calls;
+mod cache;
 mod count;
 mod db_compat;
 mod execution_log;
@@ -38,6 +39,7 @@ use crate::generation::{ChunkStore, CodeChunk};
 use crate::references::{CallFact, ReferenceFact};
 
 // Re-export public types
+pub use cache::CacheStats;
 pub use db_compat::MAGELLAN_SCHEMA_VERSION;
 pub use export::{ExportConfig, ExportFormat};
 pub use freshness::{check_freshness, FreshnessStatus, STALE_THRESHOLD_SECS};
@@ -69,6 +71,9 @@ pub struct CodeGraph {
 
     /// Execution log module for tracking Magellan runs
     execution_log: execution_log::ExecutionLog,
+
+    /// File node cache for frequently accessed files
+    file_node_cache: cache::FileNodeCache,
 }
 
 impl CodeGraph {
@@ -158,6 +163,9 @@ impl CodeGraph {
         let execution_log = execution_log::ExecutionLog::new(&db_path_buf);
         execution_log.ensure_schema()?;
 
+        // Initialize file node cache with capacity of 128 entries
+        let file_node_cache = cache::FileNodeCache::new(128);
+
         Ok(Self {
             files,
             symbols: symbols::SymbolOps {
@@ -169,6 +177,7 @@ impl CodeGraph {
             calls: call_ops::CallOps { backend },
             chunks,
             execution_log,
+            file_node_cache,
         })
     }
 
@@ -415,7 +424,20 @@ impl CodeGraph {
     /// # Returns
     /// Option<FileNode> with file metadata including timestamps, or None if not found
     pub fn get_file_node(&mut self, path: &str) -> Result<Option<FileNode>> {
-        self.files.get_file_node(path)
+        // Check cache first
+        if let Some(node) = self.file_node_cache.get(&path.to_string()) {
+            return Ok(Some(node.clone()));
+        }
+
+        // Cache miss - query database
+        let result = self.files.get_file_node(path)?;
+
+        // Store in cache if found
+        if let Some(ref node) = result {
+            self.file_node_cache.put(path.to_string(), node.clone());
+        }
+
+        Ok(result)
     }
 
     /// Get all FileNodes from the database
@@ -509,5 +531,31 @@ impl CodeGraph {
             )],
             warnings: Vec::new(),
         })
+    }
+
+    /// Get cache statistics for monitoring cache effectiveness
+    ///
+    /// # Returns
+    /// CacheStats with hits, misses, size, and hit rate
+    pub fn cache_stats(&self) -> CacheStats {
+        self.file_node_cache.stats()
+    }
+
+    /// Invalidate cache entry for a specific file path
+    ///
+    /// This should be called when a file is modified or deleted to ensure
+    /// cache doesn't return stale data.
+    ///
+    /// # Arguments
+    /// * `path` - File path to invalidate
+    pub fn invalidate_cache(&mut self, path: &str) {
+        self.file_node_cache.invalidate(&path.to_string());
+    }
+
+    /// Clear all cache entries
+    ///
+    /// This resets the cache to empty state, useful for testing or after bulk operations.
+    pub fn clear_cache(&mut self) {
+        self.file_node_cache.clear();
     }
 }

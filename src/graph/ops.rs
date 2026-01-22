@@ -183,6 +183,9 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
         let _ = super::calls::index_calls(graph, path, source);
     }
 
+    // Invalidate cache for this file since it was just modified
+    graph.invalidate_cache(path);
+
     Ok(symbol_facts.len())
 }
 
@@ -371,6 +374,9 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         // Remove from in-memory index AFTER successful deletions.
         graph.files.file_index.remove(path);
 
+        // Invalidate cache for this file
+        graph.invalidate_cache(path);
+
         Ok(DeleteResult {
             symbols_deleted,
             references_deleted,
@@ -411,6 +417,9 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
             "Call deletion count mismatch (no file) for '{}': expected {}, got {}",
             path, expected_calls, calls_deleted
         );
+
+        // Invalidate cache for this file (even if no file node existed)
+        graph.invalidate_cache(path);
 
         // No file node to remove from index
         Ok(DeleteResult {
@@ -621,6 +630,9 @@ pub mod test_helpers {
             // Remove from in-memory index after all deletions complete
             graph.files.file_index.remove(path);
 
+            // Invalidate cache for this file
+            graph.invalidate_cache(path);
+
             // Verification point after chunks deleted
             if verify_at == Some(FailPoint::AfterChunksDeleted) {
                 return Ok(DeleteResult {
@@ -651,6 +663,9 @@ pub mod test_helpers {
 
             references_deleted = graph.references.delete_references_in_file(path)?;
             calls_deleted = graph.calls.delete_calls_in_file(path)?;
+
+            // Invalidate cache for this file (even if no file node existed)
+            graph.invalidate_cache(path);
 
             Ok(DeleteResult {
                 symbols_deleted: 0,
