@@ -1591,4 +1591,48 @@ mod tests {
         assert!(value.get("line_end").is_none());
         assert!(value.get("col_end").is_none());
     }
+    // === Task 14-01.4: Backward compatibility tests ===
+
+    #[test]
+    fn test_json_response_includes_metadata() {
+        let response = JsonResponse::new(
+            serde_json::json!({"test": "data"}),
+            "test-execution-123"
+        );
+
+        assert_eq!(response.schema_version, MAGELLAN_JSON_SCHEMA_VERSION);
+        assert_eq!(response.execution_id, "test-execution-123");
+        assert_eq!(response.tool, Some("magellan".to_string()));
+        assert!(response.timestamp.is_some());
+
+        // Verify JSON serialization
+        let json_str = serde_json::to_string(&response).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+
+        assert_eq!(value["schema_version"], MAGELLAN_JSON_SCHEMA_VERSION);
+        assert_eq!(value["execution_id"], "test-execution-123");
+        assert_eq!(value["tool"], "magellan");
+        assert!(value["timestamp"].is_string());
+        assert_eq!(value["data"]["test"], "data");
+    }
+
+    #[test]
+    fn test_json_response_without_optional_fields() {
+        // Test that response works even when optional fields are None
+        let mut response = JsonResponse::new(
+            serde_json::json!({"test": "data"}),
+            "test-execution-123"
+        );
+        response.tool = None;
+        response.timestamp = None;
+
+        let json_str = serde_json::to_string(&response).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+
+        // Optional fields should not appear in JSON when None (skip_serializing_if)
+        assert!(value.get("tool").is_none() || value["tool"].is_null());
+        assert!(value.get("timestamp").is_none() || value["timestamp"].is_null());
+    }
+
+
 }
