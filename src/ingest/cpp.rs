@@ -222,7 +222,7 @@ impl CppParser {
             ScopeSeparator::DoubleColon,
         );
         let canonical_fqn = builder.canonical(scope_stack, symbol_kind.clone(), &name);
-        let display_fqn = builder.display(scope_stack, symbol_kind, &name);
+        let display_fqn = builder.display(scope_stack, symbol_kind.clone(), &name);
 
         Some(SymbolFact {
             file_path: file_path.clone(),
@@ -377,7 +377,7 @@ impl CppParser {
             ScopeSeparator::DoubleColon,
         );
         let canonical_fqn = builder.canonical(scope_stack, symbol_kind.clone(), &name);
-        let display_fqn = builder.display(scope_stack, symbol_kind, &name);
+        let display_fqn = builder.display(scope_stack, symbol_kind.clone(), &name);
 
         Some(SymbolFact {
             file_path: file_path.clone(),
@@ -843,5 +843,128 @@ namespace ns {
 
         assert_eq!(classes.len(), 1);
         assert_eq!(classes[0].fqn, Some("ns::Point".to_string()));
+    }
+
+    #[test]
+    fn test_canonical_fqn_format() {
+        let mut parser = CppParser::new().unwrap();
+        let source = b"void foo() {}\n";
+        let facts = parser.extract_symbols(PathBuf::from("test.cpp"), source);
+
+        assert_eq!(facts.len(), 1);
+        let fact = &facts[0];
+
+        // Canonical FQN format: package_name::file_path::Kind symbol_name
+        assert!(fact.canonical_fqn.is_some());
+        let canonical = fact.canonical_fqn.as_ref().unwrap();
+        assert!(canonical.contains("::Function foo"));
+        assert!(canonical.contains("test.cpp"));
+        assert!(canonical.contains(".")); // package_name
+    }
+
+    #[test]
+    fn test_display_fqn_format() {
+        let mut parser = CppParser::new().unwrap();
+        let source = b"void foo() {}\n";
+        let facts = parser.extract_symbols(PathBuf::from("test.cpp"), source);
+
+        assert_eq!(facts.len(), 1);
+        let fact = &facts[0];
+
+        // Display FQN format: package_name::symbol_name (no file path)
+        assert!(fact.display_fqn.is_some());
+        let display = fact.display_fqn.as_ref().unwrap();
+        assert_eq!(display, ".::foo"); // package_name "." + no namespace
+    }
+
+    #[test]
+    fn test_fqn_namespace_function() {
+        let mut parser = CppParser::new().unwrap();
+        let source = b"
+namespace MyNamespace {
+    void my_function() {}
+}
+";
+        let facts = parser.extract_symbols(PathBuf::from("src/test.cpp"), source);
+
+        let funcs: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Function)
+            .collect();
+
+        assert_eq!(funcs.len(), 1);
+        let func = &funcs[0];
+
+        // Verify canonical FQN includes file path
+        assert!(func.canonical_fqn.is_some());
+        let canonical = func.canonical_fqn.as_ref().unwrap();
+        assert!(canonical.contains("src/test.cpp"));
+        assert!(canonical.contains("Function my_function"));
+
+        // Verify display FQN includes namespace but not file path
+        assert!(func.display_fqn.is_some());
+        let display = func.display_fqn.as_ref().unwrap();
+        assert_eq!(display, ".::MyNamespace::my_function");
+    }
+
+    #[test]
+    fn test_canonical_fqn_nested_namespace() {
+        let mut parser = CppParser::new().unwrap();
+        let source = b"
+namespace Outer {
+    namespace Inner {
+        void func() {}
+    }
+}
+";
+        let facts = parser.extract_symbols(PathBuf::from("test.cpp"), source);
+
+        let funcs: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Function)
+            .collect();
+
+        assert_eq!(funcs.len(), 1);
+        let func = &funcs[0];
+
+        // Display FQN should show nested namespace
+        assert_eq!(func.display_fqn, Some(".::Outer::Inner::func".to_string()));
+
+        // Canonical FQN should include file path
+        assert!(func.canonical_fqn.is_some());
+        let canonical = func.canonical_fqn.as_ref().unwrap();
+        assert!(canonical.contains("test.cpp"));
+        assert!(canonical.contains("Function func"));
+    }
+
+    #[test]
+    fn test_canonical_fqn_class_in_namespace() {
+        let mut parser = CppParser::new().unwrap();
+        let source = b"
+namespace ns {
+    struct Point {
+        int x;
+        int y;
+    };
+}
+";
+        let facts = parser.extract_symbols(PathBuf::from("src/geometry.cpp"), source);
+
+        let classes: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Class)
+            .collect();
+
+        assert_eq!(classes.len(), 1);
+        let cls = &classes[0];
+
+        // Display FQN should show namespace::class
+        assert_eq!(cls.display_fqn, Some(".::ns::Point".to_string()));
+
+        // Canonical FQN should include file path and kind
+        assert!(cls.canonical_fqn.is_some());
+        let canonical = cls.canonical_fqn.as_ref().unwrap();
+        assert!(canonical.contains("src/geometry.cpp"));
+        assert!(canonical.contains("Struct Point")); // Class maps to Struct in canonical FQN
     }
 }
