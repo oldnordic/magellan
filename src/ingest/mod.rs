@@ -939,6 +939,133 @@ pub trait MyTrait {
         assert!(facts[0].fqn.is_some(), "FQN should always be populated");
         assert!(!facts[0].fqn.as_ref().unwrap().is_empty(), "FQN should not be empty");
     }
+
+    // Tests for canonical_fqn and display_fqn computation
+
+    #[test]
+    fn test_canonical_fqn_format() {
+        let mut parser = Parser::new().unwrap();
+        let source = b"pub fn test_fn() {}\n";
+        let facts = parser.extract_symbols(PathBuf::from("test.rs"), source);
+
+        assert!(!facts.is_empty());
+        let fact = &facts[0];
+
+        // canonical_fqn should be Some and contain file path
+        assert!(fact.canonical_fqn.is_some(), "canonical_fqn should be populated");
+        let canonical = fact.canonical_fqn.as_ref().unwrap();
+
+        // Format: crate_name::file_path::Kind symbol_name
+        assert!(canonical.contains("test.rs"), "canonical_fqn should contain file path");
+        assert!(canonical.contains("Function"), "canonical_fqn should contain symbol kind");
+        assert!(canonical.contains("test_fn"), "canonical_fqn should contain symbol name");
+    }
+
+    #[test]
+    fn test_display_fqn_format() {
+        let mut parser = Parser::new().unwrap();
+        let source = b"pub fn test_fn() {}\n";
+        let facts = parser.extract_symbols(PathBuf::from("test.rs"), source);
+
+        assert!(!facts.is_empty());
+        let fact = &facts[0];
+
+        // display_fqn should be Some and NOT contain file path
+        assert!(fact.display_fqn.is_some(), "display_fqn should be populated");
+        let display = fact.display_fqn.as_ref().unwrap();
+
+        // Display FQN should be human-readable (crate::symbol_name for top-level)
+        assert!(!display.contains(".rs"), "display_fqn should not contain file extension");
+        assert!(display.contains("test_fn"), "display_fqn should contain symbol name");
+    }
+
+    #[test]
+    fn test_fqn_with_modules() {
+        let mut parser = Parser::new().unwrap();
+        let source = b"
+mod my_module {
+    pub fn module_function() {}
+}
+";
+        let facts = parser.extract_symbols(PathBuf::from("test.rs"), source);
+
+        let funcs: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Function)
+            .collect();
+
+        assert_eq!(funcs.len(), 1);
+        let fact = funcs[0];
+
+        // Both FQNs should contain module path
+        assert!(fact.fqn.as_ref().unwrap().contains("my_module"), "fqn should contain module");
+        assert!(fact.display_fqn.as_ref().unwrap().contains("my_module"), "display_fqn should contain module");
+    }
+
+    #[test]
+    fn test_fqn_with_impl() {
+        let mut parser = Parser::new().unwrap();
+        let source = b"
+pub struct MyStruct;
+
+impl MyStruct {
+    pub fn my_method(&self) {}
+}
+";
+        let facts = parser.extract_symbols(PathBuf::from("test.rs"), source);
+
+        let methods: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Function)
+            .collect();
+
+        assert_eq!(methods.len(), 1);
+        let fact = methods[0];
+
+        // Both FQNs should contain the impl type
+        assert!(fact.fqn.as_ref().unwrap().contains("MyStruct"), "fqn should contain impl type");
+        assert!(fact.display_fqn.as_ref().unwrap().contains("MyStruct"), "display_fqn should contain impl type");
+    }
+
+    #[test]
+    fn test_crate_name_in_fqn() {
+        let mut parser = Parser::new().unwrap();
+        let source = b"pub fn test_fn() {}\n";
+        let facts = parser.extract_symbols(PathBuf::from("test.rs"), source);
+
+        assert!(!facts.is_empty());
+        let fact = &facts[0];
+
+        // Both FQNs should contain crate name
+        let canonical = fact.canonical_fqn.as_ref().unwrap();
+        let display = fact.display_fqn.as_ref().unwrap();
+
+        // Crate name should be at the start
+        assert!(canonical.starts_with("magellan::"), "canonical_fqn should start with crate name");
+        assert!(display.starts_with("magellan::"), "display_fqn should start with crate name");
+    }
+
+    #[test]
+    fn test_fqn_fields_populated() {
+        let mut parser = Parser::new().unwrap();
+        let source = b"pub fn test_fn() {}\n";
+        let facts = parser.extract_symbols(PathBuf::from("test.rs"), source);
+
+        assert!(!facts.is_empty());
+        let fact = &facts[0];
+
+        // All three FQN fields should be populated
+        assert!(fact.fqn.is_some(), "fqn should be Some");
+        assert!(fact.canonical_fqn.is_some(), "canonical_fqn should be Some");
+        assert!(fact.display_fqn.is_some(), "display_fqn should be Some");
+
+        // canonical_fqn and display_fqn should be different
+        assert_ne!(
+            fact.canonical_fqn,
+            fact.display_fqn,
+            "canonical_fqn and display_fqn should differ"
+        );
+    }
 }
 
 #[cfg(test)]
