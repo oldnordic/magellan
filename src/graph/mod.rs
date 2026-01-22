@@ -22,6 +22,7 @@ mod call_ops;
 mod calls;
 mod cache;
 mod count;
+mod crate_name;
 mod db_compat;
 mod execution_log;
 pub mod export;
@@ -33,6 +34,7 @@ pub mod query;
 mod references;
 pub mod scan;
 mod schema;
+pub mod canonical_fqn;
 mod symbols;
 pub mod validation;
 

@@ -13,7 +13,7 @@
 //! Example: `magellan::my_module::MyStruct::my_method`
 //! Purpose: Human-readable form for CLI output and user interaction
 
-use crate::graph::validation::normalize_path;
+use crate::validation::normalize_path;
 use crate::ingest::{ScopeSeparator, ScopeStack, SymbolKind};
 use std::path::Path;
 
@@ -123,13 +123,13 @@ impl FqnBuilder {
     /// ```
     pub fn canonical(
         &self,
-        scope_stack: &ScopeStack,
+        _scope_stack: &ScopeStack,
         symbol_kind: SymbolKind,
         symbol_name: &str,
     ) -> String {
         let kind_str = self.kind_string(symbol_kind);
         format!(
-            "{}{}::{} {}",
+            "{}::{}::{} {}",
             self.crate_name,
             self.file_path,
             kind_str,
