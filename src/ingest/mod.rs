@@ -13,6 +13,10 @@ pub use detect::{detect_language, Language};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+// Imports for FQN computation
+use crate::graph::canonical_fqn::FqnBuilder;
+use crate::graph::crate_name::detect_crate_name;
+
 /// Kind of symbol extracted from source code
 ///
 /// Language-agnostic symbol kinds that map across multiple programming languages.
