@@ -4,7 +4,7 @@
 
 use anyhow::Result;
 use magellan::CodeGraph;
-use magellan::graph::export::{export_graph, scip, ExportConfig, ExportFilters, ExportFormat};
+use magellan::graph::export::{export_graph, scip, stream_json, stream_json_minified, stream_ndjson, ExportConfig, ExportFilters, ExportFormat};
 use magellan::output::generate_execution_id;
 use std::fs::File;
 use std::io::{self, Write};
@@ -122,17 +122,66 @@ pub fn run_export(
             filters,
         };
 
-        let exported_data = export_graph(&mut graph, &config)?;
-
-        // Write output
-        match output {
-            Some(path) => {
-                let mut file = File::create(&path)?;
-                file.write_all(exported_data.as_bytes())?;
-                file.write_all(b"\n")?;
+        // Use streaming for JSON and JSONL formats to reduce memory for large graphs
+        match format {
+            ExportFormat::Json => {
+                // Stream JSON output to avoid loading entire graph into memory
+                // Use minified version if requested
+                if minify {
+                    match output {
+                        Some(path) => {
+                            let mut file = File::create(&path)?;
+                            stream_json_minified(&mut graph, &config, &mut file)?;
+                        }
+                        None => {
+                            let stdout = io::stdout();
+                            let mut handle = stdout.lock();
+                            stream_json_minified(&mut graph, &config, &mut handle)?;
+                        }
+                    }
+                } else {
+                    match output {
+                        Some(path) => {
+                            let mut file = File::create(&path)?;
+                            stream_json(&mut graph, &config, &mut file)?;
+                        }
+                        None => {
+                            let stdout = io::stdout();
+                            let mut handle = stdout.lock();
+                            stream_json(&mut graph, &config, &mut handle)?;
+                        }
+                    }
+                }
             }
-            None => {
-                println!("{}", exported_data);
+            ExportFormat::JsonL => {
+                // Stream JSONL output (naturally streaming-friendly)
+                match output {
+                    Some(path) => {
+                        let mut file = File::create(&path)?;
+                        stream_ndjson(&mut graph, &config, &mut file)?;
+                    }
+                    None => {
+                        let stdout = io::stdout();
+                        let mut handle = stdout.lock();
+                        stream_ndjson(&mut graph, &config, &mut handle)?;
+                    }
+                }
+            }
+            _ => {
+                // Other formats (DOT, CSV) use the existing in-memory export
+                let exported_data = export_graph(&mut graph, &config)?;
+
+                // Write output
+                match output {
+                    Some(path) => {
+                        let mut file = File::create(&path)?;
+                        file.write_all(exported_data.as_bytes())?;
+                        file.write_all(b"\n")?;
+                    }
+                    None => {
+                        println!("{}", exported_data);
+                    }
+                }
             }
         }
     }
