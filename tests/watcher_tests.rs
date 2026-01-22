@@ -1,6 +1,8 @@
 use magellan::{FileSystemWatcher, WatcherConfig};
 use std::fs::File;
 use std::io::Write;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::thread::sleep;
 use std::time::Duration;
 use tempfile::TempDir;
@@ -26,8 +28,9 @@ fn poll_for_event(watcher: &FileSystemWatcher, timeout_ms: u64) -> Option<magell
 #[test]
 fn test_file_create_event() {
     let temp_dir = TempDir::new().unwrap();
+    let shutdown = Arc::new(AtomicBool::new(false));
     let watcher =
-        FileSystemWatcher::new(temp_dir.path().to_path_buf(), WatcherConfig::default()).unwrap();
+        FileSystemWatcher::new(temp_dir.path().to_path_buf(), WatcherConfig::default(), shutdown).unwrap();
 
     // Give watcher time to start
     sleep(Duration::from_millis(200));
@@ -61,8 +64,9 @@ fn test_file_modify_event() {
     // Give OS time to settle
     sleep(Duration::from_millis(200));
 
+    let shutdown = Arc::new(AtomicBool::new(false));
     let watcher =
-        FileSystemWatcher::new(temp_dir.path().to_path_buf(), WatcherConfig::default()).unwrap();
+        FileSystemWatcher::new(temp_dir.path().to_path_buf(), WatcherConfig::default(), shutdown).unwrap();
 
     // Give watcher time to start
     sleep(Duration::from_millis(200));
@@ -94,8 +98,9 @@ fn test_file_delete_event() {
     // Give OS time to settle
     sleep(Duration::from_millis(200));
 
+    let shutdown = Arc::new(AtomicBool::new(false));
     let watcher =
-        FileSystemWatcher::new(temp_dir.path().to_path_buf(), WatcherConfig::default()).unwrap();
+        FileSystemWatcher::new(temp_dir.path().to_path_buf(), WatcherConfig::default(), shutdown).unwrap();
 
     // Give watcher time to start
     sleep(Duration::from_millis(200));
@@ -118,8 +123,9 @@ fn test_file_delete_event() {
 #[test]
 fn test_debounce_rapid_changes() {
     let temp_dir = TempDir::new().unwrap();
+    let shutdown = Arc::new(AtomicBool::new(false));
     let watcher =
-        FileSystemWatcher::new(temp_dir.path().to_path_buf(), WatcherConfig::default()).unwrap();
+        FileSystemWatcher::new(temp_dir.path().to_path_buf(), WatcherConfig::default(), shutdown).unwrap();
 
     // Give watcher time to start
     sleep(Duration::from_millis(200));
@@ -157,8 +163,9 @@ fn test_debounce_rapid_changes() {
 #[test]
 fn test_watch_temp_directory() {
     let temp_dir = TempDir::new().unwrap();
+    let shutdown = Arc::new(AtomicBool::new(false));
     let watcher =
-        FileSystemWatcher::new(temp_dir.path().to_path_buf(), WatcherConfig::default()).unwrap();
+        FileSystemWatcher::new(temp_dir.path().to_path_buf(), WatcherConfig::default(), shutdown).unwrap();
 
     // Give watcher time to start
     sleep(Duration::from_millis(200));
