@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use std::time::Duration;
@@ -82,10 +84,11 @@ impl FileSystemWatcher {
     /// # Arguments
     /// * `path` - Directory to watch recursively (also used as root_path for validation)
     /// * `config` - Watcher configuration
+    /// * `shutdown` - AtomicBool for graceful shutdown
     ///
     /// # Returns
     /// A watcher that can be polled for batch events
-    pub fn new(path: PathBuf, config: WatcherConfig) -> Result<Self> {
+    pub fn new(path: PathBuf, config: WatcherConfig, shutdown: Arc<AtomicBool>) -> Result<Self> {
         let (batch_tx, batch_rx) = mpsc::channel();
 
         // Ensure root_path is set to the watched directory for validation
@@ -95,7 +98,7 @@ impl FileSystemWatcher {
         };
 
         let thread = thread::spawn(move || {
-            if let Err(e) = run_watcher(path, batch_tx, config) {
+            if let Err(e) = run_watcher(path, batch_tx, config, shutdown) {
                 eprintln!("Watcher error: {:?}", e);
             }
         });
@@ -277,7 +280,12 @@ impl FileSystemWatcher {
 /// Uses notify-debouncer-mini for event coalescing. Batches are emitted
 /// after the debounce delay expires with all paths that changed during
 /// the window.
-fn run_watcher(path: PathBuf, tx: Sender<WatcherBatch>, config: WatcherConfig) -> Result<()> {
+fn run_watcher(
+    path: PathBuf,
+    tx: Sender<WatcherBatch>,
+    config: WatcherConfig,
+    shutdown: Arc<AtomicBool>,
+) -> Result<()> {
     // Convert debounce_ms to Duration
     let debounce_duration = Duration::from_millis(config.debounce_ms);
 
@@ -309,11 +317,13 @@ fn run_watcher(path: PathBuf, tx: Sender<WatcherBatch>, config: WatcherConfig) -
     // Watch the directory recursively via the inner watcher
     debouncer.watcher().watch(&path, RecursiveMode::Recursive)?;
 
-    // Keep the thread alive - block forever
+    // Keep the thread alive until shutdown is signaled
     // The debouncer runs in the background and sends batches via callback
-    loop {
+    while !shutdown.load(Ordering::SeqCst) {
         thread::sleep(Duration::from_secs(1));
     }
+
+    Ok(())
 }
 
 /// Extract dirty paths from a batch of debouncer events.
