@@ -47,8 +47,11 @@ impl JavaScriptParser {
         let mut facts = Vec::new();
         let mut scope_stack = ScopeStack::new(ScopeSeparator::Dot);
 
+        // Use "." as project_root placeholder per decision FQN-17
+        let package_name = ".";
+
         // Walk tree with scope tracking
-        self.walk_tree_with_scope(&root_node, source, &file_path, &mut facts, &mut scope_stack);
+        self.walk_tree_with_scope(&root_node, source, &file_path, &mut facts, &mut scope_stack, package_name);
 
         facts
     }
@@ -64,6 +67,7 @@ impl JavaScriptParser {
         file_path: &PathBuf,
         facts: &mut Vec<SymbolFact>,
         scope_stack: &mut ScopeStack,
+        package_name: &str,
     ) {
         let kind = node.kind();
 
@@ -72,7 +76,7 @@ impl JavaScriptParser {
         if kind == "export_statement" {
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
-                self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack);
+                self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack, package_name);
             }
             return;
         }
@@ -81,14 +85,14 @@ impl JavaScriptParser {
         if kind == "class_declaration" {
             if let Some(name) = self.extract_name(node, source) {
                 // Create class symbol with parent scope
-                if let Some(fact) = self.extract_symbol_with_fqn(node, source, file_path, scope_stack) {
+                if let Some(fact) = self.extract_symbol_with_fqn(node, source, file_path, scope_stack, package_name) {
                     facts.push(fact);
                 }
                 // Push class scope for children (methods)
                 scope_stack.push(&name);
                 let mut cursor = node.walk();
                 for child in node.children(&mut cursor) {
-                    self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack);
+                    self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack, package_name);
                 }
                 scope_stack.pop();
                 return;
@@ -96,14 +100,14 @@ impl JavaScriptParser {
         }
 
         // Check if this node is a symbol we care about
-        if let Some(fact) = self.extract_symbol_with_fqn(node, source, file_path, scope_stack) {
+        if let Some(fact) = self.extract_symbol_with_fqn(node, source, file_path, scope_stack, package_name) {
             facts.push(fact);
         }
 
         // Recurse into children
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack);
+            self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack, package_name);
         }
     }
 
