@@ -18,6 +18,8 @@ Comprehensive instructions for operating Magellan.
 8. [Error Handling](#8-error-handling)
 9. [Troubleshooting](#9-troubleshooting)
 10. [Security Best Practices](#10-security-best-practices)
+11. [Architecture](#architecture)
+12. [Exit Codes](#exit-codes)
 
 ---
 
