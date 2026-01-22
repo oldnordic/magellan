@@ -810,4 +810,99 @@ class MyClass {
         assert_eq!(methods.len(), 1);
         assert_eq!(methods[0].fqn, Some("MyClass.myMethod".to_string()));
     }
+
+    #[test]
+    fn test_canonical_fqn_format() {
+        let mut parser = JavaScriptParser::new().unwrap();
+        let source = b"function foo() {\n    return;\n}\n";
+        let facts = parser.extract_symbols(PathBuf::from("src/test.js"), source);
+
+        assert_eq!(facts.len(), 1);
+        let fact = &facts[0];
+
+        // Canonical FQN format: package_name::file_path::Kind symbol_name
+        assert!(fact.canonical_fqn.is_some());
+        let canonical = fact.canonical_fqn.as_ref().unwrap();
+        assert!(canonical.contains(".::src/test.js::Function foo"));
+    }
+
+    #[test]
+    fn test_display_fqn_format() {
+        let mut parser = JavaScriptParser::new().unwrap();
+        let source = b"function foo() {\n    return;\n}\n";
+        let facts = parser.extract_symbols(PathBuf::from("test.js"), source);
+
+        assert_eq!(facts.len(), 1);
+        let fact = &facts[0];
+
+        // Display FQN format: package_name.symbol_name (for top-level functions)
+        // Note: package_name "." is placeholder, so we get "..foo"
+        assert!(fact.display_fqn.is_some());
+        let display = fact.display_fqn.as_ref().unwrap();
+        assert_eq!(display, "..foo");
+    }
+
+    #[test]
+    fn test_fqn_class_method_with_fqn_builder() {
+        let mut parser = JavaScriptParser::new().unwrap();
+        let source = b"
+class MyClass {
+    myMethod() {
+        return;
+    }
+}
+";
+        let facts = parser.extract_symbols(PathBuf::from("src/test.js"), source);
+
+        let classes: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Class)
+            .collect();
+        assert_eq!(classes.len(), 1);
+        let class_fact = &classes[0];
+
+        // Class canonical FQN includes file path
+        assert!(class_fact.canonical_fqn.is_some());
+        assert!(class_fact.canonical_fqn.as_ref().unwrap().contains(".::src/test.js::Struct MyClass"));
+
+        // Class display FQN is just the class name with package
+        // Note: package_name "." is placeholder, so we get "..MyClass"
+        assert_eq!(class_fact.display_fqn.as_ref().unwrap(), "..MyClass");
+
+        let methods: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Method)
+            .collect();
+        assert_eq!(methods.len(), 1);
+        let method_fact = &methods[0];
+
+        // Method canonical FQN includes file path
+        assert!(method_fact.canonical_fqn.is_some());
+        assert!(method_fact.canonical_fqn.as_ref().unwrap().contains(".::src/test.js::Method myMethod"));
+
+        // Method display FQN includes class scope
+        // Note: package_name "." is placeholder, so we get "..MyClass.myMethod"
+        assert_eq!(method_fact.display_fqn.as_ref().unwrap(), "..MyClass.myMethod");
+    }
+
+    #[test]
+    fn test_fqn_export_function() {
+        let mut parser = JavaScriptParser::new().unwrap();
+        let source = b"export function foo() {\n    return;\n}\n";
+        let facts = parser.extract_symbols(PathBuf::from("src/test.js"), source);
+
+        assert_eq!(facts.len(), 1);
+        let fact = &facts[0];
+
+        // Exported functions should have both FQN types
+        assert!(fact.canonical_fqn.is_some());
+        assert!(fact.display_fqn.is_some());
+
+        // Canonical FQN includes file path
+        assert!(fact.canonical_fqn.as_ref().unwrap().contains(".::src/test.js::Function foo"));
+
+        // Display FQN is human-readable
+        // Note: package_name "." is placeholder, so we get "..foo"
+        assert_eq!(fact.display_fqn.as_ref().unwrap(), "..foo");
+    }
 }
