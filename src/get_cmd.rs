@@ -8,7 +8,7 @@ use std::path::PathBuf;
 // Use the library items through the magellan library
 use magellan::{CodeGraph, generate_execution_id, OutputFormat};
 use magellan::output::{JsonResponse, Span, SymbolMatch, output_json};
-use magellan::output::rich::{SpanContext, SpanSemantics, SpanChecksums};
+use magellan::output::rich::{SpanContext, SpanChecksums};
 use magellan::graph::query;
 use serde::{Deserialize, Serialize};
 

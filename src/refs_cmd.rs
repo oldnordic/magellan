@@ -5,7 +5,7 @@
 use anyhow::Result;
 use magellan::{CallFact, CodeGraph};
 use magellan::output::{JsonResponse, OutputFormat, RefsResponse, ReferenceMatch, Span, output_json};
-use magellan::output::rich::{SpanContext, SpanSemantics, SpanChecksums};
+use magellan::output::rich::{SpanContext, SpanChecksums};
 use std::path::PathBuf;
 
 /// Resolve a file path against an optional root directory

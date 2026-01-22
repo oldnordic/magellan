@@ -876,6 +876,7 @@ fn parse_args() -> Result<Command> {
             let mut with_semantics = false;
             let mut with_checksums = false;
             let mut context_lines = 3usize;
+            let mut _output_format = OutputFormat::Human; // Consume but don't store in Command
 
             let mut i = 2;
             while i < args.len() {
@@ -918,6 +919,14 @@ fn parse_args() -> Result<Command> {
                             return Err(anyhow::anyhow!("--context-lines requires an argument"));
                         }
                         context_lines = args[i + 1].parse().unwrap_or(3).min(100);
+                        i += 2;
+                    }
+                    "--output" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--output requires an argument"));
+                        }
+                        _output_format = OutputFormat::from_str(&args[i + 1])
+                            .ok_or_else(|| anyhow::anyhow!("Invalid output format: {}", args[i + 1]))?;
                         i += 2;
                     }
                     _ => {
