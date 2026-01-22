@@ -3,6 +3,7 @@
 //! TDD Phase 5.5: JSON Export
 
 use magellan::CodeGraph;
+use magellan::graph::export::{stream_json, stream_json_minified, stream_ndjson, ExportConfig, ExportFormat};
 use tempfile::TempDir;
 
 #[test]
@@ -161,3 +162,179 @@ fn helper() {}
         );
     }
 }
+
+/// Test that stream_json produces identical output to export_json
+#[test]
+fn test_stream_json_matches_export_json() {
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+
+    let source = r#"
+fn main() {
+    println!("Hello");
+    helper();
+}
+
+fn helper() {
+    println!("Helper");
+}
+"#;
+
+    let mut graph = CodeGraph::open(&db_path).unwrap();
+    graph.index_file("test.rs", source.as_bytes()).unwrap();
+    graph
+        .index_references("test.rs", source.as_bytes())
+        .unwrap();
+
+    // Get in-memory export
+    let json = graph.export_json().unwrap();
+
+    // Get streaming export
+    let mut buffer = Vec::new();
+    let config = ExportConfig::new(ExportFormat::Json);
+    stream_json(&mut graph, &config, &mut buffer).unwrap();
+    let streamed_json = String::from_utf8(buffer).unwrap();
+
+    // Outputs should be identical (same deterministic sorting)
+    assert_eq!(json, streamed_json, "stream_json should produce identical output to export_json");
+}
+
+/// Test that stream_json_minified produces compact JSON
+#[test]
+fn test_stream_json_minified_compact() {
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+
+    let source = r#"fn test() {}"#;
+
+    let mut graph = CodeGraph::open(&db_path).unwrap();
+    graph.index_file("test.rs", source.as_bytes()).unwrap();
+
+    // Get minified streaming export
+    let mut buffer = Vec::new();
+    let config = ExportConfig::new(ExportFormat::Json);
+    stream_json_minified(&mut graph, &config, &mut buffer).unwrap();
+    let minified = String::from_utf8(buffer).unwrap();
+
+    // Minified JSON should have minimal whitespace (fewer newlines than pretty)
+    let newline_count = minified.chars().filter(|&c| c == '\n').count();
+    assert!(
+        newline_count <= 1,
+        "Minified JSON should have at most 1 newline, got {}",
+        newline_count
+    );
+
+    // Should still be valid JSON
+    let parsed: serde_json::Value = serde_json::from_str(&minified).unwrap();
+    assert!(parsed.is_object(), "Minified output should be valid JSON object");
+}
+
+/// Test that stream_ndjson produces valid JSONL output
+#[test]
+fn test_stream_ndjson_valid_format() {
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+
+    let source = r#"
+fn main() {
+    helper();
+}
+
+fn helper() {}
+"#;
+
+    let mut graph = CodeGraph::open(&db_path).unwrap();
+    graph.index_file("test.rs", source.as_bytes()).unwrap();
+
+    // Get streaming NDJSON export
+    let mut buffer = Vec::new();
+    let config = ExportConfig::new(ExportFormat::JsonL);
+    stream_ndjson(&mut graph, &config, &mut buffer).unwrap();
+    let ndjson = String::from_utf8(buffer).unwrap();
+
+    // NDJSON should have one JSON object per line
+    let lines: Vec<&str> = ndjson.lines().collect();
+    assert!(
+        lines.len() > 0,
+        "NDJSON should have at least one line"
+    );
+
+    // Each line should be valid JSON
+    for (i, line) in lines.iter().enumerate() {
+        let parsed: serde_json::Value = serde_json::from_str(line).unwrap_or_else(|e| {
+            panic!("Line {} should be valid JSON: {}\nLine content: '{}'", i, e, line);
+        });
+        assert!(parsed.is_object(), "Each line should be a JSON object");
+    }
+}
+
+/// Test that stream_json respects include_symbols filter
+#[test]
+fn test_stream_json_respects_symbols_filter() {
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+
+    let source = r#"fn test() {}"#;
+
+    let mut graph = CodeGraph::open(&db_path).unwrap();
+    graph.index_file("test.rs", source.as_bytes()).unwrap();
+
+    // Export without symbols
+    let mut buffer = Vec::new();
+    let config = ExportConfig {
+        format: ExportFormat::Json,
+        include_symbols: false,
+        include_references: true,
+        include_calls: true,
+        minify: true,
+        filters: Default::default(),
+    };
+    stream_json_minified(&mut graph, &config, &mut buffer).unwrap();
+    let json = String::from_utf8(buffer).unwrap();
+
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let symbols = &parsed["symbols"];
+    assert!(
+        symbols.as_array().unwrap().is_empty(),
+        "Symbols should be empty when include_symbols=false"
+    );
+}
+
+/// Test that stream_json respects include_calls filter
+#[test]
+fn test_stream_json_respects_calls_filter() {
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+
+    let source = r#"
+fn main() {
+    helper();
+}
+
+fn helper() {}
+"#;
+
+    let mut graph = CodeGraph::open(&db_path).unwrap();
+    graph.index_file("test.rs", source.as_bytes()).unwrap();
+
+    // Export without calls
+    let mut buffer = Vec::new();
+    let config = ExportConfig {
+        format: ExportFormat::Json,
+        include_symbols: true,
+        include_references: true,
+        include_calls: false,
+        minify: true,
+        filters: Default::default(),
+    };
+    stream_json_minified(&mut graph, &config, &mut buffer).unwrap();
+    let json = String::from_utf8(buffer).unwrap();
+
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let calls = &parsed["calls"];
+    assert!(
+        calls.as_array().unwrap().is_empty(),
+        "Calls should be empty when include_calls=false"
+    );
+}
+
