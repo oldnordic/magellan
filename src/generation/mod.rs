@@ -100,8 +100,8 @@ impl ChunkStore {
                 Ok(result)
             }
             ChunkStoreConnection::Shared(arc) => {
-                let conn = arc.try_lock()
-                    .map_err(|_| anyhow::anyhow!("Shared connection already borrowed"))?;
+                let conn = arc.lock()
+                    .map_err(|_| anyhow::anyhow!("Shared connection lock poisoned"))?;
                 let result = f(&conn)?;
                 Ok(result)
             }
@@ -122,8 +122,8 @@ impl ChunkStore {
                 Ok(result)
             }
             ChunkStoreConnection::Shared(arc) => {
-                let mut conn = arc.try_lock()
-                    .map_err(|_| anyhow::anyhow!("Shared connection already borrowed"))?;
+                let mut conn = arc.lock()
+                    .map_err(|_| anyhow::anyhow!("Shared connection lock poisoned"))?;
                 let result = f(&mut conn)?;
                 Ok(result)
             }
