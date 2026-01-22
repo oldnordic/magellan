@@ -528,3 +528,43 @@ impl CodeGraph {
         Ok(results)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_index_references_propagates_count() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+
+        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
+
+        // Create a test file with a symbol and a reference
+        let test_file = temp_dir.path().join("test.rs");
+        std::fs::write(
+            &test_file,
+            r#"
+fn foo() {}
+
+fn bar() {
+    foo();
+}
+"#,
+        )
+        .unwrap();
+
+        // Index symbols first (required for references)
+        let path_str = test_file.to_string_lossy().to_string();
+        let source = std::fs::read(&test_file).unwrap();
+        graph.index_file(&path_str, &source).unwrap();
+
+        // Index references - should return count > 0
+        let count = graph.index_references(&path_str, &source).unwrap();
+
+        // We should have at least 1 reference (bar -> foo)
+        assert!(
+            count > 0,
+            "Expected at least 1 reference, got {}",
+            count
+        );
+    }
+}
