@@ -145,7 +145,7 @@ impl JavaScriptParser {
             ScopeSeparator::Dot,
         );
         let canonical_fqn = builder.canonical(scope_stack, symbol_kind.clone(), &name);
-        let display_fqn = builder.display(scope_stack, symbol_kind, &name);
+        let display_fqn = builder.display(scope_stack, symbol_kind.clone(), &name);
 
         Some(SymbolFact {
             file_path: file_path.clone(),
@@ -201,8 +201,11 @@ impl JavaScriptParser {
         let mut facts = Vec::new();
         let mut scope_stack = ScopeStack::new(ScopeSeparator::Dot);
 
+        // Use "." as project_root placeholder per decision FQN-17
+        let package_name = ".";
+
         // Walk tree with scope tracking
-        Self::walk_tree_with_scope_static(&root_node, source, &file_path, &mut facts, &mut scope_stack);
+        Self::walk_tree_with_scope_static(&root_node, source, &file_path, &mut facts, &mut scope_stack, package_name);
 
         facts
     }
@@ -214,6 +217,7 @@ impl JavaScriptParser {
         file_path: &PathBuf,
         facts: &mut Vec<SymbolFact>,
         scope_stack: &mut ScopeStack,
+        package_name: &str,
     ) {
         let kind = node.kind();
 
@@ -221,7 +225,7 @@ impl JavaScriptParser {
         if kind == "export_statement" {
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
-                Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack);
+                Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack, package_name);
             }
             return;
         }
@@ -230,14 +234,14 @@ impl JavaScriptParser {
         if kind == "class_declaration" {
             if let Some(name) = Self::extract_name_static(node, source) {
                 // Create class symbol with parent scope
-                if let Some(fact) = Self::extract_symbol_with_fqn_static(node, source, file_path, scope_stack) {
+                if let Some(fact) = Self::extract_symbol_with_fqn_static(node, source, file_path, scope_stack, package_name) {
                     facts.push(fact);
                 }
                 // Push class scope for children (methods)
                 scope_stack.push(&name);
                 let mut cursor = node.walk();
                 for child in node.children(&mut cursor) {
-                    Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack);
+                    Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack, package_name);
                 }
                 scope_stack.pop();
                 return;
@@ -245,14 +249,14 @@ impl JavaScriptParser {
         }
 
         // Check if this node is a symbol we care about
-        if let Some(fact) = Self::extract_symbol_with_fqn_static(node, source, file_path, scope_stack) {
+        if let Some(fact) = Self::extract_symbol_with_fqn_static(node, source, file_path, scope_stack, package_name) {
             facts.push(fact);
         }
 
         // Recurse into children
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack);
+            Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack, package_name);
         }
     }
 
@@ -286,7 +290,7 @@ impl JavaScriptParser {
             ScopeSeparator::Dot,
         );
         let canonical_fqn = builder.canonical(scope_stack, symbol_kind.clone(), &name);
-        let display_fqn = builder.display(scope_stack, symbol_kind, &name);
+        let display_fqn = builder.display(scope_stack, symbol_kind.clone(), &name);
 
         Some(SymbolFact {
             file_path: file_path.clone(),
