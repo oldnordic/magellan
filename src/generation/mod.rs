@@ -50,10 +50,10 @@ impl ChunkStore {
     /// shared with CodeGraph. All operations will use this shared connection.
     ///
     /// # Arguments
-    /// * `conn` - Shared SQLite connection wrapped in Rc<RefCell<>> for interior mutability
+    /// * `conn` - Shared SQLite connection wrapped in Arc<Mutex<>> for thread-safe interior mutability
     pub fn with_connection(conn: rusqlite::Connection) -> Self {
         Self {
-            conn_source: ChunkStoreConnection::Shared(Rc::new(std::cell::RefCell::new(conn))),
+            conn_source: ChunkStoreConnection::Shared(Arc::new(Mutex::new(conn))),
         }
     }
 
@@ -68,10 +68,10 @@ impl ChunkStore {
     pub fn connect(&self) -> Result<rusqlite::Connection, rusqlite::Error> {
         match &self.conn_source {
             ChunkStoreConnection::Owned(path) => rusqlite::Connection::open(path),
-            ChunkStoreConnection::Shared(rc) => {
+            ChunkStoreConnection::Shared(arc) => {
                 // Open a new connection to the same database.
                 // We need to extract the path from the existing connection.
-                let conn = rc.try_borrow()
+                let conn = arc.try_lock()
                     .map_err(|_| rusqlite::Error::InvalidParameterName(
                         "Shared connection already borrowed".to_string()
                     ))?;
