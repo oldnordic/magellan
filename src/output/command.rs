@@ -135,6 +135,8 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::output::rich::{SpanContext, SpanRelationships, SpanSemantics, SpanChecksums};
+
 /// Current JSON output schema version
 pub const MAGELLAN_JSON_SCHEMA_VERSION: &str = "1.0.0";
 
@@ -264,6 +266,24 @@ pub struct Span {
     ///
     /// Byte offset within `end_line` where the span ends (exclusive).
     pub end_col: usize,
+
+    // Rich span extensions (optional, opt-in via CLI flags)
+
+    /// Context lines around the span
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<SpanContext>,
+
+    /// Semantic information (kind, language) - grouped in a single struct
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub semantics: Option<SpanSemantics>,
+
+    /// Relationship information (callers, callees, imports, exports)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub relationships: Option<SpanRelationships>,
+
+    /// Checksums for content verification
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checksums: Option<SpanChecksums>,
 }
 
 impl Span {
@@ -384,6 +404,10 @@ impl Span {
             start_col,
             end_line,
             end_col,
+            context: None,
+            semantics: None,
+            relationships: None,
+            checksums: None,
         }
     }
 }
