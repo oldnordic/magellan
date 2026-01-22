@@ -43,6 +43,50 @@ pub fn canonicalize_path(path: &Path) -> Result<PathBuf, PathValidationError> {
     })
 }
 
+/// Normalize a path to a consistent format.
+///
+/// This function provides lenient path normalization that works for both
+/// existing and non-existing paths (important for watcher delete events).
+///
+/// # Behavior
+/// - If path exists: canonicalize it (resolves symlinks, `..`, `.`)
+/// - If path doesn't exist: strip `./` prefix and return as-is
+/// - Returns a String for easier database storage
+///
+/// # Arguments
+/// * `path` - Path to normalize
+///
+/// # Returns
+/// Normalized path string
+///
+/// # Examples
+/// ```
+/// # use magellan::validation::normalize_path;
+/// # use std::path::Path;
+/// // Existing file: returns canonical path
+/// // Non-existing: strips ./ prefix
+/// let normalized = normalize_path(Path::new("./src/lib.rs")).unwrap();
+/// assert!(normalized.contains("src/lib.rs"));
+/// assert!(!normalized.starts_with("./"));
+/// ```
+pub fn normalize_path(path: &Path) -> Result<String> {
+    // Try canonicalize first (works for existing files)
+    if let Ok(canonical) = std::fs::canonicalize(path) {
+        return Ok(canonical.to_string_lossy().to_string());
+    }
+
+    // Fallback for non-existent paths: strip ./ prefix manually
+    // This is important for watcher delete events where the file is already gone
+    let path_str = path.to_string_lossy().to_string();
+    let normalized = if path_str.starts_with("./") {
+        path_str[2..].to_string()
+    } else {
+        path_str
+    };
+
+    Ok(normalized)
+}
+
 /// Validate that a path is within the given root directory.
 ///
 /// This function:
@@ -215,6 +259,77 @@ mod tests {
     use super::*;
     use std::fs;
     use tempfile::TempDir;
+
+    #[test]
+    fn test_normalize_path_relative_prefix() {
+        let temp_dir = TempDir::new().unwrap();
+
+        // Test with ./ prefix on non-existing path (in temp dir so it doesn't exist)
+        let nonexist = temp_dir.path().join("./src/lib.rs");
+        let result = normalize_path(&nonexist).unwrap();
+        assert!(result.contains("src/lib.rs"));
+        assert!(!result.starts_with("./"));
+
+        // Test without ./ prefix
+        let nonexist2 = temp_dir.path().join("src/main.rs");
+        let result = normalize_path(&nonexist2).unwrap();
+        assert!(result.contains("src/main.rs"));
+
+        // Test absolute path returns canonical (if exists)
+        let test_file = temp_dir.path().join("test.rs");
+        std::fs::write(&test_file, b"fn test() {}").unwrap();
+        let result = normalize_path(&test_file).unwrap();
+        assert!(result.contains("test.rs"));
+
+        // Test ./ prefix on existing file still canonicalizes
+        let relative_to_temp = temp_dir.path().join("./test.rs");
+        let result = normalize_path(&relative_to_temp).unwrap();
+        assert!(result.contains("test.rs"));
+        assert!(!result.starts_with("./"));
+    }
+
+    #[test]
+    fn test_normalize_path_absolute() {
+        let temp_dir = TempDir::new().unwrap();
+
+        // Create a test file
+        let test_file = temp_dir.path().join("absolute.rs");
+        std::fs::write(&test_file, b"fn abs() {}").unwrap();
+
+        // Absolute path should canonicalize
+        let result = normalize_path(&test_file).unwrap();
+        assert!(result.contains("absolute.rs"));
+        // On most systems, canonicalized paths are absolute
+        assert!(!result.starts_with("./"));
+    }
+
+    #[test]
+    fn test_normalize_path_non_existing() {
+        // Non-existing path should strip ./ but not fail
+        let result = normalize_path(Path::new("./does/not/exist.rs")).unwrap();
+        assert_eq!(result, "does/not/exist.rs");
+
+        // Non-existing without ./ should be unchanged
+        let result = normalize_path(Path::new("nonexistent/path.rs")).unwrap();
+        assert_eq!(result, "nonexistent/path.rs");
+    }
+
+    #[test]
+    fn test_normalize_path_redundant_dots() {
+        let temp_dir = TempDir::new().unwrap();
+
+        // Create nested structure
+        let subdir = temp_dir.path().join("a/b");
+        std::fs::create_dir_all(&subdir).unwrap();
+        let test_file = subdir.join("test.rs");
+        std::fs::write(&test_file, b"fn test() {}").unwrap();
+
+        // Canonicalize should resolve the path completely
+        let result = normalize_path(&test_file).unwrap();
+        assert!(result.contains("test.rs"));
+        // Should not contain .. or . components
+        assert!(!result.contains(".."));
+    }
 
     #[test]
     fn test_has_suspicious_traversal_parent_patterns() {
