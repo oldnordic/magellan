@@ -238,6 +238,41 @@ pub fn symbol_id_by_name(graph: &mut CodeGraph, path: &str, name: &str) -> Resul
     Ok(None)
 }
 
+/// Query a symbol by its stable SymbolId
+///
+/// # Arguments
+/// * `graph` - CodeGraph instance
+/// * `symbol_id` - Stable symbol identifier (32-char BLAKE3 hash)
+///
+/// # Returns
+/// Option<SymbolNode> if found, None if not found
+///
+/// # Note
+/// SymbolId is the primary key for symbol identity. This function performs
+/// a direct SQL query on the symbol_id field in graph_nodes.data JSON.
+pub fn find_by_symbol_id(graph: &mut CodeGraph, symbol_id: &str) -> Result<Option<SymbolNode>> {
+    let conn = graph.chunks.connect()?;
+
+    // Query graph_nodes for Symbol kind with matching symbol_id in JSON data
+    let mut stmt = conn.prepare_cached(
+        "SELECT data FROM graph_nodes
+         WHERE kind = 'Symbol'
+         AND json_extract(data, '$.symbol_id') = ?1"
+    ).map_err(|e| anyhow::anyhow!("Failed to prepare SymbolId query: {}", e))?;
+
+    match stmt.query_row(params![symbol_id], |row| {
+        let data: String = row.get(0)?;
+        serde_json::from_str(&data)
+            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(
+                Box::new(e) as Box<dyn std::error::Error + Send + Sync>
+            ))
+    }) {
+        Ok(node) => Ok(Some(node)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(anyhow::anyhow!("Failed to query SymbolId: {}", e))
+    }
+}
+
 /// Index references for a file into the graph
 ///
 /// # Behavior
