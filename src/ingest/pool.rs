@@ -51,7 +51,9 @@ where
             parser.set_language(&tree_sitter_rust::language())?;
             *parser_ref = Some(parser);
         }
-        Ok(f(parser_ref.as_mut().unwrap()))
+        Ok(f(parser_ref.as_mut().expect(
+            "Parser invariant violated: Option must be Some() after initialization (lines 49-52)"
+        )))
     })
 }
 
@@ -231,10 +233,10 @@ pub fn warmup_parsers() -> Result<()> {
     ];
 
     for (lang, source) in test_cases {
-        let _ = with_parser(lang, |parser| {
+        with_parser(lang, |parser| {
             parser.parse(source, None);
             Ok::<(), anyhow::Error>(())
-        });
+        })?;
     }
 
     Ok(())
