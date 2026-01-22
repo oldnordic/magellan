@@ -90,8 +90,12 @@ pub fn run_indexer(root_path: PathBuf, db_path: PathBuf) -> Result<()> {
 /// - Testing: process specific number of events and verify results
 /// - Batch mode: process available events and exit
 pub fn run_indexer_n(root_path: PathBuf, db_path: PathBuf, max_events: usize) -> Result<usize> {
+    // Create shutdown signal for bounded execution
+    // The watcher will exit when this function returns and the shutdown is dropped
+    let shutdown = Arc::new(AtomicBool::new(false));
+
     // Create watcher
-    let watcher = FileSystemWatcher::new(root_path.clone(), WatcherConfig::default())?;
+    let watcher = FileSystemWatcher::new(root_path.clone(), WatcherConfig::default(), shutdown.clone())?;
 
     // Open graph
     let mut graph = CodeGraph::open(&db_path)?;
@@ -121,6 +125,9 @@ pub fn run_indexer_n(root_path: PathBuf, db_path: PathBuf, max_events: usize) ->
         std::thread::sleep(idle_step);
         idle_for += idle_step;
     }
+
+    // Signal shutdown before watcher is dropped
+    shutdown.store(true, Ordering::SeqCst);
 
     Ok(processed)
 }
@@ -314,7 +321,7 @@ fn watcher_loop(
     shared_state: Arc<PipelineSharedState>,
     shutdown: Arc<AtomicBool>,
 ) -> Result<()> {
-    let watcher = FileSystemWatcher::new(root_path, config)?;
+    let watcher = FileSystemWatcher::new(root_path, config, shutdown.clone())?;
 
     // Receive batches and insert dirty paths
     // Use timeout-based checking to respond to shutdown signal
