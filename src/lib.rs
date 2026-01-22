@@ -27,7 +27,7 @@ pub use ingest::detect::{detect_language, Language};
 pub use ingest::{Parser, SymbolFact, SymbolKind};
 pub use references::{CallFact, ReferenceFact};
 pub use verify::{verify_graph, VerifyReport};
-pub use validation::{PathValidationError, canonicalize_path, validate_path_within_root};
+pub use validation::{PathValidationError, canonicalize_path, normalize_path, validate_path_within_root};
 pub use watcher::{EventType, FileEvent, FileSystemWatcher, WatcherBatch, WatcherConfig};
 pub use output::{JsonResponse, OutputFormat, generate_execution_id, output_json};
 pub use output::command::{Span, SymbolMatch, ReferenceMatch};
