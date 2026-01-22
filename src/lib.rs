@@ -5,7 +5,6 @@
 pub mod diagnostics;
 pub mod error_codes;
 pub mod generation;
-pub mod get_cmd;
 pub mod graph;
 pub mod indexer;
 pub mod ingest;

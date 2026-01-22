@@ -5,6 +5,7 @@
 use anyhow::Result;
 use magellan::{CallFact, CodeGraph};
 use magellan::output::{JsonResponse, OutputFormat, RefsResponse, ReferenceMatch, Span, output_json};
+use magellan::output::rich::{SpanContext, SpanSemantics, SpanChecksums};
 use std::path::PathBuf;
 
 /// Resolve a file path against an optional root directory
@@ -33,6 +34,10 @@ fn resolve_path(file_path: &PathBuf, root: &Option<PathBuf>) -> String {
 /// * `path` - File path containing the symbol
 /// * `direction` - "in" for callers, "out" for calls
 /// * `output_format` - Output format (Human or Json)
+/// * `with_context` - Include context lines
+/// * `with_semantics` - Include semantic information (kind, language)
+/// * `with_checksums` - Include SHA-256 checksums
+/// * `context_lines` - Number of context lines before/after (capped at 100)
 ///
 /// # Displays
 /// Human-readable list of calls or JSON output
@@ -43,6 +48,10 @@ pub fn run_refs(
     path: PathBuf,
     direction: String,
     output_format: OutputFormat,
+    with_context: bool,
+    with_semantics: bool,
+    with_checksums: bool,
+    context_lines: usize,
 ) -> Result<()> {
     // Build args for execution tracking
     let mut args = vec!["refs".to_string()];
@@ -107,7 +116,7 @@ pub fn run_refs(
             None,
             0, 0, 0,
         )?;
-        return output_json_mode(&db_path, &name, &path_str, &direction, calls, &exec_id);
+        return output_json_mode(&db_path, &name, &path_str, &direction, calls, &exec_id, with_context, with_semantics, with_checksums, context_lines);
     }
 
     // Human mode (existing behavior)
@@ -151,6 +160,23 @@ pub fn run_refs(
     Ok(())
 }
 
+/// Detect programming language from file path extension
+fn detect_language_from_path(path: &str) -> String {
+    use std::path::Path;
+    let ext = Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("");
+    match ext {
+        "rs" => "rust".to_string(),
+        "py" => "python".to_string(),
+        "js" => "javascript".to_string(),
+        "ts" => "typescript".to_string(),
+        "java" => "java".to_string(),
+        "c" => "c".to_string(),
+        "cpp" | "cc" | "cxx" | "hpp" => "cpp".to_string(),
+        "go" => "go".to_string(),
+        _ => "unknown".to_string(),
+    }
+}
+
 /// Output refs results in JSON format
 fn output_json_mode(
     _db_path: &PathBuf,
@@ -159,6 +185,10 @@ fn output_json_mode(
     direction: &str,
     mut calls: Vec<CallFact>,
     exec_id: &str,
+    with_context: bool,
+    with_semantics: bool,
+    with_checksums: bool,
+    context_lines: usize,
 ) -> Result<()> {
     // Sort deterministically: by file_path, byte_start
     calls.sort_by(|a, b| {
@@ -172,7 +202,7 @@ fn output_json_mode(
     let references: Vec<ReferenceMatch> = calls
         .into_iter()
         .map(|call| {
-            let span = Span::new(
+            let mut span = Span::new(
                 call.file_path.to_string_lossy().to_string(),
                 call.byte_start,
                 call.byte_end,
@@ -181,6 +211,35 @@ fn output_json_mode(
                 call.end_line,
                 call.end_col,
             );
+
+            // Add context if requested
+            if with_context {
+                if let Some(context) = SpanContext::extract(
+                    &call.file_path.to_string_lossy().to_string(),
+                    call.start_line,
+                    call.end_line,
+                    context_lines,
+                ) {
+                    span = span.with_context(context);
+                }
+            }
+
+            // Add semantics if requested
+            if with_semantics {
+                let kind = "call".to_string();
+                let language = detect_language_from_path(&call.file_path.to_string_lossy().to_string());
+                span = span.with_semantics_from(kind, language);
+            }
+
+            // Add checksums if requested
+            if with_checksums {
+                let checksums = SpanChecksums::compute(
+                    &call.file_path.to_string_lossy().to_string(),
+                    call.byte_start,
+                    call.byte_end,
+                );
+                span = span.with_checksums(checksums);
+            }
 
             // For "in" direction, referenced_symbol is the caller
             // For "out" direction, referenced_symbol is the callee

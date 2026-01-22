@@ -179,11 +179,19 @@ enum Command {
         root: Option<PathBuf>,
         path: PathBuf,
         direction: String,
+        with_context: bool,
+        with_semantics: bool,
+        with_checksums: bool,
+        context_lines: usize,
     },
     Get {
         db_path: PathBuf,
         file_path: String,
         symbol_name: String,
+        with_context: bool,
+        with_semantics: bool,
+        with_checksums: bool,
+        context_lines: usize,
     },
     GetFile {
         db_path: PathBuf,
@@ -690,6 +698,10 @@ fn parse_args() -> Result<Command> {
             let mut root: Option<PathBuf> = None;
             let mut path: Option<PathBuf> = None;
             let mut direction = String::from("in"); // default
+            let mut with_context = false;
+            let mut with_semantics = false;
+            let mut with_checksums = false;
+            let mut context_lines = 3usize;
             let mut _output_format = OutputFormat::Human; // Consume but don't store in Command
 
             let mut i = 2;
@@ -730,6 +742,25 @@ fn parse_args() -> Result<Command> {
                         direction = args[i + 1].clone();
                         i += 2;
                     }
+                    "--with-context" => {
+                        with_context = true;
+                        i += 1;
+                    }
+                    "--with-semantics" => {
+                        with_semantics = true;
+                        i += 1;
+                    }
+                    "--with-checksums" => {
+                        with_checksums = true;
+                        i += 1;
+                    }
+                    "--context-lines" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--context-lines requires an argument"));
+                        }
+                        context_lines = args[i + 1].parse().unwrap_or(3).min(100);
+                        i += 2;
+                    }
                     "--output" => {
                         if i + 1 >= args.len() {
                             return Err(anyhow::anyhow!("--output requires an argument"));
@@ -754,6 +785,10 @@ fn parse_args() -> Result<Command> {
                 root,
                 path,
                 direction,
+                with_context,
+                with_semantics,
+                with_checksums,
+                context_lines,
             })
         }
         "files" => {
@@ -829,6 +864,10 @@ fn parse_args() -> Result<Command> {
             let mut db_path: Option<PathBuf> = None;
             let mut file_path: Option<String> = None;
             let mut symbol_name: Option<String> = None;
+            let mut with_context = false;
+            let mut with_semantics = false;
+            let mut with_checksums = false;
+            let mut context_lines = 3usize;
 
             let mut i = 2;
             while i < args.len() {
@@ -854,6 +893,25 @@ fn parse_args() -> Result<Command> {
                         symbol_name = Some(args[i + 1].clone());
                         i += 2;
                     }
+                    "--with-context" => {
+                        with_context = true;
+                        i += 1;
+                    }
+                    "--with-semantics" => {
+                        with_semantics = true;
+                        i += 1;
+                    }
+                    "--with-checksums" => {
+                        with_checksums = true;
+                        i += 1;
+                    }
+                    "--context-lines" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--context-lines requires an argument"));
+                        }
+                        context_lines = args[i + 1].parse().unwrap_or(3).min(100);
+                        i += 2;
+                    }
                     _ => {
                         return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
                     }
@@ -868,6 +926,10 @@ fn parse_args() -> Result<Command> {
                 db_path,
                 file_path,
                 symbol_name,
+                with_context,
+                with_semantics,
+                with_checksums,
+                context_lines,
             })
         }
         "get-file" => {
