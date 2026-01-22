@@ -904,8 +904,10 @@ pub struct ErrorResponse {
 pub enum OutputFormat {
     /// Human-readable text output
     Human,
-    /// JSON output with schema versioning
+    /// JSON output (raw, compact)
     Json,
+    /// JSON output (formatted with indentation)
+    Pretty,
 }
 
 impl OutputFormat {
@@ -914,6 +916,7 @@ impl OutputFormat {
         match s.to_lowercase().as_str() {
             "human" | "text" => Some(OutputFormat::Human),
             "json" => Some(OutputFormat::Json),
+            "pretty" => Some(OutputFormat::Pretty),
             _ => None,
         }
     }
@@ -937,8 +940,12 @@ pub fn generate_execution_id() -> String {
 }
 
 /// Output JSON to stdout
-pub fn output_json<T: Serialize>(data: &T) -> anyhow::Result<()> {
-    let json = serde_json::to_string_pretty(data)?;
+pub fn output_json<T: Serialize>(data: &T, format: OutputFormat) -> anyhow::Result<()> {
+    let json = match format {
+        OutputFormat::Json => serde_json::to_string(data)?,
+        OutputFormat::Pretty => serde_json::to_string_pretty(data)?,
+        OutputFormat::Human => anyhow::bail!("Human format not supported for JSON output"),
+    };
     println!("{}", json);
     Ok(())
 }
@@ -1029,6 +1036,8 @@ mod tests {
     fn test_output_format_from_str() {
         assert_eq!(OutputFormat::from_str("json"), Some(OutputFormat::Json));
         assert_eq!(OutputFormat::from_str("JSON"), Some(OutputFormat::Json));
+        assert_eq!(OutputFormat::from_str("pretty"), Some(OutputFormat::Pretty));
+        assert_eq!(OutputFormat::from_str("PRETTY"), Some(OutputFormat::Pretty));
         assert_eq!(OutputFormat::from_str("human"), Some(OutputFormat::Human));
         assert_eq!(OutputFormat::from_str("text"), Some(OutputFormat::Human));
         assert_eq!(OutputFormat::from_str("invalid"), None);
