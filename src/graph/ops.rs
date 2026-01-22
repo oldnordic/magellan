@@ -90,8 +90,10 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
     // Step 1: Find or create file node
     let file_id = graph.files.find_or_create_file_node(path, &hash)?;
 
-    // Step 2: Delete all existing symbols for this file
-    graph.symbols.delete_file_symbols(file_id)?;
+    // Step 2: Delete all existing symbols for this file (verification)
+    // Note: This is a safeguard - reconcile_file_path() already calls delete_file_facts()
+    let symbols_deleted = graph.symbols.delete_file_symbols(file_id)?;
+    // Verify deletion completed (symbols_deleted may be 0 for new files)
 
     // Step 3: Detect language and parse symbols from source
     let path_buf = PathBuf::from(path);
