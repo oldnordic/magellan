@@ -614,6 +614,8 @@ pub fn get_ambiguous_candidates(
 
 #[cfg(test)]
 mod tests {
+    use crate::graph::query::{find_by_symbol_id, symbol_nodes_in_file_with_ids, symbols_in_file};
+
     #[test]
     fn test_index_references_propagates_count() {
         let temp_dir = tempfile::TempDir::new().unwrap();
@@ -649,5 +651,59 @@ fn bar() {
             "Expected at least 1 reference, got {}",
             count
         );
+    }
+
+    #[test]
+    fn test_find_by_symbol_id_returns_none_for_nonexistent() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
+
+        // Query for a symbol that doesn't exist
+        let result = find_by_symbol_id(&mut graph, "nonexistent12345678901234567890");
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none());
+    }
+
+    #[test]
+    fn test_find_by_symbol_id_returns_symbol_when_found() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
+
+        // Create a test file with a symbol
+        let test_file = temp_dir.path().join("test.rs");
+        std::fs::write(
+            &test_file,
+            r#"
+fn test_function() -> i32 {
+    42
+}
+"#
+        ).unwrap();
+
+        // Index the file (symbol will have SymbolId populated)
+        let path_str = test_file.to_string_lossy().to_string();
+        let source = std::fs::read(&test_file).unwrap();
+        graph.index_file(&path_str, &source).unwrap();
+
+        // Get the symbol to find its SymbolId
+        let symbols = symbols_in_file(&mut graph, &path_str).unwrap();
+        assert!(!symbols.is_empty());
+
+        // Get SymbolId from the first symbol
+        let (_node_id, _fact, symbol_id) = symbol_nodes_in_file_with_ids(&mut graph, &path_str)
+            .unwrap()
+            .into_iter()
+            .find(|(_, fact, _)| fact.name.as_deref() == Some("test_function"))
+            .expect("test_function should exist");
+
+        // Query by SymbolId
+        if let Some(id) = symbol_id {
+            let result = find_by_symbol_id(&mut graph, &id).unwrap();
+            assert!(result.is_some());
+            let found = result.unwrap();
+            assert_eq!(found.name.as_deref(), Some("test_function"));
+        }
     }
 }
