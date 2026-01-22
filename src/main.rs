@@ -1126,11 +1126,19 @@ impl ExecutionTracker {
         )
     }
 
+    /// Set execution outcome to error with message
+    ///
+    /// Currently unused but provided for API completeness and future error handling.
+    #[allow(dead_code)]
     fn set_error(&mut self, msg: String) {
         self.outcome = "error".to_string();
         self.error_message = Some(msg);
     }
 
+    /// Set indexing counts for execution tracking
+    ///
+    /// Currently unused but provided for API completeness and future tracking.
+    #[allow(dead_code)]
     fn set_counts(&mut self, files: usize, symbols: usize, references: usize) {
         self.files_indexed = files;
         self.symbols_indexed = symbols;
@@ -1176,49 +1184,6 @@ fn run_status(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
             println!("references: {}", reference_count);
             println!("calls: {}", call_count);
             println!("code_chunks: {}", chunk_count);
-        }
-    }
-
-    tracker.finish(&graph)?;
-    Ok(())
-}
-
-fn run_files(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
-    let mut graph = CodeGraph::open(&db_path)?;
-    let mut tracker = ExecutionTracker::new(
-        vec!["files".to_string()],
-        None,
-        db_path.to_string_lossy().to_string(),
-    );
-    tracker.start(&graph)?;
-
-    let file_nodes = graph.all_file_nodes()?;
-    tracker.set_counts(file_nodes.len(), 0, 0);
-
-    // Handle JSON output mode
-    if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
-        let mut files: Vec<String> = file_nodes.keys().cloned().collect();
-        files.sort(); // Deterministic ordering
-
-        let response = magellan::output::FilesResponse {
-            files,
-            symbol_counts: None,
-        };
-        let exec_id = tracker.exec_id().to_string();
-        let json_response = magellan::output::JsonResponse::new(response, &exec_id);
-        tracker.finish(&graph)?;
-        return magellan::output::output_json(&json_response, output_format);
-    }
-
-    // Human mode (existing behavior)
-    if file_nodes.is_empty() {
-        println!("0 indexed files");
-    } else {
-        println!("{} indexed files:", file_nodes.len());
-        let mut paths: Vec<_> = file_nodes.keys().collect();
-        paths.sort();
-        for path in paths {
-            println!("  {}", path);
         }
     }
 

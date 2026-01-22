@@ -110,11 +110,19 @@ impl<K: Hash + Eq + Clone, V> LruCache<K, V> {
     }
 
     /// Get current cache size
+    ///
+    /// Provided for API completeness and debugging. Currently unused internally
+    /// but kept for public API surface.
+    #[allow(dead_code)]
     pub fn len(&self) -> usize {
         self.map.len()
     }
 
     /// Check if cache is empty
+    ///
+    /// Provided for API completeness and debugging. Currently unused internally
+    /// but kept for public API surface.
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.map.is_empty()
     }
@@ -129,6 +137,10 @@ impl<K: Hash + Eq + Clone, V> LruCache<K, V> {
     }
 
     /// Get hit rate as a percentage (0.0 to 1.0)
+    ///
+    /// Provided for API completeness and debugging. Currently unused internally
+    /// but kept for public API surface.
+    #[allow(dead_code)]
     pub fn hit_rate(&self) -> f64 {
         self.stats().hit_rate()
     }
@@ -142,6 +154,8 @@ pub type FileNodeCache = LruCache<String, crate::graph::schema::FileNode>;
 /// Specialized cache for symbol vectors
 ///
 /// Caches symbol vectors by file path for faster symbol lookups.
+/// Currently unused internally but provided for API completeness and future use.
+#[allow(dead_code)]
 pub type SymbolCache = LruCache<String, Vec<crate::ingest::SymbolFact>>;
 
 #[cfg(test)]

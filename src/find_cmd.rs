@@ -121,8 +121,8 @@ pub fn run_find(
     glob_pattern: Option<String>,
     output_format: OutputFormat,
     with_context: bool,
-    with_callers: bool,
-    with_callees: bool,
+    _with_callers: bool,  // TODO: Implement caller references in find output
+    _with_callees: bool,  // TODO: Implement callee references in find output
     with_semantics: bool,
     with_checksums: bool,
     context_lines: usize,

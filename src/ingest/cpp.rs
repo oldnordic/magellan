@@ -51,69 +51,6 @@ impl CppParser {
         facts
     }
 
-    /// Walk tree-sitter tree recursively and extract symbols.
-    fn walk_tree(
-        &self,
-        node: &tree_sitter::Node,
-        source: &[u8],
-        file_path: &PathBuf,
-        facts: &mut Vec<SymbolFact>,
-    ) {
-        // Check if this node is a symbol we care about
-        if let Some(fact) = self.extract_symbol(node, source, file_path) {
-            facts.push(fact);
-        }
-
-        // Recurse into children
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            self.walk_tree(&child, source, file_path, facts);
-        }
-    }
-
-    /// Extract a symbol fact from a tree-sitter node, if applicable.
-    fn extract_symbol(
-        &self,
-        node: &tree_sitter::Node,
-        source: &[u8],
-        file_path: &PathBuf,
-    ) -> Option<SymbolFact> {
-        let kind = node.kind();
-
-        // template_declaration wraps the actual declaration - skip it here
-        // The walk_tree will recurse into its children and find the actual symbol
-        if kind == "template_declaration" {
-            return None;
-        }
-
-        let symbol_kind = match kind {
-            "function_definition" => SymbolKind::Function,
-            "class_specifier" => SymbolKind::Class,
-            "struct_specifier" => SymbolKind::Class,
-            "namespace_definition" => SymbolKind::Namespace,
-            _ => return None, // Not a symbol we track
-        };
-
-        // Try to extract name
-        let name = self.extract_name(node, source, kind);
-
-        let normalized_kind = symbol_kind.normalized_key().to_string();
-        let fqn = name.clone(); // For v1, FQN is just the symbol name
-        Some(SymbolFact {
-            file_path: file_path.clone(),
-            kind: symbol_kind,
-            kind_normalized: normalized_kind,
-            name,
-            fqn,
-            byte_start: node.start_byte() as usize,
-            byte_end: node.end_byte() as usize,
-            start_line: node.start_position().row + 1, // tree-sitter is 0-indexed
-            start_col: node.start_position().column,
-            end_line: node.end_position().row + 1,
-            end_col: node.end_position().column,
-        })
-    }
-
     /// Extract name from a symbol node.
     ///
     /// C++ uses different identifier types:

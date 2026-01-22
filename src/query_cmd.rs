@@ -40,8 +40,8 @@ pub fn run_query(
     show_extent: bool,
     output_format: OutputFormat,
     with_context: bool,
-    with_callers: bool,
-    with_callees: bool,
+    _with_callers: bool,  // TODO: Implement caller references in query output
+    _with_callees: bool,  // TODO: Implement callee references in query output
     with_semantics: bool,
     with_checksums: bool,
     context_lines: usize,
