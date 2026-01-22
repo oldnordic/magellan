@@ -875,4 +875,130 @@ class Outer {
         assert_eq!(methods.len(), 1);
         assert_eq!(methods[0].fqn, Some("Outer.Inner.method".to_string()));
     }
+
+    #[test]
+    fn test_canonical_fqn_with_package() {
+        let mut parser = JavaParser::new().unwrap();
+        let source = b"
+package com.example;
+
+public class MyClass {
+    public void myMethod() {}
+}
+";
+        let facts = parser.extract_symbols(PathBuf::from("src/test/Example.java"), source);
+
+        let classes: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Class)
+            .collect();
+        assert_eq!(classes.len(), 1);
+        // Canonical FQN format: crate_name::file_path::Kind symbol_name
+        assert!(classes[0].canonical_fqn.as_ref().unwrap().contains("src/test/Example.java"));
+        assert!(classes[0].canonical_fqn.as_ref().unwrap().contains("Struct"));
+        assert!(classes[0].canonical_fqn.as_ref().unwrap().contains("MyClass"));
+
+        let methods: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Method)
+            .collect();
+        assert_eq!(methods.len(), 1);
+        assert!(methods[0].canonical_fqn.as_ref().unwrap().contains("src/test/Example.java"));
+        assert!(methods[0].canonical_fqn.as_ref().unwrap().contains("Method"));
+        assert!(methods[0].canonical_fqn.as_ref().unwrap().contains("myMethod"));
+    }
+
+    #[test]
+    fn test_display_fqn_with_package() {
+        let mut parser = JavaParser::new().unwrap();
+        let source = b"
+package com.example;
+
+public class MyClass {
+    public void myMethod() {}
+}
+";
+        let facts = parser.extract_symbols(PathBuf::from("test.java"), source);
+
+        let classes: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Class)
+            .collect();
+        assert_eq!(classes.len(), 1);
+        // Display FQN format: package.class
+        let display_fqn = classes[0].display_fqn.as_ref().unwrap();
+        assert_eq!(display_fqn, "com.example.MyClass");
+
+        let methods: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Method)
+            .collect();
+        assert_eq!(methods.len(), 1);
+        // Display FQN format: package.class.method
+        let display_fqn = methods[0].display_fqn.as_ref().unwrap();
+        assert_eq!(display_fqn, "com.example.MyClass.myMethod");
+    }
+
+    #[test]
+    fn test_all_fqn_types_computed() {
+        let mut parser = JavaParser::new().unwrap();
+        let source = b"
+package com.example;
+
+public class MyClass {
+    public void myMethod() {}
+}
+";
+        let facts = parser.extract_symbols(PathBuf::from("test.java"), source);
+
+        let methods: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Method)
+            .collect();
+        assert_eq!(methods.len(), 1);
+
+        // Verify all three FQN types are computed
+        assert!(methods[0].fqn.is_some());
+        assert!(methods[0].canonical_fqn.is_some());
+        assert!(methods[0].display_fqn.is_some());
+
+        // Verify package name is included in display FQN
+        assert!(methods[0].display_fqn.as_ref().unwrap().starts_with("com.example"));
+    }
+
+    #[test]
+    fn test_fqn_nested_class_with_package() {
+        let mut parser = JavaParser::new().unwrap();
+        let source = b"
+package com.example;
+
+class Outer {
+    class Inner {
+        void method() {}
+    }
+}
+";
+        let facts = parser.extract_symbols(PathBuf::from("test.java"), source);
+
+        let classes: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Class)
+            .collect();
+        assert_eq!(classes.len(), 2);
+
+        // Outer class display FQN
+        assert_eq!(classes[0].display_fqn.as_ref().unwrap(), "com.example.Outer");
+
+        // Inner class display FQN (nested)
+        assert_eq!(classes[1].display_fqn.as_ref().unwrap(), "com.example.Outer.Inner");
+
+        let methods: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Method)
+            .collect();
+        assert_eq!(methods.len(), 1);
+
+        // Method display FQN in nested class
+        assert_eq!(methods[0].display_fqn.as_ref().unwrap(), "com.example.Outer.Inner.method");
+    }
 }
