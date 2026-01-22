@@ -47,7 +47,10 @@ impl CppParser {
         let mut facts = Vec::new();
         let mut scope_stack = ScopeStack::new(ScopeSeparator::DoubleColon);
 
-        self.walk_tree_with_scope(&root_node, source, &file_path, &mut facts, &mut scope_stack);
+        // Per decision FQN-17, use "." as project_root placeholder for C++
+        let package_name = ".";
+
+        self.walk_tree_with_scope(&root_node, source, &file_path, &mut facts, &mut scope_stack, package_name);
 
         facts
     }
@@ -291,6 +294,7 @@ impl CppParser {
         file_path: &PathBuf,
         facts: &mut Vec<SymbolFact>,
         scope_stack: &mut ScopeStack,
+        package_name: &str,
     ) {
         let kind = node.kind();
 
@@ -298,7 +302,7 @@ impl CppParser {
         if kind == "template_declaration" {
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
-                self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack);
+                self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack, package_name);
             }
             return;
         }
@@ -308,7 +312,7 @@ impl CppParser {
             if let Some(name) = self.extract_name(node, source, kind) {
                 // Create namespace symbol with parent scope
                 if !name.is_empty() {
-                    if let Some(fact) = self.extract_symbol_with_fqn(node, source, file_path, scope_stack) {
+                    if let Some(fact) = self.extract_symbol_with_fqn(node, source, file_path, scope_stack, package_name) {
                         facts.push(fact);
                     }
                     scope_stack.push(&name);
@@ -316,7 +320,7 @@ impl CppParser {
                 // Recurse into namespace body
                 let mut cursor = node.walk();
                 for child in node.children(&mut cursor) {
-                    self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack);
+                    self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack, package_name);
                 }
                 if !name.is_empty() {
                     scope_stack.pop();
@@ -326,14 +330,14 @@ impl CppParser {
         }
 
         // Extract symbol with FQN from scope stack
-        if let Some(fact) = self.extract_symbol_with_fqn(node, source, file_path, scope_stack) {
+        if let Some(fact) = self.extract_symbol_with_fqn(node, source, file_path, scope_stack, package_name) {
             facts.push(fact);
         }
 
         // Recurse into children
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack);
+            self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack, package_name);
         }
     }
 
