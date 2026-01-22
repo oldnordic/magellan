@@ -708,11 +708,10 @@ pub fn reconcile_file_path(
 
     // 1) Check if file exists on filesystem
     if !path.exists() {
-        // Capture and verify DeleteResult
-        let deleted = delete_file_facts(graph, path_key)?;
-        // Verify deletion completed (optional debug logging)
+        // Delete facts for missing file
         #[cfg(debug_assertions)]
         {
+            let deleted = delete_file_facts(graph, path_key)?;
             if !deleted.is_empty() {
                 eprintln!("Deleted {} symbols, {} references, {} calls for missing file {}",
                     deleted.symbols_deleted,
@@ -721,6 +720,10 @@ pub fn reconcile_file_path(
                     path_key
                 );
             }
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            let _ = delete_file_facts(graph, path_key)?;
         }
         return Ok(ReconcileOutcome::Deleted);
     }
@@ -750,11 +753,9 @@ pub fn reconcile_file_path(
     }
 
     // 5) Delete all existing facts for this file, then re-index
-    let deleted = delete_file_facts(graph, path_key)?;
-
-    // Verify deletion completed (optional debug logging)
     #[cfg(debug_assertions)]
     {
+        let deleted = delete_file_facts(graph, path_key)?;
         if !deleted.is_empty() {
             eprintln!("Deleted {} symbols, {} references, {} calls for reindex of {}",
                 deleted.symbols_deleted,
@@ -763,6 +764,10 @@ pub fn reconcile_file_path(
                 path_key
             );
         }
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = delete_file_facts(graph, path_key)?;
     }
 
     let symbols = index_file(graph, path_key, &source)?;
