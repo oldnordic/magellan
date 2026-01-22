@@ -1,4 +1,13 @@
 //! Graph persistence layer using sqlitegraph
+//!
+//! # Position Conventions
+//!
+//! Symbol and reference spans in the graph use tree-sitter position conventions:
+//! - **Line positions**: 1-indexed (line 1 is the first line)
+//! - **Column positions**: 0-indexed (column 0 is the first character in a line)
+//! - **Byte offsets**: 0-indexed from file start (byte 0 is the first byte)
+//!
+//! See [MANUAL.md](../../MANUAL.md#3-position-conventions) for detailed documentation.
 mod call_ops;
 mod calls;
 mod cache;

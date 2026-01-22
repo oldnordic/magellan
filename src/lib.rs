@@ -1,6 +1,15 @@
 //! Magellan: A dumb, deterministic codebase mapping tool
 //!
 //! Magellan observes files, extracts symbols and references, and persists facts to sqlitegraph.
+//!
+//! # Position Conventions
+//!
+//! Magellan uses tree-sitter position conventions for all symbol and reference data:
+//! - **Line positions**: 1-indexed (line 1 is the first line)
+//! - **Column positions**: 0-indexed (column 0 is the first character)
+//! - **Byte offsets**: 0-indexed from file start
+//!
+//! See [MANUAL.md](../MANUAL.md#3-position-conventions) for detailed documentation.
 
 pub mod common;
 pub mod diagnostics;
