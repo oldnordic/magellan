@@ -4,26 +4,10 @@
 
 use anyhow::Result;
 use magellan::{CallFact, CodeGraph};
+use magellan::common::{detect_language_from_path, resolve_path};
 use magellan::output::{JsonResponse, OutputFormat, RefsResponse, ReferenceMatch, Span, output_json};
 use magellan::output::rich::{SpanContext, SpanChecksums};
 use std::path::PathBuf;
-
-/// Resolve a file path against an optional root directory
-fn resolve_path(file_path: &PathBuf, root: &Option<PathBuf>) -> String {
-    if file_path.is_absolute() {
-        return file_path.to_string_lossy().to_string();
-    }
-
-    if let Some(ref root) = root {
-        root.join(file_path).to_string_lossy().to_string()
-    } else {
-        std::env::current_dir()
-            .ok()
-            .and_then(|cwd| cwd.join(file_path).canonicalize().ok())
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|| file_path.to_string_lossy().to_string())
-    }
-}
 
 /// Run the refs command
 ///
@@ -158,23 +142,6 @@ pub fn run_refs(
         0, 0, 0,
     )?;
     Ok(())
-}
-
-/// Detect programming language from file path extension
-fn detect_language_from_path(path: &str) -> String {
-    use std::path::Path;
-    let ext = Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("");
-    match ext {
-        "rs" => "rust".to_string(),
-        "py" => "python".to_string(),
-        "js" => "javascript".to_string(),
-        "ts" => "typescript".to_string(),
-        "java" => "java".to_string(),
-        "c" => "c".to_string(),
-        "cpp" | "cc" | "cxx" | "hpp" => "cpp".to_string(),
-        "go" => "go".to_string(),
-        _ => "unknown".to_string(),
-    }
 }
 
 /// Output refs results in JSON format

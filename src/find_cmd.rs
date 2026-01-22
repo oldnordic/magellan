@@ -5,6 +5,7 @@
 use anyhow::{Context, Result};
 use globset::GlobBuilder;
 use magellan::{CodeGraph, SymbolKind};
+use magellan::common::{detect_language_from_path, format_symbol_kind, resolve_path};
 use magellan::graph::query;
 use magellan::output::{JsonResponse, OutputFormat, FindResponse, Span, SymbolMatch, output_json};
 use magellan::output::rich::{SpanContext, SpanChecksums};
@@ -26,39 +27,6 @@ struct FoundSymbol {
     end_col: usize,
     node_id: i64,
     symbol_id: Option<String>,
-}
-
-/// Format a SymbolKind for display
-fn format_symbol_kind(kind: &SymbolKind) -> &'static str {
-    match kind {
-        SymbolKind::Function => "Function",
-        SymbolKind::Method => "Method",
-        SymbolKind::Class => "Class",
-        SymbolKind::Interface => "Interface",
-        SymbolKind::Enum => "Enum",
-        SymbolKind::Module => "Module",
-        SymbolKind::Union => "Union",
-        SymbolKind::Namespace => "Namespace",
-        SymbolKind::TypeAlias => "TypeAlias",
-        SymbolKind::Unknown => "Unknown",
-    }
-}
-
-/// Resolve a file path against an optional root directory
-fn resolve_path(file_path: &PathBuf, root: &Option<PathBuf>) -> String {
-    if file_path.is_absolute() {
-        return file_path.to_string_lossy().to_string();
-    }
-
-    if let Some(ref root) = root {
-        root.join(file_path).to_string_lossy().to_string()
-    } else {
-        std::env::current_dir()
-            .ok()
-            .and_then(|cwd| cwd.join(file_path).canonicalize().ok())
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|| file_path.to_string_lossy().to_string())
-    }
 }
 
 /// Find a symbol in a specific file by name
@@ -344,25 +312,6 @@ fn output_json_mode(
     output_json(&json_response)?;
 
     Ok(())
-}
-
-/// Detect language from file path extension
-fn detect_language_from_path(path: &str) -> String {
-    use std::path::Path;
-    let ext = Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("");
-    match ext {
-        "rs" => "rust".to_string(),
-        "py" => "python".to_string(),
-        "js" => "javascript".to_string(),
-        "ts" | "tsx" => "typescript".to_string(),
-        "java" => "java".to_string(),
-        "c" => "c".to_string(),
-        "cpp" | "cc" | "cxx" | "hpp" => "cpp".to_string(),
-        "go" => "go".to_string(),
-        "rb" => "ruby".to_string(),
-        "php" => "php".to_string(),
-        _ => "unknown".to_string(),
-    }
 }
 
 fn run_glob_listing(graph: &mut CodeGraph, pattern: &str, output_format: OutputFormat, exec_id: &str) -> Result<()> {

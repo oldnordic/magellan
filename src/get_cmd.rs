@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 // Use the library items through the magellan library
 use magellan::{CodeGraph, generate_execution_id, OutputFormat};
+use magellan::common::detect_language_from_path;
 use magellan::output::{JsonResponse, Span, SymbolMatch, output_json};
 use magellan::output::rich::{SpanContext, SpanChecksums};
 use magellan::graph::query;
@@ -19,23 +20,6 @@ pub struct GetResponse {
     pub symbol: SymbolMatch,
     /// Source code content
     pub content: String,
-}
-
-/// Detect programming language from file path extension
-fn detect_language_from_path(path: &str) -> String {
-    use std::path::Path;
-    let ext = Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("");
-    match ext {
-        "rs" => "rust".to_string(),
-        "py" => "python".to_string(),
-        "js" => "javascript".to_string(),
-        "ts" => "typescript".to_string(),
-        "java" => "java".to_string(),
-        "c" => "c".to_string(),
-        "cpp" | "cc" | "cxx" | "hpp" => "cpp".to_string(),
-        "go" => "go".to_string(),
-        _ => "unknown".to_string(),
-    }
 }
 
 pub fn run_get(
