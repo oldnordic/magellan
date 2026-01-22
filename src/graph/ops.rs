@@ -157,7 +157,8 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
     let mut code_chunks = Vec::new();
     for fact in &symbol_facts {
         // Extract source content for this symbol's byte span
-        if fact.byte_end <= source_str.len() {
+        // Bounds check: both byte_start <= byte_end AND byte_end <= source length
+        if fact.byte_start <= fact.byte_end && fact.byte_end <= source_str.len() {
             let content = source_str[fact.byte_start..fact.byte_end].to_string();
 
             let chunk = CodeChunk::new(
