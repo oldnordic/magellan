@@ -2,6 +2,7 @@
 //!
 //! Extracts functions, classes, and async functions from Python source code.
 
+use crate::graph::canonical_fqn::FqnBuilder;
 use crate::ingest::{ScopeSeparator, ScopeStack, SymbolFact, SymbolKind};
 use crate::references::{CallFact, ReferenceFact};
 use anyhow::Result;
