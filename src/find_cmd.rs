@@ -191,9 +191,9 @@ pub fn run_find(
     };
 
     // Handle JSON output mode
-    if output_format == OutputFormat::Json {
+    if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
         finish_execution("success", None)?;
-        return output_json_mode(&name, results, path.as_ref().map(|p| resolve_path(p, &root)), &exec_id, with_context, false, false, with_semantics, with_checksums, context_lines);
+        return output_json_mode(&name, results, path.as_ref().map(|p| resolve_path(p, &root)), &exec_id, output_format, with_context, false, false, with_semantics, with_checksums, context_lines);
     }
 
     // Human mode (existing behavior)
@@ -239,6 +239,7 @@ fn output_json_mode(
     mut results: Vec<FoundSymbol>,
     file_filter: Option<String>,
     exec_id: &str,
+    output_format: OutputFormat,
     with_context: bool,
     _with_callers: bool,
     _with_callees: bool,
@@ -309,7 +310,7 @@ fn output_json_mode(
     };
 
     let json_response = JsonResponse::new(response, exec_id);
-    output_json(&json_response)?;
+    output_json(&json_response, output_format)?;
 
     Ok(())
 }
@@ -358,7 +359,7 @@ fn run_glob_listing(graph: &mut CodeGraph, pattern: &str, output_format: OutputF
     });
 
     // Handle JSON output for glob listing
-    if output_format == OutputFormat::Json {
+    if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
         let json_matches: Vec<SymbolMatch> = matches
             .into_iter()
             .map(|s| {
@@ -382,7 +383,7 @@ fn run_glob_listing(graph: &mut CodeGraph, pattern: &str, output_format: OutputF
         };
 
         let json_response = JsonResponse::new(response, exec_id);
-        output_json(&json_response)?;
+        output_json(&json_response, output_format)?;
         return Ok(());
     }
 

@@ -64,7 +64,7 @@ pub fn run_get(
     }
 
     // Handle JSON output mode
-    if output_format == OutputFormat::Json {
+    if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
         // For JSON output, we need to get the symbol node to get span information
         // Then we can enrich it with rich span data
         let mut graph_mut = CodeGraph::open(&db_path)?;
@@ -134,7 +134,7 @@ pub fn run_get(
                         };
 
                         let json_response = JsonResponse::new(response, &exec_id);
-                        output_json(&json_response)?;
+                        output_json(&json_response, output_format)?;
                         break;
                     }
                 }

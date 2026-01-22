@@ -65,14 +65,14 @@ pub fn run_files(
 
     // Handle output based on format
     match output_format {
-        OutputFormat::Json => {
+        OutputFormat::Json | OutputFormat::Pretty => {
             let response = FilesResponse {
                 files,
                 symbol_counts,
             };
 
             let json_response = JsonResponse::new(response, &exec_id);
-            output_json(&json_response)?;
+            output_json(&json_response, output_format)?;
         }
         OutputFormat::Human => {
             if files.is_empty() {

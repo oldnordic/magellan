@@ -131,7 +131,7 @@ pub fn run_query(
     let path_str = resolve_path(&file_path, &root);
 
     // Handle JSON output mode - use symbol_nodes_in_file_with_ids for symbol_id propagation
-    if output_format == OutputFormat::Json {
+    if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
         let mut graph_mut = CodeGraph::open(&db_path)?;
         let mut symbols_with_ids = magellan::graph::query::symbol_nodes_in_file_with_ids(&mut graph_mut, &path_str)?;
 
@@ -149,7 +149,7 @@ pub fn run_query(
             symbols_with_ids.into_iter().map(|(_, fact, symbol_id)| (fact, symbol_id)).collect();
 
         finish_execution(&graph, "success", None)?;
-        return output_json_mode(&path_str, symbols_with_ids, kind_str, show_extent, &symbol, &mut graph_mut, &exec_id, with_context, false, false, with_semantics, with_checksums, context_lines);
+        return output_json_mode(&path_str, symbols_with_ids, kind_str, show_extent, &symbol, &mut graph_mut, &exec_id, output_format, with_context, false, false, with_semantics, with_checksums, context_lines);
     }
 
     // Human mode - use existing flow
@@ -219,6 +219,7 @@ fn output_json_mode(
     _symbol: &Option<String>,
     _graph: &mut CodeGraph,
     exec_id: &str,
+    output_format: OutputFormat,
     with_context: bool,
     _with_callers: bool,
     _with_callees: bool,
@@ -295,7 +296,7 @@ fn output_json_mode(
     };
 
     let json_response = JsonResponse::new(response, exec_id);
-    output_json(&json_response)?;
+    output_json(&json_response, output_format)?;
 
     Ok(())
 }

@@ -67,7 +67,7 @@ pub fn run_watch(
                     0,
                 )?;
 
-                if output_format == OutputFormat::Json {
+                if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
                     let response = magellan::output::command::ValidationResponse {
                         passed: false,
                         error_count,
@@ -81,7 +81,7 @@ pub fn run_watch(
                         warnings: vec![],
                     };
                     let json_response = magellan::JsonResponse::new(response, &exec_id);
-                    output_json(&json_response)?;
+                    output_json(&json_response, output_format)?;
                 }
                 return Err(anyhow::anyhow!("Pre-validation failed"));
             }
@@ -119,7 +119,7 @@ pub fn run_watch(
             }
         };
 
-        if output_format == OutputFormat::Json {
+        if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
             let response = magellan::output::command::ValidationResponse {
                 passed: report.passed,
                 error_count: report.errors.len(),
@@ -138,7 +138,7 @@ pub fn run_watch(
                 }).collect(),
             };
             let json_response = magellan::JsonResponse::new(response, &exec_id);
-            output_json(&json_response)?;
+            output_json(&json_response, output_format)?;
         } else {
             if report.passed {
                 println!("Validation passed: no errors found");
@@ -207,7 +207,7 @@ pub fn run_watch(
 
                 if !report.passed {
                     let error_count = report.errors.len();
-                    if output_format == OutputFormat::Json {
+                    if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
                         let response = magellan::output::command::ValidationResponse {
                             passed: report.passed,
                             error_count,
@@ -226,7 +226,7 @@ pub fn run_watch(
                             }).collect(),
                         };
                         let json_response = magellan::JsonResponse::new(response, &exec_id);
-                        output_json(&json_response)?;
+                        output_json(&json_response, output_format)?;
                     } else {
                         eprintln!("Validation failed: {} errors", error_count);
                         for error in &report.errors {

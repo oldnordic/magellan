@@ -93,14 +93,14 @@ pub fn run_refs(
     };
 
     // Handle JSON output mode
-    if output_format == OutputFormat::Json {
+    if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
         graph.execution_log().finish_execution(
             &exec_id,
             "success",
             None,
             0, 0, 0,
         )?;
-        return output_json_mode(&db_path, &name, &path_str, &direction, calls, &exec_id, with_context, with_semantics, with_checksums, context_lines);
+        return output_json_mode(&db_path, &name, &path_str, &direction, calls, &exec_id, output_format, with_context, with_semantics, with_checksums, context_lines);
     }
 
     // Human mode (existing behavior)
@@ -152,6 +152,7 @@ fn output_json_mode(
     direction: &str,
     mut calls: Vec<CallFact>,
     exec_id: &str,
+    output_format: OutputFormat,
     with_context: bool,
     with_semantics: bool,
     with_checksums: bool,
@@ -228,7 +229,7 @@ fn output_json_mode(
     };
 
     let json_response = JsonResponse::new(response, exec_id);
-    output_json(&json_response)?;
+    output_json(&json_response, output_format)?;
 
     Ok(())
 }
