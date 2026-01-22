@@ -441,7 +441,7 @@ Tests pass on Linux (primary development platform). Other platforms not regularl
 
 ## Known Limitations
 
-- **Name-based cross-file matching**: Cross-file call resolution uses simple name fallback; may produce false positives when multiple symbols share the same name
+- **FQN collisions may occur**: Symbols with identical names in different files or modules may share the same Fully Qualified Name. This affects cross-file call resolution and find operations. Common in: `main` functions across binaries, test functions, and methods with generic names (`new`, `default`, etc.) in impl blocks. Collisions rate is typically 3-5% of symbols in large codebases.
 - **No semantic analysis**: AST-level only; no type checking or cross-module resolution
 - **No incremental parsing**: File changes trigger full re-parse of that file
 - **Single-threaded watcher**: Event processing is sequential (CodeGraph uses SQLite concurrency)
