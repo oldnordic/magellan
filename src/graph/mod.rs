@@ -8,6 +8,16 @@
 //! - **Byte offsets**: 0-indexed from file start (byte 0 is the first byte)
 //!
 //! See [MANUAL.md](../../MANUAL.md#3-position-conventions) for detailed documentation.
+//!
+//! # :memory: Database Limitation
+//!
+//! CodeGraph uses SQLite Shared connections via `sqlitegraph` and opens a separate
+//! shared connection for `ChunkStore`. These Shared connections don't work with
+//! `:memory:` databases because each thread would get its own separate in-memory
+//! database instance.
+//!
+//! **Workaround:** Use file-based databases for CodeGraph operations.
+//! See [MANUAL.md](../../MANUAL.md#known-limitations) for details.
 mod call_ops;
 mod calls;
 mod cache;
