@@ -86,17 +86,8 @@ pub fn detect_crate_name(project_root: &Path, _file_path: &Path) -> String {
         if let Some(name) = parse_cargo_toml_name(&content) {
             return name;
         }
-        // Debug log for fallback used
-        log::debug!(
-            "Could not parse [package].name from {}, falling back to directory name",
-            cargo_toml.display()
-        );
     } else {
-        // Debug log for missing Cargo.toml
-        log::debug!(
-            "Could not read {} (file may not exist), falling back to directory name",
-            cargo_toml.display()
-        );
+        // Cargo.toml not found or unreadable - fall back to directory name
     }
 
     // Priority 2: Use directory name
@@ -107,7 +98,6 @@ pub fn detect_crate_name(project_root: &Path, _file_path: &Path) -> String {
     }
 
     // Priority 3: Ultimate fallback
-    log::debug!("Could not determine directory name for {}, using 'unknown'", project_root.display());
     "unknown".to_string()
 }
 
@@ -158,7 +148,8 @@ fn parse_cargo_toml_name(content: &str) -> Option<String> {
         }
 
         // Look for name = "..." or name = '...' within [package] section
-        if in_package_section && trimmed.starts_with("name =") {
+        // Use starts_with("name") then check for '=' to handle variable spacing
+        if in_package_section && trimmed.starts_with("name") && trimmed.contains('=') {
             return extract_quoted_value(trimmed);
         }
     }
@@ -190,14 +181,17 @@ fn extract_quoted_value(line: &str) -> Option<String> {
     let eq_pos = line.find('=')?;
     let after_eq = &line[eq_pos + 1..];
 
-    // Look for the first quote
-    let quote_char = after_eq.trim_start().chars().next()?;
+    // Trim whitespace and look for the first quote
+    let trimmed = after_eq.trim_start();
+    let quote_char = trimmed.chars().next()?;
     if quote_char != '"' && quote_char != '\'' {
         return None;
     }
 
-    let start = after_eq.find(quote_char)? + 1;
-    let remaining = &after_eq[start..];
+    // Find the opening quote in the trimmed string
+    let quote_offset = trimmed.find(quote_char)?;
+    let start = quote_offset + 1;
+    let remaining = &trimmed[start..];
 
     // Find the closing quote
     let end = remaining.find(quote_char)?;
