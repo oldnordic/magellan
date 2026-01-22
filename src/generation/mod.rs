@@ -71,9 +71,9 @@ impl ChunkStore {
             ChunkStoreConnection::Shared(arc) => {
                 // Open a new connection to the same database.
                 // We need to extract the path from the existing connection.
-                let conn = arc.try_lock()
+                let conn = arc.lock()
                     .map_err(|_| rusqlite::Error::InvalidParameterName(
-                        "Shared connection already borrowed".to_string()
+                        "Shared connection lock failed".to_string()
                     ))?;
                 // Get the database path from the existing connection
                 let path = conn.path().ok_or_else(|| {
@@ -99,8 +99,8 @@ impl ChunkStore {
                 let result = f(&conn)?;
                 Ok(result)
             }
-            ChunkStoreConnection::Shared(rc) => {
-                let conn = rc.try_borrow()
+            ChunkStoreConnection::Shared(arc) => {
+                let conn = arc.try_lock()
                     .map_err(|_| anyhow::anyhow!("Shared connection already borrowed"))?;
                 let result = f(&conn)?;
                 Ok(result)
@@ -121,8 +121,8 @@ impl ChunkStore {
                 let result = f(&mut conn)?;
                 Ok(result)
             }
-            ChunkStoreConnection::Shared(rc) => {
-                let mut conn = rc.try_borrow_mut()
+            ChunkStoreConnection::Shared(arc) => {
+                let mut conn = arc.try_lock()
                     .map_err(|_| anyhow::anyhow!("Shared connection already borrowed"))?;
                 let result = f(&mut conn)?;
                 Ok(result)
