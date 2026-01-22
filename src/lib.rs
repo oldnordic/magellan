@@ -3,6 +3,7 @@
 //! Magellan observes files, extracts symbols and references, and persists facts to sqlitegraph.
 
 pub mod diagnostics;
+pub mod error_codes;
 pub mod generation;
 pub mod get_cmd;
 pub mod graph;

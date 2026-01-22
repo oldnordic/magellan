@@ -2,7 +2,7 @@
 //!
 //! Error codes follow the pattern: MAG-{CATEGORY}-{3-digit number}
 //!
-//! Categories:
+//! Categories (1-3 uppercase letters):
 //! - REF: Reference-related errors (symbol lookup, span resolution)
 //! - QRY: Query-related errors (invalid queries, file not found)
 //! - IO: I/O-related errors (file access, permissions)
@@ -118,9 +118,17 @@ mod tests {
     fn test_error_code_format() {
         let codes = vec![
             MAG_REF_001_SYMBOL_NOT_FOUND,
+            MAG_REF_002_AMBIGUOUS_SYMBOL,
+            MAG_REF_003_INVALID_SPAN,
             MAG_QRY_001_INVALID_QUERY,
+            MAG_QRY_002_FILE_NOT_FOUND,
+            MAG_QRY_003_INVALID_PARAMS,
             MAG_IO_001_FILE_NOT_FOUND,
+            MAG_IO_002_PERMISSION_DENIED,
+            MAG_IO_003_INVALID_PATH,
             MAG_V_001_CHECKSUM_MISMATCH,
+            MAG_V_002_SPAN_INVALID,
+            MAG_V_003_DB_CORRUPTION,
         ];
 
         for code in codes {
@@ -133,8 +141,8 @@ mod tests {
             let parts: Vec<&str> = code.split('-').collect();
             assert_eq!(parts.len(), 3, "Error code must have 3 parts: {}", code);
 
-            // Verify category is 3 uppercase letters
-            assert_eq!(parts[1].len(), 3, "Category must be 3 chars: {}", code);
+            // Verify category is 1-3 uppercase letters
+            assert!(parts[1].len() >= 1 && parts[1].len() <= 3, "Category must be 1-3 chars: {}", code);
             assert!(parts[1].chars().all(|c| c.is_ascii_uppercase()));
 
             // Verify number is 3 digits
