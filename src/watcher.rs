@@ -348,8 +348,10 @@ fn extract_dirty_paths(
         // Validate path is within project root (security: prevent path traversal)
         match crate::validation::validate_path_within_root(path, root) {
             Ok(_) => {
-                // Path is safe, include it
-                dirty_paths.insert(path.clone());
+                // Path is safe, normalize before inserting
+                let normalized = crate::validation::normalize_path(path)
+                    .unwrap_or_else(|_| path.to_string_lossy().to_string());
+                dirty_paths.insert(PathBuf::from(normalized));
             }
             Err(crate::validation::PathValidationError::OutsideRoot(p, _)) => {
                 // Log the rejection but don't crash
