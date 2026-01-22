@@ -156,6 +156,14 @@ impl ScopeStack {
     pub fn separator(&self) -> ScopeSeparator {
         self.separator
     }
+
+    /// Get read-only access to the scope components
+    ///
+    /// Returns a slice of scope components in order.
+    /// Used by FqnBuilder to construct display FQN.
+    pub fn scopes(&self) -> &[String] {
+        &self.scopes
+    }
 }
 
 impl SymbolKind {
