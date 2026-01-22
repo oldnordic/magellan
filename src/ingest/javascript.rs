@@ -4,6 +4,7 @@
 
 use crate::ingest::{ScopeSeparator, ScopeStack, SymbolFact, SymbolKind};
 use crate::references::{CallFact, ReferenceFact};
+use crate::graph::canonical_fqn::FqnBuilder;
 use anyhow::Result;
 use std::path::PathBuf;
 
