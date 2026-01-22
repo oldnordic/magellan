@@ -105,7 +105,9 @@ where
             parser.set_language(&tree_sitter_cpp::language())?;
             *parser_ref = Some(parser);
         }
-        Ok(f(parser_ref.as_mut().unwrap()))
+        Ok(f(parser_ref.as_mut().expect(
+            "C++ parser invariant violated: Option must be Some() after initialization"
+        )))
     })
 }
 
