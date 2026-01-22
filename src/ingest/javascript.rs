@@ -258,6 +258,7 @@ impl JavaScriptParser {
         source: &[u8],
         file_path: &PathBuf,
         scope_stack: &ScopeStack,
+        package_name: &str,
     ) -> Option<SymbolFact> {
         let kind = node.kind();
 
@@ -274,14 +275,23 @@ impl JavaScriptParser {
         // Build FQN from current scope + symbol name
         let fqn = scope_stack.fqn_for_symbol(&name);
 
+        // Build canonical and display FQNs using FqnBuilder
+        let builder = FqnBuilder::new(
+            package_name.to_string(),
+            file_path.to_string_lossy().to_string(),
+            ScopeSeparator::Dot,
+        );
+        let canonical_fqn = builder.canonical(scope_stack, symbol_kind.clone(), &name);
+        let display_fqn = builder.display(scope_stack, symbol_kind, &name);
+
         Some(SymbolFact {
             file_path: file_path.clone(),
             kind: symbol_kind,
             kind_normalized: normalized_kind,
             name: Some(name),
             fqn: Some(fqn),
-            canonical_fqn: None,
-            display_fqn: None,
+            canonical_fqn: Some(canonical_fqn),
+            display_fqn: Some(display_fqn),
             byte_start: node.start_byte() as usize,
             byte_end: node.end_byte() as usize,
             start_line: node.start_position().row + 1,
