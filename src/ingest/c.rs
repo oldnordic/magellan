@@ -2,7 +2,8 @@
 //!
 //! Extracts functions, structs, enums, and unions from C source code.
 
-use crate::ingest::{SymbolFact, SymbolKind};
+use crate::graph::canonical_fqn::FqnBuilder;
+use crate::ingest::{ScopeSeparator, ScopeStack, SymbolFact, SymbolKind};
 use crate::references::{CallFact, ReferenceFact};
 use anyhow::Result;
 use std::path::PathBuf;
