@@ -268,12 +268,17 @@ impl Parser {
             None => return Vec::new(), // Parse error: return empty
         };
 
+        // Detect crate name for FQN computation
+        // Use current directory as project root for crate detection
+        let project_root = std::path::Path::new(".");
+        let crate_name = detect_crate_name(project_root, &file_path);
+
         let root_node = tree.root_node();
         let mut facts = Vec::new();
         let mut scope_stack = ScopeStack::new(ScopeSeparator::DoubleColon);
 
         // Walk tree with scope tracking
-        self.walk_tree_with_scope(&root_node, source, &file_path, &mut facts, &mut scope_stack);
+        self.walk_tree_with_scope(&root_node, source, &file_path, &mut facts, &mut scope_stack, &crate_name);
 
         facts
     }
@@ -484,6 +489,7 @@ impl Parser {
         file_path: &PathBuf,
         facts: &mut Vec<SymbolFact>,
         scope_stack: &mut ScopeStack,
+        crate_name: &str,
     ) {
         let kind = node.kind();
 
@@ -494,14 +500,14 @@ impl Parser {
                 if let Some(name) = self.extract_name(node, source) {
                     scope_stack.push(&name);
                     if let Some(fact) =
-                        self.extract_symbol_with_fqn(node, source, file_path, scope_stack)
+                        self.extract_symbol_with_fqn(node, source, file_path, scope_stack, crate_name)
                     {
                         facts.push(fact);
                     }
                     // Recurse into children (they're in this module's scope)
                     let mut cursor = node.walk();
                     for child in node.children(&mut cursor) {
-                        self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack);
+                        self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack, crate_name);
                     }
                     scope_stack.pop();
                     return;
@@ -515,7 +521,7 @@ impl Parser {
                     // Don't create a symbol for the impl block itself
                     let mut cursor = node.walk();
                     for child in node.children(&mut cursor) {
-                        self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack);
+                        self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack, crate_name);
                     }
                     scope_stack.pop();
                     return;
@@ -525,13 +531,13 @@ impl Parser {
                 if let Some(name) = self.extract_name(node, source) {
                     scope_stack.push(&name);
                     if let Some(fact) =
-                        self.extract_symbol_with_fqn(node, source, file_path, scope_stack)
+                        self.extract_symbol_with_fqn(node, source, file_path, scope_stack, crate_name)
                     {
                         facts.push(fact);
                     }
                     let mut cursor = node.walk();
                     for child in node.children(&mut cursor) {
-                        self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack);
+                        self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack, crate_name);
                     }
                     scope_stack.pop();
                     return;
@@ -541,14 +547,14 @@ impl Parser {
         }
 
         // Check if this node is a symbol we care about
-        if let Some(fact) = self.extract_symbol_with_fqn(node, source, file_path, scope_stack) {
+        if let Some(fact) = self.extract_symbol_with_fqn(node, source, file_path, scope_stack, crate_name) {
             facts.push(fact);
         }
 
         // Recurse into children
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack);
+            self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack, crate_name);
         }
     }
 
@@ -632,6 +638,7 @@ impl Parser {
         source: &[u8],
         file_path: &PathBuf,
         scope_stack: &ScopeStack,
+        crate_name: &str,
     ) -> Option<SymbolFact> {
         let kind = node.kind();
 
@@ -653,14 +660,23 @@ impl Parser {
         // Build FQN from current scope + symbol name
         let fqn = scope_stack.fqn_for_symbol(&name);
 
+        // Build FQN builder for canonical and display FQN computation
+        let builder = FqnBuilder::new(
+            crate_name.to_string(),
+            file_path.to_string_lossy().to_string(),
+            ScopeSeparator::DoubleColon,
+        );
+        let canonical_fqn = builder.canonical(scope_stack, symbol_kind.clone(), &name);
+        let display_fqn = builder.display(scope_stack, symbol_kind.clone(), &name);
+
         Some(SymbolFact {
             file_path: file_path.clone(),
             kind: symbol_kind,
             kind_normalized: normalized_kind,
             name: Some(name),
             fqn: Some(fqn),
-            canonical_fqn: None,
-            display_fqn: None,
+            canonical_fqn: Some(canonical_fqn),
+            display_fqn: Some(display_fqn),
             byte_start: node.start_byte() as usize,
             byte_end: node.end_byte() as usize,
             start_line: node.start_position().row + 1,
