@@ -184,8 +184,11 @@ impl FqnBuilder {
     ) -> String {
         let sep = self.scope_separator.as_str();
 
-        // Start with crate name for disambiguation
-        let mut parts = vec![self.crate_name.clone()];
+        // Build parts vector, starting with crate name if non-empty
+        let mut parts = Vec::new();
+        if !self.crate_name.is_empty() {
+            parts.push(self.crate_name.clone());
+        }
 
         // Add scope chain (modules, impl blocks, traits)
         for scope in scope_stack.scopes() {

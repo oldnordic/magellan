@@ -706,9 +706,10 @@ enum Color {
 
         assert_eq!(fact.name, Some("Point".to_string()));
         assert_eq!(fact.kind, SymbolKind::Class);
+        // Note: kind_string maps Class -> "Struct" for canonical FQN
         assert_eq!(
             fact.canonical_fqn,
-            Some(".::types/geometry.c::Class Point".to_string())
+            Some(".::types/geometry.c::Struct Point".to_string())
         );
         assert_eq!(fact.display_fqn, Some(".::Point".to_string()));
     }

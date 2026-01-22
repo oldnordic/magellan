@@ -141,7 +141,7 @@ impl JavaParser {
         source: &[u8],
         file_path: &PathBuf,
         scope_stack: &ScopeStack,
-        package_name: &str,
+        _package_name: &str,  // Not used - package is in ScopeStack
     ) -> Option<SymbolFact> {
         let kind = node.kind();
 
@@ -161,8 +161,9 @@ impl JavaParser {
         let fqn = scope_stack.fqn_for_symbol(&name);
 
         // Compute canonical and display FQN using FqnBuilder
+        // For Java: use empty crate_name since package is already in ScopeStack
         let builder = FqnBuilder::new(
-            package_name.to_string(),
+            String::new(),
             file_path.to_string_lossy().to_string(),
             ScopeSeparator::Dot,
         );
@@ -324,7 +325,7 @@ impl JavaParser {
         source: &[u8],
         file_path: &PathBuf,
         scope_stack: &ScopeStack,
-        package_name: &str,
+        _package_name: &str,  // Not used - package is in ScopeStack
     ) -> Option<SymbolFact> {
         let kind = node.kind();
 
@@ -344,8 +345,9 @@ impl JavaParser {
         let fqn = scope_stack.fqn_for_symbol(&name);
 
         // Compute canonical and display FQN using FqnBuilder
+        // For Java: use empty crate_name since package is already in ScopeStack
         let builder = FqnBuilder::new(
-            package_name.to_string(),
+            String::new(),
             file_path.to_string_lossy().to_string(),
             ScopeSeparator::Dot,
         );
