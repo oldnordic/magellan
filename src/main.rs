@@ -78,6 +78,12 @@ fn print_usage() {
     eprintln!("  --db <FILE>         Path to sqlitegraph database");
     eprintln!("  --file <PATH>       File path to query");
     eprintln!("  --kind <KIND>       Filter by symbol kind (optional)");
+    eprintln!("  --with-context      Include source code context lines");
+    eprintln!("  --with-callers      Include caller references");
+    eprintln!("  --with-callees      Include callee references");
+    eprintln!("  --with-semantics    Include symbol kind and language");
+    eprintln!("  --with-checksums    Include content checksums");
+    eprintln!("  --context-lines <N> Number of context lines (default: 3, max: 100)");
     eprintln!();
     eprintln!("Find arguments:");
     eprintln!("  --db <FILE>         Path to sqlitegraph database");
@@ -146,6 +152,12 @@ enum Command {
         explain: bool,
         symbol: Option<String>,
         show_extent: bool,
+        with_context: bool,
+        with_callers: bool,
+        with_callees: bool,
+        with_semantics: bool,
+        with_checksums: bool,
+        context_lines: usize,
     },
     Find {
         db_path: PathBuf,
@@ -154,6 +166,12 @@ enum Command {
         path: Option<PathBuf>,
         glob_pattern: Option<String>,
         output_format: OutputFormat,
+        with_context: bool,
+        with_callers: bool,
+        with_callees: bool,
+        with_semantics: bool,
+        with_checksums: bool,
+        context_lines: usize,
     },
     Refs {
         db_path: PathBuf,
@@ -442,6 +460,12 @@ fn parse_args() -> Result<Command> {
             let mut explain = false;
             let mut symbol: Option<String> = None;
             let mut show_extent = false;
+            let mut with_context = false;
+            let mut with_callers = false;
+            let mut with_callees = false;
+            let mut with_semantics = false;
+            let mut with_checksums = false;
+            let mut context_lines = 3usize;
 
             let mut i = 2;
             while i < args.len() {
@@ -489,6 +513,33 @@ fn parse_args() -> Result<Command> {
                         show_extent = true;
                         i += 1;
                     }
+                    "--with-context" => {
+                        with_context = true;
+                        i += 1;
+                    }
+                    "--with-callers" => {
+                        with_callers = true;
+                        i += 1;
+                    }
+                    "--with-callees" => {
+                        with_callees = true;
+                        i += 1;
+                    }
+                    "--with-semantics" => {
+                        with_semantics = true;
+                        i += 1;
+                    }
+                    "--with-checksums" => {
+                        with_checksums = true;
+                        i += 1;
+                    }
+                    "--context-lines" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--context-lines requires an argument"));
+                        }
+                        context_lines = args[i + 1].parse().unwrap_or(3).min(100);
+                        i += 2;
+                    }
                     _ => {
                         return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
                     }
@@ -510,6 +561,12 @@ fn parse_args() -> Result<Command> {
                 explain,
                 symbol,
                 show_extent,
+                with_context,
+                with_callers,
+                with_callees,
+                with_semantics,
+                with_checksums,
+                context_lines,
             })
         }
         "find" => {
@@ -519,6 +576,12 @@ fn parse_args() -> Result<Command> {
             let mut path: Option<PathBuf> = None;
             let mut glob_pattern: Option<String> = None;
             let mut output_format = OutputFormat::Human;
+            let mut with_context = false;
+            let mut with_callers = false;
+            let mut with_callees = false;
+            let mut with_semantics = false;
+            let mut with_checksums = false;
+            let mut context_lines = 3usize;
 
             let mut i = 2;
             while i < args.len() {
@@ -566,6 +629,33 @@ fn parse_args() -> Result<Command> {
                             .ok_or_else(|| anyhow::anyhow!("Invalid output format: {}", args[i + 1]))?;
                         i += 2;
                     }
+                    "--with-context" => {
+                        with_context = true;
+                        i += 1;
+                    }
+                    "--with-callers" => {
+                        with_callers = true;
+                        i += 1;
+                    }
+                    "--with-callees" => {
+                        with_callees = true;
+                        i += 1;
+                    }
+                    "--with-semantics" => {
+                        with_semantics = true;
+                        i += 1;
+                    }
+                    "--with-checksums" => {
+                        with_checksums = true;
+                        i += 1;
+                    }
+                    "--context-lines" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--context-lines requires an argument"));
+                        }
+                        context_lines = args[i + 1].parse().unwrap_or(3).min(100);
+                        i += 2;
+                    }
                     _ => {
                         return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
                     }
@@ -586,6 +676,12 @@ fn parse_args() -> Result<Command> {
                 path,
                 glob_pattern,
                 output_format,
+                with_context,
+                with_callers,
+                with_callees,
+                with_semantics,
+                with_checksums,
+                context_lines,
             })
         }
         "refs" => {
@@ -1180,6 +1276,12 @@ fn main() -> ExitCode {
             explain,
             symbol,
             show_extent,
+            with_context,
+            with_callers,
+            with_callees,
+            with_semantics,
+            with_checksums,
+            context_lines,
         }) => {
             if let Err(e) = query_cmd::run_query(
                 db_path,
@@ -1190,6 +1292,12 @@ fn main() -> ExitCode {
                 symbol,
                 show_extent,
                 output_format,
+                with_context,
+                with_callers,
+                with_callees,
+                with_semantics,
+                with_checksums,
+                context_lines,
             ) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
@@ -1203,9 +1311,15 @@ fn main() -> ExitCode {
             path,
             glob_pattern,
             output_format,
+            with_context,
+            with_callers,
+            with_callees,
+            with_semantics,
+            with_checksums,
+            context_lines,
         }) => {
             if let Err(e) =
-                find_cmd::run_find(db_path, name, root, path, glob_pattern, output_format)
+                find_cmd::run_find(db_path, name, root, path, glob_pattern, output_format, with_context, with_callers, with_callees, with_semantics, with_checksums, context_lines)
             {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
@@ -1218,9 +1332,13 @@ fn main() -> ExitCode {
             root,
             path,
             direction,
+            with_context,
+            with_semantics,
+            with_checksums,
+            context_lines,
         }) => {
             if let Err(e) =
-                refs_cmd::run_refs(db_path, name, root, path, direction, output_format)
+                refs_cmd::run_refs(db_path, name, root, path, direction, output_format, with_context, with_semantics, with_checksums, context_lines)
             {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
@@ -1243,8 +1361,12 @@ fn main() -> ExitCode {
             db_path,
             file_path,
             symbol_name,
+            with_context,
+            with_semantics,
+            with_checksums,
+            context_lines,
         }) => {
-            if let Err(e) = get_cmd::run_get(db_path, file_path, symbol_name) {
+            if let Err(e) = get_cmd::run_get(db_path, file_path, symbol_name, output_format, with_context, with_semantics, with_checksums, context_lines) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }

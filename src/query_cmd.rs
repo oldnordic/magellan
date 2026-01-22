@@ -5,6 +5,7 @@
 use anyhow::Result;
 use magellan::{CodeGraph, SymbolFact, SymbolKind};
 use magellan::output::{JsonResponse, OutputFormat, QueryResponse, Span, SymbolMatch, output_json};
+use magellan::output::rich::{SpanContext, SpanChecksums};
 use std::path::PathBuf;
 
 const QUERY_EXPLAIN_TEXT: &str = r#"Query Selector Cheatsheet
@@ -119,6 +120,12 @@ pub fn run_query(
     symbol: Option<String>,
     show_extent: bool,
     output_format: OutputFormat,
+    with_context: bool,
+    with_callers: bool,
+    with_callees: bool,
+    with_semantics: bool,
+    with_checksums: bool,
+    context_lines: usize,
 ) -> Result<()> {
     // Build args for execution tracking
     let mut args = vec!["query".to_string()];
@@ -223,7 +230,7 @@ pub fn run_query(
             symbols_with_ids.into_iter().map(|(_, fact, symbol_id)| (fact, symbol_id)).collect();
 
         finish_execution(&graph, "success", None)?;
-        return output_json_mode(&path_str, symbols_with_ids, kind_str, show_extent, &symbol, &mut graph_mut, &exec_id);
+        return output_json_mode(&path_str, symbols_with_ids, kind_str, show_extent, &symbol, &mut graph_mut, &exec_id, with_context, false, false, with_semantics, with_checksums, context_lines);
     }
 
     // Human mode - use existing flow
@@ -293,6 +300,12 @@ fn output_json_mode(
     _symbol: &Option<String>,
     _graph: &mut CodeGraph,
     exec_id: &str,
+    with_context: bool,
+    _with_callers: bool,
+    _with_callees: bool,
+    with_semantics: bool,
+    with_checksums: bool,
+    context_lines: usize,
 ) -> Result<()> {
     // Sort deterministically: by file_path, start_line, start_col, name
     symbols_with_ids.sort_by(|(a, _), (b, _)| {
@@ -303,12 +316,13 @@ fn output_json_mode(
             .then_with(|| a.name.as_deref().cmp(&b.name.as_deref()))
     });
 
-    // Convert (SymbolFact, Option<symbol_id>) to SymbolMatch
+    // Convert (SymbolFact, Option<symbol_id>) to SymbolMatch with rich span data
     let symbol_matches: Vec<SymbolMatch> = symbols_with_ids
         .into_iter()
         .map(|(s, symbol_id)| {
-            let span = Span::new(
-                s.file_path.to_string_lossy().to_string(),
+            let file_path = s.file_path.to_string_lossy().to_string();
+            let mut span = Span::new(
+                file_path.clone(),
                 s.byte_start,
                 s.byte_end,
                 s.start_line,
@@ -316,6 +330,35 @@ fn output_json_mode(
                 s.end_line,
                 s.end_col,
             );
+
+            // Add context if requested
+            if with_context {
+                if let Some(context) = SpanContext::extract(
+                    &file_path,
+                    s.start_line,
+                    s.end_line,
+                    context_lines,
+                ) {
+                    span = span.with_context(context);
+                }
+            }
+
+            // Add semantics if requested
+            if with_semantics {
+                let language = detect_language_from_path(&file_path);
+                span = span.with_semantics_from(s.kind_normalized.clone(), language);
+            }
+
+            // Add checksums if requested
+            if with_checksums {
+                let checksums = SpanChecksums::compute(
+                    &file_path,
+                    s.byte_start,
+                    s.byte_end,
+                );
+                span = span.with_checksums(checksums);
+            }
+
             SymbolMatch::new(
                 s.name.unwrap_or_else(|| "(unnamed)".to_string()),
                 s.kind_normalized,
@@ -352,4 +395,24 @@ fn print_extent_block(node_id: i64, symbol: &magellan::SymbolFact) {
         "    Line Range: {}:{} -> {}:{}",
         symbol.start_line, symbol.start_col, symbol.end_line, symbol.end_col
     );
+}
+
+
+/// Detect language from file path extension
+fn detect_language_from_path(path: &str) -> String {
+    use std::path::Path;
+    let ext = Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("");
+    match ext {
+        "rs" => "rust".to_string(),
+        "py" => "python".to_string(),
+        "js" => "javascript".to_string(),
+        "ts" | "tsx" => "typescript".to_string(),
+        "java" => "java".to_string(),
+        "c" => "c".to_string(),
+        "cpp" | "cc" | "cxx" | "hpp" => "cpp".to_string(),
+        "go" => "go".to_string(),
+        "rb" => "ruby".to_string(),
+        "php" => "php".to_string(),
+        _ => "unknown".to_string(),
+    }
 }

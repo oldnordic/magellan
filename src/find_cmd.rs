@@ -7,6 +7,7 @@ use globset::GlobBuilder;
 use magellan::{CodeGraph, SymbolKind};
 use magellan::graph::query;
 use magellan::output::{JsonResponse, OutputFormat, FindResponse, Span, SymbolMatch, output_json};
+use magellan::output::rich::{SpanContext, SpanChecksums};
 use std::path::PathBuf;
 
 /// Represents a found symbol with its file and node ID
@@ -151,6 +152,12 @@ pub fn run_find(
     path: Option<PathBuf>,
     glob_pattern: Option<String>,
     output_format: OutputFormat,
+    with_context: bool,
+    with_callers: bool,
+    with_callees: bool,
+    with_semantics: bool,
+    with_checksums: bool,
+    context_lines: usize,
 ) -> Result<()> {
     // Build args for execution tracking
     let mut args = vec!["find".to_string()];
@@ -218,7 +225,7 @@ pub fn run_find(
     // Handle JSON output mode
     if output_format == OutputFormat::Json {
         finish_execution("success", None)?;
-        return output_json_mode(&name, results, path.as_ref().map(|p| resolve_path(p, &root)), &exec_id);
+        return output_json_mode(&name, results, path.as_ref().map(|p| resolve_path(p, &root)), &exec_id, with_context, false, false, with_semantics, with_checksums, context_lines);
     }
 
     // Human mode (existing behavior)
@@ -264,6 +271,12 @@ fn output_json_mode(
     mut results: Vec<FoundSymbol>,
     file_filter: Option<String>,
     exec_id: &str,
+    with_context: bool,
+    _with_callers: bool,
+    _with_callees: bool,
+    with_semantics: bool,
+    with_checksums: bool,
+    context_lines: usize,
 ) -> Result<()> {
     // Sort deterministically: by file_path, start_line, start_col
     results.sort_by(|a, b| {
@@ -273,11 +286,11 @@ fn output_json_mode(
             .then_with(|| a.start_col.cmp(&b.start_col))
     });
 
-    // Convert FoundSymbol to SymbolMatch
+    // Convert FoundSymbol to SymbolMatch with rich span data
     let matches: Vec<SymbolMatch> = results
         .into_iter()
         .map(|s| {
-            let span = Span::new(
+            let mut span = Span::new(
                 s.file.clone(),
                 s.byte_start,
                 s.byte_end,
@@ -286,6 +299,37 @@ fn output_json_mode(
                 s.end_line,
                 s.end_col,
             );
+
+            // Add context if requested
+            if with_context {
+                if let Some(context) = SpanContext::extract(
+                    &s.file,
+                    s.start_line,
+                    s.end_line,
+                    context_lines,
+                ) {
+                    span = span.with_context(context);
+                }
+            }
+
+            // Add semantics if requested
+            if with_semantics {
+                let language = detect_language_from_path(&s.file);
+                span = span.with_semantics_from(s.kind_normalized.clone(), language);
+            }
+
+            // Add checksums if requested
+            if with_checksums {
+                let checksums = SpanChecksums::compute(
+                    &s.file,
+                    s.byte_start,
+                    s.byte_end,
+                );
+                span = span.with_checksums(checksums);
+            }
+
+            // Note: callers/callees population would require symbol_id and graph access
+            // This is a placeholder for future implementation with CallOps
             SymbolMatch::new(s.name, s.kind_normalized, span, None, s.symbol_id)
         })
         .collect();
@@ -300,6 +344,25 @@ fn output_json_mode(
     output_json(&json_response)?;
 
     Ok(())
+}
+
+/// Detect language from file path extension
+fn detect_language_from_path(path: &str) -> String {
+    use std::path::Path;
+    let ext = Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("");
+    match ext {
+        "rs" => "rust".to_string(),
+        "py" => "python".to_string(),
+        "js" => "javascript".to_string(),
+        "ts" | "tsx" => "typescript".to_string(),
+        "java" => "java".to_string(),
+        "c" => "c".to_string(),
+        "cpp" | "cc" | "cxx" | "hpp" => "cpp".to_string(),
+        "go" => "go".to_string(),
+        "rb" => "ruby".to_string(),
+        "php" => "php".to_string(),
+        _ => "unknown".to_string(),
+    }
 }
 
 fn run_glob_listing(graph: &mut CodeGraph, pattern: &str, output_format: OutputFormat, exec_id: &str) -> Result<()> {
