@@ -143,7 +143,7 @@ impl CodeGraph {
             // pragma_conn drops automatically here at block end
         }
 
-        // Build initial file_index from database (lazy initialization)
+        // Build initial file_index from database (eager initialization)
         let file_index = HashMap::new();
         let mut files = files::FileOps {
             backend: Rc::clone(&backend),
