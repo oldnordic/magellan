@@ -26,6 +26,7 @@
 //! - The symbol's defining signature changes (affects FQN in future versions)
 
 use anyhow::Result;
+use blake3::Hasher;
 use sha2::{Digest, Sha256};
 use sqlitegraph::{
     add_label, BackendDirection, EdgeSpec, GraphBackend, NeighborQuery, NodeId, NodeSpec,
@@ -89,6 +90,69 @@ pub fn generate_symbol_id(language: &str, fqn: &str, span_id: &str) -> String {
     format!("{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
             result[0], result[1], result[2], result[3],
             result[4], result[5], result[6], result[7])
+}
+
+/// Generate a SymbolId using BLAKE3 from semantic inputs (v1.5)
+///
+/// This is the new SymbolId generation algorithm that excludes span information
+/// for refactoring stability. The ID is deterministic and based only on semantic
+/// characteristics of the symbol.
+///
+/// # Hash Input (alphabetical order)
+///
+/// - `crate_name`: Crate/package name for disambiguation
+/// - `enclosing_items`: Scope chain (e.g., ["impl MyStruct", "mod my_module"])
+/// - `file_path`: Source file path relative to project root
+/// - `symbol_kind`: Symbol kind (Function, Method, Struct, etc.)
+/// - `symbol_name`: Simple symbol name
+///
+/// EXCLUDED (per v1.5-02): span information for refactoring stability
+///
+/// # Output Format
+///
+/// Returns 32 hex characters (128 bits), per decision v1.5-01.
+/// This is the first 16 bytes of BLAKE3's 32-byte output.
+///
+/// # Examples
+///
+/// ```
+/// use magellan::graph::generate_symbol_id_v2;
+///
+/// let id = generate_symbol_id_v2(
+///     "my_crate",
+///     "src/lib.rs",
+///     &["mod my_module".to_string(), "impl MyStruct".to_string()],
+///     "Function",
+///     "my_method"
+/// );
+/// assert_eq!(id.len(), 32);
+/// ```
+pub fn generate_symbol_id_v2(
+    crate_name: &str,
+    file_path: &str,
+    enclosing_items: &[String],
+    symbol_kind: &str,
+    symbol_name: &str,
+) -> String {
+    let mut hasher = Hasher::new();
+
+    // IMPORTANT: Field order MUST be deterministic (alphabetical)
+    // Order: crate_name, enclosing_items, file_path, symbol_kind, symbol_name
+
+    hasher.update(crate_name.as_bytes());
+    hasher.update(b":");
+    hasher.update(enclosing_items.join("::").as_bytes());
+    hasher.update(b":");
+    hasher.update(file_path.as_bytes());
+    hasher.update(b":");
+    hasher.update(symbol_kind.as_bytes());
+    hasher.update(b":");
+    hasher.update(symbol_name.as_bytes());
+
+    let hash = hasher.finalize();
+    // Take first 32 hex characters (128 bits) per decision v1.5-01
+    let hex = hash.to_hex().to_string();
+    hex[..32].to_string()
 }
 
 /// Generate a stable span ID from (file_path, byte_start, byte_end)
