@@ -570,6 +570,48 @@ impl CodeGraph {
     }
 }
 
+/// Get all symbols matching a display FQN (ambiguity detection)
+///
+/// # Arguments
+/// * `graph` - CodeGraph instance
+/// * `display_fqn` - Display fully-qualified name to query
+///
+/// # Returns
+/// Vector of (entity_id, SymbolNode) for all symbols with this display_fqn
+///
+/// # Note
+/// Display FQN can have collisions (multiple symbols with same human-readable name).
+/// This function enumerates all candidates for ambiguity resolution.
+/// Returns empty Vec when no matches found (not an error).
+pub fn get_ambiguous_candidates(
+    graph: &mut CodeGraph,
+    display_fqn: &str,
+) -> Result<Vec<(i64, SymbolNode)>> {
+    let conn = graph.chunks.connect()?;
+
+    // Query all Symbol nodes with matching display_fqn
+    let mut stmt = conn.prepare_cached(
+        "SELECT id, data FROM graph_nodes
+         WHERE kind = 'Symbol'
+         AND json_extract(data, '$.display_fqn') = ?1
+         ORDER BY id"
+    ).map_err(|e| anyhow::anyhow!("Failed to prepare ambiguity query: {}", e))?;
+
+    let candidates = stmt.query_map(params![display_fqn], |row| {
+        let id: i64 = row.get(0)?;
+        let data: String = row.get(1)?;
+        let node: SymbolNode = serde_json::from_str(&data)
+            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(
+                Box::new(e) as Box<dyn std::error::Error + Send + Sync>
+            ))?;
+        Ok((id, node))
+    }).map_err(|e| anyhow::anyhow!("Failed to execute ambiguity query: {}", e))?
+      .collect::<Result<Vec<_>, _>>()
+      .map_err(|e| anyhow::anyhow!("Failed to collect ambiguity results: {}", e))?;
+
+    Ok(candidates)
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
