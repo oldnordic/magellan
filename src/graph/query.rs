@@ -249,13 +249,13 @@ pub fn symbol_id_by_name(graph: &mut CodeGraph, path: &str, name: &str) -> Resul
 ///
 /// # Note
 /// SymbolId is the primary key for symbol identity. This function performs
-/// a direct SQL query on the symbol_id field in graph_nodes.data JSON.
+/// a direct SQL query on the symbol_id field in graph_entities.data JSON.
 pub fn find_by_symbol_id(graph: &mut CodeGraph, symbol_id: &str) -> Result<Option<SymbolNode>> {
     let conn = graph.chunks.connect()?;
 
-    // Query graph_nodes for Symbol kind with matching symbol_id in JSON data
+    // Query graph_entities for Symbol kind with matching symbol_id in JSON data
     let mut stmt = conn.prepare_cached(
-        "SELECT data FROM graph_nodes
+        "SELECT data FROM graph_entities
          WHERE kind = 'Symbol'
          AND json_extract(data, '$.symbol_id') = ?1"
     ).map_err(|e| anyhow::anyhow!("Failed to prepare SymbolId query: {}", e))?;
@@ -591,7 +591,7 @@ pub fn get_ambiguous_candidates(
 
     // Query all Symbol nodes with matching display_fqn
     let mut stmt = conn.prepare_cached(
-        "SELECT id, data FROM graph_nodes
+        "SELECT id, data FROM graph_entities
          WHERE kind = 'Symbol'
          AND json_extract(data, '$.display_fqn') = ?1
          ORDER BY id"
@@ -614,7 +614,7 @@ pub fn get_ambiguous_candidates(
 
 #[cfg(test)]
 mod tests {
-    use crate::graph::query::{find_by_symbol_id, symbol_nodes_in_file_with_ids, symbols_in_file};
+    use crate::graph::query::{find_by_symbol_id, get_ambiguous_candidates, symbol_nodes_in_file_with_ids, symbols_in_file};
 
     #[test]
     fn test_index_references_propagates_count() {
@@ -658,6 +658,13 @@ fn bar() {
         let temp_dir = tempfile::TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let mut graph = crate::CodeGraph::open(&db_path).unwrap();
+
+        // Index a dummy file first to ensure schema is initialized
+        let test_file = temp_dir.path().join("dummy.rs");
+        std::fs::write(&test_file, "fn dummy() {}").unwrap();
+        let path_str = test_file.to_string_lossy().to_string();
+        let source = std::fs::read(&test_file).unwrap();
+        graph.index_file(&path_str, &source).unwrap();
 
         // Query for a symbol that doesn't exist
         let result = find_by_symbol_id(&mut graph, "nonexistent12345678901234567890");
@@ -705,5 +712,90 @@ fn test_function() -> i32 {
             let found = result.unwrap();
             assert_eq!(found.name.as_deref(), Some("test_function"));
         }
+    }
+
+    #[test]
+    fn test_get_ambiguous_candidates_empty_for_no_match() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
+
+        // Index a dummy file first to ensure schema is initialized
+        let test_file = temp_dir.path().join("dummy.rs");
+        std::fs::write(&test_file, "fn dummy() {}").unwrap();
+        let path_str = test_file.to_string_lossy().to_string();
+        let source = std::fs::read(&test_file).unwrap();
+        graph.index_file(&path_str, &source).unwrap();
+
+        // Query for a display_fqn that doesn't exist
+        let result = get_ambiguous_candidates(&mut graph, "nonexistent::function").unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_get_ambiguous_candidates_single_result() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
+
+        // Create a test file with a symbol
+        let test_file = temp_dir.path().join("test.rs");
+        std::fs::write(
+            &test_file,
+            r#"fn unique_function() {}
+"#
+        ).unwrap();
+
+        // Index the file
+        let path_str = test_file.to_string_lossy().to_string();
+        let source = std::fs::read(&test_file).unwrap();
+        graph.index_file(&path_str, &source).unwrap();
+
+        // Use symbol_nodes_in_file_with_ids to get SymbolNode data with display_fqn
+        let symbols = symbol_nodes_in_file_with_ids(&mut graph, &path_str).unwrap();
+        // Find the symbol_node to check display_fqn
+        for (_node_id, _fact, _symbol_id) in symbols {
+            // Get the actual SymbolNode to check display_fqn
+            // For this test, we'll verify the query works by checking result count
+        }
+
+        // Query by the expected display_fqn (package placeholder . for Rust)
+        let result = get_ambiguous_candidates(&mut graph, ".unique_function").unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].1.name.as_deref(), Some("unique_function"));
+    }
+
+    #[test]
+    fn test_get_ambiguous_candidates_multiple_results() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
+
+        // Create two files with symbols having the same name (ambiguous display_fqn)
+        let file1 = temp_dir.path().join("file1.rs");
+        std::fs::write(
+            &file1,
+            r#"fn common_name() {}
+"#
+        ).unwrap();
+
+        let file2 = temp_dir.path().join("file2.rs");
+        std::fs::write(
+            &file2,
+            r#"fn common_name() {}
+"#
+        ).unwrap();
+
+        // Index both files
+        let path1 = file1.to_string_lossy().to_string();
+        let path2 = file2.to_string_lossy().to_string();
+        let source1 = std::fs::read(&file1).unwrap();
+        let source2 = std::fs::read(&file2).unwrap();
+        graph.index_file(&path1, &source1).unwrap();
+        graph.index_file(&path2, &source2).unwrap();
+
+        // Both should have display_fqn = ".common_name" (package placeholder . for Rust)
+        let result = get_ambiguous_candidates(&mut graph, ".common_name").unwrap();
+        assert!(result.len() >= 2, "Should find at least 2 symbols with common_name");
     }
 }

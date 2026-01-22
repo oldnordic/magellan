@@ -48,7 +48,7 @@ impl SymbolIndex {
     /// * `conn` - SQLite connection to graph database
     ///
     /// # Behavior
-    /// - Queries all Symbol nodes from graph_nodes table
+    /// - Queries all Symbol nodes from graph_entities table
     /// - Extracts symbol_id from JSON data field
     /// - Populates HashMap with symbol_id -> entity_id mappings
     /// - Skips symbols where symbol_id is None
@@ -58,7 +58,7 @@ impl SymbolIndex {
     pub fn build_index(&mut self, conn: &Connection) -> Result<()> {
         let mut stmt = conn.prepare_cached(
             "SELECT id, data
-             FROM graph_nodes
+             FROM graph_entities
              WHERE kind = 'Symbol'
              AND json_extract(data, '$.symbol_id') IS NOT NULL"
         ).map_err(|e| anyhow::anyhow!("Failed to prepare SymbolIndex build query: {}", e))?;
