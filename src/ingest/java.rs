@@ -49,12 +49,14 @@ impl JavaParser {
         let mut scope_stack = ScopeStack::new(ScopeSeparator::Dot);
 
         // Find package declaration first (it comes first in the file)
+        let mut pkg_name = String::new();
         let mut cursor = root_node.walk();
         for child in root_node.children(&mut cursor) {
             if child.kind() == "package_declaration" {
-                if let Some(pkg_name) = self.extract_name(&child, source, "package_declaration") {
+                if let Some(name) = self.extract_name(&child, source, "package_declaration") {
+                    pkg_name = name.clone();
                     // Extract the package symbol itself (before pushing to scope)
-                    if let Some(fact) = self.extract_symbol_with_fqn(&child, source, &file_path, &scope_stack) {
+                    if let Some(fact) = self.extract_symbol_with_fqn(&child, source, &file_path, &scope_stack, &pkg_name) {
                         facts.push(fact);
                     }
                     // Package becomes root scope: com.example.Class
@@ -67,7 +69,7 @@ impl JavaParser {
         }
 
         // Walk tree with scope tracking
-        self.walk_tree_with_scope(&root_node, source, &file_path, &mut facts, &mut scope_stack);
+        self.walk_tree_with_scope(&root_node, source, &file_path, &mut facts, &mut scope_stack, &pkg_name);
 
         facts
     }
@@ -85,6 +87,7 @@ impl JavaParser {
         file_path: &PathBuf,
         facts: &mut Vec<SymbolFact>,
         scope_stack: &mut ScopeStack,
+        package_name: &str,
     ) {
         let kind = node.kind();
 
@@ -102,14 +105,14 @@ impl JavaParser {
         if is_type_scope {
             if let Some(name) = self.extract_name(node, source, kind) {
                 // Create type symbol with parent scope
-                if let Some(fact) = self.extract_symbol_with_fqn(node, source, file_path, scope_stack) {
+                if let Some(fact) = self.extract_symbol_with_fqn(node, source, file_path, scope_stack, package_name) {
                     facts.push(fact);
                 }
                 // Push type scope for children (methods, nested types)
                 scope_stack.push(&name);
                 let mut cursor = node.walk();
                 for child in node.children(&mut cursor) {
-                    self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack);
+                    self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack, package_name);
                 }
                 scope_stack.pop();
                 return;
@@ -117,14 +120,14 @@ impl JavaParser {
         }
 
         // Check if this node is a symbol we care about
-        if let Some(fact) = self.extract_symbol_with_fqn(node, source, file_path, scope_stack) {
+        if let Some(fact) = self.extract_symbol_with_fqn(node, source, file_path, scope_stack, package_name) {
             facts.push(fact);
         }
 
         // Recurse into children
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack);
+            self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack, package_name);
         }
     }
 
@@ -164,7 +167,7 @@ impl JavaParser {
             ScopeSeparator::Dot,
         );
         let canonical_fqn = builder.canonical(scope_stack, symbol_kind.clone(), &name);
-        let display_fqn = builder.display(scope_stack, symbol_kind, &name);
+        let display_fqn = builder.display(scope_stack, symbol_kind.clone(), &name);
 
         Some(SymbolFact {
             file_path: file_path.clone(),
@@ -239,12 +242,14 @@ impl JavaParser {
         let mut scope_stack = ScopeStack::new(ScopeSeparator::Dot);
 
         // Find package declaration first (it comes first in the file)
+        let mut pkg_name = String::new();
         let mut cursor = root_node.walk();
         for child in root_node.children(&mut cursor) {
             if child.kind() == "package_declaration" {
-                if let Some(pkg_name) = Self::extract_name_static(&child, source, "package_declaration") {
+                if let Some(name) = Self::extract_name_static(&child, source, "package_declaration") {
+                    pkg_name = name.clone();
                     // Extract the package symbol itself (before pushing to scope)
-                    if let Some(fact) = Self::extract_symbol_with_fqn_static(&child, source, &file_path, &scope_stack) {
+                    if let Some(fact) = Self::extract_symbol_with_fqn_static(&child, source, &file_path, &scope_stack, &pkg_name) {
                         facts.push(fact);
                     }
                     // Package becomes root scope: com.example.Class
@@ -257,7 +262,7 @@ impl JavaParser {
         }
 
         // Walk tree with scope tracking
-        Self::walk_tree_with_scope_static(&root_node, source, &file_path, &mut facts, &mut scope_stack);
+        Self::walk_tree_with_scope_static(&root_node, source, &file_path, &mut facts, &mut scope_stack, &pkg_name);
 
         facts
     }
@@ -269,6 +274,7 @@ impl JavaParser {
         file_path: &PathBuf,
         facts: &mut Vec<SymbolFact>,
         scope_stack: &mut ScopeStack,
+        package_name: &str,
     ) {
         let kind = node.kind();
 
@@ -286,14 +292,14 @@ impl JavaParser {
         if is_type_scope {
             if let Some(name) = Self::extract_name_static(node, source, kind) {
                 // Create type symbol with parent scope
-                if let Some(fact) = Self::extract_symbol_with_fqn_static(node, source, file_path, scope_stack) {
+                if let Some(fact) = Self::extract_symbol_with_fqn_static(node, source, file_path, scope_stack, package_name) {
                     facts.push(fact);
                 }
                 // Push type scope for children (methods, nested types)
                 scope_stack.push(&name);
                 let mut cursor = node.walk();
                 for child in node.children(&mut cursor) {
-                    Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack);
+                    Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack, package_name);
                 }
                 scope_stack.pop();
                 return;
@@ -301,14 +307,14 @@ impl JavaParser {
         }
 
         // Check if this node is a symbol we care about
-        if let Some(fact) = Self::extract_symbol_with_fqn_static(node, source, file_path, scope_stack) {
+        if let Some(fact) = Self::extract_symbol_with_fqn_static(node, source, file_path, scope_stack, package_name) {
             facts.push(fact);
         }
 
         // Recurse into children
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack);
+            Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack, package_name);
         }
     }
 
@@ -344,7 +350,7 @@ impl JavaParser {
             ScopeSeparator::Dot,
         );
         let canonical_fqn = builder.canonical(scope_stack, symbol_kind.clone(), &name);
-        let display_fqn = builder.display(scope_stack, symbol_kind, &name);
+        let display_fqn = builder.display(scope_stack, symbol_kind.clone(), &name);
 
         Some(SymbolFact {
             file_path: file_path.clone(),
