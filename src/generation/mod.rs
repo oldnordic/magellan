@@ -3,6 +3,19 @@
 //! This module provides functionality for storing and retrieving source code chunks
 //! with their byte spans. This enables token-efficient queries by storing code
 //! fragments in the database rather than re-reading entire files.
+//!
+//! # :memory: Database Path Retrieval
+//!
+//! ChunkStore uses SQLite Shared connections (via `Arc<Mutex<Connection>>`), which
+//! don't work with `:memory:` databases. Each thread would get its own separate
+//! in-memory database, breaking the shared state assumption.
+//!
+//! Additionally, operations that retrieve the database file path (e.g., the `connect()`
+//! method's shared connection branch) will fail for `:memory:` databases because
+//! in-memory databases have no file path.
+//!
+//! **Workaround:** Use file-based databases for ChunkStore operations.
+//! See [MANUAL.md](../../MANUAL.md#known-limitations) for details.
 
 pub mod schema;
 
