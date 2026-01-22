@@ -80,6 +80,7 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
     use crate::ingest::cpp::CppParser;
     use crate::ingest::java::JavaParser;
     use crate::ingest::javascript::JavaScriptParser;
+    use crate::ingest::pool;
     use crate::ingest::python::PythonParser;
     use crate::ingest::typescript::TypeScriptParser;
     use crate::ingest::{detect::Language, detect_language, Parser};
@@ -98,39 +99,46 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
 
     let symbol_facts = match language {
         Some(Language::Python) => {
-            // Use Python parser
-            let mut parser = PythonParser::new()?;
-            parser.extract_symbols(path_buf.clone(), source)
+            // Use parser pool for Python
+            pool::with_parser(Language::Python, |parser| {
+                PythonParser::extract_symbols_with_parser(parser, path_buf.clone(), source)
+            })?
         }
         Some(Language::Rust) => {
-            // Use Rust parser
-            let mut parser = Parser::new()?;
-            parser.extract_symbols(path_buf.clone(), source)
+            // Use parser pool for Rust
+            pool::with_parser(Language::Rust, |parser| {
+                Parser::extract_symbols_with_parser(parser, path_buf.clone(), source)
+            })?
         }
         Some(Language::C) => {
-            // Use C parser
-            let mut parser = CParser::new()?;
-            parser.extract_symbols(path_buf.clone(), source)
+            // Use parser pool for C
+            pool::with_parser(Language::C, |parser| {
+                CParser::extract_symbols_with_parser(parser, path_buf.clone(), source)
+            })?
         }
         Some(Language::Cpp) => {
-            // Use C++ parser
-            let mut parser = CppParser::new()?;
-            parser.extract_symbols(path_buf.clone(), source)
+            // Use parser pool for C++
+            pool::with_parser(Language::Cpp, |parser| {
+                CppParser::extract_symbols_with_parser(parser, path_buf.clone(), source)
+            })?
         }
         Some(Language::Java) => {
-            // Use Java parser
-            let mut parser = JavaParser::new()?;
-            parser.extract_symbols(path_buf.clone(), source)
+            // Use parser pool for Java
+            pool::with_parser(Language::Java, |parser| {
+                JavaParser::extract_symbols_with_parser(parser, path_buf.clone(), source)
+            })?
         }
         Some(Language::JavaScript) => {
-            // Use JavaScript parser
-            let mut parser = JavaScriptParser::new()?;
-            parser.extract_symbols(path_buf.clone(), source)
+            // Use parser pool for JavaScript
+            pool::with_parser(Language::JavaScript, |parser| {
+                JavaScriptParser::extract_symbols_with_parser(parser, path_buf.clone(), source)
+            })?
         }
         Some(Language::TypeScript) => {
-            // Use TypeScript parser
-            let mut parser = TypeScriptParser::new()?;
-            parser.extract_symbols(path_buf.clone(), source)
+            // Use parser pool for TypeScript
+            pool::with_parser(Language::TypeScript, |parser| {
+                TypeScriptParser::extract_symbols_with_parser(parser, path_buf.clone(), source)
+            })?
         }
         // Unknown language — return empty
         _ => Vec::new(),

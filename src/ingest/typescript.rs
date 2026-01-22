@@ -193,6 +193,160 @@ impl TypeScriptParser {
         None
     }
 
+    /// Extract symbol facts using an external parser (for parser pooling).
+    ///
+    /// This static method allows sharing a parser instance across multiple calls,
+    /// reducing allocation overhead when parsing many files.
+    pub fn extract_symbols_with_parser(
+        parser: &mut tree_sitter::Parser,
+        file_path: PathBuf,
+        source: &[u8],
+    ) -> Vec<SymbolFact> {
+        let tree = match parser.parse(source, None) {
+            Some(t) => t,
+            None => return Vec::new(),
+        };
+
+        let root_node = tree.root_node();
+        let mut facts = Vec::new();
+        let mut scope_stack = ScopeStack::new(ScopeSeparator::Dot);
+
+        // Walk tree with scope tracking
+        Self::walk_tree_with_scope_static(&root_node, source, &file_path, &mut facts, &mut scope_stack);
+
+        facts
+    }
+
+    /// Static version of walk_tree_with_scope for external parser usage.
+    fn walk_tree_with_scope_static(
+        node: &tree_sitter::Node,
+        source: &[u8],
+        file_path: &PathBuf,
+        facts: &mut Vec<SymbolFact>,
+        scope_stack: &mut ScopeStack,
+    ) {
+        let kind = node.kind();
+
+        // export_statement wraps the actual declaration - skip it here
+        if kind == "export_statement" {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack);
+            }
+            return;
+        }
+
+        // Track type scope
+        let is_type_scope = matches!(
+            kind,
+            "class_declaration" | "interface_declaration" | "internal_module"
+        );
+
+        if is_type_scope {
+            if let Some(name) = Self::extract_name_static(node, source, kind) {
+                // Create type symbol with parent scope
+                if let Some(fact) = Self::extract_symbol_with_fqn_static(node, source, file_path, scope_stack) {
+                    facts.push(fact);
+                }
+                // Push type scope for children (methods, nested types)
+                scope_stack.push(&name);
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack);
+                }
+                scope_stack.pop();
+                return;
+            }
+        }
+
+        // Check if this node is a symbol we care about
+        if let Some(fact) = Self::extract_symbol_with_fqn_static(node, source, file_path, scope_stack) {
+            facts.push(fact);
+        }
+
+        // Recurse into children
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack);
+        }
+    }
+
+    /// Static version of extract_symbol_with_fqn for external parser usage.
+    fn extract_symbol_with_fqn_static(
+        node: &tree_sitter::Node,
+        source: &[u8],
+        file_path: &PathBuf,
+        scope_stack: &ScopeStack,
+    ) -> Option<SymbolFact> {
+        let kind = node.kind();
+
+        let symbol_kind = match kind {
+            "function_declaration" => SymbolKind::Function,
+            "method_definition" => SymbolKind::Method,
+            "type_alias_declaration" => SymbolKind::TypeAlias,
+            "enum_declaration" => SymbolKind::Enum,
+            "class_declaration" => SymbolKind::Class,
+            "interface_declaration" => SymbolKind::Interface,
+            "internal_module" => SymbolKind::Namespace,
+            _ => return None,
+        };
+
+        let name = Self::extract_name_static(node, source, kind)?;
+        let normalized_kind = symbol_kind.normalized_key().to_string();
+
+        // Build FQN from current scope + symbol name
+        let fqn = scope_stack.fqn_for_symbol(&name);
+
+        Some(SymbolFact {
+            file_path: file_path.clone(),
+            kind: symbol_kind,
+            kind_normalized: normalized_kind,
+            name: Some(name),
+            fqn: Some(fqn),
+            byte_start: node.start_byte() as usize,
+            byte_end: node.end_byte() as usize,
+            start_line: node.start_position().row + 1,
+            start_col: node.start_position().column,
+            end_line: node.end_position().row + 1,
+            end_col: node.end_position().column,
+        })
+    }
+
+    /// Static version of extract_name for external parser usage.
+    fn extract_name_static(
+        node: &tree_sitter::Node,
+        source: &[u8],
+        node_kind: &str,
+    ) -> Option<String> {
+        // For namespace (internal_module), name is in "identifier" child
+        if node_kind == "internal_module" {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if child.kind() == "identifier" {
+                    let name_bytes =
+                        &source[child.start_byte() as usize..child.end_byte() as usize];
+                    return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
+                }
+            }
+            return None;
+        }
+
+        // For other symbols, name is in "identifier" or "type_identifier" or "property_identifier" child
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            match child.kind() {
+                "identifier" | "type_identifier" | "property_identifier" => {
+                    let name_bytes =
+                        &source[child.start_byte() as usize..child.end_byte() as usize];
+                    return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
+                }
+                _ => {}
+            }
+        }
+
+        None
+    }
+
     /// Extract reference facts from TypeScript source code.
     ///
     /// # Arguments

@@ -143,6 +143,111 @@ impl CParser {
         None
     }
 
+    /// Extract symbol facts using an external parser (for parser pooling).
+    ///
+    /// This static method allows sharing a parser instance across multiple calls,
+    /// reducing allocation overhead when parsing many files.
+    pub fn extract_symbols_with_parser(
+        parser: &mut tree_sitter::Parser,
+        file_path: PathBuf,
+        source: &[u8],
+    ) -> Vec<SymbolFact> {
+        let tree = match parser.parse(source, None) {
+            Some(t) => t,
+            None => return Vec::new(),
+        };
+
+        let root_node = tree.root_node();
+        let mut facts = Vec::new();
+
+        // Walk the tree and extract symbols
+        Self::walk_tree_static(&root_node, source, &file_path, &mut facts);
+
+        facts
+    }
+
+    /// Static version of walk_tree for external parser usage.
+    fn walk_tree_static(
+        node: &tree_sitter::Node,
+        source: &[u8],
+        file_path: &PathBuf,
+        facts: &mut Vec<SymbolFact>,
+    ) {
+        // Check if this node is a symbol we care about
+        if let Some(fact) = Self::extract_symbol_static(node, source, file_path) {
+            facts.push(fact);
+        }
+
+        // Recurse into children
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            Self::walk_tree_static(&child, source, file_path, facts);
+        }
+    }
+
+    /// Static version of extract_symbol for external parser usage.
+    fn extract_symbol_static(
+        node: &tree_sitter::Node,
+        source: &[u8],
+        file_path: &PathBuf,
+    ) -> Option<SymbolFact> {
+        let kind = node.kind();
+
+        let symbol_kind = match kind {
+            "function_definition" => SymbolKind::Function,
+            "struct_specifier" => SymbolKind::Class,
+            "enum_specifier" => SymbolKind::Enum,
+            "union_specifier" => SymbolKind::Union,
+            _ => return None,
+        };
+
+        // Try to extract name
+        let name = Self::find_name_recursive_static(node, source);
+
+        let normalized_kind = symbol_kind.normalized_key().to_string();
+        // C has no namespaces/packages, FQN is just the symbol name
+        let fqn = name.clone();
+        Some(SymbolFact {
+            file_path: file_path.clone(),
+            kind: symbol_kind,
+            kind_normalized: normalized_kind,
+            name,
+            fqn,
+            byte_start: node.start_byte() as usize,
+            byte_end: node.end_byte() as usize,
+            start_line: node.start_position().row + 1,
+            start_col: node.start_position().column,
+            end_line: node.end_position().row + 1,
+            end_col: node.end_position().column,
+        })
+    }
+
+    /// Static version of find_name_recursive for external parser usage.
+    fn find_name_recursive_static(node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            match child.kind() {
+                "identifier" | "type_identifier" => {
+                    let name_bytes =
+                        &source[child.start_byte() as usize..child.end_byte() as usize];
+                    return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
+                }
+                // Skip declarator and parameter_list nodes to find the identifier within
+                "function_declarator"
+                | "parameter_list"
+                | "field_declaration_list"
+                | "enumerator_list" => {
+                    if let Some(name) = Self::find_name_recursive_static(&child, source) {
+                        return Some(name);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        None
+    }
+
     /// Extract reference facts from C source code.
     pub fn extract_references(
         &mut self,

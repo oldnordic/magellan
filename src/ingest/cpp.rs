@@ -169,6 +169,170 @@ impl CppParser {
         None
     }
 
+    /// Extract symbol facts using an external parser (for parser pooling).
+    ///
+    /// This static method allows sharing a parser instance across multiple calls,
+    /// reducing allocation overhead when parsing many files.
+    pub fn extract_symbols_with_parser(
+        parser: &mut tree_sitter::Parser,
+        file_path: PathBuf,
+        source: &[u8],
+    ) -> Vec<SymbolFact> {
+        let tree = match parser.parse(source, None) {
+            Some(t) => t,
+            None => return Vec::new(),
+        };
+
+        let root_node = tree.root_node();
+        let mut facts = Vec::new();
+        let mut scope_stack = ScopeStack::new(ScopeSeparator::DoubleColon);
+
+        // Walk tree with scope tracking
+        Self::walk_tree_with_scope_static(&root_node, source, &file_path, &mut facts, &mut scope_stack);
+
+        facts
+    }
+
+    /// Static version of walk_tree_with_scope for external parser usage.
+    fn walk_tree_with_scope_static(
+        node: &tree_sitter::Node,
+        source: &[u8],
+        file_path: &PathBuf,
+        facts: &mut Vec<SymbolFact>,
+        scope_stack: &mut ScopeStack,
+    ) {
+        let kind = node.kind();
+
+        // Skip template_declaration wrapper - recurse into children
+        if kind == "template_declaration" {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack);
+            }
+            return;
+        }
+
+        // Track namespace scope
+        if kind == "namespace_definition" {
+            if let Some(name) = Self::extract_name_static(node, source, kind) {
+                // Create namespace symbol with parent scope
+                if !name.is_empty() {
+                    if let Some(fact) = Self::extract_symbol_with_fqn_static(node, source, file_path, scope_stack) {
+                        facts.push(fact);
+                    }
+                    scope_stack.push(&name);
+                }
+                // Recurse into namespace body
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack);
+                }
+                if !name.is_empty() {
+                    scope_stack.pop();
+                }
+                return;
+            }
+        }
+
+        // Extract symbol with FQN from scope stack
+        if let Some(fact) = Self::extract_symbol_with_fqn_static(node, source, file_path, scope_stack) {
+            facts.push(fact);
+        }
+
+        // Recurse into children
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack);
+        }
+    }
+
+    /// Static version of extract_symbol_with_fqn for external parser usage.
+    fn extract_symbol_with_fqn_static(
+        node: &tree_sitter::Node,
+        source: &[u8],
+        file_path: &PathBuf,
+        scope_stack: &ScopeStack,
+    ) -> Option<SymbolFact> {
+        let kind = node.kind();
+
+        let symbol_kind = match kind {
+            "function_definition" => SymbolKind::Function,
+            "class_specifier" => SymbolKind::Class,
+            "struct_specifier" => SymbolKind::Class,
+            "namespace_definition" => SymbolKind::Namespace,
+            _ => return None,
+        };
+
+        let name = Self::extract_name_static(node, source, kind)?;
+        let normalized_kind = symbol_kind.normalized_key().to_string();
+
+        // Build FQN from scope stack + symbol name
+        let fqn = scope_stack.fqn_for_symbol(&name);
+
+        Some(SymbolFact {
+            file_path: file_path.clone(),
+            kind: symbol_kind,
+            kind_normalized: normalized_kind,
+            name: Some(name.clone()),
+            fqn: Some(fqn),
+            byte_start: node.start_byte() as usize,
+            byte_end: node.end_byte() as usize,
+            start_line: node.start_position().row + 1,
+            start_col: node.start_position().column,
+            end_line: node.end_position().row + 1,
+            end_col: node.end_position().column,
+        })
+    }
+
+    /// Static version of extract_name for external parser usage.
+    fn extract_name_static(
+        node: &tree_sitter::Node,
+        source: &[u8],
+        node_kind: &str,
+    ) -> Option<String> {
+        // For namespaces, use namespace_identifier
+        if node_kind == "namespace_definition" {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if child.kind() == "namespace_identifier" {
+                    let name_bytes =
+                        &source[child.start_byte() as usize..child.end_byte() as usize];
+                    return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
+                }
+            }
+            return None;
+        }
+
+        // For other symbols, search recursively for identifier or type_identifier
+        Self::find_name_recursive_static(node, source)
+    }
+
+    /// Static version of find_name_recursive for external parser usage.
+    fn find_name_recursive_static(node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            match child.kind() {
+                "identifier" | "type_identifier" => {
+                    let name_bytes =
+                        &source[child.start_byte() as usize..child.end_byte() as usize];
+                    return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
+                }
+                // Skip certain nodes to find the identifier within
+                "function_declarator"
+                | "parameter_list"
+                | "field_declaration_list"
+                | "template_parameter_list" => {
+                    if let Some(name) = Self::find_name_recursive_static(&child, source) {
+                        return Some(name);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        None
+    }
+
     /// Walk tree-sitter tree recursively with scope tracking for FQN extraction.
     fn walk_tree_with_scope(
         &self,

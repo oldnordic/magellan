@@ -257,6 +257,181 @@ impl Parser {
         facts
     }
 
+    /// Extract symbol facts using an external parser (for parser pooling).
+    ///
+    /// This static method allows sharing a parser instance across multiple calls,
+    /// reducing allocation overhead when parsing many files.
+    pub fn extract_symbols_with_parser(
+        parser: &mut tree_sitter::Parser,
+        file_path: PathBuf,
+        source: &[u8],
+    ) -> Vec<SymbolFact> {
+        let tree = match parser.parse(source, None) {
+            Some(t) => t,
+            None => return Vec::new(),
+        };
+
+        let root_node = tree.root_node();
+        let mut facts = Vec::new();
+        let mut scope_stack = ScopeStack::new(ScopeSeparator::DoubleColon);
+
+        // Walk tree with scope tracking
+        Self::walk_tree_with_scope_static(&root_node, source, &file_path, &mut facts, &mut scope_stack);
+
+        facts
+    }
+
+    /// Static version of walk_tree_with_scope for external parser usage.
+    fn walk_tree_with_scope_static(
+        node: &tree_sitter::Node,
+        source: &[u8],
+        file_path: &PathBuf,
+        facts: &mut Vec<SymbolFact>,
+        scope_stack: &mut ScopeStack,
+    ) {
+        let kind = node.kind();
+
+        // Track scope boundaries
+        match kind {
+            "mod_item" => {
+                // Extract module name and push to scope
+                if let Some(name) = Self::extract_name_static(node, source) {
+                    scope_stack.push(&name);
+                    if let Some(fact) =
+                        Self::extract_symbol_with_fqn_static(node, source, file_path, scope_stack)
+                    {
+                        facts.push(fact);
+                    }
+                    // Recurse into children (they're in this module's scope)
+                    let mut cursor = node.walk();
+                    for child in node.children(&mut cursor) {
+                        Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack);
+                    }
+                    scope_stack.pop();
+                    return;
+                }
+            }
+            "impl_item" => {
+                // impl blocks don't add to FQN (syntactic, not semantic)
+                // But we need to track them for method scoping
+                if let Some(type_name) = Self::extract_impl_name_static(node, source) {
+                    scope_stack.push(&type_name);
+                    // Don't create a symbol for the impl block itself
+                    let mut cursor = node.walk();
+                    for child in node.children(&mut cursor) {
+                        Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack);
+                    }
+                    scope_stack.pop();
+                    return;
+                }
+            }
+            "trait_item" => {
+                if let Some(name) = Self::extract_name_static(node, source) {
+                    scope_stack.push(&name);
+                    if let Some(fact) =
+                        Self::extract_symbol_with_fqn_static(node, source, file_path, scope_stack)
+                    {
+                        facts.push(fact);
+                    }
+                    let mut cursor = node.walk();
+                    for child in node.children(&mut cursor) {
+                        Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack);
+                    }
+                    scope_stack.pop();
+                    return;
+                }
+            }
+            _ => {}
+        }
+
+        // Check if this node is a symbol we care about
+        if let Some(fact) = Self::extract_symbol_with_fqn_static(node, source, file_path, scope_stack) {
+            facts.push(fact);
+        }
+
+        // Recurse into children
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack);
+        }
+    }
+
+    /// Static version of extract_symbol_with_fqn for external parser usage.
+    fn extract_symbol_with_fqn_static(
+        node: &tree_sitter::Node,
+        source: &[u8],
+        file_path: &PathBuf,
+        scope_stack: &ScopeStack,
+    ) -> Option<SymbolFact> {
+        let kind = node.kind();
+
+        // Skip scope-defining nodes (handled in walk_tree_with_scope)
+        if matches!(kind, "mod_item" | "impl_item" | "trait_item") {
+            return None;
+        }
+
+        let symbol_kind = match kind {
+            "function_item" | "function_signature_item" => SymbolKind::Function,
+            "struct_item" => SymbolKind::Class,
+            "enum_item" => SymbolKind::Enum,
+            _ => return None,
+        };
+
+        let name = Self::extract_name_static(node, source)?;
+        let normalized_kind = symbol_kind.normalized_key().to_string();
+
+        // Build FQN from current scope + symbol name
+        let fqn = scope_stack.fqn_for_symbol(&name);
+
+        Some(SymbolFact {
+            file_path: file_path.clone(),
+            kind: symbol_kind,
+            kind_normalized: normalized_kind,
+            name: Some(name),
+            fqn: Some(fqn),
+            byte_start: node.start_byte() as usize,
+            byte_end: node.end_byte() as usize,
+            start_line: node.start_position().row + 1,
+            start_col: node.start_position().column,
+            end_line: node.end_position().row + 1,
+            end_col: node.end_position().column,
+        })
+    }
+
+    /// Static version of extract_name for external parser usage.
+    fn extract_name_static(node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
+        let kind = node.kind();
+
+        // For impl_item, extract the struct name being implemented
+        if kind == "impl_item" {
+            return Self::extract_impl_name_static(node, source);
+        }
+
+        // For most items, the name is in a child named "identifier" or "type_identifier"
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            match child.kind() {
+                "identifier" | "type_identifier" => {
+                    let name_bytes =
+                        &source[child.start_byte() as usize..child.end_byte() as usize];
+                    return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
+                }
+                _ => {}
+            }
+        }
+
+        None
+    }
+
+    /// Static version of extract_impl_name for external parser usage.
+    fn extract_impl_name_static(node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
+        // Access the 'type' field which always contains the struct name
+        let type_node = node.child_by_field_name("type")?;
+
+        let name_bytes = &source[type_node.start_byte() as usize..type_node.end_byte() as usize];
+        std::str::from_utf8(name_bytes).ok().map(|s| s.to_string())
+    }
+
     /// Walk tree-sitter tree recursively with scope tracking
     ///
     /// Tracks module, impl, and trait scope boundaries to build proper FQNs.
