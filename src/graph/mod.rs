@@ -51,7 +51,7 @@ mod tests;
 use anyhow::Result;
 use sqlitegraph::SqliteGraphBackend;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::rc::Rc;
 
 use crate::generation::{ChunkStore, CodeChunk};
