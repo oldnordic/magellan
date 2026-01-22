@@ -150,6 +150,8 @@ pub fn symbol_nodes_in_file_with_ids(
                     kind_normalized,
                     name: symbol_node.name.clone(),
                     fqn: symbol_node.fqn,
+                    canonical_fqn: None,
+                    display_fqn: None,
                     byte_start: symbol_node.byte_start,
                     byte_end: symbol_node.byte_end,
                     start_line: symbol_node.start_line,
@@ -467,6 +469,8 @@ impl CodeGraph {
                     serde_json::from_value(node.data).unwrap_or_else(|_| SymbolNode {
                         symbol_id: None,
                         fqn: None,
+                        canonical_fqn: None,
+                        display_fqn: None,
                         name: None,
                         kind: "Unknown".to_string(),
                         kind_normalized: None,
@@ -503,6 +507,8 @@ impl CodeGraph {
                     serde_json::from_value(node.data).unwrap_or_else(|_| SymbolNode {
                         symbol_id: None,
                         fqn: None,
+                        canonical_fqn: None,
+                        display_fqn: None,
                         name: None,
                         kind: "Unknown".to_string(),
                         kind_normalized: None,

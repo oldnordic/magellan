@@ -33,6 +33,18 @@ pub struct SymbolNode {
     #[serde(default)]
     pub fqn: Option<String>,
 
+    /// Canonical fully-qualified name with file path for unambiguous identity
+    /// Format: crate_name::file_path::kind symbol_name
+    /// Example: my_crate::src/lib.rs::Function my_function
+    #[serde(default)]
+    pub canonical_fqn: Option<String>,
+
+    /// Display fully-qualified name for human-readable output
+    /// Shortened form without file path when possible
+    /// Example: my_crate::my_function
+    #[serde(default)]
+    pub display_fqn: Option<String>,
+
     /// Simple symbol name (display name)
     /// For user-facing output only. Not used as a unique identifier.
     pub name: Option<String>,

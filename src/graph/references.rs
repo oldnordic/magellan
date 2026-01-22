@@ -130,6 +130,8 @@ impl ReferenceOps {
                                         .unwrap_or(symbol_node.kind.clone()),
                                     name: Some(name.clone()),
                                     fqn: if fqn.is_empty() { None } else { Some(fqn) },
+                                    canonical_fqn: None,
+                                    display_fqn: None,
                                     byte_start: symbol_node.byte_start as usize,
                                     byte_end: symbol_node.byte_end as usize,
                                     start_line: symbol_node.start_line as usize,

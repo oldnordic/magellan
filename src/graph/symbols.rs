@@ -155,6 +155,8 @@ impl SymbolOps {
         let symbol_node = SymbolNode {
             symbol_id: Some(symbol_id),
             fqn: fact.fqn.clone(),
+            canonical_fqn: None,
+            display_fqn: None,
             name: fact.name.clone(),
             kind: format!("{:?}", fact.kind),
             kind_normalized: Some(fact.kind_normalized.clone()),

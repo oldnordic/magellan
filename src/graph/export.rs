@@ -253,6 +253,15 @@ pub struct SymbolExport {
     /// Stable symbol ID for cross-run correlation
     #[serde(default)]
     pub symbol_id: Option<String>,
+
+    /// Canonical fully-qualified name for unambiguous identity
+    #[serde(default)]
+    pub canonical_fqn: Option<String>,
+
+    /// Display fully-qualified name for human-readable output
+    #[serde(default)]
+    pub display_fqn: Option<String>,
+
     pub name: Option<String>,
     pub kind: String,
     pub kind_normalized: Option<String>,
@@ -337,6 +346,8 @@ pub fn export_json(graph: &mut CodeGraph) -> Result<String> {
 
                     symbols.push(SymbolExport {
                         symbol_id: symbol_node.symbol_id,
+                        canonical_fqn: symbol_node.canonical_fqn,
+                        display_fqn: symbol_node.display_fqn,
                         name: symbol_node.name,
                         kind: symbol_node.kind,
                         kind_normalized: symbol_node.kind_normalized,
@@ -453,6 +464,8 @@ pub fn stream_json<W: std::io::Write>(graph: &mut CodeGraph, config: &ExportConf
                         let file = get_file_path_from_symbol(graph, entity_id)?;
                         symbols.push(SymbolExport {
                             symbol_id: symbol_node.symbol_id,
+                            canonical_fqn: symbol_node.canonical_fqn,
+                            display_fqn: symbol_node.display_fqn,
                             name: symbol_node.name,
                             kind: symbol_node.kind,
                             kind_normalized: symbol_node.kind_normalized,
@@ -573,6 +586,8 @@ pub fn stream_json_minified<W: std::io::Write>(graph: &mut CodeGraph, config: &E
                         let file = get_file_path_from_symbol(graph, entity_id)?;
                         symbols.push(SymbolExport {
                             symbol_id: symbol_node.symbol_id,
+                            canonical_fqn: symbol_node.canonical_fqn,
+                            display_fqn: symbol_node.display_fqn,
                             name: symbol_node.name,
                             kind: symbol_node.kind,
                             kind_normalized: symbol_node.kind_normalized,
@@ -720,6 +735,8 @@ pub fn export_jsonl(graph: &mut CodeGraph) -> Result<String> {
                     let file = get_file_path_from_symbol(graph, entity_id)?;
                     records.push(JsonlRecord::Symbol(SymbolExport {
                         symbol_id: symbol_node.symbol_id,
+                        canonical_fqn: symbol_node.canonical_fqn,
+                        display_fqn: symbol_node.display_fqn,
                         name: symbol_node.name,
                         kind: symbol_node.kind,
                         kind_normalized: symbol_node.kind_normalized,
@@ -843,6 +860,8 @@ pub fn stream_ndjson<W: std::io::Write>(graph: &mut CodeGraph, config: &ExportCo
                         let file = get_file_path_from_symbol(graph, entity_id)?;
                         records.push(JsonlRecord::Symbol(SymbolExport {
                             symbol_id: symbol_node.symbol_id,
+                            canonical_fqn: symbol_node.canonical_fqn,
+                            display_fqn: symbol_node.display_fqn,
                             name: symbol_node.name,
                             kind: symbol_node.kind,
                             kind_normalized: symbol_node.kind_normalized,
@@ -1119,6 +1138,8 @@ pub fn export_graph(graph: &mut CodeGraph, config: &ExportConfig) -> Result<Stri
                                 let file = get_file_path_from_symbol(graph, entity_id)?;
                                 symbols.push(SymbolExport {
                                     symbol_id: symbol_node.symbol_id,
+                                    canonical_fqn: symbol_node.canonical_fqn,
+                                    display_fqn: symbol_node.display_fqn,
                                     name: symbol_node.name,
                                     kind: symbol_node.kind,
                                     kind_normalized: symbol_node.kind_normalized,

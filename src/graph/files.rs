@@ -188,6 +188,8 @@ impl FileOps {
             kind_normalized: normalized_kind,
             name: symbol_node.name.clone(),
             fqn: symbol_node.fqn,
+            canonical_fqn: None,
+            display_fqn: None,
             byte_start: symbol_node.byte_start,
             byte_end: symbol_node.byte_end,
             start_line: symbol_node.start_line,

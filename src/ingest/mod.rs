@@ -195,6 +195,15 @@ pub struct SymbolFact {
     /// Future versions will build proper hierarchical FQN (e.g., "module::Struct::method").
     #[serde(default)]
     pub fqn: Option<String>,
+
+    /// Canonical fully-qualified name with file path for unambiguous identity
+    #[serde(default)]
+    pub canonical_fqn: Option<String>,
+
+    /// Display fully-qualified name for human-readable output
+    #[serde(default)]
+    pub display_fqn: Option<String>,
+
     /// Byte offset where symbol starts in file
     pub byte_start: usize,
     /// Byte offset where symbol ends in file
@@ -389,6 +398,8 @@ impl Parser {
             kind_normalized: normalized_kind,
             name: Some(name),
             fqn: Some(fqn),
+            canonical_fqn: None,
+            display_fqn: None,
             byte_start: node.start_byte() as usize,
             byte_end: node.end_byte() as usize,
             start_line: node.start_position().row + 1,
@@ -571,6 +582,8 @@ impl Parser {
             kind_normalized: normalized_kind,
             name,
             fqn,
+            canonical_fqn: None,
+            display_fqn: None,
             byte_start: node.start_byte() as usize,
             byte_end: node.end_byte() as usize,
             start_line: node.start_position().row + 1, // tree-sitter is 0-indexed
@@ -618,6 +631,8 @@ impl Parser {
             kind_normalized: normalized_kind,
             name: Some(name),
             fqn: Some(fqn),
+            canonical_fqn: None,
+            display_fqn: None,
             byte_start: node.start_byte() as usize,
             byte_end: node.end_byte() as usize,
             start_line: node.start_position().row + 1,
@@ -689,6 +704,8 @@ mod tests {
             kind_normalized: SymbolKind::Function.normalized_key().to_string(),
             name: Some("test_fn".to_string()),
             fqn: Some("test_fn".to_string()),
+            canonical_fqn: None,
+            display_fqn: None,
             byte_start: 0,
             byte_end: 100,
             start_line: 1,

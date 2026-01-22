@@ -161,6 +161,8 @@ impl JavaParser {
             kind_normalized: normalized_kind,
             name: Some(name),
             fqn: Some(fqn),
+            canonical_fqn: None,
+            display_fqn: None,
             byte_start: node.start_byte() as usize,
             byte_end: node.end_byte() as usize,
             start_line: node.start_position().row + 1, // tree-sitter is 0-indexed
@@ -329,6 +331,8 @@ impl JavaParser {
             kind_normalized: normalized_kind,
             name: Some(name),
             fqn: Some(fqn),
+            canonical_fqn: None,
+            display_fqn: None,
             byte_start: node.start_byte() as usize,
             byte_end: node.end_byte() as usize,
             start_line: node.start_position().row + 1,
