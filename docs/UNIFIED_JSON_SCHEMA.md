@@ -24,10 +24,12 @@ This document defines a unified JSON output schema across all LLM-native tools, 
 2. [Core Types](#core-types)
 3. [Response Wrappers](#response-wrappers)
 4. [Span Model](#span-model)
-5. [Tool-Specific Variants](#tool-specific-variants)
-6. [Error Diagnostics](#error-diagnostics)
-7. [Implementation Guide](#implementation-guide)
-8. [Migration Path](#migration-path)
+5. [Rich Span Extensions](#rich-span-extensions)
+6. [Tool-Specific Variants](#tool-specific-variants)
+7. [Error Diagnostics](#error-diagnostics)
+8. [Implementation Guide](#implementation-guide)
+9. [Migration Path](#migration-path)
+10. [CLI Flags for Optional Features](#cli-flags)
 
 ---
 
@@ -335,6 +337,403 @@ pub struct SpanCoordinates {
   "end_line": 0,
   "start_col": 0,
   "end_col": 0
+}
+```
+
+---
+
+## Rich Span Extensions (Optional Fields)
+
+The following OPTIONAL fields extend spans with semantic and contextual information. All fields are opt-in via flags like `--with-context`, `--with-relationships`, etc.
+
+### 1. Context Field
+
+**Purpose:** Provide surrounding lines without additional file reads.
+
+```rust
+pub struct SpanContext {
+    /// Lines before the span (default: 3 lines)
+    pub before: Vec<String>,
+
+    /// The actual span content (for verification)
+    pub selected: Vec<String>,
+
+    /// Lines after the span (default: 3 lines)
+    pub after: Vec<String>,
+}
+```
+
+**Usage:**
+
+```json
+{
+  "span_id": "...",
+  "file_path": "src/main.rs",
+  "byte_start": 100,
+  "byte_end": 200,
+  "start_line": 5,
+  "start_col": 4,
+  "end_line": 10,
+  "end_col": 2,
+  "context": {
+    "before": [
+      "/// Documentation comment",
+      "use std::collections::HashMap;",
+      ""
+    ],
+    "selected": [
+      "fn process(data: &str) -> Result<String> {",
+      "    // implementation",
+      "}"
+    ],
+    "after": [
+      "",
+      "fn main() {",
+      "    process(\"hello\").unwrap();",
+      "}"
+    ]
+  }
+}
+```
+
+**Why this matters:**
+- LLM stops guessing surrounding structure
+- Splice patches become safer
+- No need for additional Magellan calls
+- Multi-line patches become deterministic
+
+### 2. Semantic Kind and Language
+
+**Purpose:** Add semantic meaning beyond syntactic position.
+
+```rust
+pub struct SpanSemantics {
+    /// Semantic kind: "function", "class", "method", "struct", "enum", "trait", etc.
+    pub semantic_kind: String,
+
+    /// Programming language: "rust", "python", "typescript", etc.
+    pub language: String,
+}
+```
+
+**Usage:**
+
+```json
+{
+  "span": { /* ... */ },
+  "semantic_kind": "function",
+  "language": "rust"
+}
+```
+
+**Why this matters:**
+- Enables smarter transforms
+- Safe symbol-level operations
+- Lets Splice enforce AST boundaries
+- Enables multi-language refactors
+- LLM can infer correct patch structure
+
+**Supported semantic kinds by language:**
+
+| Language | Kinds |
+|----------|-------|
+| Rust | function, method, struct, enum, trait, impl, mod, const, static, type, macro |
+| Python | function, method, class, async_function, decorator, module, variable |
+| TypeScript | function, method, class, interface, type, enum, namespace, variable |
+| JavaScript | function, method, class, variable, statement |
+
+### 3. Relationships Block
+
+**Purpose:** Embed call graph information directly into spans.
+
+```rust
+pub struct SpanRelationships {
+    /// Functions that call this symbol
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub callers: Vec<SymbolReference>,
+
+    /// Functions called by this symbol
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub callees: Vec<SymbolReference>,
+
+    /// Import statements referencing this symbol
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub imports: Vec<SymbolReference>,
+
+    /// Export statements exposing this symbol
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub exports: Vec<SymbolReference>,
+}
+
+pub struct SymbolReference {
+    pub file: String,
+    pub symbol: String,
+    pub byte_start: usize,
+    pub byte_end: usize,
+    pub line: usize,
+}
+```
+
+**Usage:**
+
+```json
+{
+  "span": { /* ... */ },
+  "relationships": {
+    "callers": [
+      {"file": "src/a.rs", "symbol": "main", "byte_start": 120, "byte_end": 124, "line": 8}
+    ],
+    "callees": [
+      {"file": "src/b.rs", "symbol": "helper", "byte_start": 50, "byte_end": 56, "line": 3},
+      {"file": "vendor/lib.rs", "symbol": "parse", "byte_start": 200, "byte_end": 205, "line": 15}
+    ],
+    "imports": [
+      {"file": "src/lib.rs", "symbol": "use crate::helper", "byte_start": 5, "byte_end": 20, "line": 1}
+    ],
+    "exports": []
+  }
+}
+```
+
+**Why this matters:**
+- LLM can analyze impact before patching
+- Removes need for separate Magellan queries
+- Enables safe bulk refactors
+- Helps Splice verify patch safety
+- Foundation of blast radius analysis
+
+### 4. Checksums (Race Condition Protection)
+
+**Purpose:** Verify file/symbol hasn't changed before applying patches.
+
+```rust
+pub struct SpanChecksums {
+    /// SHA-256 of span content before patch
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checksum_before: Option<String>,
+
+    /// SHA-256 of span content after patch (for verification)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checksum_after: Option<String>,
+
+    /// SHA-256 of entire file before operation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_checksum_before: Option<String>,
+}
+```
+
+**Usage:**
+
+```json
+{
+  "span": { /* ... */ },
+  "checksums": {
+    "checksum_before": "sha256:a1b2c3d4e5f6...",
+    "file_checksum_before": "sha256:fedcba987654..."
+  }
+}
+```
+
+**Splice validation flow:**
+
+1. Read file, compute SHA-256
+2. Compare with `file_checksum_before`
+3. If mismatch: reject patch (file changed)
+4. Read span, compute SHA-256
+5. Compare with `checksum_before`
+6. If mismatch: reject span (symbol shifted)
+7. Apply patch
+8. Compute `checksum_after` for verification
+
+**Why this matters:**
+- Prevents applying outdated patches
+- Avoids Magellan race conditions
+- Prevents partial patch corruption
+- Same pattern used by Google/Meta for automated refactoring
+
+### 5. Suggested Action (Future-Proofing)
+
+**Purpose:** Enable intelligent batching and self-repair.
+
+```rust
+pub struct SuggestedAction {
+    /// Action type: "rename", "delete", "extract", "inline", etc.
+    pub action_type: String,
+
+    /// Action parameters (varies by type)
+    pub params: serde_json::Value,
+}
+```
+
+**Usage:**
+
+```json
+{
+  "span": { /* ... */ },
+  "suggested_action": {
+    "action_type": "rename",
+    "params": {
+      "from": "foo",
+      "to": "bar"
+    }
+  }
+}
+```
+
+**Why this matters (future):**
+- Automatic merge of multi-step refactors
+- Intelligent batching of operations
+- LLM self-repair suggestions
+- Opportunistic optimizations
+
+### 6. Tool Hints (Behavior Guidance)
+
+**Purpose:** Let tools coordinate behavior automatically.
+
+```rust
+pub struct ToolHints {
+    /// Whether this span requires full file context for safe patching
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requires_full_context: Option<bool>,
+
+    /// Whether this operation must be atomic (all-or-nothing)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub apply_atomically: Option<bool>,
+
+    /// Search sensitivity
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub search_case_sensitive: Option<bool>,
+
+    /// Language-specific hints
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub language_hints: Option<serde_json::Value>,
+}
+```
+
+**Usage:**
+
+```json
+{
+  "span": { /* ... */ },
+  "tool_hints": {
+    "requires_full_context": false,
+    "apply_atomically": true,
+    "search_case_sensitive": true,
+    "language_hints": {
+      "rust_macro_expansion": true
+    }
+  }
+}
+```
+
+**Why this matters:**
+- Rust macros require full context
+- Some patches must be atomic (no partial application)
+- Tools can adapt automatically
+- Turns schema into shared contract
+
+### 7. Unified Error Codes
+
+**Purpose:** Machine-readable error codes for automated repair.
+
+**Error code format:** `{TOOL}-{CATEGORY}-{NUMBER}`
+
+| Tool | Prefix | Examples |
+|------|--------|----------|
+| Magellan | `MAG` | `MAG-REF-001`, `MAG-QRY-002` |
+| Splice | `SPL` | `SPL-E001`, `SPL-V002` |
+| llmsearch | `LMS` | `LMS-IO-001`, `LMS-QRY-002` |
+| llmastsearch | `LMA` | `LMA-AST-001`, `LMA-QRY-002` |
+| llmtransform | `LMT` | `LMT-IO-001`, `LMT-CSUM-002` |
+
+**Usage:**
+
+```json
+{
+  "diagnostics": [
+    {
+      "code": "MAG-REF-001",
+      "tool": "magellan",
+      "severity": "error",
+      "message": "Symbol not found",
+      "span": null,
+      "remediation": "Check spelling or use 'magellan find' to search"
+    }
+  ]
+}
+```
+
+**Error categories:**
+
+| Category | Suffix | Examples |
+|----------|--------|----------|
+| IO | `-IO-` | File not found, permission denied |
+| QUERY | `-QRY-` | Invalid query, parse error |
+| REF | `-REF-` | Symbol not found, undefined reference |
+| VALIDATION | `-V-` | Checksum mismatch, span invalid |
+| AST | `-AST-` | Parse error, invalid syntax |
+
+**Why this matters:**
+- Automatic repair strategies
+- LLM retry logic without hallucination
+- Splice ↔ Magellan ↔ LLM integrated debugging
+- Real agent workflows
+
+---
+
+## Complete Rich Span Example
+
+Combining all optional fields:
+
+```json
+{
+  "schema_version": "1.1.0",
+  "execution_id": "550e8400-e29b-41d4-a716-446655440000",
+  "tool": "magellan",
+  "timestamp": "2026-01-22T10:30:00Z",
+  "data": {
+    "matches": [{
+      "match_id": "bbb22222-3333-4444-5555-666666666666",
+      "span": {
+        "span_id": "a1b2c3d4e5f6g7h8",
+        "file_path": "src/lib.rs",
+        "byte_start": 100,
+        "byte_end": 200,
+        "start_line": 10,
+        "start_col": 4,
+        "end_line": 15,
+        "end_col": 2,
+        "context": {
+          "before": ["/// Process input data", "use std::collections;", ""],
+          "selected": ["fn process(data: &str) -> Result<String> {", "    data.trim().to_string()", "}"],
+          "after": ["", "fn main() {", "    process(\"hello\").unwrap();", "}"]
+        },
+        "semantic_kind": "function",
+        "language": "rust",
+        "relationships": {
+          "callers": [
+            {"file": "src/main.rs", "symbol": "main", "line": 5}
+          ],
+          "callees": [
+            {"file": "src/lib.rs", "symbol": "trim", "line": 11},
+            {"file": "src/lib.rs", "symbol": "to_string", "line": 11}
+          ]
+        },
+        "checksums": {
+          "checksum_before": "sha256:abc123...",
+          "file_checksum_before": "sha256:def456..."
+        },
+        "tool_hints": {
+          "requires_full_context": false,
+          "apply_atomically": true
+        }
+      },
+      "name": "process",
+      "kind": "function"
+    }],
+    "count": 1
+  },
+  "diagnostics": []
 }
 ```
 
@@ -979,6 +1378,163 @@ llmastsearch --query "(function_item name: (identifier) @name)" --glob "**/*.rs"
   }
 }
 ```
+
+---
+
+## CLI Flags for Optional Features
+
+All rich span extensions are **opt-in** via CLI flags. This keeps the default output minimal while allowing tools to request additional data when needed.
+
+### Context Flags
+
+| Flag | Short | Purpose | Default |
+|------|-------|---------|---------|
+| `--with-context` | `-C` | Include context (before/after/selected) | Off |
+| `--context-lines <n>` | | Number of context lines (default: 3) | 3 |
+| `--no-context` | | Disable context even if requested | - |
+
+**Examples:**
+
+```bash
+# Magellan: Get symbol with 5 lines of context
+magellan find --name "process" --with-context --context-lines 5
+
+# Splice: Get symbol with context for safer patching
+splice get --symbol "process" --with-context
+
+# llmsearch: Search with context
+llmsearch --pattern "TODO" --with-context --context-lines 2
+```
+
+### Relationship Flags
+
+| Flag | Short | Purpose | Default |
+|------|-------|---------|---------|
+| `--with-callers` | | Include callers in relationships | Off |
+| `--with-callees` | | Include callees in relationships | Off |
+| `--with-imports` | | Include imports in relationships | Off |
+| `with-exports` | | Include exports in relationships | Off |
+| `--with-all-relationships` | `-R` | Include all relationship types | Off |
+
+**Examples:**
+
+```bash
+# Get symbol with full call graph
+magellan find --name "process" --with-all-relationships
+
+# Get impact analysis before patching
+splice delete --symbol "helper" --with-callers --with-callees
+```
+
+### Semantic Flags
+
+| Flag | Short | Purpose | Default |
+|------|-------|---------|---------|
+| `--with-semantics` | `-S` | Include semantic_kind and language | Off |
+| `--no-semantics` | | Explicitly exclude semantics | - |
+
+**Examples:**
+
+```bash
+# Get symbol with semantic info
+llmastsearch --query "(function_item) @func" --with-semantics
+```
+
+### Checksum Flags
+
+| Flag | Short | Purpose | Default |
+|------|-------|---------|---------|
+| `--with-checksums` | | Include checksums for validation | Off |
+| `verify-checksums` | | Verify checksums before applying (Splice only) | Off |
+
+**Examples:**
+
+```bash
+# Get spans with checksums for safe patching
+magellan find --name "foo" --with-checksums
+
+# Apply patch with checksum verification
+splice patch --file src/lib.rs --span "...span_id..." --verify-checksums
+```
+
+### Tool Hint Flags
+
+| Flag | Purpose | Default |
+|------|---------|---------|
+| `--atomic` | Require atomic operation | false |
+| `--full-context` | Require full file context for patches | false |
+
+**Examples:**
+
+```bash
+# Atomic operation (all or nothing)
+splice patch --plan plan.json --atomic
+
+# Full context for macros
+splice patch --file src/lib.rs --full-context
+```
+
+### Error Code Flags
+
+| Flag | Short | Purpose | Default |
+|------|-------|---------|---------|
+| `--error-codes` | `-E` | Include machine-readable error codes | Off |
+| `explain <code>` | | Show detailed explanation for error code | - |
+
+**Examples:**
+
+```bash
+# Query with error codes
+magellan query --labels rust fn --error-codes
+
+# Explain an error
+splice explain SPL-E001
+```
+
+### Combined Flag Examples
+
+```bash
+# Rich span for LLM consumption (everything enabled)
+magellan find --name "process" \
+  --with-context --context-lines 5 \
+  --with-all-relationships \
+  --with-semantics \
+  --with-checksums \
+  --error-codes
+
+# Safe patching workflow
+splice patch --file src/lib.rs --symbol "process" \
+  --with-context \
+  --with-callers \
+  --with-checksums \
+  --verify-checksums \
+  --atomic
+
+# Impact analysis before deletion
+splice delete --symbol "helper" \
+  --with-callers \
+  --with-callees \
+  --error-codes
+```
+
+---
+
+## Extension Summary
+
+| Extension | Flag(s) | Adds to Output | Use Case |
+|-----------|---------|---------------|----------|
+| **Context** | `--with-context`, `-C` | `context.before`, `context.selected`, `context.after` | LLM context, safer patches |
+| **Relationships** | `--with-callers`, `--with-callees`, `-R` | `relationships.*` | Impact analysis, blast radius |
+| **Semantics** | `--with-semantics`, `-S` | `semantic_kind`, `language` | Smart transforms, multi-language |
+| **Checksums** | `--with-checksums`, `--verify-checksums` | `checksums.*` | Race protection, validation |
+| **Tool Hints** | `--atomic`, `--full-context` | `tool_hints.*` | Coordination, safety |
+| **Error Codes** | `--error-codes`, `-E` | `diagnostics[].code` | Automated repair, debugging |
+
+**All extensions are:**
+- **Optional** - Default output remains minimal
+- **Opt-in** - Only included when explicitly requested
+- **Backward compatible** - Old parsers continue to work
+- **Composable** - Flags can be combined
 
 ---
 
