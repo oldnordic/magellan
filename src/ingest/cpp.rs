@@ -128,8 +128,11 @@ impl CppParser {
         let mut facts = Vec::new();
         let mut scope_stack = ScopeStack::new(ScopeSeparator::DoubleColon);
 
+        // Per decision FQN-17, use "." as project_root placeholder for C++
+        let package_name = ".";
+
         // Walk tree with scope tracking
-        Self::walk_tree_with_scope_static(&root_node, source, &file_path, &mut facts, &mut scope_stack);
+        Self::walk_tree_with_scope_static(&root_node, source, &file_path, &mut facts, &mut scope_stack, package_name);
 
         facts
     }
@@ -141,6 +144,7 @@ impl CppParser {
         file_path: &PathBuf,
         facts: &mut Vec<SymbolFact>,
         scope_stack: &mut ScopeStack,
+        package_name: &str,
     ) {
         let kind = node.kind();
 
@@ -148,7 +152,7 @@ impl CppParser {
         if kind == "template_declaration" {
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
-                Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack);
+                Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack, package_name);
             }
             return;
         }
@@ -158,7 +162,7 @@ impl CppParser {
             if let Some(name) = Self::extract_name_static(node, source, kind) {
                 // Create namespace symbol with parent scope
                 if !name.is_empty() {
-                    if let Some(fact) = Self::extract_symbol_with_fqn_static(node, source, file_path, scope_stack) {
+                    if let Some(fact) = Self::extract_symbol_with_fqn_static(node, source, file_path, scope_stack, package_name) {
                         facts.push(fact);
                     }
                     scope_stack.push(&name);
@@ -166,7 +170,7 @@ impl CppParser {
                 // Recurse into namespace body
                 let mut cursor = node.walk();
                 for child in node.children(&mut cursor) {
-                    Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack);
+                    Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack, package_name);
                 }
                 if !name.is_empty() {
                     scope_stack.pop();
@@ -176,14 +180,14 @@ impl CppParser {
         }
 
         // Extract symbol with FQN from scope stack
-        if let Some(fact) = Self::extract_symbol_with_fqn_static(node, source, file_path, scope_stack) {
+        if let Some(fact) = Self::extract_symbol_with_fqn_static(node, source, file_path, scope_stack, package_name) {
             facts.push(fact);
         }
 
         // Recurse into children
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack);
+            Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack, package_name);
         }
     }
 
