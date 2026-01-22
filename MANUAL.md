@@ -10,12 +10,13 @@ Comprehensive instructions for operating Magellan.
 
 1. [Installation](#1-installation)
 2. [Quick Start](#2-quick-start)
-3. [Command Reference](#3-command-reference)
-4. [Supported Languages](#4-supported-languages)
-5. [Database Schema](#5-database-schema)
-6. [Error Handling](#6-error-handling)
-7. [Troubleshooting](#7-troubleshooting)
-8. [Security Best Practices](#8-security-best-practices)
+3. [Position Conventions](#3-position-conventions)
+4. [Command Reference](#4-command-reference)
+5. [Supported Languages](#5-supported-languages)
+6. [Database Schema](#6-database-schema)
+7. [Error Handling](#7-error-handling)
+8. [Troubleshooting](#8-troubleshooting)
+9. [Security Best Practices](#9-security-best-practices)
 
 ---
 
@@ -88,9 +89,87 @@ magellan export --db ./magellan.db > codegraph.json
 
 ---
 
-## 3. Command Reference
+## 3. Position Conventions
 
-### 3.1 watch
+Magellan follows tree-sitter conventions for all position data. This ensures consistency across all supported languages and compatibility with tree-sitter-based tooling.
+
+### 3.1 Line Positions
+
+**Line positions are 1-indexed.**
+
+- The first line in a file is line 1, not line 0
+- This matches the convention used by tree-sitter and most text editors
+- When displaying positions to users, Magellan uses 1-indexed line numbers
+
+**Example:**
+```
+Line 1: fn main() {    <- Line 1 is the first line
+Line 2:     println!("Hello");
+Line 3: }
+```
+
+### 3.2 Column Positions
+
+**Column positions are 0-indexed.**
+
+- The first character in a line is at column 0
+- Column values represent byte offsets within a line
+- This matches the tree-sitter convention for precise positioning
+
+**Example:**
+```
+fn main() {
+^  ^   ^
+0  2   5  <- Column positions (0-indexed)
+```
+
+### 3.3 Byte Offsets
+
+**Byte offsets are 0-indexed from the start of the file.**
+
+- The first byte in a file is at offset 0
+- Byte offsets span the entire file, not individual lines
+- Use these for direct file seeking and range operations
+
+**Example:**
+```
+fn main() {
+^       ^
+0       9  <- Byte offsets from file start
+```
+
+### 3.4 Position Data in JSON
+
+When exporting to JSON or querying with `--show-extent`, positions are reported as:
+
+```json
+{
+  "name": "function_name",
+  "byte_start": 1024,
+  "byte_end": 2048,
+  "start_line": 42,
+  "start_col": 0
+}
+```
+
+- `byte_start`, `byte_end`: 0-indexed byte offsets from file start
+- `start_line`: 1-indexed line number
+- `start_col`: 0-indexed column offset within the line
+
+### 3.5 Why These Conventions?
+
+Magellan uses tree-sitter parsers for all supported languages. Tree-sitter's position conventions were chosen to:
+
+- **Align with editor conventions**: Most editors display line numbers starting at 1
+- **Enable precise positioning**: 0-indexed columns allow direct byte offset calculation
+- **Maintain consistency**: All languages use the same conventions through tree-sitter
+- **Support cross-language tooling**: Tools can process position data uniformly
+
+---
+
+## 4. Command Reference
+
+### 4.1 watch
 
 ```bash
 magellan watch --root <DIR> --db <FILE> [--debounce-ms <N>] [--scan-initial]
@@ -302,7 +381,7 @@ Get all code chunks from a file. Useful for getting complete file contents witho
 
 ---
 
-## 4. Supported Languages
+## 5. Supported Languages
 
 | Language | Extensions | Symbol Extraction | Reference Extraction | Call Graph |
 |----------|------------|-------------------|---------------------|------------|
@@ -316,9 +395,9 @@ Get all code chunks from a file. Useful for getting complete file contents witho
 
 ---
 
-## 5. Database Schema
+## 6. Database Schema
 
-### 5.1 Node Types
+### 6.1 Node Types
 
 **File Node:**
 ```json
@@ -352,7 +431,7 @@ Get all code chunks from a file. Useful for getting complete file contents witho
 }
 ```
 
-### 5.2 Edge Types
+### 6.2 Edge Types
 
 | Edge Type | Source | Target | Meaning |
 |-----------|--------|--------|---------|
@@ -363,9 +442,9 @@ Get all code chunks from a file. Useful for getting complete file contents witho
 
 ---
 
-## 6. Error Handling
+## 7. Error Handling
 
-### 6.1 Error Messages
+### 7.1 Error Messages
 
 **Permission Denied:**
 ```
@@ -395,7 +474,7 @@ magellan watch --root . --db magellan.db --scan-initial
 
 ---
 
-## 7. Troubleshooting
+## 8. Troubleshooting
 
 ### Files not being indexed
 
@@ -424,9 +503,9 @@ pkill -f "magellan watch"
 
 ---
 
-## 8. Security Best Practices
+## 9. Security Best Practices
 
-### 8.1 Database Placement
+### 9.1 Database Placement
 
 Magellan stores all indexed data in the file specified by `--db <FILE>`.
 The location of this file affects both security and performance.
