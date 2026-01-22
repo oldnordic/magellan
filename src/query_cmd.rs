@@ -3,7 +3,7 @@
 //! Lists symbols in a file, optionally filtered by kind.
 
 use anyhow::Result;
-use magellan::{CodeGraph, SymbolFact, SymbolKind};
+use magellan::{CodeGraph, SymbolFact};
 use magellan::common::{detect_language_from_path, format_symbol_kind, parse_symbol_kind, resolve_path};
 use magellan::output::{JsonResponse, OutputFormat, QueryResponse, Span, SymbolMatch, output_json};
 use magellan::output::rich::{SpanContext, SpanChecksums};

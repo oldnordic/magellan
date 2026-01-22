@@ -11,7 +11,6 @@ use anyhow::Result;
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
 
 use super::{CodeGraph, ScanProgress};
 use crate::diagnostics::{DiagnosticStage, WatchDiagnostic};

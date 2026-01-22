@@ -85,8 +85,9 @@ impl<K: Hash + Eq + Clone, V> LruCache<K, V> {
                 self.map.remove(&old);
             }
         }
-        // Insert at front (most recently used)
-        self.order.push_front(key.clone());
+        // Clone key for both order tracking and map insertion
+        let key_clone = key.clone();
+        self.order.push_front(key_clone);
         self.map.insert(key, value);
     }
 

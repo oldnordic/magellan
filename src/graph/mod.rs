@@ -32,7 +32,7 @@ mod tests;
 use anyhow::Result;
 use sqlitegraph::SqliteGraphBackend;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use crate::generation::{ChunkStore, CodeChunk};
@@ -109,13 +109,17 @@ impl CodeGraph {
 
         // WAL mode for better concurrency (allows reads during writes)
         // query() returns the new mode value, execute() would error
+        // Note: :memory: databases don't support WAL mode (returns "memory")
         let journal_mode = pragma_conn
             .query_row("PRAGMA journal_mode = WAL", [], |row| {
                 let mode: String = row.get(0)?;
                 Ok(mode)
             })
             .map_err(|e| anyhow::anyhow!("Failed to set WAL mode: {}", e))?;
-        debug_assert_eq!(journal_mode, "wal", "WAL mode should be enabled");
+        // Only assert WAL mode for file-based databases (not :memory:)
+        if db_path_buf != PathBuf::from(":memory:") {
+            debug_assert_eq!(journal_mode, "wal", "WAL mode should be enabled");
+        }
 
         // Faster writes (safe with WAL mode - durability still guaranteed)
         pragma_conn
