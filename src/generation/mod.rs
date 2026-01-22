@@ -9,7 +9,7 @@ pub mod schema;
 use anyhow::Result;
 use rusqlite::{params, OptionalExtension};
 use std::path::Path;
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
 pub use schema::CodeChunk;
 
@@ -21,7 +21,8 @@ enum ChunkStoreConnection {
     /// Owned connection source - ChunkStore opens connections as needed
     Owned(std::path::PathBuf),
     /// Shared connection - provided by CodeGraph for transactional operations
-    Shared(std::rc::Rc<std::cell::RefCell<rusqlite::Connection>>),
+    /// Thread-safe: uses Arc<Mutex<>> instead of Rc<RefCell<>>
+    Shared(Arc<Mutex<rusqlite::Connection>>),
 }
 
 /// Code chunk storage operations.
