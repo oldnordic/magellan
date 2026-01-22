@@ -135,7 +135,6 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::error_codes;
 use crate::output::rich::{SpanContext, SpanRelationships, SpanSemantics, SpanChecksums};
 
 /// Current JSON output schema version
@@ -164,6 +163,8 @@ impl<T> JsonResponse<T> {
         JsonResponse {
             schema_version: MAGELLAN_JSON_SCHEMA_VERSION.to_string(),
             execution_id: execution_id.to_string(),
+            tool: Some("magellan".to_string()),
+            timestamp: Some(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
             data,
             partial: None,
         }
@@ -410,36 +411,6 @@ impl Span {
             relationships: None,
             checksums: None,
         }
-    }
-
-    /// Set context on the span
-    pub fn with_context(mut self, context: SpanContext) -> Self {
-        self.context = Some(context);
-        self
-    }
-
-    /// Set semantic information on the span
-    pub fn with_semantics(mut self, semantics: SpanSemantics) -> Self {
-        self.semantics = Some(semantics);
-        self
-    }
-
-    /// Set semantic information from kind and language strings
-    pub fn with_semantics_from(mut self, kind: String, language: String) -> Self {
-        self.semantics = Some(SpanSemantics::new(kind, language));
-        self
-    }
-
-    /// Set relationships on the span
-    pub fn with_relationships(mut self, relationships: SpanRelationships) -> Self {
-        self.relationships = Some(relationships);
-        self
-    }
-
-    /// Set checksums on the span
-    pub fn with_checksums(mut self, checksums: SpanChecksums) -> Self {
-        self.checksums = Some(checksums);
-        self
     }
 }
 
@@ -874,22 +845,13 @@ impl From<crate::graph::validation::ValidationReport> for ValidationResponse {
     }
 }
 
-/// Error response with optional machine-readable code and contextual information
+/// Response for errors in JSON mode
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ErrorResponse {
-    /// Machine-readable error code (e.g., "MAG-REF-001")
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub code: Option<String>,
-    /// Human-readable error type
+    /// Error category/type
     pub error: String,
-    /// Detailed error message
+    /// Human-readable error message
     pub message: String,
-    /// Related span for context (if applicable)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub span: Option<Span>,
-    /// Suggested remediation steps
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub remediation: Option<String>,
 }
 
 /// Output format for commands
@@ -1050,11 +1012,8 @@ mod tests {
     #[test]
     fn test_error_response_serialization() {
         let response = ErrorResponse {
-            code: None,
             error: "file_not_found".to_string(),
             message: "The requested file does not exist".to_string(),
-            span: None,
-            remediation: None,
         };
 
         let json = serde_json::to_string(&response).unwrap();
@@ -1417,120 +1376,3 @@ mod tests {
         assert_eq!(symbol.name, "main");
     }
 }
-
-    #[test]
-    fn test_span_builder_with_context() {
-        use crate::output::rich::SpanContext;
-        let context = SpanContext {
-            before: vec!["before".to_string()],
-            selected: vec!["selected".to_string()],
-            after: vec!["after".to_string()],
-        };
-
-        let span = Span::new("test.rs".into(), 0, 10, 1, 0, 1, 10)
-            .with_context(context.clone());
-
-        assert!(span.context.is_some());
-        assert_eq!(span.context.as_ref().unwrap().before[0], "before");
-        assert_eq!(span.context.as_ref().unwrap().selected[0], "selected");
-        assert_eq!(span.context.as_ref().unwrap().after[0], "after");
-    }
-
-    #[test]
-    fn test_span_builder_with_semantics() {
-        use crate::output::rich::SpanSemantics;
-        let semantics = SpanSemantics::new("function".to_string(), "rust".to_string());
-
-        let span = Span::new("test.rs".into(), 0, 10, 1, 0, 1, 10)
-            .with_semantics(semantics.clone());
-
-        assert!(span.semantics.is_some());
-        assert_eq!(span.semantics.as_ref().unwrap().kind, Some("function".to_string()));
-        assert_eq!(span.semantics.as_ref().unwrap().language, Some("rust".to_string()));
-    }
-
-    #[test]
-    fn test_span_builder_with_semantics_from() {
-        let span = Span::new("test.rs".into(), 0, 10, 1, 0, 1, 10)
-            .with_semantics_from("function".to_string(), "rust".to_string());
-
-        assert!(span.semantics.is_some());
-        assert_eq!(span.semantics.as_ref().unwrap().kind, Some("function".to_string()));
-        assert_eq!(span.semantics.as_ref().unwrap().language, Some("rust".to_string()));
-    }
-
-    #[test]
-    fn test_span_builder_with_relationships() {
-        use crate::output::rich::{SpanRelationships, SymbolReference};
-        let relationships = SpanRelationships {
-            callers: vec![SymbolReference {
-                file: "caller.rs".to_string(),
-                symbol: "caller".to_string(),
-                byte_start: 0,
-                byte_end: 10,
-                line: 1,
-            }],
-            ..Default::default()
-        };
-
-        let span = Span::new("test.rs".into(), 0, 10, 1, 0, 1, 10)
-            .with_relationships(relationships);
-
-        assert!(span.relationships.is_some());
-        assert_eq!(span.relationships.as_ref().unwrap().callers.len(), 1);
-        assert_eq!(span.relationships.as_ref().unwrap().callers[0].symbol, "caller");
-    }
-
-    #[test]
-    fn test_span_builder_with_checksums() {
-        use crate::output::rich::SpanChecksums;
-        let checksums = SpanChecksums {
-            checksum_before: Some("sha256:abc123".to_string()),
-            file_checksum_before: Some("sha256:def456".to_string()),
-        };
-
-        let span = Span::new("test.rs".into(), 0, 10, 1, 0, 1, 10)
-            .with_checksums(checksums);
-
-        assert!(span.checksums.is_some());
-        assert_eq!(span.checksums.as_ref().unwrap().checksum_before, Some("sha256:abc123".to_string()));
-        assert_eq!(span.checksums.as_ref().unwrap().file_checksum_before, Some("sha256:def456".to_string()));
-    }
-
-    #[test]
-    fn test_span_serialization_skips_none_rich_fields() {
-        let span = Span::new("test.rs".into(), 0, 10, 1, 0, 1, 10);
-
-        let json = serde_json::to_string(&span).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
-
-        // Rich fields should not appear when None
-        assert!(value.get("context").is_none() || value["context"].is_null());
-        assert!(value.get("semantics").is_none() || value["semantics"].is_null());
-        assert!(value.get("relationships").is_none() || value["relationships"].is_null());
-        assert!(value.get("checksums").is_none() || value["checksums"].is_null());
-    }
-
-    #[test]
-    fn test_span_serialization_includes_rich_fields_when_set() {
-        use crate::output::rich::{SpanContext, SpanSemantics};
-        let context = SpanContext {
-            before: vec!["before".to_string()],
-            selected: vec!["selected".to_string()],
-            after: vec!["after".to_string()],
-        };
-        let semantics = SpanSemantics::new("function".to_string(), "rust".to_string());
-
-        let span = Span::new("test.rs".into(), 0, 10, 1, 0, 1, 10)
-            .with_context(context)
-            .with_semantics(semantics);
-
-        let json = serde_json::to_string(&span).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
-
-        // Rich fields should appear when set
-        assert!(!value.get("context").is_none() && !value["context"].is_null());
-        assert!(!value.get("semantics").is_none() && !value["semantics"].is_null());
-        assert_eq!(value["semantics"]["kind"], "function");
-        assert_eq!(value["semantics"]["language"], "rust");
-    }
