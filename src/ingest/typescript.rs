@@ -929,4 +929,105 @@ interface MyInterface {
         assert_eq!(interfaces.len(), 1);
         assert_eq!(interfaces[0].fqn, Some("MyInterface".to_string()));
     }
+
+    #[test]
+    fn test_canonical_fqn_format() {
+        let mut parser = TypeScriptParser::new().unwrap();
+        let source = b"function foo(): void {}\n";
+        let facts = parser.extract_symbols(PathBuf::from("test.ts"), source);
+
+        assert_eq!(facts.len(), 1);
+        let fact = &facts[0];
+
+        // Canonical FQN format: package_name::file_path::Kind symbol_name
+        assert!(fact.canonical_fqn.is_some());
+        let canonical = fact.canonical_fqn.as_ref().unwrap();
+        assert!(canonical.contains("::test.ts::Function foo"));
+        assert!(canonical.starts_with("."));
+    }
+
+    #[test]
+    fn test_display_fqn_format() {
+        let mut parser = TypeScriptParser::new().unwrap();
+        let source = b"function foo(): void {}\n";
+        let facts = parser.extract_symbols(PathBuf::from("test.ts"), source);
+
+        assert_eq!(facts.len(), 1);
+        let fact = &facts[0];
+
+        // Display FQN format: package_name.symbol_name (excludes file path)
+        // Note: "." as package_name with "." separator results in "..foo"
+        assert!(fact.display_fqn.is_some());
+        let display = fact.display_fqn.as_ref().unwrap();
+        assert_eq!(display, "..foo");
+    }
+
+    #[test]
+    fn test_canonical_and_display_fqn_namespace() {
+        let mut parser = TypeScriptParser::new().unwrap();
+        let source = b"
+namespace MyNamespace {
+    export class MyClass {
+        myMethod() {
+            return;
+        }
+    }
+}
+";
+        let facts = parser.extract_symbols(PathBuf::from("test.ts"), source);
+
+        // Check namespace
+        let namespaces: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Namespace)
+            .collect();
+        assert_eq!(namespaces.len(), 1);
+        assert!(namespaces[0].canonical_fqn.is_some());
+        assert!(namespaces[0].display_fqn.is_some());
+        // Note: "." as package_name with "." separator results in "..MyNamespace"
+        assert_eq!(namespaces[0].display_fqn.as_ref().unwrap(), "..MyNamespace");
+
+        // Check class
+        let classes: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Class)
+            .collect();
+        assert_eq!(classes.len(), 1);
+        assert!(classes[0].canonical_fqn.is_some());
+        assert!(classes[0].display_fqn.is_some());
+        assert_eq!(classes[0].display_fqn.as_ref().unwrap(), "..MyNamespace.MyClass");
+
+        // Check method
+        let methods: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Method)
+            .collect();
+        assert_eq!(methods.len(), 1);
+        assert!(methods[0].canonical_fqn.is_some());
+        assert!(methods[0].display_fqn.is_some());
+        assert_eq!(methods[0].display_fqn.as_ref().unwrap(), "..MyNamespace.MyClass.myMethod");
+    }
+
+    #[test]
+    fn test_canonical_and_display_fqn_interface() {
+        let mut parser = TypeScriptParser::new().unwrap();
+        let source = b"
+interface MyInterface {
+    myMethod(): void;
+}
+";
+        let facts = parser.extract_symbols(PathBuf::from("test.ts"), source);
+
+        let interfaces: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Interface)
+            .collect();
+        assert_eq!(interfaces.len(), 1);
+
+        // Verify both FQN types are populated
+        assert!(interfaces[0].canonical_fqn.is_some());
+        assert!(interfaces[0].display_fqn.is_some());
+        // Note: "." as package_name with "." separator results in "..MyInterface"
+        assert_eq!(interfaces[0].display_fqn.as_ref().unwrap(), "..MyInterface");
+    }
 }
