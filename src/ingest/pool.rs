@@ -69,7 +69,9 @@ where
             parser.set_language(&tree_sitter_python::language())?;
             *parser_ref = Some(parser);
         }
-        Ok(f(parser_ref.as_mut().unwrap()))
+        Ok(f(parser_ref.as_mut().expect(
+            "Python parser invariant violated: Option must be Some() after initialization"
+        )))
     })
 }
 
