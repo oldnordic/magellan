@@ -193,6 +193,53 @@ where
     }
 }
 
+/// Warmup all parsers to avoid first-parse latency.
+///
+/// This function initializes all thread-local parsers by parsing minimal
+/// source code for each supported language. Call this during application
+/// startup to ensure the first real parse doesn't pay the initialization cost.
+///
+/// # Note
+///
+/// This function only warms up parsers for the calling thread. Thread-local
+/// parsers are initialized per-thread, so each thread needs to call this
+/// function (or rely on lazy initialization during first parse).
+///
+/// # Returns
+///
+/// Ok(()) if all parsers were successfully warmed up, or an error if any
+/// parser initialization failed.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use crate::ingest::pool::warmup_parsers;
+///
+/// // During application startup
+/// warmup_parsers().expect("Failed to warmup parsers");
+/// ```
+pub fn warmup_parsers() -> Result<()> {
+    // Minimal source code snippets for each language
+    let test_cases: [(Language, &[u8]); 7] = [
+        (Language::Rust, b"fn test() {}"),
+        (Language::Python, b"def test(): pass"),
+        (Language::C, b"int test() { return 0; }"),
+        (Language::Cpp, b"void test() {}"),
+        (Language::Java, b"class Test {}"),
+        (Language::JavaScript, b"function test() {}"),
+        (Language::TypeScript, b"function test(): void {}"),
+    ];
+
+    for (lang, source) in test_cases {
+        with_parser(lang, |parser| {
+            parser.parse(source, None);
+            Ok::<(), anyhow::Error>(())
+        })?;
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -329,5 +376,40 @@ mod tests {
 
         assert!(tree.is_some(), "Parser should successfully parse");
         assert_eq!(tree.unwrap().root_node().kind(), "source_file");
+    }
+
+    #[test]
+    fn test_warmup_parsers() {
+        // Warmup should succeed without errors
+        warmup_parsers()
+            .expect("Parser warmup should succeed");
+
+        // After warmup, all parsers should be initialized
+        let test_cases: [(Language, &[u8]); 7] = [
+            (Language::Rust, b"fn test() {}"),
+            (Language::Python, b"def test(): pass"),
+            (Language::C, b"int test() { return 0; }"),
+            (Language::Cpp, b"void test() {}"),
+            (Language::Java, b"class Test {}"),
+            (Language::JavaScript, b"function test() {}"),
+            (Language::TypeScript, b"function test(): void {}"),
+        ];
+
+        for (lang, source) in test_cases {
+            let result = with_parser(lang, |parser| parser.parse(source, None).is_some());
+            assert!(
+                result.is_ok() && result.unwrap(),
+                "Language {:?} should parse successfully after warmup",
+                lang
+            );
+        }
+    }
+
+    #[test]
+    fn test_warmup_multiple_calls() {
+        // Multiple warmup calls should be safe (parsers already initialized)
+        warmup_parsers().expect("First warmup should succeed");
+        warmup_parsers().expect("Second warmup should succeed");
+        warmup_parsers().expect("Third warmup should succeed");
     }
 }
