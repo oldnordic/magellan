@@ -3,6 +3,17 @@
 //! Provides deterministic event coalescing: all events within a debounce window
 //! are collected, de-duplicated, sorted lexicographically, and emitted as a single
 //! batch. This ensures the same final DB state regardless of event arrival order.
+//!
+//! # Threading Design
+//!
+//! This watcher is single-threaded by design. The `RefCell` usage provides
+//! interior mutability without runtime locking overhead, which is appropriate
+//! for single-threaded contexts.
+//!
+//! **Note:** `RefCell` is NOT thread-safe. If multi-threaded access is needed
+//! in the future, replace `RefCell<T>` with `Arc<Mutex<T>>`.
+//!
+//! See MANUAL.md for architecture details.
 
 use anyhow::Result;
 use notify::RecursiveMode;
