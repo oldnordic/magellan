@@ -169,6 +169,7 @@ enum Command {
         explain: bool,
         symbol: Option<String>,
         show_extent: bool,
+        output_format: OutputFormat,
         with_context: bool,
         with_callers: bool,
         with_callees: bool,
@@ -494,6 +495,7 @@ fn parse_args() -> Result<Command> {
             let mut explain = false;
             let mut symbol: Option<String> = None;
             let mut show_extent = false;
+            let mut output_format = OutputFormat::Human;
             let mut with_context = false;
             let mut with_callers = false;
             let mut with_callees = false;
@@ -547,6 +549,14 @@ fn parse_args() -> Result<Command> {
                         show_extent = true;
                         i += 1;
                     }
+                    "--output" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--output requires an argument"));
+                        }
+                        output_format = OutputFormat::from_str(&args[i + 1])
+                            .ok_or_else(|| anyhow::anyhow!("Invalid output format: {}", args[i + 1]))?;
+                        i += 2;
+                    }
                     "--with-context" => {
                         with_context = true;
                         i += 1;
@@ -595,6 +605,7 @@ fn parse_args() -> Result<Command> {
                 explain,
                 symbol,
                 show_extent,
+                output_format,
                 with_context,
                 with_callers,
                 with_callees,
@@ -1326,14 +1337,6 @@ fn main() -> ExitCode {
         return ExitCode::from(1);
     }
 
-    // Parse global --output flag
-    let output_format = args
-        .iter()
-        .position(|x| x == "--output")
-        .and_then(|i| args.get(i + 1))
-        .and_then(|fmt| OutputFormat::from_str(fmt))
-        .unwrap_or(OutputFormat::Human);
-
     match parse_args() {
         Ok(Command::Status { output_format, db_path }) => {
             if let Err(e) = run_status(db_path, output_format) {
@@ -1375,6 +1378,7 @@ fn main() -> ExitCode {
             explain,
             symbol,
             show_extent,
+            output_format,
             with_context,
             with_callers,
             with_callees,
