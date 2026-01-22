@@ -742,36 +742,11 @@ pub fn reconcile_file_path(
     let symbols = index_file(graph, path_key, &source)?;
     query::index_references(graph, path_key, &source)?;
 
-    // Count calls (index_file already indexed calls internally)
-    let calls = graph
-        .calls
-        .backend
-        .entity_ids()?
-        .into_iter()
-        .filter(|id| {
-            graph
-                .calls
-                .backend
-                .get_node(*id)
-                .map(|n| n.kind == "Call")
-                .unwrap_or(false)
-        })
-        .count();
+    // Count calls for this file only (index_file already indexed calls internally)
+    let calls = count_calls_in_file(graph, path_key);
 
-    let references = graph
-        .references
-        .backend
-        .entity_ids()?
-        .into_iter()
-        .filter(|id| {
-            graph
-                .references
-                .backend
-                .get_node(*id)
-                .map(|n| n.kind == "Reference")
-                .unwrap_or(false)
-        })
-        .count();
+    // Count references for this file only
+    let references = count_references_in_file(graph, path_key);
 
     Ok(ReconcileOutcome::Reindexed {
         symbols,
