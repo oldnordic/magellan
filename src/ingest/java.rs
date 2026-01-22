@@ -2,6 +2,7 @@
 //!
 //! Extracts classes, interfaces, enums, methods, and packages from Java source code.
 
+use crate::graph::canonical_fqn::FqnBuilder;
 use crate::ingest::{ScopeSeparator, ScopeStack, SymbolFact, SymbolKind};
 use crate::references::{CallFact, ReferenceFact};
 use anyhow::Result;
