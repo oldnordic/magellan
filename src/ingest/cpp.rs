@@ -3,6 +3,7 @@
 //! Extracts functions, classes, structs, namespaces, and templates from C++ source code.
 
 use crate::ingest::{SymbolFact, SymbolKind, ScopeSeparator, ScopeStack};
+use crate::graph::canonical_fqn::FqnBuilder;
 use crate::references::{CallFact, ReferenceFact};
 use anyhow::Result;
 use std::path::PathBuf;
