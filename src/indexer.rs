@@ -28,7 +28,8 @@ use crate::{CodeGraph, FileEvent, FileSystemWatcher, WatcherConfig};
 fn handle_event(graph: &mut CodeGraph, event: FileEvent) -> Result<()> {
     // Use reconcile for deterministic handling regardless of event type
     // The debouncer doesn't preserve event types, so we check actual file state
-    let path_key = event.path.to_string_lossy().to_string();
+    let path_key = crate::validation::normalize_path(&event.path)
+        .unwrap_or_else(|_| event.path.to_string_lossy().to_string());
     let _outcome = graph.reconcile_file_path(&event.path, &path_key)?;
     Ok(())
 }
@@ -341,7 +342,8 @@ fn watcher_loop(
 /// Paths are already sorted because they came from a BTreeSet.
 fn process_dirty_paths(graph: &mut CodeGraph, dirty_paths: &[PathBuf]) -> Result<usize> {
     for path in dirty_paths {
-        let path_key = path.to_string_lossy().to_string();
+        let path_key = crate::validation::normalize_path(path)
+            .unwrap_or_else(|_| path.to_string_lossy().to_string());
         match graph.reconcile_file_path(path, &path_key) {
             Ok(outcome) => {
                 // Log outcome
