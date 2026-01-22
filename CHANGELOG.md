@@ -3,6 +3,61 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-01-22
+
+### Fixed
+- Path normalization across all entry points (watcher, scan, indexer) - no more duplicate file entries
+- Result propagation in index_references - reference counts now accurate
+- Byte slice bounds checking - prevents panic on malformed symbol data
+- Symbol counting scoped to current file instead of entire database
+- DeleteResult verification before re-indexing
+- ChunkStore thread safety - uses Arc<Mutex<Connection>> instead of Rc<RefCell>
+- Parser warmup now propagates errors instead of silently ignoring
+- Parser pool uses expect() with clear invariant messages
+- PRAGMA connection cleanup on error via scoped block
+- Watcher shutdown signal for clean termination
+- Version reporting via --version/-V flags
+- Output formatting flags (--output json/pretty) per-command
+- Position conventions documented (1-indexed lines, 0-indexed columns)
+- Fixed misleading "lazy initialization" comment
+- Cleaned up unused variables and compiler warnings
+- :memory: database limitation documented
+- RefCell usage documentation for single-threaded design
+- :memory: database error messages clarified with workarounds
+
+### Changed
+- Database version bumped from 3 to 4 (breaking change - requires re-index)
+- All phases from v1.4 focused on bug fixes and correctness improvements
+
+## [1.3.0] - 2026-01-22
+
+### Added
+- Thread-local parser pooling (7 parsers per language)
+- SQLite performance PRAGMAs (WAL mode, synchronous=NORMAL, 64MB cache)
+- Parser warmup function for first-parse latency avoidance
+- Parallel file scanning using rayon
+- LRU cache for graph query results with FileNodeCache integration
+- Streaming JSON export (stream_json, stream_json_minified, stream_ndjson)
+- Common module (src/common.rs) with shared utility functions
+
+### Changed
+- Code deduplication - extracted duplicated helper functions
+- Improved indexing performance through parallel processing
+
+## [1.2.0] - 2026-01-22
+
+### Added
+- Unified JSON schema output with StandardSpan-compliant positions
+- JsonResponse wrapper with tool and timestamp metadata
+- Error codes module with 12 MAG-{CAT}-{NNN} error codes
+- Rich span extensions: SpanContext, SpanRelationships, SpanSemantics, SpanChecksums
+- CLI flags for context, semantics, and checksums (--with-context, --with-semantics, --with-checksums)
+- Integration tests for JSON output
+
+### Changed
+- Span struct verified as StandardSpan-compliant
+- find/query/refs/get commands support --output flag with json/pretty formats
+
 ## [1.1.0] - 2026-01-20
 
 ### Added
@@ -49,11 +104,11 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`magellan get` command** - Retrieve code chunks for a specific symbol using stored data
 - **`magellan get-file` command** - Retrieve all code chunks from a file
 - **`--help` and `-h` flags** - Global help support for all commands
-- **Native-v2 backend support** - Build with `--features native-v2` for 2-3x improved insert performance
+- **Native-v2 backend support** - Build with `--features native-v2` for improved insert performance
 
 ### Changed
-- Code chunks are now automatically stored during indexing (Phase 1 implementation)
-- Symbols are automatically labeled with language and kind during indexing (Phase 2 implementation)
+- Code chunks are now automatically stored during indexing
+- Symbols are automatically labeled with language and kind during indexing
 - All 97 tests pass with native-v2 backend enabled
 
 ### Technical
@@ -66,194 +121,84 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [0.4.0] - 2026-01-02
 
 ### Added
-- **`magellan query --explain` cheat sheet** covering selector syntax, glob usage, and related commands so CLI clients stop guessing.
-- **Symbol extent reporting (`--symbol` + `--show-extent`)** that prints byte and line/column ranges plus node IDs for highlighted symbols.
-- **Glob previews via `magellan find --list-glob <pattern>`** to generate deterministic symbol sets for batch refactors.
-- **Normalized kind metadata** persisted as `kind_normalized` on every symbol fact, surfaced in CLI output and JSON exports for machine-friendly parsing.
-- **Helpful CLI hints** when queries or finds return no results, nudging agents toward `--explain` or `--list-glob`.
+- **`magellan query --explain` cheat sheet** covering selector syntax, glob usage, and related commands
+- **Symbol extent reporting (`--symbol` + `--show-extent`)** that prints byte and line/column ranges plus node IDs
+- **Glob previews via `magellan find --list-glob <pattern>`** to generate deterministic symbol sets for batch refactors
+- **Normalized kind metadata** persisted as `kind_normalized` on every symbol fact
+- **Helpful CLI hints** when queries or finds return no results
 
 ### Changed
-- Query and find output now include the normalized kind tag (e.g., `[fn]`, `[struct]`) alongside the readable kind name.
-- README now documents the new flags and workflows so operators know how to access the richer metadata.
+- Query and find output now include the normalized kind tag (e.g., `[fn]`, `[struct]`)
 
 ## [0.3.1] - 2025-12-31
 
 ### Fixed
 - **Rust impl blocks now extract struct name** - `impl_item` nodes now store the struct name in the `name` field
-  - Previously: `impl_item` nodes stored with `name: None`, making them impossible to query
-  - Now: Uses `child_by_field_name("type")` to extract the struct name being implemented
-  - Works for both `impl StructName { }` and `impl Trait for StructName { }`
-  - Enables codemcp to find all impl blocks when renaming a struct
 
 ### Added
 - `extract_impl_name()` method to Rust parser for impl name extraction
-- 3 new tests: `test_extract_impl_name_inherent`, `test_extract_impl_name_trait_impl`, `test_extract_impl_name_both`
+- 3 new tests for impl name extraction
 
 ## [0.3.0] - 2025-12-30
 
 ### Added
-- **Multi-language reference extraction** - Reference extraction now works for all 7 supported languages (Rust, Python, C, C++, Java, JavaScript, TypeScript)
-- **Multi-language call graph indexing** - Call graph extraction now works for all 7 supported languages
-- Language-specific `extract_references()` methods for Python, C, C++, Java, JavaScript, TypeScript parsers
-- Language-specific `extract_calls()` methods for Python, C, C++, Java, JavaScript, TypeScript parsers
-- Language dispatch in `src/graph/references.rs` for reference extraction
-- Language dispatch in `src/graph/call_ops.rs` for call extraction
-- Proper span filtering to exclude self-references in all language parsers
+- **Multi-language reference extraction** - Works for all 7 supported languages
+- **Multi-language call graph indexing** - Works for all 7 supported languages
+- Language-specific `extract_references()` and `extract_calls()` methods
+- Language dispatch in reference and call indexing
 
 ### Changed
-- Removed Rust-only restriction from call indexing in `src/graph/ops.rs`
-- Reference extraction now uses proper symbol spans for filtering (was using placeholders)
-- Call extraction now uses proper symbol information (was using placeholders)
-- Rename refactoring (via codemcp) now works for Python, C, C++, Java, JavaScript, TypeScript
+- Removed Rust-only restriction from call indexing
+- Reference extraction now uses proper symbol spans for filtering
 
 ### Fixed
-- Reference extraction bug where byte offsets were not stored in edge data (codemcp rename fix)
-- Self-reference filtering bug where references within defining span were incorrectly counted
+- Reference extraction bug where byte offsets were not stored in edge data
+- Self-reference filtering bug
 - Call graph indexing was only working for Rust - now works for all languages
-
-### Technical
-- Each language parser now implements `extract_references()` and `extract_calls()`
-- Language dispatch pattern implemented in both reference and call indexing
-- All parsers extract symbols first to get proper span information for reference filtering
 
 ## [0.2.3] - 2025-12-28
 
 ### Added
 - `--root` option to `query`, `find`, and `refs` commands for explicit relative path resolution
-- Users can now run: `magellan query --db mag.db --root /path/to/project --file src/lib.rs`
-- Resolves relative paths against explicit root directory (NO guessing from current directory)
-- New test: `test_query_with_relative_path_explicit_root` proving TDD compliance
-
-### Changed
-- `--root` is optional: if omitted, relative paths resolve from current working directory
-- All CLI query commands now accept both absolute and relative file paths
-
-### Technical
-- Refactored `resolve_path()` helper function shared across query, find, and refs commands
-- No warnings - clean compilation with proper path resolution
 
 ## [0.2.2] - 2025-12-28
 
 ### Fixed
-- CLI query commands now accept relative file paths (previously required absolute paths)
-- `magellan query --file src/lib.rs` now works from within the project directory
-- `magellan find --name foo --path src/main.rs` now resolves relative paths correctly
-- `magellan refs --name bar --path src/lib.rs` now resolves relative paths correctly
+- CLI query commands now accept relative file paths
 
 ## [0.2.1] - 2025-12-28
 
 ### Changed
 - Updated README to reflect multi-language support
-- Updated README to reflect new CLI query commands
 - Updated MANUAL.md with current command reference
 
 ## [0.2.0] - 2025-12-28
 
 ### Added
-
-**Multi-language Support**
-- C parser - .c, .h files (tree-sitter-c)
-- C++ parser - .cpp, .cc, .cxx, .hpp files (tree-sitter-cpp)
-- Java parser - .java files (tree-sitter-java)
-- JavaScript parser - .js, .mjs files (tree-sitter-javascript)
-- TypeScript parser - .ts, .tsx files (tree-sitter-typescript)
-- Python parser - .py files (tree-sitter-python)
+- **Multi-language Support** - C, C++, Java, JavaScript, TypeScript, Python parsers
+- **CLI Query Commands** - query, find, refs, files commands
 - Language detection by file extension
-- Parser dispatcher for language-specific extraction
-
-**CLI Query Commands**
-- `magellan query --db <FILE> --file <PATH> [--kind <KIND>]` - List symbols in a file
-- `magellan find --db <FILE> --name <NAME> [--path <PATH>]` - Find symbol by name
-- `magellan refs --db <FILE> --name <NAME> --path <PATH> [--direction <in|out>]` - Show call references
-- `magellan files --db <FILE>` - List all indexed files
-- Case-insensitive symbol kind filtering
-- Multi-file symbol search
-- Incoming/outgoing call graph traversal
-
-**New Modules**
-- `src/ingest/c.rs` - C language parser
-- `src/ingest/cpp.rs` - C++ language parser
-- `src/ingest/java.rs` - Java language parser
-- `src/ingest/javascript.rs` - JavaScript language parser
-- `src/ingest/typescript.rs` - TypeScript language parser
-- `src/ingest/python.rs` - Python language parser
-- `src/ingest/detect.rs` - Language detection by file extension
-- `src/query_cmd.rs` - Query command implementation
-- `src/find_cmd.rs` - Find command implementation
-- `src/refs_cmd.rs` - Refs command implementation
-
-**Tests**
-- `tests/cli_query_tests.rs` - 15 tests for CLI query commands
-- `tests/language_parser_tests.rs` - 159 tests for multi-language parsers
-- Total: 174+ tests across 27+ test suites
 
 ### Changed
-
-- SymbolKind enum now includes: Function, Method, Class, Interface, Enum, Module, Union, Namespace, TypeAlias, Unknown
-- Updated symbol kind mapping for language-agnostic representation
-- Ingest module split into language-specific parsers
-- All modules remain under 300 LOC limit
-
-### Technical
-
-- Added tree-sitter language grammars: c, cpp, java, javascript, typescript, python
-- Language detection based on file extension mapping
-- Unified symbol kind extraction across all languages
+- SymbolKind enum expanded for all languages
 
 ## [0.1.1] - 2025-12-28
 
 ### Added
-
-- `magellan status --db <FILE>` - Database statistics command
-- `magellan verify --root <DIR> --db <FILE>` - Database freshness checking
-- `magellan export --db <FILE>` - JSON export command
-- `--scan-initial` flag - Scan directory on startup
-- Timestamp tracking on File nodes (last_indexed_at, last_modified)
-- Freshness checking module
+- `magellan status` - Database statistics command
+- `magellan verify` - Database freshness checking
+- `magellan export` - JSON export command
+- `--scan-initial` flag
+- Timestamp tracking on File nodes
 
 ### Fixed
-
 - Duplicate File node bug on database reopen
-
-### Changed
-
-- Command structure: separated subcommands instead of flags
-- Database Schema: FileNode now includes timestamps
 
 ## [0.1.0] - 2025-12-24
 
 ### Added
-
 - Core Magellan Binary - Rust-only codebase mapping tool
 - Tree-sitter parsing for Rust source code
 - Reference extraction (function calls, type references)
 - Graph persistence via sqlitegraph
 - Graceful signal handling (SIGINT/SIGTERM)
-- Error reporting with continued processing
-
----
-
-**Project Status:** Active Development
-
-Magellan is a deterministic codebase mapping tool for local development.
-
-What it does:
-- Watches directories for source file changes
-- Extracts AST-level facts (symbols, references, call graphs)
-- Persists to a SQLite graph database
-- Exports to JSON, JSONL, DOT, CSV, SCIP formats
-
-What it does NOT do:
-- Semantic analysis or type checking
-- LSP server or IDE integration
-- Async runtimes or background thread pools
-- Web APIs or network services
-- Configuration files
-
-Testing:
-- Primary development and testing on Linux
-- Path validation: 24 tests
-- Orphan detection: 12 tests
-- SCIP export: 7 round-trip tests
-- Call graph: 5 tests
-- Per-language symbol extraction tests for all 7 supported languages

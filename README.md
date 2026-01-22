@@ -74,12 +74,12 @@ magellan find --db /path/to/magellan.db --list-glob "handler_*"
 # Show call references
 magellan refs --db /path/to/magellan.db --name main --path /path/to/file.rs --direction out
 
-# Query by labels (NEW in 0.5.0)
+# Query by labels
 magellan label --db /path/to/magellan.db --list
 magellan label --db /path/to/magellan.db --label rust --label fn
 magellan label --db /path/to/magellan.db --label struct --show-code
 
-# Get code chunks without re-reading files (NEW in 0.5.0)
+# Get code chunks without re-reading files
 magellan get --db /path/to/magellan.db --file /path/to/file.rs --symbol main
 magellan get-file --db /path/to/magellan.db --file /path/to/file.rs
 
@@ -390,6 +390,7 @@ src/
 ├── ingest/
 │   ├── mod.rs           # Parser dispatcher & Rust parser
 │   ├── detect.rs        # Language detection
+│   ├── pool.rs          # Thread-local parser pool
 │   ├── c.rs             # C parser
 │   ├── cpp.rs           # C++ parser
 │   ├── java.rs          # Java parser
@@ -401,6 +402,9 @@ src/
 ├── refs_cmd.rs          # Refs command
 ├── verify_cmd.rs        # Verify CLI handler
 ├── watch_cmd.rs         # Watch CLI handler
+├── output/              # Output formatting
+├── common.rs            # Shared utilities
+├── validation.rs        # Path validation
 └── graph/
     ├── mod.rs           # CodeGraph API
     ├── schema.rs        # Node/edge types
@@ -415,6 +419,7 @@ src/
     ├── export.rs        # JSON export
     ├── scan.rs          # Scanning operations
     ├── freshness.rs     # Freshness checking
+    ├── cache.rs         # LRU cache
     └── tests.rs         # Graph tests
 ```
 
@@ -434,24 +439,12 @@ Test coverage:
 
 Tests pass on Linux (primary development platform). Other platforms not regularly tested.
 
-## Current Status
+## Known Limitations
 
-**Version:** 1.1.0
-
-**What's Tested:**
-- Symbol extraction for 7 languages (Rust, Python, Java, JavaScript, TypeScript, C, C++)
-- Reference extraction and call graph indexing within files
-- Cross-file call resolution with FQN-based symbol lookup
-- Path traversal validation (CVE-2025-68705 class protections)
-- Delete operations with row-count verification and orphan detection
-- SCIP export format (round-trip verified with scip crate 0.6.1)
-
-**Known Limitations:**
 - **Name-based cross-file matching**: Cross-file call resolution uses simple name fallback; may produce false positives when multiple symbols share the same name
 - **No semantic analysis**: AST-level only; no type checking or cross-module resolution
 - **No incremental parsing**: File changes trigger full re-parse of that file
-- **Single-threaded**: Event processing is sequential
-- **Delete operations**: Not transactional due to sqlitegraph API limitations; uses row-count assertions for verification
+- **Single-threaded watcher**: Event processing is sequential (CodeGraph uses SQLite concurrency)
 - **Cross-crate resolution**: Rust symbols across crates are resolved by name only
 - **Testing**: Primary development and testing on Linux; Windows and macOS not regularly tested in CI
 
@@ -463,6 +456,13 @@ GPL-3.0-or-later
 
 - notify - Filesystem watching
 - tree-sitter - AST parsing
-- sqlitegraph - Graph persistence
+- [sqlitegraph](https://crates.io/crates/sqlitegraph) - Graph persistence ([repository](https://github.com/oldnordic/sqlitegraph))
 - signal-hook - Signal handling
 - walkdir - Directory scanning
+- rayon - Parallel processing
+
+## Project Links
+
+- **Repository:** [https://github.com/oldnordic/magellan](https://github.com/oldnordic/magellan)
+- **Documentation:** [MANUAL.md](https://github.com/oldnordic/magellan/blob/main/MANUAL.md)
+- **Crates.io:** [https://crates.io/crates/magellan](https://crates.io/crates/magellan)

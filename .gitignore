@@ -29,22 +29,40 @@ temp/
 
 # FastEmbed cache
 .fastembed_cache/
+
+# CodeMCP files
 .codemcp/
+codemcp/
+
+# Claude/CodeMCP/AI assistant files (internal only)
+.mcp.json
+AGENTS.md
+CLAUDE.md
+.claude/
 
 # Local context notes
 MAGELLAN_CONTEXT.md
 
-# Claude/CodeMCP files
-.mcp.json
-AGENTS.md
-CLAUDE.md
-codemcp/
-
 # Internal documentation (not for published crate)
-docs/DEVELOPMENT_WORKFLOW.md
-docs/SQLITEGRAPH_ARCHITECTURE.md
-docs/codemcp_manual.md
-docs/codemcp-rename-bug.md
+# Development plans, roadmaps, TODOs, internal research
+docs/*PLAN*.md
+docs/*ROADMAP*.md
+docs/TODO*.md
+docs/LLM_*.md
+docs/SQLITEGRAPH_*.md
+docs/NATIVE_*.md
+docs/INSTRUMENTATION*.md
+docs/DEVELOPMENT_*.md
+docs/SOURCE_TEXT_*.md
+docs/codemcp*.md
+docs/CROSS_FILE*.md
+docs/CLI_SEARCH*.md
+docs/MAGELLAN_IMPROVEMENT*.md
+docs/archive/
 
 # Planning documents (GSD workflow - local only)
 .planning/
+
+# Internal issues/reviews (development only)
+docs/CODE_REVIEW*.md
+docs/COMBINED_ISSUES*.md

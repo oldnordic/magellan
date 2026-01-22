@@ -245,7 +245,7 @@ pub fn warmup_parsers() -> Result<()> {
     ];
 
     for (lang, source) in test_cases {
-        with_parser(lang, |parser| {
+        let _ = with_parser(lang, |parser| {
             parser.parse(source, None);
             Ok::<(), anyhow::Error>(())
         })?;
