@@ -32,7 +32,8 @@ pub fn expected_sqlitegraph_schema_version() -> i64 {
 /// Phase 1 baseline starts at version 1.
 /// Phase 5: added execution_log table for tracking Magellan runs.
 /// Phase 11: FQN-based symbol_id generation (breaking change).
-pub const MAGELLAN_SCHEMA_VERSION: i64 = 3;
+/// Phase 20: Added canonical_fqn/display_fqn fields, switched to BLAKE3 (breaking change).
+pub const MAGELLAN_SCHEMA_VERSION: i64 = 4;
 
 /// Ensure Magellan-owned metadata exists and matches expected versions.
 ///
