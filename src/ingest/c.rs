@@ -47,7 +47,9 @@ impl CParser {
         let mut facts = Vec::new();
 
         // Walk the tree and extract symbols
-        self.walk_tree(&root_node, source, &file_path, &mut facts);
+        // Per decision FQN-17, use "." as project_root placeholder for C
+        let package_name = ".";
+        self.walk_tree(&root_node, source, &file_path, package_name, &mut facts);
 
         facts
     }
@@ -58,17 +60,18 @@ impl CParser {
         node: &tree_sitter::Node,
         source: &[u8],
         file_path: &PathBuf,
+        package_name: &str,
         facts: &mut Vec<SymbolFact>,
     ) {
         // Check if this node is a symbol we care about
-        if let Some(fact) = self.extract_symbol(node, source, file_path) {
+        if let Some(fact) = self.extract_symbol(node, source, file_path, package_name) {
             facts.push(fact);
         }
 
         // Recurse into children
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            self.walk_tree(&child, source, file_path, facts);
+            self.walk_tree(&child, source, file_path, package_name, facts);
         }
     }
 
@@ -78,6 +81,7 @@ impl CParser {
         node: &tree_sitter::Node,
         source: &[u8],
         file_path: &PathBuf,
+        package_name: &str,
     ) -> Option<SymbolFact> {
         let kind = node.kind();
 
@@ -92,6 +96,22 @@ impl CParser {
         // Try to extract name
         let name = self.extract_name(node, source);
 
+        // Compute canonical and display FQNs
+        // C has no namespaces, so we use an empty ScopeStack
+        let scope_stack = ScopeStack::new(ScopeSeparator::DoubleColon);
+        let builder = FqnBuilder::new(
+            package_name.to_string(),
+            file_path.to_string_lossy().to_string(),
+            ScopeSeparator::DoubleColon,
+        );
+        let (canonical_fqn, display_fqn) = if let Some(ref name_str) = name {
+            let canonical = builder.canonical(&scope_stack, symbol_kind.clone(), name_str);
+            let display = builder.display(&scope_stack, symbol_kind.clone(), name_str);
+            (Some(canonical), Some(display))
+        } else {
+            (None, None)
+        };
+
         let normalized_kind = symbol_kind.normalized_key().to_string();
         // C has no namespaces/packages, FQN is just the symbol name
         let fqn = name.clone();
@@ -101,8 +121,8 @@ impl CParser {
             kind_normalized: normalized_kind,
             name,
             fqn,
-            canonical_fqn: None,
-            display_fqn: None,
+            canonical_fqn,
+            display_fqn,
             byte_start: node.start_byte() as usize,
             byte_end: node.end_byte() as usize,
             start_line: node.start_position().row + 1, // tree-sitter is 0-indexed
