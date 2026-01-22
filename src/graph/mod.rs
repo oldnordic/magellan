@@ -92,6 +92,44 @@ impl CodeGraph {
         let sqlite_graph = sqlitegraph::SqliteGraph::open(&db_path_buf)?;
         let backend = Rc::new(SqliteGraphBackend::from_graph(sqlite_graph));
 
+        // Phase 2b: Configure SQLite performance PRAGMAs
+        // Note: sqlitegraph 1.0.0 already configures these in from_connection(),
+        // but we set them explicitly here to ensure they're applied even if
+        // sqlitegraph changes its defaults in future versions.
+        //
+        // These PRAGMA settings are configured on a separate connection but affect
+        // the entire database file (PRAGMA is file-level, not connection-level).
+        let pragma_conn = rusqlite::Connection::open(&db_path_buf)
+            .map_err(|e| anyhow::anyhow!("Failed to open connection for PRAGMA config: {}", e))?;
+
+        // WAL mode for better concurrency (allows reads during writes)
+        // query() returns the new mode value, execute() would error
+        let journal_mode = pragma_conn
+            .query_row("PRAGMA journal_mode = WAL", [], |row| {
+                let mode: String = row.get(0)?;
+                Ok(mode)
+            })
+            .map_err(|e| anyhow::anyhow!("Failed to set WAL mode: {}", e))?;
+        debug_assert_eq!(journal_mode, "wal", "WAL mode should be enabled");
+
+        // Faster writes (safe with WAL mode - durability still guaranteed)
+        pragma_conn
+            .execute("PRAGMA synchronous = NORMAL", [])
+            .map_err(|e| anyhow::anyhow!("Failed to set synchronous: {}", e))?;
+
+        // Increase cache (negative value = KB, -64000 = 64MB)
+        // Note: sqlitegraph also sets this to -64000, ensuring 64MB cache
+        pragma_conn
+            .execute("PRAGMA cache_size = -64000", [])
+            .map_err(|e| anyhow::anyhow!("Failed to set cache_size: {}", e))?;
+
+        // Temp tables in memory (faster than disk)
+        pragma_conn
+            .execute("PRAGMA temp_store = MEMORY", [])
+            .map_err(|e| anyhow::anyhow!("Failed to set temp_store: {}", e))?;
+
+        drop(pragma_conn);
+
         // Build initial file_index from database (lazy initialization)
         let file_index = HashMap::new();
         let mut files = files::FileOps {
