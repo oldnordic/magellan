@@ -196,7 +196,8 @@ pub fn scan_directory_with_filter(
     let file_metadata: Vec<(PathBuf, String, String)> = candidate_files
         .iter()
         .map(|path| {
-            let path_str = path.to_string_lossy().to_string();
+            let path_str = crate::validation::normalize_path(path)
+                .unwrap_or_else(|_| path.to_string_lossy().to_string());
             let rel_path = path
                 .strip_prefix(dir_path)
                 .map(|p| p.to_string_lossy().into_owned())
