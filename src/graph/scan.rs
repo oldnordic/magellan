@@ -1,9 +1,17 @@
 //! Directory scanning operations for CodeGraph
 //!
 //! Handles initial full scan of directory trees for supported source files.
+//!
+//! Parallel processing strategy:
+//! - File I/O is parallelized using rayon for concurrent reads
+//! - Graph writes remain sequential to avoid Mutex contention on CodeGraph
+//! - This maximizes I/O throughput while maintaining correctness
 
 use anyhow::Result;
+use rayon::prelude::*;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use super::{CodeGraph, ScanProgress};
 use crate::diagnostics::{DiagnosticStage, WatchDiagnostic};
@@ -19,20 +27,73 @@ pub struct ScanResult {
     pub diagnostics: Vec<WatchDiagnostic>,
 }
 
+/// Result of parallel file read operation.
+///
+/// Contains either the successfully read file contents and metadata,
+/// or an error diagnostic if reading failed.
+struct FileReadResult {
+    /// Absolute path to the file
+    path_str: String,
+    /// Relative path from scan root (for diagnostics)
+    rel_path: String,
+    /// File contents if read successfully
+    source: Option<Vec<u8>>,
+    /// Error diagnostic if reading failed
+    error: Option<WatchDiagnostic>,
+}
+
+impl FileReadResult {
+    /// Create a successful file read result
+    fn ok(path_str: String, rel_path: String, source: Vec<u8>) -> Self {
+        Self {
+            path_str,
+            rel_path,
+            source: Some(source),
+            error: None,
+        }
+    }
+
+    /// Create a failed file read result
+    fn error(rel_path: String, error_msg: String) -> Self {
+        let diagnostic = WatchDiagnostic::error(
+            rel_path.clone(),
+            DiagnosticStage::Read,
+            error_msg,
+        );
+        Self {
+            path_str: String::new(),
+            rel_path,
+            source: None,
+            error: Some(diagnostic),
+        }
+    }
+
+    /// Returns true if this result contains an error
+    fn is_error(&self) -> bool {
+        self.error.is_some()
+    }
+}
+
 /// Scan a directory and index all supported source files found
 ///
 /// # Behavior
 /// 1. Walk directory recursively
 /// 2. Validate each path is within project root (prevents traversal attacks)
 /// 3. Apply filtering rules (internal ignores, gitignore, include/exclude)
-/// 4. Index each supported file (symbols + references)
-/// 5. Report progress via callback
-/// 6. Collect diagnostics for skipped files and errors
+/// 4. Read files in parallel using rayon
+/// 5. Index each supported file (symbols + references) sequentially
+/// 6. Report progress via callback
+/// 7. Collect diagnostics for skipped files and errors
 ///
 /// # Security
 /// - Path validation prevents directory traversal attacks
 /// - Symlinks are NOT followed during walk (follow_links=false in WalkDir)
 /// - Paths escaping root are rejected and logged as diagnostics
+///
+/// # Performance
+/// - File I/O is parallelized across available CPU cores
+/// - Graph writes are sequential to avoid contention on CodeGraph
+/// - Progress reporting is thread-safe using atomic counter
 ///
 /// # Arguments
 /// * `graph` - CodeGraph instance (mutable for indexing)
@@ -78,7 +139,8 @@ pub fn scan_directory_with_filter(
                 // Path is safe, continue to filtering
             }
             Err(PathValidationError::OutsideRoot(_p, _)) => {
-                let rel_path = path.strip_prefix(dir_path)
+                let rel_path = path
+                    .strip_prefix(dir_path)
                     .unwrap_or(path)
                     .to_string_lossy()
                     .to_string();
@@ -89,7 +151,8 @@ pub fn scan_directory_with_filter(
                 continue;
             }
             Err(PathValidationError::SymlinkEscape(_from, to)) => {
-                let rel_path = path.strip_prefix(dir_path)
+                let rel_path = path
+                    .strip_prefix(dir_path)
                     .unwrap_or(path)
                     .to_string_lossy()
                     .to_string();
@@ -129,41 +192,65 @@ pub fn scan_directory_with_filter(
 
     let total = candidate_files.len();
 
-    // Index each file with error containment
-    for (idx, path) in candidate_files.iter().enumerate() {
-        // Report progress
+    // Phase 1: Parallel file reading (I/O bound)
+    // Prepare file metadata for parallel processing
+    let file_metadata: Vec<(PathBuf, String, String)> = candidate_files
+        .iter()
+        .map(|path| {
+            let path_str = path.to_string_lossy().to_string();
+            let rel_path = path
+                .strip_prefix(dir_path)
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_else(|_| path_str.clone());
+            (path.clone(), path_str, rel_path)
+        })
+        .collect();
+
+    // Process files in parallel using rayon
+    // We use rayon's parallel iterator for I/O bound file reading
+    let read_results: Vec<FileReadResult> = file_metadata
+        .par_iter() // rayon parallel iterator
+        .map(|(path, path_str, rel_path)| {
+            // Read file contents
+            match std::fs::read(path) {
+                Ok(source) => FileReadResult::ok(path_str.clone(), rel_path.clone(), source),
+                Err(e) => FileReadResult::error(rel_path.clone(), e.to_string()),
+            }
+        })
+        .collect();
+
+    // Phase 2: Sequential graph writes (to avoid Mutex contention)
+    // Apply all file data to the graph sequentially
+    let indexed_count = AtomicUsize::new(0);
+
+    for result in read_results {
+        // Update progress counter
+        let current = indexed_count.fetch_add(1, Ordering::Relaxed) + 1;
         if let Some(cb) = progress {
-            cb(idx + 1, total);
+            cb(current, total);
         }
 
-        let path_str = path.to_string_lossy().to_string();
-        let rel_path = path
-            .strip_prefix(dir_path)
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_else(|_| path_str.clone());
-
-        // Read file contents with error handling
-        let source = match std::fs::read(path) {
-            Ok(s) => s,
-            Err(e) => {
-                diagnostics.push(WatchDiagnostic::error(
-                    rel_path,
-                    DiagnosticStage::Read,
-                    e.to_string(),
-                ));
-                continue;
+        // Handle read errors
+        if result.is_error() {
+            if let Some(err) = result.error {
+                diagnostics.push(err);
             }
-        };
+            continue;
+        }
+
+        let path_str = &result.path_str;
+        let rel_path = &result.rel_path;
+        let source = result.source.as_ref().unwrap();
 
         // Delete old data (idempotent)
-        let _ = graph.delete_file(&path_str);
+        let _ = graph.delete_file(path_str);
 
         // Index symbols with error handling
-        match graph.index_file(&path_str, &source) {
+        match graph.index_file(path_str, source) {
             Ok(_) => {}
             Err(e) => {
                 diagnostics.push(WatchDiagnostic::error(
-                    rel_path,
+                    rel_path.clone(),
                     DiagnosticStage::IndexSymbols,
                     e.to_string(),
                 ));
@@ -172,11 +259,11 @@ pub fn scan_directory_with_filter(
         }
 
         // Index references with error handling
-        match graph.index_references(&path_str, &source) {
+        match graph.index_references(path_str, source) {
             Ok(_) => {}
             Err(e) => {
                 diagnostics.push(WatchDiagnostic::error(
-                    rel_path,
+                    rel_path.clone(),
                     DiagnosticStage::IndexReferences,
                     e.to_string(),
                 ));

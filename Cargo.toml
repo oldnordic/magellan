@@ -59,6 +59,7 @@ scip = "0.6.1"
 protobuf = "3.7"
 base64 = "0.22"
 camino = "1.2"
+rayon = "1.11"
 
 [dev-dependencies]
 tempfile = "3.10"
