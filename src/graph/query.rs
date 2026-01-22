@@ -296,9 +296,9 @@ pub fn index_references(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Res
     }
 
     // Index references using ReferenceOps with ALL symbols
-    graph
+    Ok(graph
         .references
-        .index_references(path, source, &symbol_fqn_to_id)
+        .index_references(path, source, &symbol_fqn_to_id)?)
 }
 
 /// Query all references to a specific symbol
