@@ -35,6 +35,7 @@ mod references;
 pub mod scan;
 mod schema;
 pub mod canonical_fqn;
+mod symbol_index;
 mod symbols;
 pub mod validation;
 
