@@ -248,6 +248,11 @@ impl PipelineSharedState {
 
     /// Snapshot and clear the dirty path set.
     ///
+    /// # Lock Ordering
+    ///
+    /// Only acquires dirty_paths lock (no wakeup send).
+    /// Safe to call from any context following global ordering.
+    ///
     /// Returns all dirty paths in lexicographic order and clears the set.
     fn drain_dirty_paths(&self) -> Vec<PathBuf> {
         let mut paths = self.dirty_paths.lock().unwrap();
