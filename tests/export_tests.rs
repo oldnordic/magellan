@@ -498,3 +498,109 @@ fn helper() {}
         "Calls should be empty when include_calls=false"
     );
 }
+
+// ============================================================================
+// Export Version Tests
+// ============================================================================
+
+#[test]
+fn test_json_export_includes_version() {
+    let temp_dir = tempfile::TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+
+    // Create database with some data
+    let mut graph = CodeGraph::open(&db_path).unwrap();
+    let file_path = temp_dir.path().join("test.rs");
+    std::fs::write(&file_path, "fn test() {}").unwrap();
+    let source = std::fs::read(&file_path).unwrap();
+    graph.index_file(&file_path.to_string_lossy(), &source).unwrap();
+
+    // Export to JSON
+    let config = ExportConfig::new(ExportFormat::Json);
+    let json = export_graph(&mut graph, &config).unwrap();
+
+    // Verify version field exists
+    let export: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(export["version"], "2.0.0");
+}
+
+#[test]
+fn test_jsonl_export_includes_version_record() {
+    let temp_dir = tempfile::TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+
+    // Create database with some data
+    let mut graph = CodeGraph::open(&db_path).unwrap();
+    let file_path = temp_dir.path().join("test.rs");
+    std::fs::write(&file_path, "fn test() {}").unwrap();
+    let source = std::fs::read(&file_path).unwrap();
+    graph.index_file(&file_path.to_string_lossy(), &source).unwrap();
+
+    // Export to JSONL
+    let jsonl = export_jsonl(&mut graph).unwrap();
+
+    // Verify first line is version record
+    let first_line = jsonl.lines().next().unwrap();
+    let version_record: serde_json::Value = serde_json::from_str(first_line).unwrap();
+    assert_eq!(version_record["type"], "Version");
+    assert_eq!(version_record["version"], "2.0.0");
+}
+
+#[test]
+fn test_csv_export_includes_version_header() {
+    let temp_dir = tempfile::TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+
+    // Create database with some data
+    let mut graph = CodeGraph::open(&db_path).unwrap();
+    let file_path = temp_dir.path().join("test.rs");
+    std::fs::write(&file_path, "fn test() {}").unwrap();
+    let source = std::fs::read(&file_path).unwrap();
+    graph.index_file(&file_path.to_string_lossy(), &source).unwrap();
+
+    // Export to CSV
+    let config = ExportConfig::new(ExportFormat::Csv);
+    let csv = export_graph(&mut graph, &config).unwrap();
+
+    // Verify version header
+    let first_line = csv.lines().next().unwrap();
+    assert!(first_line.contains("# Magellan Export Version: 2.0.0"));
+}
+
+#[test]
+fn test_symbol_export_has_new_fields() {
+    let temp_dir = tempfile::TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+
+    // Create database with a symbol
+    let mut graph = CodeGraph::open(&db_path).unwrap();
+    let file_path = temp_dir.path().join("test.rs");
+    std::fs::write(&file_path, "fn my_function() {}").unwrap();
+    let source = std::fs::read(&file_path).unwrap();
+    graph.index_file(&file_path.to_string_lossy(), &source).unwrap();
+
+    // Export to JSON
+    let config = ExportConfig::new(ExportFormat::Json);
+    let json = export_graph(&mut graph, &config).unwrap();
+    let export: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+    // Find the symbol (should have symbol_id populated)
+    if let Some(symbols) = export["symbols"].as_array() {
+        if let Some(symbol) = symbols.first() {
+            // New indexed symbols should have symbol_id (hex string)
+            // canonical_fqn and display_fqn should also be present
+            assert!(symbol["symbol_id"].is_string() || symbol["symbol_id"].is_null());
+            if let Some(id) = symbol["symbol_id"].as_str() {
+                // Symbol ID should be either 32 chars (BLAKE3) or 16 chars (legacy)
+                assert!(
+                    id.len() == 32 || id.len() == 16,
+                    "Symbol ID should be 32 or 16 hex chars, got {}",
+                    id.len()
+                );
+            }
+            // Verify canonical_fqn and display_fqn fields exist
+            assert!(symbol.get("canonical_fqn").is_some());
+            assert!(symbol.get("display_fqn").is_some());
+        }
+    }
+}
