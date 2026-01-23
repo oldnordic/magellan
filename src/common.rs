@@ -75,8 +75,7 @@ pub fn resolve_path(file_path: &PathBuf, root: &Option<PathBuf>) -> String {
     };
 
     // Normalize the resolved path
-    normalize_path(&resolved)
-        .unwrap_or_else(|_| resolved.to_string_lossy().to_string())
+    normalize_path(&resolved).unwrap_or_else(|_| resolved.to_string_lossy().to_string())
 }
 
 /// Format a SymbolKind for display
@@ -131,6 +130,53 @@ pub fn parse_symbol_kind(s: &str) -> Option<SymbolKind> {
         "namespace" | "ns" => Some(SymbolKind::Namespace),
         "type" | "typealias" | "type alias" => Some(SymbolKind::TypeAlias),
         _ => None,
+    }
+}
+
+/// Safely extract a byte slice from source with bounds checking
+///
+/// Returns None if the slice range is invalid or exceeds source length.
+/// Use this instead of direct slicing to prevent panics on malformed input.
+///
+/// # Arguments
+/// * `source` - Source byte slice
+/// * `start` - Start byte offset (inclusive)
+/// * `end` - End byte offset (exclusive)
+///
+/// # Returns
+/// Some(&[u8]) if bounds are valid, None otherwise
+///
+/// # Example
+/// ```rust
+/// let source = b"hello world";
+/// let slice = safe_slice(source, 0, 5); // Some(b"hello")
+/// let invalid = safe_slice(source, 10, 20); // None (out of bounds)
+/// ```
+pub fn safe_slice<'a>(source: &'a [u8], start: usize, end: usize) -> Option<&'a [u8]> {
+    if start <= end && end <= source.len() {
+        Some(&source[start..end])
+    } else {
+        None
+    }
+}
+
+/// Safely extract a UTF-8 string slice with bounds checking
+///
+/// Returns None if the slice range is invalid, exceeds source length,
+/// or contains invalid UTF-8 boundaries.
+///
+/// # Arguments
+/// * `source` - Source string
+/// * `start` - Start byte offset (inclusive)
+/// * `end` - End byte offset (exclusive)
+///
+/// # Returns
+/// Some(&str) if bounds are valid and UTF-8 safe, None otherwise
+pub fn safe_str_slice<'a>(source: &'a str, start: usize, end: usize) -> Option<&'a str> {
+    if start <= end && end <= source.len() {
+        source.get(start..end)
+    } else {
+        None
     }
 }
 
