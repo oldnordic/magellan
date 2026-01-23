@@ -2,6 +2,7 @@
 //!
 //! Usage: magellan <command> [arguments]
 
+mod collisions_cmd;
 mod export_cmd;
 mod files_cmd;
 mod find_cmd;
@@ -12,9 +13,10 @@ mod verify_cmd;
 mod watch_cmd;
 
 use anyhow::Result;
-use magellan::{CodeGraph, ExportFormat, OutputFormat, WatcherConfig};
 use magellan::graph::export::ExportFilters;
-use magellan::output::{JsonResponse, StatusResponse, generate_execution_id, output_json};
+use magellan::graph::query::CollisionField;
+use magellan::output::{generate_execution_id, output_json, JsonResponse, StatusResponse};
+use magellan::{CodeGraph, ExportFormat, OutputFormat, WatcherConfig};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -24,7 +26,10 @@ fn version() {
     let date = option_env!("MAGELLAN_BUILD_DATE").unwrap_or("unknown");
     let rustc_version = option_env!("MAGELLAN_RUSTC_VERSION").unwrap_or("unknown");
 
-    println!("magellan {} ({} {}) rustc {}", version, commit, date, rustc_version);
+    println!(
+        "magellan {} ({} {}) rustc {}",
+        version, commit, date, rustc_version
+    );
 }
 
 fn print_usage() {
@@ -35,7 +40,9 @@ fn print_usage() {
     eprintln!("  magellan --help");
     eprintln!();
     eprintln!("  magellan watch --root <DIR> --db <FILE> [--debounce-ms <N>] [--watch-only] [--validate] [--validate-only]");
-    eprintln!("  magellan export --db <FILE> [--format json|jsonl|csv|scip] [--output <PATH>] [--minify]");
+    eprintln!(
+        "  magellan export --db <FILE> [--format json|jsonl|csv|scip] [--output <PATH>] [--minify]"
+    );
     eprintln!("  magellan status --db <FILE>");
     eprintln!("  magellan query --db <FILE> --file <PATH> [--kind <KIND>]");
     eprintln!("  magellan find --db <FILE> --name <NAME> [--path <PATH>]");
@@ -44,6 +51,7 @@ fn print_usage() {
     eprintln!("  magellan get-file --db <FILE> --file <PATH>");
     eprintln!("  magellan files --db <FILE> [--symbols] [--output <FORMAT>]");
     eprintln!("  magellan label --db <FILE> [--label <LABEL>]... [--list] [--count] [--show-code]");
+    eprintln!("  magellan collisions --db <FILE> [--field <fqn|display_fqn|canonical_fqn>] [--limit <N>] [--output <FORMAT>]");
     eprintln!("  magellan verify --root <DIR> --db <FILE>");
     eprintln!();
     eprintln!("Commands:");
@@ -57,6 +65,7 @@ fn print_usage() {
     eprintln!("  get-file  Get all source code chunks for a file");
     eprintln!("  files     List all indexed files");
     eprintln!("  label     Query symbols by label (language, kind, etc.)");
+    eprintln!("  collisions List ambiguous symbol groups for a chosen field");
     eprintln!("  verify    Verify database vs filesystem");
     eprintln!();
     eprintln!("Global arguments:");
@@ -69,7 +78,9 @@ fn print_usage() {
     eprintln!("  --watch-only        Watch for changes only; skip initial directory scan baseline");
     eprintln!("  --scan-initial      Scan directory for source files on startup (default: true; disabled by --watch-only)");
     eprintln!("  --validate          Enable pre-run and post-run validation checks");
-    eprintln!("  --validate-only     Run validation without indexing (pre + post validation, no watch)");
+    eprintln!(
+        "  --validate-only     Run validation without indexing (pre + post validation, no watch)"
+    );
     eprintln!();
     eprintln!("Export arguments:");
     eprintln!("  --db <FILE>         Path to sqlitegraph database");
@@ -79,6 +90,8 @@ fn print_usage() {
     eprintln!("  --no-symbols        Exclude symbols from export");
     eprintln!("  --no-references     Exclude references from export");
     eprintln!("  --no-calls          Exclude calls from export");
+    eprintln!("  --include-collisions Include collision groups (JSON only)");
+    eprintln!("  --collisions-field <FIELD>  Collision field: fqn, display_fqn, canonical_fqn (default: fqn)");
     eprintln!();
     eprintln!("Status arguments:");
     eprintln!("  --db <FILE>         Path to sqlitegraph database");
@@ -156,9 +169,12 @@ enum Command {
         include_references: bool,
         include_calls: bool,
         minify: bool,
+        include_collisions: bool,
+        collisions_field: CollisionField,
         filters: ExportFilters,
     },
-    Status { output_format: OutputFormat,
+    Status {
+        output_format: OutputFormat,
         db_path: PathBuf,
     },
     Query {
@@ -183,6 +199,9 @@ enum Command {
         root: Option<PathBuf>,
         path: Option<PathBuf>,
         glob_pattern: Option<String>,
+        symbol_id: Option<String>,
+        ambiguous_name: Option<String>,
+        first: bool,
         output_format: OutputFormat,
         with_context: bool,
         with_callers: bool,
@@ -233,6 +252,12 @@ enum Command {
         list: bool,
         count: bool,
         show_code: bool,
+    },
+    Collisions {
+        db_path: PathBuf,
+        field: CollisionField,
+        limit: usize,
+        output_format: OutputFormat,
     },
 }
 
@@ -312,8 +337,9 @@ fn parse_args() -> Result<Command> {
                         if i + 1 >= args.len() {
                             return Err(anyhow::anyhow!("--output requires an argument"));
                         }
-                        output_format = OutputFormat::from_str(&args[i + 1])
-                            .ok_or_else(|| anyhow::anyhow!("Invalid output format: {}", args[i + 1]))?;
+                        output_format = OutputFormat::from_str(&args[i + 1]).ok_or_else(|| {
+                            anyhow::anyhow!("Invalid output format: {}", args[i + 1])
+                        })?;
                         i += 2;
                     }
                     _ => {
@@ -324,7 +350,10 @@ fn parse_args() -> Result<Command> {
 
             let root_path = root_path.ok_or_else(|| anyhow::anyhow!("--root is required"))?;
             let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
-            let config = WatcherConfig { root_path: root_path.clone(), debounce_ms };
+            let config = WatcherConfig {
+                root_path: root_path.clone(),
+                debounce_ms,
+            };
 
             // Precedence: --watch-only forces scan_initial to false
             let scan_initial = if watch_only { false } else { scan_initial };
@@ -349,6 +378,8 @@ fn parse_args() -> Result<Command> {
             let mut include_references = true;
             let mut include_calls = true;
             let mut minify = false;
+            let mut include_collisions = false;
+            let mut collisions_field = CollisionField::Fqn;
             let mut filter_file: Option<String> = None;
             let mut filter_symbol: Option<String> = None;
             let mut filter_kind: Option<String> = None;
@@ -396,6 +427,20 @@ fn parse_args() -> Result<Command> {
                         include_calls = false;
                         i += 1;
                     }
+                    "--include-collisions" => {
+                        include_collisions = true;
+                        i += 1;
+                    }
+                    "--collisions-field" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--collisions-field requires an argument"));
+                        }
+                        collisions_field =
+                            CollisionField::from_str(&args[i + 1]).ok_or_else(|| {
+                                anyhow::anyhow!("Invalid collisions field: {}", args[i + 1])
+                            })?;
+                        i += 2;
+                    }
                     "--file" => {
                         if i + 1 >= args.len() {
                             return Err(anyhow::anyhow!("--file requires an argument"));
@@ -421,8 +466,11 @@ fn parse_args() -> Result<Command> {
                         if i + 1 >= args.len() {
                             return Err(anyhow::anyhow!("--max-depth requires an argument"));
                         }
-                        filter_max_depth = Some(args[i + 1].parse()
-                            .map_err(|_| anyhow::anyhow!("--max-depth must be a number"))?);
+                        filter_max_depth = Some(
+                            args[i + 1]
+                                .parse()
+                                .map_err(|_| anyhow::anyhow!("--max-depth must be a number"))?,
+                        );
                         i += 2;
                     }
                     "--cluster" => {
@@ -452,6 +500,8 @@ fn parse_args() -> Result<Command> {
                 include_references,
                 include_calls,
                 minify,
+                include_collisions,
+                collisions_field,
                 filters,
             })
         }
@@ -473,8 +523,9 @@ fn parse_args() -> Result<Command> {
                         if i + 1 >= args.len() {
                             return Err(anyhow::anyhow!("--output requires an argument"));
                         }
-                        output_format = OutputFormat::from_str(&args[i + 1])
-                            .ok_or_else(|| anyhow::anyhow!("Invalid output format: {}", args[i + 1]))?;
+                        output_format = OutputFormat::from_str(&args[i + 1]).ok_or_else(|| {
+                            anyhow::anyhow!("Invalid output format: {}", args[i + 1])
+                        })?;
                         i += 2;
                     }
                     _ => {
@@ -485,7 +536,10 @@ fn parse_args() -> Result<Command> {
 
             let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
 
-            Ok(Command::Status { output_format, db_path })
+            Ok(Command::Status {
+                output_format,
+                db_path,
+            })
         }
         "query" => {
             let mut db_path: Option<PathBuf> = None;
@@ -553,8 +607,9 @@ fn parse_args() -> Result<Command> {
                         if i + 1 >= args.len() {
                             return Err(anyhow::anyhow!("--output requires an argument"));
                         }
-                        output_format = OutputFormat::from_str(&args[i + 1])
-                            .ok_or_else(|| anyhow::anyhow!("Invalid output format: {}", args[i + 1]))?;
+                        output_format = OutputFormat::from_str(&args[i + 1]).ok_or_else(|| {
+                            anyhow::anyhow!("Invalid output format: {}", args[i + 1])
+                        })?;
                         i += 2;
                     }
                     "--with-context" => {
@@ -620,6 +675,9 @@ fn parse_args() -> Result<Command> {
             let mut root: Option<PathBuf> = None;
             let mut path: Option<PathBuf> = None;
             let mut glob_pattern: Option<String> = None;
+            let mut symbol_id: Option<String> = None;
+            let mut ambiguous_name: Option<String> = None;
+            let mut first = false;
             let mut output_format = OutputFormat::Human;
             let mut with_context = false;
             let mut with_callers = false;
@@ -666,12 +724,31 @@ fn parse_args() -> Result<Command> {
                         glob_pattern = Some(args[i + 1].clone());
                         i += 2;
                     }
+                    "--symbol-id" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--symbol-id requires an argument"));
+                        }
+                        symbol_id = Some(args[i + 1].clone());
+                        i += 2;
+                    }
+                    "--ambiguous" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--ambiguous requires an argument"));
+                        }
+                        ambiguous_name = Some(args[i + 1].clone());
+                        i += 2;
+                    }
+                    "--first" => {
+                        first = true;
+                        i += 1;
+                    }
                     "--output" => {
                         if i + 1 >= args.len() {
                             return Err(anyhow::anyhow!("--output requires an argument"));
                         }
-                        output_format = OutputFormat::from_str(&args[i + 1])
-                            .ok_or_else(|| anyhow::anyhow!("Invalid output format: {}", args[i + 1]))?;
+                        output_format = OutputFormat::from_str(&args[i + 1]).ok_or_else(|| {
+                            anyhow::anyhow!("Invalid output format: {}", args[i + 1])
+                        })?;
                         i += 2;
                     }
                     "--with-context" => {
@@ -720,6 +797,9 @@ fn parse_args() -> Result<Command> {
                 root,
                 path,
                 glob_pattern,
+                symbol_id,
+                ambiguous_name,
+                first,
                 output_format,
                 with_context,
                 with_callers,
@@ -783,8 +863,9 @@ fn parse_args() -> Result<Command> {
                         if i + 1 >= args.len() {
                             return Err(anyhow::anyhow!("--output requires an argument"));
                         }
-                        output_format = OutputFormat::from_str(&args[i + 1])
-                            .ok_or_else(|| anyhow::anyhow!("Invalid output format: {}", args[i + 1]))?;
+                        output_format = OutputFormat::from_str(&args[i + 1]).ok_or_else(|| {
+                            anyhow::anyhow!("Invalid output format: {}", args[i + 1])
+                        })?;
                         i += 2;
                     }
                     "--with-context" => {
@@ -848,8 +929,9 @@ fn parse_args() -> Result<Command> {
                         if i + 1 >= args.len() {
                             return Err(anyhow::anyhow!("--output requires an argument"));
                         }
-                        output_format = OutputFormat::from_str(&args[i + 1])
-                            .ok_or_else(|| anyhow::anyhow!("Invalid output format: {}", args[i + 1]))?;
+                        output_format = OutputFormat::from_str(&args[i + 1]).ok_or_else(|| {
+                            anyhow::anyhow!("Invalid output format: {}", args[i + 1])
+                        })?;
                         i += 2;
                     }
                     "--symbols" => {
@@ -864,7 +946,68 @@ fn parse_args() -> Result<Command> {
 
             let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
 
-            Ok(Command::Files { db_path, output_format, with_symbols })
+            Ok(Command::Files {
+                db_path,
+                output_format,
+                with_symbols,
+            })
+        }
+        "collisions" => {
+            let mut db_path: Option<PathBuf> = None;
+            let mut field = CollisionField::Fqn;
+            let mut limit: usize = 50;
+            let mut output_format = OutputFormat::Human;
+
+            let mut i = 2;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--db" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--db requires an argument"));
+                        }
+                        db_path = Some(PathBuf::from(&args[i + 1]));
+                        i += 2;
+                    }
+                    "--field" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--field requires an argument"));
+                        }
+                        field = CollisionField::from_str(&args[i + 1])
+                            .ok_or_else(|| anyhow::anyhow!("Invalid field: {}", args[i + 1]))?;
+                        i += 2;
+                    }
+                    "--limit" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--limit requires an argument"));
+                        }
+                        limit = args[i + 1]
+                            .parse()
+                            .map_err(|_| anyhow::anyhow!("--limit must be a number"))?;
+                        i += 2;
+                    }
+                    "--output" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--output requires an argument"));
+                        }
+                        output_format = OutputFormat::from_str(&args[i + 1]).ok_or_else(|| {
+                            anyhow::anyhow!("Invalid output format: {}", args[i + 1])
+                        })?;
+                        i += 2;
+                    }
+                    _ => {
+                        return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
+                    }
+                }
+            }
+
+            let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+
+            Ok(Command::Collisions {
+                db_path,
+                field,
+                limit,
+                output_format,
+            })
         }
         "verify" => {
             let mut root_path: Option<PathBuf> = None;
@@ -936,8 +1079,9 @@ fn parse_args() -> Result<Command> {
                         if i + 1 >= args.len() {
                             return Err(anyhow::anyhow!("--output requires an argument"));
                         }
-                        output_format = OutputFormat::from_str(&args[i + 1])
-                            .ok_or_else(|| anyhow::anyhow!("Invalid output format: {}", args[i + 1]))?;
+                        output_format = OutputFormat::from_str(&args[i + 1]).ok_or_else(|| {
+                            anyhow::anyhow!("Invalid output format: {}", args[i + 1])
+                        })?;
                         i += 2;
                     }
                     "--with-context" => {
@@ -1010,10 +1154,7 @@ fn parse_args() -> Result<Command> {
             let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
             let file_path = file_path.ok_or_else(|| anyhow::anyhow!("--file is required"))?;
 
-            Ok(Command::GetFile {
-                db_path,
-                file_path,
-            })
+            Ok(Command::GetFile { db_path, file_path })
         }
         "label" => {
             let mut db_path: Option<PathBuf> = None;
@@ -1193,7 +1334,13 @@ fn run_status(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
 
 /// Run label query command
 /// Usage: magellan label --db <FILE> --label <LABEL> [--list] [--count] [--show-code]
-fn run_label(db_path: PathBuf, labels: Vec<String>, list: bool, count: bool, show_code: bool) -> Result<()> {
+fn run_label(
+    db_path: PathBuf,
+    labels: Vec<String>,
+    list: bool,
+    count: bool,
+    show_code: bool,
+) -> Result<()> {
     let graph = CodeGraph::open(&db_path)?;
     let mut args = vec!["label".to_string()];
     for label in &labels {
@@ -1210,11 +1357,7 @@ fn run_label(db_path: PathBuf, labels: Vec<String>, list: bool, count: bool, sho
         args.push("--show-code".to_string());
     }
 
-    let tracker = ExecutionTracker::new(
-        args,
-        None,
-        db_path.to_string_lossy().to_string(),
-    );
+    let tracker = ExecutionTracker::new(args, None, db_path.to_string_lossy().to_string());
     tracker.start(&graph)?;
 
     // List all labels mode
@@ -1268,12 +1411,17 @@ fn run_label(db_path: PathBuf, labels: Vec<String>, list: bool, count: bool, sho
         if labels.len() == 1 {
             println!("{} symbols with label '{}':", results.len(), labels[0]);
         } else {
-            println!("{} symbols with labels [{}]:", results.len(), labels.join(", "));
+            println!(
+                "{} symbols with labels [{}]:",
+                results.len(),
+                labels.join(", ")
+            );
         }
 
         for result in results {
             println!();
-            println!("  {} ({}) in {} [{}-{}]",
+            println!(
+                "  {} ({}) in {} [{}-{}]",
                 result.name, result.kind, result.file_path, result.byte_start, result.byte_end
             );
 
@@ -1281,7 +1429,11 @@ fn run_label(db_path: PathBuf, labels: Vec<String>, list: bool, count: bool, sho
             if show_code {
                 // Get code chunk by exact byte span instead of by name
                 // This avoids getting chunks for other symbols with the same name
-                if let Ok(Some(chunk)) = graph.get_code_chunk_by_span(&result.file_path, result.byte_start, result.byte_end) {
+                if let Ok(Some(chunk)) = graph.get_code_chunk_by_span(
+                    &result.file_path,
+                    result.byte_start,
+                    result.byte_end,
+                ) {
                     for line in chunk.content.lines() {
                         println!("    {}", line);
                     }
@@ -1303,7 +1455,10 @@ fn main() -> ExitCode {
     }
 
     match parse_args() {
-        Ok(Command::Status { output_format, db_path }) => {
+        Ok(Command::Status {
+            output_format,
+            db_path,
+        }) => {
             if let Err(e) = run_status(db_path, output_format) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
@@ -1318,6 +1473,8 @@ fn main() -> ExitCode {
             include_references,
             include_calls,
             minify,
+            include_collisions,
+            collisions_field,
             filters,
         }) => {
             if let Err(e) = export_cmd::run_export(
@@ -1328,6 +1485,8 @@ fn main() -> ExitCode {
                 include_references,
                 include_calls,
                 minify,
+                include_collisions,
+                collisions_field,
                 filters,
             ) {
                 eprintln!("Error: {}", e);
@@ -1378,6 +1537,9 @@ fn main() -> ExitCode {
             root,
             path,
             glob_pattern,
+            symbol_id,
+            ambiguous_name,
+            first,
             output_format,
             with_context,
             with_callers,
@@ -1386,9 +1548,23 @@ fn main() -> ExitCode {
             with_checksums,
             context_lines,
         }) => {
-            if let Err(e) =
-                find_cmd::run_find(db_path, name, root, path, glob_pattern, output_format, with_context, with_callers, with_callees, with_semantics, with_checksums, context_lines)
-            {
+            if let Err(e) = find_cmd::run_find(
+                db_path,
+                name,
+                root,
+                path,
+                glob_pattern,
+                symbol_id,
+                ambiguous_name,
+                first,
+                output_format,
+                with_context,
+                with_callers,
+                with_callees,
+                with_semantics,
+                with_checksums,
+                context_lines,
+            ) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
@@ -1406,9 +1582,18 @@ fn main() -> ExitCode {
             with_checksums,
             context_lines,
         }) => {
-            if let Err(e) =
-                refs_cmd::run_refs(db_path, name, root, path, direction, output_format, with_context, with_semantics, with_checksums, context_lines)
-            {
+            if let Err(e) = refs_cmd::run_refs(
+                db_path,
+                name,
+                root,
+                path,
+                direction,
+                output_format,
+                with_context,
+                with_semantics,
+                with_checksums,
+                context_lines,
+            ) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
@@ -1419,9 +1604,19 @@ fn main() -> ExitCode {
             output_format,
             with_symbols,
         }) => {
-            if let Err(e) =
-                files_cmd::run_files(db_path, with_symbols, output_format)
-            {
+            if let Err(e) = files_cmd::run_files(db_path, with_symbols, output_format) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::Collisions {
+            db_path,
+            field,
+            limit,
+            output_format,
+        }) => {
+            if let Err(e) = collisions_cmd::run_collisions(db_path, field, limit, output_format) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
@@ -1437,7 +1632,16 @@ fn main() -> ExitCode {
             with_checksums,
             context_lines,
         }) => {
-            if let Err(e) = get_cmd::run_get(db_path, file_path, symbol_name, output_format, with_context, with_semantics, with_checksums, context_lines) {
+            if let Err(e) = get_cmd::run_get(
+                db_path,
+                file_path,
+                symbol_name,
+                output_format,
+                with_context,
+                with_semantics,
+                with_checksums,
+                context_lines,
+            ) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }

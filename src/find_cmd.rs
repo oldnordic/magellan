@@ -4,11 +4,11 @@
 
 use anyhow::{Context, Result};
 use globset::GlobBuilder;
-use magellan::{CodeGraph, SymbolKind};
 use magellan::common::{detect_language_from_path, format_symbol_kind, resolve_path};
 use magellan::graph::query;
-use magellan::output::{JsonResponse, OutputFormat, FindResponse, Span, SymbolMatch, output_json};
-use magellan::output::rich::{SpanContext, SpanChecksums};
+use magellan::output::rich::{SpanChecksums, SpanContext};
+use magellan::output::{output_json, FindResponse, JsonResponse, OutputFormat, Span, SymbolMatch};
+use magellan::{CodeGraph, SymbolKind};
 use std::path::PathBuf;
 
 /// Represents a found symbol with its file and node ID
@@ -109,6 +109,9 @@ fn find_all_files(graph: &mut CodeGraph, name: &str) -> Result<Vec<FoundSymbol>>
 /// * `root` - Optional root directory for resolving relative paths
 /// * `path` - Optional file path to limit search
 /// * `glob_pattern` - Optional glob pattern for listing symbols
+/// * `symbol_id` - Optional stable SymbolId for precise lookup
+/// * `ambiguous_name` - Optional display FQN to show all candidates
+/// * `first` - Use first match when ambiguous (deprecated)
 /// * `output_format` - Output format (Human or Json)
 ///
 /// # Displays
@@ -119,10 +122,13 @@ pub fn run_find(
     root: Option<PathBuf>,
     path: Option<PathBuf>,
     glob_pattern: Option<String>,
+    symbol_id: Option<String>,
+    ambiguous_name: Option<String>,
+    first: bool,
     output_format: OutputFormat,
     with_context: bool,
-    _with_callers: bool,  // TODO: Implement caller references in find output
-    _with_callees: bool,  // TODO: Implement callee references in find output
+    _with_callers: bool, // TODO: Implement caller references in find output
+    _with_callees: bool, // TODO: Implement callee references in find output
     with_semantics: bool,
     with_checksums: bool,
     context_lines: usize,
@@ -145,6 +151,17 @@ pub fn run_find(
         args.push("--list-glob".to_string());
         args.push(pattern.clone());
     }
+    if let Some(ref sid) = symbol_id {
+        args.push("--symbol-id".to_string());
+        args.push(sid.clone());
+    }
+    if let Some(ref amb_name) = ambiguous_name {
+        args.push("--ambiguous".to_string());
+        args.push(amb_name.clone());
+    }
+    if first {
+        args.push("--first".to_string());
+    }
 
     let graph = CodeGraph::open(&db_path)?;
     let exec_id = magellan::output::generate_execution_id();
@@ -165,7 +182,9 @@ pub fn run_find(
             &exec_id,
             outcome,
             error_msg.as_deref(),
-            0, 0, 0, // No indexing counts for find command
+            0,
+            0,
+            0, // No indexing counts for find command
         )
     };
 
@@ -175,8 +194,63 @@ pub fn run_find(
         return run_glob_listing(&mut graph_mut, &pattern, output_format, &exec_id);
     }
 
+    // Handle --symbol-id precise lookup
+    if let Some(sid) = symbol_id {
+        let mut graph_lookup = CodeGraph::open(&db_path)?;
+        match query::find_by_symbol_id(&mut graph_lookup, &sid)? {
+            Some(symbol) => {
+                // Output single result in human mode
+                finish_execution("success", None)?;
+                println!("Found symbol ID: {}", sid);
+                if let Some(name) = &symbol.name {
+                    println!("  Name:     {}", name);
+                }
+                println!("  Kind:     {}", symbol.kind);
+                if let Some(canon) = &symbol.canonical_fqn {
+                    println!("  Canonical: {}", canon);
+                }
+                if let Some(display) = &symbol.display_fqn {
+                    println!("  Display:  {}", display);
+                }
+                println!("  Location: Line {}, Column {}", symbol.start_line, symbol.start_col);
+                return Ok(());
+            }
+            None => {
+                finish_execution("success", None)?;
+                eprintln!("Symbol ID '{}' not found", sid);
+                return Ok(());
+            }
+        }
+    }
+
+    // Handle --ambiguous display FQN query
+    if let Some(amb_name) = ambiguous_name {
+        let mut graph_lookup = CodeGraph::open(&db_path)?;
+        let candidates = query::get_ambiguous_candidates(&mut graph_lookup, &amb_name)?;
+
+        if candidates.is_empty() {
+            finish_execution("success", None)?;
+            eprintln!("No symbols found with display name '{}'", amb_name);
+            return Ok(());
+        }
+
+        // Display candidates with SymbolId and canonical FQN
+        for (entity_id, symbol) in candidates.iter().enumerate() {
+            let sid = symbol.1.symbol_id.as_ref().map(|s| s.as_str()).unwrap_or("<none>");
+            let canon = symbol.1.canonical_fqn.as_ref().map(|s| s.as_str()).unwrap_or("<none>");
+            eprintln!("  [{}]", entity_id + 1);
+            eprintln!("    Symbol ID: {}", sid);
+            eprintln!("    Canonical: {}", canon);
+            eprintln!("    Name: {}", symbol.1.name.as_ref().map(|s| s.as_str()).unwrap_or("<none>"));
+            eprintln!("    Kind: {}", symbol.1.kind);
+        }
+
+        finish_execution("success", None)?;
+        return Ok(());
+    }
+
     let name =
-        name.ok_or_else(|| anyhow::anyhow!("--name is required unless --list-glob is provided"))?;
+        name.ok_or_else(|| anyhow::anyhow!("--name is required unless --list-glob, --symbol-id, or --ambiguous is provided"))?;
 
     let mut graph_mut = CodeGraph::open(&db_path)?;
     let results = match path.as_ref() {
@@ -193,7 +267,19 @@ pub fn run_find(
     // Handle JSON output mode
     if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
         finish_execution("success", None)?;
-        return output_json_mode(&name, results, path.as_ref().map(|p| resolve_path(p, &root)), &exec_id, output_format, with_context, false, false, with_semantics, with_checksums, context_lines);
+        return output_json_mode(
+            &name,
+            results,
+            path.as_ref().map(|p| resolve_path(p, &root)),
+            &exec_id,
+            output_format,
+            with_context,
+            false,
+            false,
+            with_semantics,
+            with_checksums,
+            context_lines,
+        );
     }
 
     // Human mode (existing behavior)
@@ -215,17 +301,25 @@ pub fn run_find(
         println!("  Location: Line {}, Column {}", symbol.line, symbol.col);
         println!("  Node ID:  {}", symbol.node_id);
     } else {
-        println!("Found {} symbols named \"{}\":", results.len(), name);
-        for (i, symbol) in results.iter().enumerate() {
-            println!();
-            println!("  [{}]", i + 1);
-            println!("    File:     {}", symbol.file);
+        // Multiple results
+        if first {
+            // Emit deprecation warning
+            eprintln!("WARNING: --first is deprecated. Use --symbol-id for precise lookups.");
+            let symbol = &results[0];
+            println!("Found \"{}\" (using first match):", name);
+            println!("  File:     {}", symbol.file);
             println!(
-                "    Kind:     {} [{}]",
+                "  Kind:     {} [{}]",
                 format_symbol_kind(&symbol.kind),
                 symbol.kind_normalized
             );
-            println!("    Location: Line {}, Column {}", symbol.line, symbol.col);
+            println!("  Location: Line {}, Column {}", symbol.line, symbol.col);
+            println!("  Node ID:  {}", symbol.node_id);
+        } else {
+            // Ambiguous, no --first: show error with guidance
+            eprintln!("Ambiguous symbol name '{}': found {} candidates", name, results.len());
+            eprintln!("Use --ambiguous <name> to see all candidates");
+            eprintln!("Use --first to use first match (deprecated)");
         }
     }
 
@@ -271,12 +365,9 @@ fn output_json_mode(
 
             // Add context if requested
             if with_context {
-                if let Some(context) = SpanContext::extract(
-                    &s.file,
-                    s.start_line,
-                    s.end_line,
-                    context_lines,
-                ) {
+                if let Some(context) =
+                    SpanContext::extract(&s.file, s.start_line, s.end_line, context_lines)
+                {
                     span = span.with_context(context);
                 }
             }
@@ -289,11 +380,7 @@ fn output_json_mode(
 
             // Add checksums if requested
             if with_checksums {
-                let checksums = SpanChecksums::compute(
-                    &s.file,
-                    s.byte_start,
-                    s.byte_end,
-                );
+                let checksums = SpanChecksums::compute(&s.file, s.byte_start, s.byte_end);
                 span = span.with_checksums(checksums);
             }
 
@@ -315,7 +402,12 @@ fn output_json_mode(
     Ok(())
 }
 
-fn run_glob_listing(graph: &mut CodeGraph, pattern: &str, output_format: OutputFormat, exec_id: &str) -> Result<()> {
+fn run_glob_listing(
+    graph: &mut CodeGraph,
+    pattern: &str,
+    output_format: OutputFormat,
+    exec_id: &str,
+) -> Result<()> {
     let glob_matcher = GlobBuilder::new(pattern)
         .case_insensitive(false)
         .build()
