@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use sqlitegraph::{BackendDirection, GraphBackend, NeighborQuery};
 
 use super::{CallNode, CodeGraph, FileNode, ReferenceNode, SymbolNode};
+use crate::graph::query::{collision_groups, CollisionField};
 
 /// Export format options
 ///
@@ -57,6 +58,10 @@ pub struct ExportConfig {
     pub minify: bool,
     /// Filters for export (file, symbol, kind, max_depth, cluster)
     pub filters: ExportFilters,
+    /// Include collision groups in JSON export
+    pub include_collisions: bool,
+    /// Field used to group collisions
+    pub collisions_field: CollisionField,
 }
 
 /// Export filters for DOT export
@@ -126,6 +131,7 @@ fn escape_dot_id(symbol_id: &Option<String>, name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::graph::query::CollisionField;
 
     #[test]
     fn test_escape_dot_label_basic() {
@@ -182,6 +188,41 @@ mod tests {
     fn test_escape_dot_id_empty_name() {
         assert_eq!(escape_dot_id(&None, ""), "");
     }
+
+    #[test]
+    fn test_export_collisions_included_when_enabled() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let mut graph = CodeGraph::open(&db_path).unwrap();
+
+        let file1 = temp_dir.path().join("file1.rs");
+        std::fs::write(&file1, "fn collide() {}\n").unwrap();
+        let file2 = temp_dir.path().join("file2.rs");
+        std::fs::write(&file2, "fn collide() {}\n").unwrap();
+
+        let path1 = file1.to_string_lossy().to_string();
+        let path2 = file2.to_string_lossy().to_string();
+        let source1 = std::fs::read(&file1).unwrap();
+        let source2 = std::fs::read(&file2).unwrap();
+
+        graph.index_file(&path1, &source1).unwrap();
+        graph.index_file(&path2, &source2).unwrap();
+
+        let config = ExportConfig {
+            format: ExportFormat::Json,
+            include_symbols: true,
+            include_references: false,
+            include_calls: false,
+            minify: false,
+            filters: ExportFilters::default(),
+            include_collisions: true,
+            collisions_field: CollisionField::Fqn,
+        };
+
+        let json = export_graph(&mut graph, &config).unwrap();
+        let export: GraphExport = serde_json::from_str(&json).unwrap();
+        assert!(!export.collisions.is_empty());
+    }
 }
 
 impl Default for ExportConfig {
@@ -193,6 +234,8 @@ impl Default for ExportConfig {
             include_calls: true,
             minify: false,
             filters: ExportFilters::default(),
+            include_collisions: false,
+            collisions_field: CollisionField::Fqn,
         }
     }
 }
@@ -234,10 +277,14 @@ impl ExportConfig {
 /// JSON export structure containing all graph data
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphExport {
+    /// Export schema version for parsing stability
+    pub version: String,
     pub files: Vec<FileExport>,
     pub symbols: Vec<SymbolExport>,
     pub references: Vec<ReferenceExport>,
     pub calls: Vec<CallExport>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub collisions: Vec<CollisionExport>,
 }
 
 /// File entry for JSON export
@@ -310,6 +357,59 @@ pub struct CallExport {
     pub end_col: usize,
 }
 
+/// Collision candidate entry for JSON export
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CollisionCandidateExport {
+    pub entity_id: i64,
+    pub symbol_id: Option<String>,
+    pub canonical_fqn: Option<String>,
+    pub display_fqn: Option<String>,
+    pub name: Option<String>,
+    pub file_path: Option<String>,
+}
+
+/// Collision group entry for JSON export
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CollisionExport {
+    pub field: String,
+    pub value: String,
+    pub count: usize,
+    pub candidates: Vec<CollisionCandidateExport>,
+}
+
+fn build_collision_exports(
+    graph: &mut CodeGraph,
+    field: CollisionField,
+    limit: usize,
+) -> Result<Vec<CollisionExport>> {
+    let groups = collision_groups(graph, field, limit)?;
+    let mut exports = Vec::new();
+
+    for group in groups {
+        let candidates = group
+            .candidates
+            .into_iter()
+            .map(|candidate| CollisionCandidateExport {
+                entity_id: candidate.entity_id,
+                symbol_id: candidate.symbol_id,
+                canonical_fqn: candidate.canonical_fqn,
+                display_fqn: candidate.display_fqn,
+                name: candidate.name,
+                file_path: candidate.file_path,
+            })
+            .collect();
+
+        exports.push(CollisionExport {
+            field: group.field,
+            value: group.value,
+            count: group.count,
+            candidates,
+        });
+    }
+
+    Ok(exports)
+}
+
 /// Export all graph data to JSON format
 ///
 /// Note: This function loads all data into memory before serialization.
@@ -322,6 +422,7 @@ pub fn export_json(graph: &mut CodeGraph) -> Result<String> {
     let mut symbols = Vec::new();
     let mut references = Vec::new();
     let mut calls = Vec::new();
+    let collisions = Vec::new();
 
     // Get all entity IDs from the graph
     let entity_ids = graph.files.backend.entity_ids()?;
@@ -414,10 +515,12 @@ pub fn export_json(graph: &mut CodeGraph) -> Result<String> {
     calls.sort_by(|a, b| (&a.file, &a.caller, &a.callee).cmp(&(&b.file, &b.caller, &b.callee)));
 
     let export = GraphExport {
+        version: "2.0.0".to_string(), // v1.5 adds symbol_id, canonical_fqn, display_fqn
         files,
         symbols,
         references,
         calls,
+        collisions,
     };
 
     Ok(serde_json::to_string_pretty(&export)?)
@@ -436,11 +539,16 @@ pub fn export_json(graph: &mut CodeGraph) -> Result<String> {
 ///
 /// # Returns
 /// Result indicating success or failure
-pub fn stream_json<W: std::io::Write>(graph: &mut CodeGraph, config: &ExportConfig, writer: &mut W) -> Result<()> {
+pub fn stream_json<W: std::io::Write>(
+    graph: &mut CodeGraph,
+    config: &ExportConfig,
+    writer: &mut W,
+) -> Result<()> {
     let mut files = Vec::new();
     let mut symbols = Vec::new();
     let mut references = Vec::new();
     let mut calls = Vec::new();
+    let mut collisions = Vec::new();
 
     // Get all entity IDs from the graph
     let entity_ids = graph.files.backend.entity_ids()?;
@@ -460,7 +568,9 @@ pub fn stream_json<W: std::io::Write>(graph: &mut CodeGraph, config: &ExportConf
             }
             "Symbol" => {
                 if config.include_symbols {
-                    if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(entity.data.clone()) {
+                    if let Ok(symbol_node) =
+                        serde_json::from_value::<SymbolNode>(entity.data.clone())
+                    {
                         let file = get_file_path_from_symbol(graph, entity_id)?;
                         symbols.push(SymbolExport {
                             symbol_id: symbol_node.symbol_id,
@@ -482,7 +592,9 @@ pub fn stream_json<W: std::io::Write>(graph: &mut CodeGraph, config: &ExportConf
             }
             "Reference" => {
                 if config.include_references {
-                    if let Ok(ref_node) = serde_json::from_value::<ReferenceNode>(entity.data.clone()) {
+                    if let Ok(ref_node) =
+                        serde_json::from_value::<ReferenceNode>(entity.data.clone())
+                    {
                         let referenced_symbol = entity
                             .name
                             .strip_prefix("ref to ")
@@ -528,6 +640,10 @@ pub fn stream_json<W: std::io::Write>(graph: &mut CodeGraph, config: &ExportConf
         }
     }
 
+    if config.include_collisions {
+        collisions = build_collision_exports(graph, config.collisions_field, usize::MAX)?;
+    }
+
     // Sort for deterministic output
     files.sort_by(|a, b| a.path.cmp(&b.path));
     symbols.sort_by(|a, b| (&a.file, &a.name).cmp(&(&b.file, &b.name)));
@@ -536,10 +652,12 @@ pub fn stream_json<W: std::io::Write>(graph: &mut CodeGraph, config: &ExportConf
     calls.sort_by(|a, b| (&a.file, &a.caller, &a.callee).cmp(&(&b.file, &b.caller, &b.callee)));
 
     let export = GraphExport {
+        version: "2.0.0".to_string(), // v1.5 adds symbol_id, canonical_fqn, display_fqn
         files,
         symbols,
         references,
         calls,
+        collisions,
     };
 
     // Stream to writer instead of returning String
@@ -558,11 +676,16 @@ pub fn stream_json<W: std::io::Write>(graph: &mut CodeGraph, config: &ExportConf
 ///
 /// # Returns
 /// Result indicating success or failure
-pub fn stream_json_minified<W: std::io::Write>(graph: &mut CodeGraph, config: &ExportConfig, writer: &mut W) -> Result<()> {
+pub fn stream_json_minified<W: std::io::Write>(
+    graph: &mut CodeGraph,
+    config: &ExportConfig,
+    writer: &mut W,
+) -> Result<()> {
     let mut files = Vec::new();
     let mut symbols = Vec::new();
     let mut references = Vec::new();
     let mut calls = Vec::new();
+    let mut collisions = Vec::new();
 
     // Get all entity IDs from the graph
     let entity_ids = graph.files.backend.entity_ids()?;
@@ -582,7 +705,9 @@ pub fn stream_json_minified<W: std::io::Write>(graph: &mut CodeGraph, config: &E
             }
             "Symbol" => {
                 if config.include_symbols {
-                    if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(entity.data.clone()) {
+                    if let Ok(symbol_node) =
+                        serde_json::from_value::<SymbolNode>(entity.data.clone())
+                    {
                         let file = get_file_path_from_symbol(graph, entity_id)?;
                         symbols.push(SymbolExport {
                             symbol_id: symbol_node.symbol_id,
@@ -604,7 +729,9 @@ pub fn stream_json_minified<W: std::io::Write>(graph: &mut CodeGraph, config: &E
             }
             "Reference" => {
                 if config.include_references {
-                    if let Ok(ref_node) = serde_json::from_value::<ReferenceNode>(entity.data.clone()) {
+                    if let Ok(ref_node) =
+                        serde_json::from_value::<ReferenceNode>(entity.data.clone())
+                    {
                         let referenced_symbol = entity
                             .name
                             .strip_prefix("ref to ")
@@ -650,6 +777,10 @@ pub fn stream_json_minified<W: std::io::Write>(graph: &mut CodeGraph, config: &E
         }
     }
 
+    if config.include_collisions {
+        collisions = build_collision_exports(graph, config.collisions_field, usize::MAX)?;
+    }
+
     // Sort for deterministic output
     files.sort_by(|a, b| a.path.cmp(&b.path));
     symbols.sort_by(|a, b| (&a.file, &a.name).cmp(&(&b.file, &b.name)));
@@ -658,10 +789,12 @@ pub fn stream_json_minified<W: std::io::Write>(graph: &mut CodeGraph, config: &E
     calls.sort_by(|a, b| (&a.file, &a.caller, &a.callee).cmp(&(&b.file, &b.caller, &b.callee)));
 
     let export = GraphExport {
+        version: "2.0.0".to_string(), // v1.5 adds symbol_id, canonical_fqn, display_fqn
         files,
         symbols,
         references,
         calls,
+        collisions,
     };
 
     // Stream to writer using compact serialization (minified)
@@ -797,7 +930,9 @@ pub fn export_jsonl(graph: &mut CodeGraph) -> Result<String> {
     // Sort deterministically before output
     records.sort_by(|a, b| match (a, b) {
         (JsonlRecord::File(a), JsonlRecord::File(b)) => a.path.cmp(&b.path),
-        (JsonlRecord::Symbol(a), JsonlRecord::Symbol(b)) => (&a.file, &a.name).cmp(&(&b.file, &b.name)),
+        (JsonlRecord::Symbol(a), JsonlRecord::Symbol(b)) => {
+            (&a.file, &a.name).cmp(&(&b.file, &b.name))
+        }
         (JsonlRecord::Reference(a), JsonlRecord::Reference(b)) => {
             (&a.file, &a.referenced_symbol).cmp(&(&b.file, &b.referenced_symbol))
         }
@@ -814,10 +949,7 @@ pub fn export_jsonl(graph: &mut CodeGraph) -> Result<String> {
     });
 
     // Serialize each record to compact JSON and join with newlines
-    let lines: Result<Vec<String>, _> = records
-        .iter()
-        .map(|r| serde_json::to_string(r))
-        .collect();
+    let lines: Result<Vec<String>, _> = records.iter().map(|r| serde_json::to_string(r)).collect();
     let lines = lines?;
 
     Ok(lines.join("\n"))
@@ -835,7 +967,11 @@ pub fn export_jsonl(graph: &mut CodeGraph) -> Result<String> {
 ///
 /// # Returns
 /// Result indicating success or failure
-pub fn stream_ndjson<W: std::io::Write>(graph: &mut CodeGraph, config: &ExportConfig, writer: &mut W) -> Result<()> {
+pub fn stream_ndjson<W: std::io::Write>(
+    graph: &mut CodeGraph,
+    config: &ExportConfig,
+    writer: &mut W,
+) -> Result<()> {
     let mut records = Vec::new();
 
     // Get all entity IDs from the graph
@@ -856,7 +992,9 @@ pub fn stream_ndjson<W: std::io::Write>(graph: &mut CodeGraph, config: &ExportCo
             }
             "Symbol" => {
                 if config.include_symbols {
-                    if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(entity.data.clone()) {
+                    if let Ok(symbol_node) =
+                        serde_json::from_value::<SymbolNode>(entity.data.clone())
+                    {
                         let file = get_file_path_from_symbol(graph, entity_id)?;
                         records.push(JsonlRecord::Symbol(SymbolExport {
                             symbol_id: symbol_node.symbol_id,
@@ -878,7 +1016,9 @@ pub fn stream_ndjson<W: std::io::Write>(graph: &mut CodeGraph, config: &ExportCo
             }
             "Reference" => {
                 if config.include_references {
-                    if let Ok(ref_node) = serde_json::from_value::<ReferenceNode>(entity.data.clone()) {
+                    if let Ok(ref_node) =
+                        serde_json::from_value::<ReferenceNode>(entity.data.clone())
+                    {
                         let referenced_symbol = entity
                             .name
                             .strip_prefix("ref to ")
@@ -927,7 +1067,9 @@ pub fn stream_ndjson<W: std::io::Write>(graph: &mut CodeGraph, config: &ExportCo
     // Sort deterministically before output
     records.sort_by(|a, b| match (a, b) {
         (JsonlRecord::File(a), JsonlRecord::File(b)) => a.path.cmp(&b.path),
-        (JsonlRecord::Symbol(a), JsonlRecord::Symbol(b)) => (&a.file, &a.name).cmp(&(&b.file, &b.name)),
+        (JsonlRecord::Symbol(a), JsonlRecord::Symbol(b)) => {
+            (&a.file, &a.name).cmp(&(&b.file, &b.name))
+        }
         (JsonlRecord::Reference(a), JsonlRecord::Reference(b)) => {
             (&a.file, &a.referenced_symbol).cmp(&(&b.file, &b.referenced_symbol))
         }
@@ -949,7 +1091,8 @@ pub fn stream_ndjson<W: std::io::Write>(graph: &mut CodeGraph, config: &ExportCo
         if !first {
             writeln!(&mut *writer)?;
         }
-        serde_json::to_writer(&mut *writer, &record).map_err(|e| anyhow::anyhow!("JSON serialization error: {}", e))?;
+        serde_json::to_writer(&mut *writer, &record)
+            .map_err(|e| anyhow::anyhow!("JSON serialization error: {}", e))?;
         first = false;
     }
 
@@ -1002,7 +1145,8 @@ pub fn export_dot(graph: &mut CodeGraph, config: &ExportConfig) -> Result<String
 
     // Sort deterministically: file, then caller, then callee
     calls.sort_by(|a, b| {
-        a.file.cmp(&b.file)
+        a.file
+            .cmp(&b.file)
             .then_with(|| a.caller.cmp(&b.caller))
             .then_with(|| a.callee.cmp(&b.callee))
     });
@@ -1012,10 +1156,16 @@ pub fn export_dot(graph: &mut CodeGraph, config: &ExportConfig) -> Result<String
     let mut file_to_nodes: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
 
     for call in &calls {
-        for (name, symbol_id) in [(call.caller.as_str(), call.caller_symbol_id.as_ref()),
-                                   (call.callee.as_str(), call.callee_symbol_id.as_ref())] {
+        for (name, symbol_id) in [
+            (call.caller.as_str(), call.caller_symbol_id.as_ref()),
+            (call.callee.as_str(), call.callee_symbol_id.as_ref()),
+        ] {
             let node_id = escape_dot_id(&symbol_id.cloned(), name);
-            let label = format!("{}\\n{}", escape_dot_label(name), escape_dot_label(&call.file));
+            let label = format!(
+                "{}\\n{}",
+                escape_dot_label(name),
+                escape_dot_label(&call.file)
+            );
             nodes.insert((node_id.clone(), label.clone()));
 
             if config.filters.cluster {
@@ -1032,7 +1182,8 @@ pub fn export_dot(graph: &mut CodeGraph, config: &ExportConfig) -> Result<String
         // Group nodes by file into subgraphs
         for (file, file_nodes) in &file_to_nodes {
             // Create a sanitized cluster ID from file path
-            let cluster_id = file.chars()
+            let cluster_id = file
+                .chars()
                 .map(|c| if c.is_alphanumeric() { c } else { '_' })
                 .collect::<String>();
 
@@ -1089,10 +1240,12 @@ pub fn export_graph(graph: &mut CodeGraph, config: &ExportConfig) -> Result<Stri
         return match config.format {
             ExportFormat::Json => {
                 let empty = GraphExport {
+                    version: "2.0.0".to_string(),
                     files: Vec::new(),
                     symbols: Vec::new(),
                     references: Vec::new(),
                     calls: Vec::new(),
+                    collisions: Vec::new(),
                 };
                 if config.minify {
                     serde_json::to_string(&empty).map_err(Into::into)
@@ -1105,7 +1258,10 @@ pub fn export_graph(graph: &mut CodeGraph, config: &ExportConfig) -> Result<Stri
                 // Empty DOT graph
                 Ok("strict digraph call_graph {\n}\n".to_string())
             }
-            _ => Err(anyhow::anyhow!("Export format {:?} not yet implemented", config.format)),
+            _ => Err(anyhow::anyhow!(
+                "Export format {:?} not yet implemented",
+                config.format
+            )),
         };
     }
 
@@ -1115,6 +1271,7 @@ pub fn export_graph(graph: &mut CodeGraph, config: &ExportConfig) -> Result<Stri
             let mut symbols = Vec::new();
             let mut references = Vec::new();
             let mut calls = Vec::new();
+            let mut collisions = Vec::new();
 
             // Get all entity IDs from the graph
             let entity_ids = graph.files.backend.entity_ids()?;
@@ -1125,7 +1282,9 @@ pub fn export_graph(graph: &mut CodeGraph, config: &ExportConfig) -> Result<Stri
 
                 match entity.kind.as_str() {
                     "File" => {
-                        if let Ok(file_node) = serde_json::from_value::<FileNode>(entity.data.clone()) {
+                        if let Ok(file_node) =
+                            serde_json::from_value::<FileNode>(entity.data.clone())
+                        {
                             files.push(FileExport {
                                 path: file_node.path,
                                 hash: file_node.hash,
@@ -1134,7 +1293,9 @@ pub fn export_graph(graph: &mut CodeGraph, config: &ExportConfig) -> Result<Stri
                     }
                     "Symbol" => {
                         if config.include_symbols {
-                            if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(entity.data.clone()) {
+                            if let Ok(symbol_node) =
+                                serde_json::from_value::<SymbolNode>(entity.data.clone())
+                            {
                                 let file = get_file_path_from_symbol(graph, entity_id)?;
                                 symbols.push(SymbolExport {
                                     symbol_id: symbol_node.symbol_id,
@@ -1156,7 +1317,9 @@ pub fn export_graph(graph: &mut CodeGraph, config: &ExportConfig) -> Result<Stri
                     }
                     "Reference" => {
                         if config.include_references {
-                            if let Ok(ref_node) = serde_json::from_value::<ReferenceNode>(entity.data.clone()) {
+                            if let Ok(ref_node) =
+                                serde_json::from_value::<ReferenceNode>(entity.data.clone())
+                            {
                                 let referenced_symbol = entity
                                     .name
                                     .strip_prefix("ref to ")
@@ -1179,7 +1342,9 @@ pub fn export_graph(graph: &mut CodeGraph, config: &ExportConfig) -> Result<Stri
                     }
                     "Call" => {
                         if config.include_calls {
-                            if let Ok(call_node) = serde_json::from_value::<CallNode>(entity.data.clone()) {
+                            if let Ok(call_node) =
+                                serde_json::from_value::<CallNode>(entity.data.clone())
+                            {
                                 calls.push(CallExport {
                                     file: call_node.file,
                                     caller: call_node.caller,
@@ -1202,17 +1367,27 @@ pub fn export_graph(graph: &mut CodeGraph, config: &ExportConfig) -> Result<Stri
                 }
             }
 
+            if config.include_collisions {
+                collisions = build_collision_exports(graph, config.collisions_field, usize::MAX)?;
+            }
+
             // Sort for deterministic output
             files.sort_by(|a, b| a.path.cmp(&b.path));
             symbols.sort_by(|a, b| (&a.file, &a.name).cmp(&(&b.file, &b.name)));
-            references.sort_by(|a, b| (&a.file, &a.referenced_symbol).cmp(&(&b.file, &b.referenced_symbol)));
-            calls.sort_by(|a, b| (&a.file, &a.caller, &a.callee).cmp(&(&b.file, &b.caller, &b.callee)));
+            references.sort_by(|a, b| {
+                (&a.file, &a.referenced_symbol).cmp(&(&b.file, &b.referenced_symbol))
+            });
+            calls.sort_by(|a, b| {
+                (&a.file, &a.caller, &a.callee).cmp(&(&b.file, &b.caller, &b.callee))
+            });
 
             let export = GraphExport {
+                version: "2.0.0".to_string(), // v1.5 adds symbol_id, canonical_fqn, display_fqn
                 files,
                 symbols,
                 references,
                 calls,
+                collisions,
             };
 
             if config.minify {
@@ -1365,7 +1540,9 @@ pub fn export_csv(graph: &mut CodeGraph, config: &ExportConfig) -> Result<String
         match entity.kind.as_str() {
             "Symbol" => {
                 if config.include_symbols {
-                    if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(entity.data.clone()) {
+                    if let Ok(symbol_node) =
+                        serde_json::from_value::<SymbolNode>(entity.data.clone())
+                    {
                         let file = get_file_path_from_symbol(graph, entity_id)?;
                         records.push(CsvRecord::Symbol(SymbolCsvRow {
                             record_type: "Symbol".to_string(),
@@ -1386,7 +1563,9 @@ pub fn export_csv(graph: &mut CodeGraph, config: &ExportConfig) -> Result<String
             }
             "Reference" => {
                 if config.include_references {
-                    if let Ok(ref_node) = serde_json::from_value::<ReferenceNode>(entity.data.clone()) {
+                    if let Ok(ref_node) =
+                        serde_json::from_value::<ReferenceNode>(entity.data.clone())
+                    {
                         let referenced_symbol = entity
                             .name
                             .strip_prefix("ref to ")
@@ -1439,14 +1618,14 @@ pub fn export_csv(graph: &mut CodeGraph, config: &ExportConfig) -> Result<String
         (CsvRecord::Symbol(a), CsvRecord::Symbol(b)) => {
             (&a.record_type, &a.file, &a.name).cmp(&(&b.record_type, &b.file, &b.name))
         }
-        (CsvRecord::Reference(a), CsvRecord::Reference(b)) => {
-            (&a.record_type, &a.file, &a.referenced_symbol)
-                .cmp(&(&b.record_type, &b.file, &b.referenced_symbol))
-        }
-        (CsvRecord::Call(a), CsvRecord::Call(b)) => {
-            (&a.record_type, &a.file, &a.caller, &a.callee)
-                .cmp(&(&b.record_type, &b.file, &b.caller, &b.callee))
-        }
+        (CsvRecord::Reference(a), CsvRecord::Reference(b)) => (
+            &a.record_type,
+            &a.file,
+            &a.referenced_symbol,
+        )
+            .cmp(&(&b.record_type, &b.file, &b.referenced_symbol)),
+        (CsvRecord::Call(a), CsvRecord::Call(b)) => (&a.record_type, &a.file, &a.caller, &a.callee)
+            .cmp(&(&b.record_type, &b.file, &b.caller, &b.callee)),
         // Type ordering: Reference < Call (no Symbol in mixed output since fields differ)
         // For simplicity in combined output, we just use record_type
         _ => std::cmp::Ordering::Equal,
@@ -1466,6 +1645,5 @@ pub fn export_csv(graph: &mut CodeGraph, config: &ExportConfig) -> Result<String
         writer.flush()?;
     }
 
-    String::from_utf8(buffer)
-        .map_err(|e| anyhow::anyhow!("CSV output is not valid UTF-8: {}", e))
+    String::from_utf8(buffer).map_err(|e| anyhow::anyhow!("CSV output is not valid UTF-8: {}", e))
 }
