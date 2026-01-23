@@ -18,9 +18,11 @@
 //!
 //! **Workaround:** Use file-based databases for CodeGraph operations.
 //! See [MANUAL.md](../../MANUAL.md#known-limitations) for details.
+pub mod ambiguity;
+mod cache;
 mod call_ops;
 mod calls;
-mod cache;
+pub mod canonical_fqn;
 mod count;
 pub mod crate_name;
 mod db_compat;
@@ -34,7 +36,6 @@ pub mod query;
 mod references;
 pub mod scan;
 mod schema;
-pub mod canonical_fqn;
 mod symbol_index;
 mod symbols;
 pub mod validation;
@@ -145,8 +146,9 @@ impl CodeGraph {
         // Scoped block ensures connection closes even if PRAGMA operations fail.
         // Without this scope, early returns via ? would leak the connection.
         {
-            let pragma_conn = rusqlite::Connection::open(&db_path_buf)
-                .map_err(|e| anyhow::anyhow!("Failed to open connection for PRAGMA config: {}", e))?;
+            let pragma_conn = rusqlite::Connection::open(&db_path_buf).map_err(|e| {
+                anyhow::anyhow!("Failed to open connection for PRAGMA config: {}", e)
+            })?;
 
             // WAL mode for better concurrency (allows reads during writes)
             // query() returns the new mode value, execute() would error
@@ -197,8 +199,9 @@ impl CodeGraph {
 
         // Open a shared connection for ChunkStore to enable transactional operations
         // This allows chunk operations to participate in transactions with graph operations
-        let shared_conn = rusqlite::Connection::open(&db_path_buf)
-            .map_err(|e| anyhow::anyhow!("Failed to open shared connection for ChunkStore: {}", e))?;
+        let shared_conn = rusqlite::Connection::open(&db_path_buf).map_err(|e| {
+            anyhow::anyhow!("Failed to open shared connection for ChunkStore: {}", e)
+        })?;
 
         // Initialize ChunkStore with shared connection and ensure schema exists
         let chunks = ChunkStore::with_connection(shared_conn);
