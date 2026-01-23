@@ -6,12 +6,13 @@
 //!
 //! # Threading Design
 //!
-//! This watcher is single-threaded by design. The `RefCell` usage provides
-//! interior mutability without runtime locking overhead, which is appropriate
-//! for single-threaded contexts.
+//! This watcher uses thread-safe synchronization for concurrent access.
+//! The legacy pending state fields use `Arc<Mutex<T>>` to allow safe access
+//! from multiple threads during concurrent operations and shutdown.
 //!
-//! **Note:** `RefCell` is NOT thread-safe. If multi-threaded access is needed
-//! in the future, replace `RefCell<T>` with `Arc<Mutex<T>>`.
+//! **Thread safety:** `Arc<Mutex<T>>` provides runtime mutual exclusion
+//! and is safe to share across threads. The mutex will panic if poisoned
+//! (consistent with RefCell behavior).
 //!
 //! # Global Lock Ordering
 //!
