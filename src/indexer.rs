@@ -2,6 +2,16 @@
 //!
 //! Wires filesystem watcher events to graph updates.
 //! Maintains synchronous consistency between filesystem and sqlitegraph.
+//!
+//! # Lock Ordering
+//!
+//! This module defines the global lock ordering hierarchy:
+//!
+//! 1. **dirty_paths lock** (PipelineSharedState)—acquired first
+//! 2. **wakeup channel send**—acquired last
+//!
+//! **Rule:** Never send to wakeup channel while holding other locks.
+//! See `PipelineSharedState` for detailed documentation.
 
 use anyhow::Result;
 use std::collections::BTreeSet;
@@ -212,6 +222,21 @@ impl PipelineSharedState {
     }
 
     /// Insert multiple dirty paths from a batch.
+    ///
+    /// # Lock Ordering
+    ///
+    /// Follows global ordering: dirty_paths -> wakeup send.
+    /// Lock is held during send to prevent lost wakeup race condition.
+    ///
+    /// # Why Lock Held During Send
+    ///
+    /// If lock is released before send:
+    /// 1. Thread A inserts paths, releases lock
+    /// 2. Thread B drains paths (finds data, processes it)
+    /// 3. Thread A sends wakeup signal
+    /// 4. Main thread wakes up, drains paths (finds empty—LOST DATA)
+    ///
+    /// By holding lock during send, we ensure data isn't drained before wakeup.
     fn insert_dirty_paths(&self, paths: &[PathBuf]) {
         let mut dirty_paths = self.dirty_paths.lock().unwrap();
         for path in paths {
