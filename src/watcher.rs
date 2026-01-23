@@ -13,6 +13,18 @@
 //! **Note:** `RefCell` is NOT thread-safe. If multi-threaded access is needed
 //! in the future, replace `RefCell<T>` with `Arc<Mutex<T>>`.
 //!
+//! # Global Lock Ordering
+//!
+//! This module participates in the global lock ordering hierarchy:
+//!
+//! 1. **watcher state locks** (legacy_pending_batch, legacy_pending_index)—acquired first
+//! 2. **indexer shared state locks** (dirty_paths)—acquired second
+//! 3. **wakeup channel send** (highest priority)—acquired last
+//!
+//! **Rule:** Never send to wakeup channel while holding other locks.
+//!
+//! See `src/indexer.rs::PipelineSharedState` for full lock ordering documentation.
+//!
 //! See MANUAL.md for architecture details.
 
 use anyhow::Result;
@@ -83,9 +95,11 @@ pub struct FileSystemWatcher {
     _watcher_thread: thread::JoinHandle<()>,
     batch_receiver: Receiver<WatcherBatch>,
     /// Legacy compatibility: pending batch to emit one path at a time
-    legacy_pending_batch: RefCell<Option<WatcherBatch>>,
+    /// Thread-safe: wrapped in Arc<Mutex<T>> for concurrent access
+    legacy_pending_batch: Arc<Mutex<Option<WatcherBatch>>>,
     /// Legacy compatibility: current index into pending batch
-    legacy_pending_index: RefCell<usize>,
+    /// Thread-safe: wrapped in Arc<Mutex<T>> for concurrent access
+    legacy_pending_index: Arc<Mutex<usize>>,
 }
 
 impl FileSystemWatcher {
