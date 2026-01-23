@@ -2,6 +2,7 @@
 //!
 //! Extracts functions, classes, and async functions from Python source code.
 
+use crate::common::safe_slice;
 use crate::graph::canonical_fqn::FqnBuilder;
 use crate::ingest::{ScopeSeparator, ScopeStack, SymbolFact, SymbolKind};
 use crate::references::{CallFact, ReferenceFact};
@@ -51,7 +52,14 @@ impl PythonParser {
         let package_name = ".";
 
         // Walk tree with scope tracking
-        self.walk_tree_with_scope(&root_node, source, &file_path, &mut facts, &mut scope_stack, package_name);
+        self.walk_tree_with_scope(
+            &root_node,
+            source,
+            &file_path,
+            &mut facts,
+            &mut scope_stack,
+            package_name,
+        );
 
         facts
     }
@@ -75,14 +83,23 @@ impl PythonParser {
         if kind == "class_definition" {
             if let Some(name) = self.extract_name(node, source) {
                 // Create class symbol with parent scope
-                if let Some(fact) = self.extract_symbol_with_fqn(node, source, file_path, scope_stack, package_name) {
+                if let Some(fact) =
+                    self.extract_symbol_with_fqn(node, source, file_path, scope_stack, package_name)
+                {
                     facts.push(fact);
                 }
                 // Push class scope for children
                 scope_stack.push(&name);
                 let mut cursor = node.walk();
                 for child in node.children(&mut cursor) {
-                    self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack, package_name);
+                    self.walk_tree_with_scope(
+                        &child,
+                        source,
+                        file_path,
+                        facts,
+                        scope_stack,
+                        package_name,
+                    );
                 }
                 scope_stack.pop();
                 return;
@@ -90,7 +107,9 @@ impl PythonParser {
         }
 
         // Check if this node is a symbol we care about
-        if let Some(fact) = self.extract_symbol_with_fqn(node, source, file_path, scope_stack, package_name) {
+        if let Some(fact) =
+            self.extract_symbol_with_fqn(node, source, file_path, scope_stack, package_name)
+        {
             facts.push(fact);
         }
 
@@ -159,7 +178,7 @@ impl PythonParser {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "identifier" {
-                let name_bytes = &source[child.start_byte() as usize..child.end_byte() as usize];
+                let name_bytes = safe_slice(source, child.start_byte() as usize, child.end_byte() as usize)?;
                 return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
             }
         }
@@ -189,7 +208,14 @@ impl PythonParser {
         let package_name = ".";
 
         // Walk tree with scope tracking
-        Self::walk_tree_with_scope_static(&root_node, source, &file_path, &mut facts, &mut scope_stack, package_name);
+        Self::walk_tree_with_scope_static(
+            &root_node,
+            source,
+            &file_path,
+            &mut facts,
+            &mut scope_stack,
+            package_name,
+        );
 
         facts
     }
@@ -209,14 +235,27 @@ impl PythonParser {
         if kind == "class_definition" {
             if let Some(name) = Self::extract_name_static(node, source) {
                 // Create class symbol with parent scope
-                if let Some(fact) = Self::extract_symbol_with_fqn_static(node, source, file_path, scope_stack, package_name) {
+                if let Some(fact) = Self::extract_symbol_with_fqn_static(
+                    node,
+                    source,
+                    file_path,
+                    scope_stack,
+                    package_name,
+                ) {
                     facts.push(fact);
                 }
                 // Push class scope for children
                 scope_stack.push(&name);
                 let mut cursor = node.walk();
                 for child in node.children(&mut cursor) {
-                    Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack, package_name);
+                    Self::walk_tree_with_scope_static(
+                        &child,
+                        source,
+                        file_path,
+                        facts,
+                        scope_stack,
+                        package_name,
+                    );
                 }
                 scope_stack.pop();
                 return;
@@ -224,14 +263,23 @@ impl PythonParser {
         }
 
         // Check if this node is a symbol we care about
-        if let Some(fact) = Self::extract_symbol_with_fqn_static(node, source, file_path, scope_stack, package_name) {
+        if let Some(fact) =
+            Self::extract_symbol_with_fqn_static(node, source, file_path, scope_stack, package_name)
+        {
             facts.push(fact);
         }
 
         // Recurse into children
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack, package_name);
+            Self::walk_tree_with_scope_static(
+                &child,
+                source,
+                file_path,
+                facts,
+                scope_stack,
+                package_name,
+            );
         }
     }
 
@@ -289,7 +337,7 @@ impl PythonParser {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "identifier" {
-                let name_bytes = &source[child.start_byte() as usize..child.end_byte() as usize];
+                let name_bytes = safe_slice(source, child.start_byte() as usize, child.end_byte() as usize)?;
                 return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
             }
         }
@@ -491,7 +539,7 @@ impl PythonParser {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "identifier" {
-                let name_bytes = &source[child.start_byte() as usize..child.end_byte() as usize];
+                let name_bytes = safe_slice(source, child.start_byte() as usize, child.end_byte() as usize)?;
                 return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
             }
         }
@@ -543,7 +591,7 @@ impl PythonParser {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "identifier" {
-                let name_bytes = &source[child.start_byte() as usize..child.end_byte() as usize];
+                let name_bytes = safe_slice(source, child.start_byte() as usize, child.end_byte() as usize)?;
                 return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
             }
             // Handle attribute calls like obj.method() - we want the method name
@@ -570,7 +618,7 @@ impl PythonParser {
         if children.len() >= 2 {
             let attr = &children[1]; // Second child is the attribute
             if attr.kind() == "identifier" {
-                let name_bytes = &source[attr.start_byte() as usize..attr.end_byte() as usize];
+                let name_bytes = safe_slice(source, attr.start_byte() as usize, attr.end_byte() as usize)?;
                 return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
             }
         }
@@ -866,7 +914,11 @@ class MyClass:
 
         // Class canonical FQN includes file path
         assert!(class.canonical_fqn.is_some());
-        assert!(class.canonical_fqn.as_ref().unwrap().contains("::Struct MyClass"));
+        assert!(class
+            .canonical_fqn
+            .as_ref()
+            .unwrap()
+            .contains("::Struct MyClass"));
 
         // Class display FQN is package.class
         // Package "." with "." separator produces ".." prefix
@@ -917,6 +969,9 @@ class Outer:
         assert_eq!(methods.len(), 1);
 
         // Method display FQN includes full nesting
-        assert_eq!(methods[0].display_fqn.as_ref().unwrap(), "..Outer.Inner.nested_method");
+        assert_eq!(
+            methods[0].display_fqn.as_ref().unwrap(),
+            "..Outer.Inner.nested_method"
+        );
     }
 }
