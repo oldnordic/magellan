@@ -19,7 +19,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::{CodeGraph, FileEvent, FileSystemWatcher, WatcherConfig};
 
@@ -359,19 +359,41 @@ pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>
         }
     }
 
-    // Wait for watcher thread to finish
-    match watcher_thread.join() {
-        Ok(_) => {
-            // Clean exit
+    // Wait for watcher thread to finish with timeout
+    let timeout = Duration::from_secs(5);
+    let start = Instant::now();
+    let mut finished = false;
+
+    while !watcher_thread.is_finished() {
+        if start.elapsed() >= timeout {
+            eprintln!(
+                "Warning: Watcher thread did not finish within {:?}, continuing shutdown",
+                timeout
+            );
+            break;
         }
-        Err(panic_payload) => {
-            // Extract and log panic information
-            if let Some(msg) = panic_payload.downcast_ref::<&str>() {
-                eprintln!("Watcher thread panicked: {}", msg);
-            } else if let Some(msg) = panic_payload.downcast_ref::<String>() {
-                eprintln!("Watcher thread panicked: {}", msg);
-            } else {
-                eprintln!("Watcher thread panicked with unknown payload");
+        thread::sleep(Duration::from_millis(100));
+    }
+
+    // Only call join() if the thread finished (avoid hang on timeout)
+    if watcher_thread.is_finished() {
+        finished = true;
+    }
+
+    if finished {
+        match watcher_thread.join() {
+            Ok(_) => {
+                // Clean exit
+            }
+            Err(panic_payload) => {
+                // Extract and log panic information
+                if let Some(msg) = panic_payload.downcast_ref::<&str>() {
+                    eprintln!("Watcher thread panicked: {}", msg);
+                } else if let Some(msg) = panic_payload.downcast_ref::<String>() {
+                    eprintln!("Watcher thread panicked: {}", msg);
+                } else {
+                    eprintln!("Watcher thread panicked with unknown payload");
+                }
             }
         }
     }
