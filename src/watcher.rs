@@ -181,8 +181,8 @@ impl FileSystemWatcher {
     pub fn try_recv_event(&self) -> Option<FileEvent> {
         // First, check if we have a pending batch to continue from
         {
-            let mut pending_batch = self.legacy_pending_batch.borrow_mut();
-            let mut pending_index = self.legacy_pending_index.borrow_mut();
+            let mut pending_batch = self.legacy_pending_batch.lock().unwrap();
+            let mut pending_index = self.legacy_pending_index.lock().unwrap();
 
             if let Some(ref batch) = *pending_batch {
                 if *pending_index < batch.paths.len() {
@@ -212,8 +212,8 @@ impl FileSystemWatcher {
             // If there are multiple paths, store the batch for next call
             if batch.paths.len() > 1 {
                 let path = batch.paths[0].clone();
-                let mut pending_batch = self.legacy_pending_batch.borrow_mut();
-                let mut pending_index = self.legacy_pending_index.borrow_mut();
+                let mut pending_batch = self.legacy_pending_batch.lock().unwrap();
+                let mut pending_index = self.legacy_pending_index.lock().unwrap();
                 *pending_batch = Some(batch);
                 *pending_index = 1; // Next call will return index 1
                 drop(pending_batch);
@@ -245,8 +245,8 @@ impl FileSystemWatcher {
     pub fn recv_event(&self) -> Option<FileEvent> {
         // First, check if we have a pending batch to continue from
         {
-            let mut pending_batch = self.legacy_pending_batch.borrow_mut();
-            let mut pending_index = self.legacy_pending_index.borrow_mut();
+            let mut pending_batch = self.legacy_pending_batch.lock().unwrap();
+            let mut pending_index = self.legacy_pending_index.lock().unwrap();
 
             if let Some(ref batch) = *pending_batch {
                 if *pending_index < batch.paths.len() {
@@ -276,8 +276,8 @@ impl FileSystemWatcher {
             // If there are multiple paths, store the batch for next call
             if batch.paths.len() > 1 {
                 let path = batch.paths[0].clone();
-                let mut pending_batch = self.legacy_pending_batch.borrow_mut();
-                let mut pending_index = self.legacy_pending_index.borrow_mut();
+                let mut pending_batch = self.legacy_pending_batch.lock().unwrap();
+                let mut pending_index = self.legacy_pending_index.lock().unwrap();
                 *pending_batch = Some(batch);
                 *pending_index = 1; // Next call will return index 1
                 drop(pending_batch);
