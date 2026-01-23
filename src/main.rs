@@ -45,7 +45,7 @@ fn print_usage() {
     );
     eprintln!("  magellan status --db <FILE>");
     eprintln!("  magellan query --db <FILE> --file <PATH> [--kind <KIND>]");
-    eprintln!("  magellan find --db <FILE> --name <NAME> [--path <PATH>]");
+    eprintln!("  magellan find --db <FILE> (--name <NAME> | --symbol-id <ID> | --ambiguous <NAME>) [--path <PATH>] [--first]");
     eprintln!("  magellan refs --db <FILE> --name <NAME> --path <PATH> [--direction <in|out>] [--output <FORMAT>]");
     eprintln!("  magellan get --db <FILE> --file <PATH> --symbol <NAME>");
     eprintln!("  magellan get-file --db <FILE> --file <PATH>");
@@ -110,6 +110,9 @@ fn print_usage() {
     eprintln!("Find arguments:");
     eprintln!("  --db <FILE>         Path to sqlitegraph database");
     eprintln!("  --name <NAME>       Symbol name to find");
+    eprintln!("  --symbol-id <ID>    Stable SymbolId for precise lookup");
+    eprintln!("  --ambiguous <NAME>  Show all candidates for ambiguous display name");
+    eprintln!("  --first             Use first match when ambiguous (deprecated)");
     eprintln!("  --path <PATH>       Limit search to specific file (optional)");
     eprintln!();
     eprintln!("Refs arguments:");
