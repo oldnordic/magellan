@@ -2,6 +2,7 @@
 //!
 //! Extracts factual, byte-accurate references and calls to symbols without semantic analysis.
 
+use crate::common::safe_slice;
 use crate::ingest::{SymbolFact, SymbolKind};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -156,7 +157,7 @@ impl ReferenceExtractor {
         }
 
         // Get the text of this node
-        let text_bytes = &source[node.start_byte() as usize..node.end_byte() as usize];
+        let text_bytes = safe_slice(source, node.start_byte() as usize, node.end_byte() as usize)?;
         let text = std::str::from_utf8(text_bytes).ok()?;
 
         // For scoped_identifier (e.g., a::foo), extract the final component
@@ -358,7 +359,7 @@ impl CallExtractor {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "identifier" || child.kind() == "type_identifier" {
-                let name_bytes = &source[child.start_byte() as usize..child.end_byte() as usize];
+                let name_bytes = safe_slice(source, child.start_byte() as usize, child.end_byte() as usize)?;
                 return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
             }
         }
@@ -411,7 +412,7 @@ impl CallExtractor {
         for child in node.children(&mut cursor) {
             let kind = child.kind();
             if kind == "identifier" {
-                let name_bytes = &source[child.start_byte() as usize..child.end_byte() as usize];
+                let name_bytes = safe_slice(source, child.start_byte() as usize, child.end_byte() as usize)?;
                 return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
             }
             // Handle method calls like obj.method() - we want the method name
@@ -429,7 +430,7 @@ impl CallExtractor {
         for child in node.children(&mut cursor) {
             // Look for the field_identifier (method name in a.b())
             if child.kind() == "field_identifier" {
-                let name_bytes = &source[child.start_byte() as usize..child.end_byte() as usize];
+                let name_bytes = safe_slice(source, child.start_byte() as usize, child.end_byte() as usize)?;
                 return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
             }
         }
