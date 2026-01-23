@@ -24,7 +24,7 @@
 use crate::graph::schema::SymbolNode;
 use anyhow::Result;
 use rusqlite::params;
-use sqlitegraph::{EdgeSpec, GraphBackend, NodeId, NodeSpec};
+use sqlitegraph::{EdgeSpec, GraphBackend};
 
 use super::CodeGraph;
 use crate::graph::query;
@@ -52,21 +52,17 @@ fn find_or_create_display_name(conn: &rusqlite::Connection, display_fqn: &str) -
          WHERE kind = 'DisplayName' AND name = ?1",
     )?;
 
-    match stmt.query_row(params![display_fqn], |row| row.get::<i64, _>(0)) {
+    match stmt.query_row(params![display_fqn], |row| row.get(0)) {
         Ok(id) => Ok(id),
         Err(rusqlite::Error::QueryReturnedNoRows) => {
             // Create new DisplayName node
-            let node_spec = NodeSpec {
-                kind: "DisplayName".to_string(),
-                name: display_fqn.to_string(),
-                file_path: None,
-                data: "{}".to_string(),
-            };
-            let id = conn.execute(
+            let data_json = serde_json::json!({});
+            let data_str = serde_json::to_string(&data_json)?;
+            conn.execute(
                 "INSERT INTO graph_entities (kind, name, data) VALUES (?1, ?2, ?3)",
-                params![node_spec.kind, node_spec.name, node_spec.data],
+                params!["DisplayName", display_fqn, data_str],
             )?;
-            Ok(id)
+            Ok(conn.last_insert_rowid())
         }
         Err(e) => Err(anyhow::anyhow!("Failed to query DisplayName: {}", e)),
     }
@@ -255,9 +251,9 @@ impl AmbiguityOps for CodeGraph {
         for symbol_id in symbol_ids {
             let edge_spec = EdgeSpec {
                 from: display_name_id,
-                to: NodeId::from(*symbol_id),
+                to: *symbol_id,
                 edge_type: "alias_of".to_string(),
-                data: "{}".to_string(),
+                data: serde_json::json!({}),
             };
             self.symbols.backend.insert_edge(edge_spec)?;
         }
@@ -275,7 +271,7 @@ impl AmbiguityOps for CodeGraph {
 
         // Verify symbol matches display_fqn (optional validation)
         if let Some(ref s) = symbol {
-            if s.display_fqn.as_ref() == Some(display_fqn) {
+            if s.display_fqn.as_ref().map(|s| s.as_str()) == Some(display_fqn) {
                 return Ok(symbol);
             }
         }
