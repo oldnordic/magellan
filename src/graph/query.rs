@@ -8,6 +8,7 @@ use sqlitegraph::{BackendDirection, GraphBackend, NeighborQuery};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use crate::graph::ambiguity::AmbiguityOps;
 use crate::graph::schema::{EdgeEndpoints, SymbolNode};
 use crate::ingest::{SymbolFact, SymbolKind};
 use crate::references::ReferenceFact;
@@ -254,22 +255,25 @@ pub fn find_by_symbol_id(graph: &mut CodeGraph, symbol_id: &str) -> Result<Optio
     let conn = graph.chunks.connect()?;
 
     // Query graph_entities for Symbol kind with matching symbol_id in JSON data
-    let mut stmt = conn.prepare_cached(
-        "SELECT data FROM graph_entities
+    let mut stmt = conn
+        .prepare_cached(
+            "SELECT data FROM graph_entities
          WHERE kind = 'Symbol'
-         AND json_extract(data, '$.symbol_id') = ?1"
-    ).map_err(|e| anyhow::anyhow!("Failed to prepare SymbolId query: {}", e))?;
+         AND json_extract(data, '$.symbol_id') = ?1",
+        )
+        .map_err(|e| anyhow::anyhow!("Failed to prepare SymbolId query: {}", e))?;
 
     match stmt.query_row(params![symbol_id], |row| {
         let data: String = row.get(0)?;
-        serde_json::from_str(&data)
-            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(
+        serde_json::from_str(&data).map_err(|e| {
+            rusqlite::Error::ToSqlConversionFailure(
                 Box::new(e) as Box<dyn std::error::Error + Send + Sync>
-            ))
+            )
+        })
     }) {
         Ok(node) => Ok(Some(node)),
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-        Err(e) => Err(anyhow::anyhow!("Failed to query SymbolId: {}", e))
+        Err(e) => Err(anyhow::anyhow!("Failed to query SymbolId: {}", e)),
     }
 }
 
@@ -277,7 +281,8 @@ pub fn find_by_symbol_id(graph: &mut CodeGraph, symbol_id: &str) -> Result<Optio
 ///
 /// # Behavior
 /// 1. Get ALL symbols in the database (for cross-file references)
-/// 2. Build map of FQN -> node ID with collision detection
+/// 2. Build SymbolId -> node ID map (primary lookup)
+/// 3. Build FQN -> node ID map with collision detection (fallback)
 /// 3. Extract references from source
 /// 4. Insert Reference nodes and REFERENCES edges
 ///
@@ -295,8 +300,12 @@ pub fn index_references(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Res
         None => return Ok(0), // No file, no references
     };
 
+    // Build map: SymbolId -> node ID from ALL symbols in database
+    // SymbolId is the primary lookup key for disambiguation
+    let mut symbol_id_to_id: HashMap<String, i64> = HashMap::new();
+
     // Build map: FQN -> node ID from ALL symbols in database
-    // This enables cross-file reference indexing with FQN-based disambiguation
+    // This enables cross-file reference indexing with FQN-based fallback
     let mut symbol_fqn_to_id: HashMap<String, i64> = HashMap::new();
 
     // Get all entity IDs from the graph
@@ -308,24 +317,17 @@ pub fn index_references(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Res
             // Check if this is a Symbol node by looking at the kind field
             if node.kind == "Symbol" {
                 if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data) {
+                    if let Some(symbol_id) = symbol_node.symbol_id {
+                        symbol_id_to_id.insert(symbol_id, entity_id);
+                    }
+
                     // Use FQN as key, fall back to name for backward compatibility
-                    let fqn = symbol_node
-                        .fqn
-                        .or(symbol_node.name)
-                        .unwrap_or_default();
+                    let fqn = symbol_node.fqn.or(symbol_node.name).unwrap_or_default();
 
                     if !fqn.is_empty() {
-                        // Check for FQN collisions
-                        if let Some(&existing_id) = symbol_fqn_to_id.get(&fqn) {
-                            if existing_id != entity_id {
-                                eprintln!(
-                                    "WARNING: FQN collision detected for '{}': symbols {} and {} share the same FQN",
-                                    fqn, existing_id, entity_id
-                                );
-                            }
-                        } else {
-                            symbol_fqn_to_id.insert(fqn, entity_id);
-                        }
+                        // TODO: Track ambiguity via AmbiguityOps (Task 2)
+                        // Collision tracking replaced with graph-based ambiguity model
+                        symbol_fqn_to_id.insert(fqn, entity_id);
                     }
                 }
             }
@@ -333,9 +335,12 @@ pub fn index_references(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Res
     }
 
     // Index references using ReferenceOps with ALL symbols
-    Ok(graph
-        .references
-        .index_references(path, source, &symbol_fqn_to_id)?)
+    Ok(graph.references.index_references_with_symbol_id(
+        path,
+        source,
+        &symbol_id_to_id,
+        &symbol_fqn_to_id,
+    )?)
 }
 
 /// Query all references to a specific symbol
@@ -590,31 +595,177 @@ pub fn get_ambiguous_candidates(
     let conn = graph.chunks.connect()?;
 
     // Query all Symbol nodes with matching display_fqn
-    let mut stmt = conn.prepare_cached(
-        "SELECT id, data FROM graph_entities
+    let mut stmt = conn
+        .prepare_cached(
+            "SELECT id, data FROM graph_entities
          WHERE kind = 'Symbol'
          AND json_extract(data, '$.display_fqn') = ?1
-         ORDER BY id"
-    ).map_err(|e| anyhow::anyhow!("Failed to prepare ambiguity query: {}", e))?;
+         ORDER BY id",
+        )
+        .map_err(|e| anyhow::anyhow!("Failed to prepare ambiguity query: {}", e))?;
 
-    let candidates = stmt.query_map(params![display_fqn], |row| {
-        let id: i64 = row.get(0)?;
-        let data: String = row.get(1)?;
-        let node: SymbolNode = serde_json::from_str(&data)
-            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(
-                Box::new(e) as Box<dyn std::error::Error + Send + Sync>
-            ))?;
-        Ok((id, node))
-    }).map_err(|e| anyhow::anyhow!("Failed to execute ambiguity query: {}", e))?
-      .collect::<Result<Vec<_>, _>>()
-      .map_err(|e| anyhow::anyhow!("Failed to collect ambiguity results: {}", e))?;
+    let candidates = stmt
+        .query_map(params![display_fqn], |row| {
+            let id: i64 = row.get(0)?;
+            let data: String = row.get(1)?;
+            let node: SymbolNode = serde_json::from_str(&data).map_err(|e| {
+                rusqlite::Error::ToSqlConversionFailure(
+                    Box::new(e) as Box<dyn std::error::Error + Send + Sync>
+                )
+            })?;
+            Ok((id, node))
+        })
+        .map_err(|e| anyhow::anyhow!("Failed to execute ambiguity query: {}", e))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| anyhow::anyhow!("Failed to collect ambiguity results: {}", e))?;
 
     Ok(candidates)
 }
 
+/// Field to group collisions by
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CollisionField {
+    Fqn,
+    DisplayFqn,
+    CanonicalFqn,
+}
+
+impl CollisionField {
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "fqn" => Some(CollisionField::Fqn),
+            "display_fqn" => Some(CollisionField::DisplayFqn),
+            "canonical_fqn" => Some(CollisionField::CanonicalFqn),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CollisionField::Fqn => "fqn",
+            CollisionField::DisplayFqn => "display_fqn",
+            CollisionField::CanonicalFqn => "canonical_fqn",
+        }
+    }
+
+    fn json_path(&self) -> &'static str {
+        match self {
+            CollisionField::Fqn => "$.fqn",
+            CollisionField::DisplayFqn => "$.display_fqn",
+            CollisionField::CanonicalFqn => "$.canonical_fqn",
+        }
+    }
+}
+
+/// Candidate symbol for a collision group
+#[derive(Debug, Clone)]
+pub struct CollisionCandidate {
+    pub entity_id: i64,
+    pub symbol_id: Option<String>,
+    pub canonical_fqn: Option<String>,
+    pub display_fqn: Option<String>,
+    pub name: Option<String>,
+    pub file_path: Option<String>,
+}
+
+/// Collision group for a specific field value
+#[derive(Debug, Clone)]
+pub struct CollisionGroup {
+    pub field: String,
+    pub value: String,
+    pub count: usize,
+    pub candidates: Vec<CollisionCandidate>,
+}
+
+/// Query collision groups by field
+pub fn collision_groups(
+    graph: &mut CodeGraph,
+    field: CollisionField,
+    limit: usize,
+) -> Result<Vec<CollisionGroup>> {
+    let conn = graph.chunks.connect()?;
+    let field_path = field.json_path();
+
+    let limit_i64 = i64::try_from(limit).unwrap_or(i64::MAX);
+    let sql = format!(
+        "SELECT json_extract(data, '{field_path}') AS value, COUNT(*) AS c
+         FROM graph_entities
+         WHERE kind = 'Symbol'
+         AND json_extract(data, '{field_path}') IS NOT NULL
+         GROUP BY value
+         HAVING c > 1
+         ORDER BY c DESC, value ASC
+         LIMIT ?1"
+    );
+
+    let mut stmt = conn
+        .prepare_cached(&sql)
+        .map_err(|e| anyhow::anyhow!("Failed to prepare collision group query: {}", e))?;
+
+    let groups = stmt
+        .query_map(params![limit_i64], |row| {
+            let value: String = row.get(0)?;
+            let count: i64 = row.get(1)?;
+            Ok((value, count as usize))
+        })
+        .map_err(|e| anyhow::anyhow!("Failed to execute collision group query: {}", e))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| anyhow::anyhow!("Failed to collect collision group results: {}", e))?;
+
+    let candidates_sql = format!(
+        "SELECT id, file_path, data
+         FROM graph_entities
+         WHERE kind = 'Symbol'
+         AND json_extract(data, '{field_path}') = ?1
+         ORDER BY id"
+    );
+
+    let mut candidates_stmt = conn
+        .prepare_cached(&candidates_sql)
+        .map_err(|e| anyhow::anyhow!("Failed to prepare collision candidates query: {}", e))?;
+
+    let mut results = Vec::new();
+    for (value, count) in groups {
+        let candidates = candidates_stmt
+            .query_map(params![value], |row| {
+                let entity_id: i64 = row.get(0)?;
+                let file_path: Option<String> = row.get(1)?;
+                let data: String = row.get(2)?;
+                let node: SymbolNode = serde_json::from_str(&data).map_err(|e| {
+                    rusqlite::Error::ToSqlConversionFailure(
+                        Box::new(e) as Box<dyn std::error::Error + Send + Sync>
+                    )
+                })?;
+                Ok(CollisionCandidate {
+                    entity_id,
+                    symbol_id: node.symbol_id,
+                    canonical_fqn: node.canonical_fqn,
+                    display_fqn: node.display_fqn,
+                    name: node.name,
+                    file_path,
+                })
+            })
+            .map_err(|e| anyhow::anyhow!("Failed to execute collision candidates query: {}", e))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| anyhow::anyhow!("Failed to collect collision candidates: {}", e))?;
+
+        results.push(CollisionGroup {
+            field: field.as_str().to_string(),
+            value,
+            count,
+            candidates,
+        });
+    }
+
+    Ok(results)
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::graph::query::{find_by_symbol_id, get_ambiguous_candidates, symbol_nodes_in_file_with_ids, symbols_in_file};
+    use crate::graph::query::{
+        collision_groups, find_by_symbol_id, get_ambiguous_candidates,
+        symbol_nodes_in_file_with_ids, symbols_in_file, CollisionField,
+    };
     use crate::graph::schema::SymbolNode;
     use sqlitegraph::GraphBackend;
 
@@ -648,11 +799,7 @@ fn bar() {
         let count = graph.index_references(&path_str, &source).unwrap();
 
         // We should have at least 1 reference (bar -> foo)
-        assert!(
-            count > 0,
-            "Expected at least 1 reference, got {}",
-            count
-        );
+        assert!(count > 0, "Expected at least 1 reference, got {}", count);
     }
 
     #[test]
@@ -688,8 +835,9 @@ fn bar() {
 fn test_function() -> i32 {
     42
 }
-"#
-        ).unwrap();
+"#,
+        )
+        .unwrap();
 
         // Index the file (symbol will have SymbolId populated)
         let path_str = test_file.to_string_lossy().to_string();
@@ -745,8 +893,9 @@ fn test_function() -> i32 {
         std::fs::write(
             &test_file,
             r#"fn unique_function() {}
-"#
-        ).unwrap();
+"#,
+        )
+        .unwrap();
 
         // Index the file
         let path_str = test_file.to_string_lossy().to_string();
@@ -799,15 +948,17 @@ fn test_function() -> i32 {
         std::fs::write(
             &file1,
             r#"fn common_name() {}
-"#
-        ).unwrap();
+"#,
+        )
+        .unwrap();
 
         let file2 = temp_dir.path().join("file2.rs");
         std::fs::write(
             &file2,
             r#"fn common_name() {}
-"#
-        ).unwrap();
+"#,
+        )
+        .unwrap();
 
         // Index both files
         let path1 = file1.to_string_lossy().to_string();
@@ -844,6 +995,47 @@ fn test_function() -> i32 {
         // Query by display_fqn - should find at least 2 symbols
         let display_fqn = common_display_fqn.unwrap();
         let result = get_ambiguous_candidates(&mut graph, &display_fqn).unwrap();
-        assert!(result.len() >= 2, "Should find at least 2 symbols with common_name display_fqn");
+        assert!(
+            result.len() >= 2,
+            "Should find at least 2 symbols with common_name display_fqn"
+        );
+    }
+
+    #[test]
+    fn test_collision_groups_for_fqn() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
+
+        let file1 = temp_dir.path().join("file1.rs");
+        std::fs::write(&file1, "fn collide() {}\n").unwrap();
+
+        let file2 = temp_dir.path().join("file2.rs");
+        std::fs::write(&file2, "fn collide() {}\n").unwrap();
+
+        let path1 = file1.to_string_lossy().to_string();
+        let path2 = file2.to_string_lossy().to_string();
+        let source1 = std::fs::read(&file1).unwrap();
+        let source2 = std::fs::read(&file2).unwrap();
+
+        graph.index_file(&path1, &source1).unwrap();
+        graph.index_file(&path2, &source2).unwrap();
+
+        let groups = collision_groups(&mut graph, CollisionField::Fqn, 10).unwrap();
+
+        let collide_group = groups
+            .iter()
+            .find(|group| group.value == "collide")
+            .expect("Expected collision group for 'collide'");
+
+        assert!(collide_group.count >= 2);
+        assert!(collide_group
+            .candidates
+            .iter()
+            .any(|c| c.symbol_id.is_some()));
+        assert!(collide_group
+            .candidates
+            .iter()
+            .all(|c| c.file_path.is_some()));
     }
 }
