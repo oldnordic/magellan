@@ -304,6 +304,10 @@ pub fn index_references(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Res
     // SymbolId is the primary lookup key for disambiguation
     let mut symbol_id_to_id: HashMap<String, i64> = HashMap::new();
 
+    // Build map: display_fqn -> [symbol_ids] for ambiguity tracking
+    // This identifies all symbols sharing the same human-readable name
+    let mut display_fqn_groups: HashMap<String, Vec<i64>> = HashMap::new();
+
     // Build map: FQN -> node ID from ALL symbols in database
     // This enables cross-file reference indexing with FQN-based fallback
     let mut symbol_fqn_to_id: HashMap<String, i64> = HashMap::new();
@@ -321,16 +325,32 @@ pub fn index_references(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Res
                         symbol_id_to_id.insert(symbol_id, entity_id);
                     }
 
+                    // Track display_fqn for ambiguity grouping
+                    if let Some(ref display_fqn) = symbol_node.display_fqn {
+                        if !display_fqn.is_empty() {
+                            display_fqn_groups
+                                .entry(display_fqn.clone())
+                                .or_insert_with(Vec::new)
+                                .push(entity_id);
+                        }
+                    }
+
                     // Use FQN as key, fall back to name for backward compatibility
                     let fqn = symbol_node.fqn.or(symbol_node.name).unwrap_or_default();
 
                     if !fqn.is_empty() {
-                        // TODO: Track ambiguity via AmbiguityOps (Task 2)
-                        // Collision tracking replaced with graph-based ambiguity model
                         symbol_fqn_to_id.insert(fqn, entity_id);
                     }
                 }
             }
+        }
+    }
+
+    // Create ambiguity groups for display_fqns with multiple symbols
+    // This establishes alias_of edges for persistent ambiguity tracking
+    for (display_fqn, symbol_ids) in display_fqn_groups {
+        if symbol_ids.len() > 1 {
+            graph.create_ambiguous_group(&display_fqn, &symbol_ids)?;
         }
     }
 
