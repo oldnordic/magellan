@@ -10,6 +10,7 @@ pub mod typescript;
 // Re-exports from detect module
 pub use detect::{detect_language, Language};
 
+use crate::common::safe_slice;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -278,7 +279,14 @@ impl Parser {
         let mut scope_stack = ScopeStack::new(ScopeSeparator::DoubleColon);
 
         // Walk tree with scope tracking
-        self.walk_tree_with_scope(&root_node, source, &file_path, &mut facts, &mut scope_stack, &crate_name);
+        self.walk_tree_with_scope(
+            &root_node,
+            source,
+            &file_path,
+            &mut facts,
+            &mut scope_stack,
+            &crate_name,
+        );
 
         facts
     }
@@ -307,7 +315,14 @@ impl Parser {
         let mut scope_stack = ScopeStack::new(ScopeSeparator::DoubleColon);
 
         // Walk tree with scope tracking
-        Self::walk_tree_with_scope_static(&root_node, source, &file_path, &mut facts, &mut scope_stack, &crate_name);
+        Self::walk_tree_with_scope_static(
+            &root_node,
+            source,
+            &file_path,
+            &mut facts,
+            &mut scope_stack,
+            &crate_name,
+        );
 
         facts
     }
@@ -329,15 +344,26 @@ impl Parser {
                 // Extract module name and push to scope
                 if let Some(name) = Self::extract_name_static(node, source) {
                     scope_stack.push(&name);
-                    if let Some(fact) =
-                        Self::extract_symbol_with_fqn_static(node, source, file_path, scope_stack, crate_name)
-                    {
+                    if let Some(fact) = Self::extract_symbol_with_fqn_static(
+                        node,
+                        source,
+                        file_path,
+                        scope_stack,
+                        crate_name,
+                    ) {
                         facts.push(fact);
                     }
                     // Recurse into children (they're in this module's scope)
                     let mut cursor = node.walk();
                     for child in node.children(&mut cursor) {
-                        Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack, crate_name);
+                        Self::walk_tree_with_scope_static(
+                            &child,
+                            source,
+                            file_path,
+                            facts,
+                            scope_stack,
+                            crate_name,
+                        );
                     }
                     scope_stack.pop();
                     return;
@@ -351,7 +377,14 @@ impl Parser {
                     // Don't create a symbol for the impl block itself
                     let mut cursor = node.walk();
                     for child in node.children(&mut cursor) {
-                        Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack, crate_name);
+                        Self::walk_tree_with_scope_static(
+                            &child,
+                            source,
+                            file_path,
+                            facts,
+                            scope_stack,
+                            crate_name,
+                        );
                     }
                     scope_stack.pop();
                     return;
@@ -360,14 +393,25 @@ impl Parser {
             "trait_item" => {
                 if let Some(name) = Self::extract_name_static(node, source) {
                     scope_stack.push(&name);
-                    if let Some(fact) =
-                        Self::extract_symbol_with_fqn_static(node, source, file_path, scope_stack, crate_name)
-                    {
+                    if let Some(fact) = Self::extract_symbol_with_fqn_static(
+                        node,
+                        source,
+                        file_path,
+                        scope_stack,
+                        crate_name,
+                    ) {
                         facts.push(fact);
                     }
                     let mut cursor = node.walk();
                     for child in node.children(&mut cursor) {
-                        Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack, crate_name);
+                        Self::walk_tree_with_scope_static(
+                            &child,
+                            source,
+                            file_path,
+                            facts,
+                            scope_stack,
+                            crate_name,
+                        );
                     }
                     scope_stack.pop();
                     return;
@@ -377,14 +421,23 @@ impl Parser {
         }
 
         // Check if this node is a symbol we care about
-        if let Some(fact) = Self::extract_symbol_with_fqn_static(node, source, file_path, scope_stack, crate_name) {
+        if let Some(fact) =
+            Self::extract_symbol_with_fqn_static(node, source, file_path, scope_stack, crate_name)
+        {
             facts.push(fact);
         }
 
         // Recurse into children
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack, crate_name);
+            Self::walk_tree_with_scope_static(
+                &child,
+                source,
+                file_path,
+                facts,
+                scope_stack,
+                crate_name,
+            );
         }
     }
 
@@ -456,8 +509,7 @@ impl Parser {
         for child in node.children(&mut cursor) {
             match child.kind() {
                 "identifier" | "type_identifier" => {
-                    let name_bytes =
-                        &source[child.start_byte() as usize..child.end_byte() as usize];
+                    let name_bytes = safe_slice(source, child.start_byte() as usize, child.end_byte() as usize)?;
                     return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
                 }
                 _ => {}
@@ -472,7 +524,7 @@ impl Parser {
         // Access the 'type' field which always contains the struct name
         let type_node = node.child_by_field_name("type")?;
 
-        let name_bytes = &source[type_node.start_byte() as usize..type_node.end_byte() as usize];
+        let name_bytes = safe_slice(source, type_node.start_byte() as usize, type_node.end_byte() as usize)?;
         std::str::from_utf8(name_bytes).ok().map(|s| s.to_string())
     }
 
@@ -499,15 +551,26 @@ impl Parser {
                 // Extract module name and push to scope
                 if let Some(name) = self.extract_name(node, source) {
                     scope_stack.push(&name);
-                    if let Some(fact) =
-                        self.extract_symbol_with_fqn(node, source, file_path, scope_stack, crate_name)
-                    {
+                    if let Some(fact) = self.extract_symbol_with_fqn(
+                        node,
+                        source,
+                        file_path,
+                        scope_stack,
+                        crate_name,
+                    ) {
                         facts.push(fact);
                     }
                     // Recurse into children (they're in this module's scope)
                     let mut cursor = node.walk();
                     for child in node.children(&mut cursor) {
-                        self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack, crate_name);
+                        self.walk_tree_with_scope(
+                            &child,
+                            source,
+                            file_path,
+                            facts,
+                            scope_stack,
+                            crate_name,
+                        );
                     }
                     scope_stack.pop();
                     return;
@@ -521,7 +584,14 @@ impl Parser {
                     // Don't create a symbol for the impl block itself
                     let mut cursor = node.walk();
                     for child in node.children(&mut cursor) {
-                        self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack, crate_name);
+                        self.walk_tree_with_scope(
+                            &child,
+                            source,
+                            file_path,
+                            facts,
+                            scope_stack,
+                            crate_name,
+                        );
                     }
                     scope_stack.pop();
                     return;
@@ -530,14 +600,25 @@ impl Parser {
             "trait_item" => {
                 if let Some(name) = self.extract_name(node, source) {
                     scope_stack.push(&name);
-                    if let Some(fact) =
-                        self.extract_symbol_with_fqn(node, source, file_path, scope_stack, crate_name)
-                    {
+                    if let Some(fact) = self.extract_symbol_with_fqn(
+                        node,
+                        source,
+                        file_path,
+                        scope_stack,
+                        crate_name,
+                    ) {
                         facts.push(fact);
                     }
                     let mut cursor = node.walk();
                     for child in node.children(&mut cursor) {
-                        self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack, crate_name);
+                        self.walk_tree_with_scope(
+                            &child,
+                            source,
+                            file_path,
+                            facts,
+                            scope_stack,
+                            crate_name,
+                        );
                     }
                     scope_stack.pop();
                     return;
@@ -547,7 +628,9 @@ impl Parser {
         }
 
         // Check if this node is a symbol we care about
-        if let Some(fact) = self.extract_symbol_with_fqn(node, source, file_path, scope_stack, crate_name) {
+        if let Some(fact) =
+            self.extract_symbol_with_fqn(node, source, file_path, scope_stack, crate_name)
+        {
             facts.push(fact);
         }
 
@@ -700,8 +783,7 @@ impl Parser {
         for child in node.children(&mut cursor) {
             match child.kind() {
                 "identifier" | "type_identifier" => {
-                    let name_bytes =
-                        &source[child.start_byte() as usize..child.end_byte() as usize];
+                    let name_bytes = safe_slice(source, child.start_byte() as usize, child.end_byte() as usize)?;
                     return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
                 }
                 _ => {}
@@ -725,7 +807,7 @@ impl Parser {
         // Access the 'type' field which always contains the struct name
         let type_node = node.child_by_field_name("type")?;
 
-        let name_bytes = &source[type_node.start_byte() as usize..type_node.end_byte() as usize];
+        let name_bytes = safe_slice(source, type_node.start_byte() as usize, type_node.end_byte() as usize)?;
         std::str::from_utf8(name_bytes).ok().map(|s| s.to_string())
     }
 }
@@ -937,7 +1019,10 @@ pub trait MyTrait {
 
         assert!(!facts.is_empty());
         assert!(facts[0].fqn.is_some(), "FQN should always be populated");
-        assert!(!facts[0].fqn.as_ref().unwrap().is_empty(), "FQN should not be empty");
+        assert!(
+            !facts[0].fqn.as_ref().unwrap().is_empty(),
+            "FQN should not be empty"
+        );
     }
 
     // Tests for canonical_fqn and display_fqn computation
@@ -952,13 +1037,25 @@ pub trait MyTrait {
         let fact = &facts[0];
 
         // canonical_fqn should be Some and contain file path
-        assert!(fact.canonical_fqn.is_some(), "canonical_fqn should be populated");
+        assert!(
+            fact.canonical_fqn.is_some(),
+            "canonical_fqn should be populated"
+        );
         let canonical = fact.canonical_fqn.as_ref().unwrap();
 
         // Format: crate_name::file_path::Kind symbol_name
-        assert!(canonical.contains("test.rs"), "canonical_fqn should contain file path");
-        assert!(canonical.contains("Function"), "canonical_fqn should contain symbol kind");
-        assert!(canonical.contains("test_fn"), "canonical_fqn should contain symbol name");
+        assert!(
+            canonical.contains("test.rs"),
+            "canonical_fqn should contain file path"
+        );
+        assert!(
+            canonical.contains("Function"),
+            "canonical_fqn should contain symbol kind"
+        );
+        assert!(
+            canonical.contains("test_fn"),
+            "canonical_fqn should contain symbol name"
+        );
     }
 
     #[test]
@@ -971,12 +1068,21 @@ pub trait MyTrait {
         let fact = &facts[0];
 
         // display_fqn should be Some and NOT contain file path
-        assert!(fact.display_fqn.is_some(), "display_fqn should be populated");
+        assert!(
+            fact.display_fqn.is_some(),
+            "display_fqn should be populated"
+        );
         let display = fact.display_fqn.as_ref().unwrap();
 
         // Display FQN should be human-readable (crate::symbol_name for top-level)
-        assert!(!display.contains(".rs"), "display_fqn should not contain file extension");
-        assert!(display.contains("test_fn"), "display_fqn should contain symbol name");
+        assert!(
+            !display.contains(".rs"),
+            "display_fqn should not contain file extension"
+        );
+        assert!(
+            display.contains("test_fn"),
+            "display_fqn should contain symbol name"
+        );
     }
 
     #[test]
@@ -998,8 +1104,14 @@ mod my_module {
         let fact = funcs[0];
 
         // Both FQNs should contain module path
-        assert!(fact.fqn.as_ref().unwrap().contains("my_module"), "fqn should contain module");
-        assert!(fact.display_fqn.as_ref().unwrap().contains("my_module"), "display_fqn should contain module");
+        assert!(
+            fact.fqn.as_ref().unwrap().contains("my_module"),
+            "fqn should contain module"
+        );
+        assert!(
+            fact.display_fqn.as_ref().unwrap().contains("my_module"),
+            "display_fqn should contain module"
+        );
     }
 
     #[test]
@@ -1023,8 +1135,14 @@ impl MyStruct {
         let fact = methods[0];
 
         // Both FQNs should contain the impl type
-        assert!(fact.fqn.as_ref().unwrap().contains("MyStruct"), "fqn should contain impl type");
-        assert!(fact.display_fqn.as_ref().unwrap().contains("MyStruct"), "display_fqn should contain impl type");
+        assert!(
+            fact.fqn.as_ref().unwrap().contains("MyStruct"),
+            "fqn should contain impl type"
+        );
+        assert!(
+            fact.display_fqn.as_ref().unwrap().contains("MyStruct"),
+            "display_fqn should contain impl type"
+        );
     }
 
     #[test]
@@ -1041,8 +1159,14 @@ impl MyStruct {
         let display = fact.display_fqn.as_ref().unwrap();
 
         // Crate name should be at the start
-        assert!(canonical.starts_with("magellan::"), "canonical_fqn should start with crate name");
-        assert!(display.starts_with("magellan::"), "display_fqn should start with crate name");
+        assert!(
+            canonical.starts_with("magellan::"),
+            "canonical_fqn should start with crate name"
+        );
+        assert!(
+            display.starts_with("magellan::"),
+            "display_fqn should start with crate name"
+        );
     }
 
     #[test]
@@ -1061,8 +1185,7 @@ impl MyStruct {
 
         // canonical_fqn and display_fqn should be different
         assert_ne!(
-            fact.canonical_fqn,
-            fact.display_fqn,
+            fact.canonical_fqn, fact.display_fqn,
             "canonical_fqn and display_fqn should differ"
         );
     }
@@ -1116,7 +1239,10 @@ mod scope_stack_tests {
         stack.push("my_module");
         assert_eq!(stack.fqn_for_symbol("my_fn"), "my_module::my_fn");
         stack.push("MyStruct");
-        assert_eq!(stack.fqn_for_symbol("method"), "my_module::MyStruct::method");
+        assert_eq!(
+            stack.fqn_for_symbol("method"),
+            "my_module::MyStruct::method"
+        );
     }
 
     #[test]
@@ -1134,6 +1260,9 @@ mod scope_stack_tests {
         stack.push("example");
         stack.push("MyClass");
         assert_eq!(stack.current_fqn(), "com.example.MyClass");
-        assert_eq!(stack.fqn_for_symbol("myMethod"), "com.example.MyClass.myMethod");
+        assert_eq!(
+            stack.fqn_for_symbol("myMethod"),
+            "com.example.MyClass.myMethod"
+        );
     }
 }
