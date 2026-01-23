@@ -1,6 +1,20 @@
 //! Export functionality for CodeGraph
 //!
 //! Exports graph data to JSON/JSONL/CSV/SCIP format for LLM and pipeline consumption.
+//!
+//! # Export Schema Versioning
+//!
+//! All export formats include a version field for parsing stability:
+//!
+//! | Version | Changes |
+//! |---------|---------|
+//! | 2.0.0 | Added `symbol_id`, `canonical_fqn`, `display_fqn` fields |
+//!
+//! - **JSON**: Top-level `version` field
+//! - **JSONL**: First line is `{"type":"Version","version":"2.0.0"}`
+//! - **CSV**: Header comment `# Magellan Export Version: 2.0.0`
+//!
+//! See MANUAL.md section 3.8 for detailed export documentation.
 
 pub mod scip;
 
