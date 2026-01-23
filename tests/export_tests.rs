@@ -2,9 +2,160 @@
 //!
 //! TDD Phase 5.5: JSON Export
 
+use magellan::graph::export::{
+    export_graph, export_jsonl, stream_json, stream_json_minified, stream_ndjson, ExportConfig,
+    ExportFormat,
+};
 use magellan::CodeGraph;
-use magellan::graph::export::{stream_json, stream_json_minified, stream_ndjson, ExportConfig, ExportFormat};
 use tempfile::TempDir;
+
+// ============================================================================
+// Migration Tests
+// ============================================================================
+
+#[test]
+fn test_migration_creates_backup() {
+    let temp_dir = tempfile::TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+
+    // Create an old database (version 3)
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS magellan_meta (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            magellan_schema_version INTEGER NOT NULL,
+            sqlitegraph_schema_version INTEGER NOT NULL,
+            created_at INTEGER NOT NULL
+        )",
+        [],
+    ).unwrap();
+    conn.execute(
+        "INSERT INTO magellan_meta (id, magellan_schema_version, sqlitegraph_schema_version, created_at)
+         VALUES (1, 3, 1, 1000000000)",
+        [],
+    ).unwrap();
+    drop(conn);
+
+    // Run migration
+    let result = magellan::migrate_cmd::run_migrate(db_path.clone(), false, false).unwrap();
+
+    assert!(result.success);
+    assert_eq!(result.old_version, 3);
+    assert_eq!(result.new_version, magellan::migrate_cmd::MAGELLAN_SCHEMA_VERSION);
+    assert!(result.backup_path.is_some());
+
+    // Verify backup exists
+    let backup_path = result.backup_path.unwrap();
+    assert!(backup_path.exists());
+    assert!(backup_path.to_string_lossy().contains(".bak"));
+}
+
+#[test]
+fn test_migration_dry_run() {
+    let temp_dir = tempfile::TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+
+    // Create an old database (version 3)
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS magellan_meta (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            magellan_schema_version INTEGER NOT NULL,
+            sqlitegraph_schema_version INTEGER NOT NULL,
+            created_at INTEGER NOT NULL
+        )",
+        [],
+    ).unwrap();
+    conn.execute(
+        "INSERT INTO magellan_meta (id, magellan_schema_version, sqlitegraph_schema_version, created_at)
+         VALUES (1, 3, 1, 1000000000)",
+        [],
+    ).unwrap();
+    drop(conn);
+
+    // Run dry-run migration
+    let result = magellan::migrate_cmd::run_migrate(db_path.clone(), true, false).unwrap();
+
+    assert!(result.success);
+    assert_eq!(result.old_version, 3);
+    assert!(result.message.contains("dry run"));
+    assert!(result.backup_path.is_none());
+
+    // Verify version didn't change
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    let version: i64 = conn.query_row(
+        "SELECT magellan_schema_version FROM magellan_meta WHERE id=1",
+        [],
+        |row| row.get(0),
+    ).unwrap();
+    assert_eq!(version, 3);
+}
+
+#[test]
+fn test_migration_already_current() {
+    let temp_dir = tempfile::TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+
+    // Create a current database
+    let graph = magellan::CodeGraph::open(&db_path).unwrap();
+    drop(graph);
+
+    // Run migration
+    let result = magellan::migrate_cmd::run_migrate(db_path, false, false).unwrap();
+
+    assert!(result.success);
+    assert!(result.message.contains("already at current version"));
+    assert!(result.backup_path.is_none());
+}
+
+#[test]
+fn test_migration_nonexistent_database() {
+    let temp_dir = tempfile::TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("nonexistent.db");
+
+    // Run migration on non-existent database
+    let result = magellan::migrate_cmd::run_migrate(db_path, false, false).unwrap();
+
+    assert!(!result.success);
+    assert!(result.message.contains("not found"));
+}
+
+#[test]
+fn test_migration_no_backup_flag() {
+    let temp_dir = tempfile::TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+
+    // Create an old database (version 3)
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS magellan_meta (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            magellan_schema_version INTEGER NOT NULL,
+            sqlitegraph_schema_version INTEGER NOT NULL,
+            created_at INTEGER NOT NULL
+        )",
+        [],
+    ).unwrap();
+    conn.execute(
+        "INSERT INTO magellan_meta (id, magellan_schema_version, sqlitegraph_schema_version, created_at)
+         VALUES (1, 3, 1, 1000000000)",
+        [],
+    ).unwrap();
+    drop(conn);
+
+    // Run migration with --no-backup
+    let result = magellan::migrate_cmd::run_migrate(db_path.clone(), false, true).unwrap();
+
+    assert!(result.success);
+    assert!(result.backup_path.is_none());
+
+    // Verify no backup file created
+    let backups = std::fs::read_dir(temp_dir.path()).unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().map(|ext| ext == "bak").unwrap_or(false))
+        .count();
+    assert_eq!(backups, 0);
+}
 
 #[test]
 fn test_code_graph_exports_to_json() {
@@ -196,7 +347,10 @@ fn helper() {
     let streamed_json = String::from_utf8(buffer).unwrap();
 
     // Outputs should be identical (same deterministic sorting)
-    assert_eq!(json, streamed_json, "stream_json should produce identical output to export_json");
+    assert_eq!(
+        json, streamed_json,
+        "stream_json should produce identical output to export_json"
+    );
 }
 
 /// Test that stream_json_minified produces compact JSON
@@ -226,7 +380,10 @@ fn test_stream_json_minified_compact() {
 
     // Should still be valid JSON
     let parsed: serde_json::Value = serde_json::from_str(&minified).unwrap();
-    assert!(parsed.is_object(), "Minified output should be valid JSON object");
+    assert!(
+        parsed.is_object(),
+        "Minified output should be valid JSON object"
+    );
 }
 
 /// Test that stream_ndjson produces valid JSONL output
@@ -254,15 +411,15 @@ fn helper() {}
 
     // NDJSON should have one JSON object per line
     let lines: Vec<&str> = ndjson.lines().collect();
-    assert!(
-        lines.len() > 0,
-        "NDJSON should have at least one line"
-    );
+    assert!(lines.len() > 0, "NDJSON should have at least one line");
 
     // Each line should be valid JSON
     for (i, line) in lines.iter().enumerate() {
         let parsed: serde_json::Value = serde_json::from_str(line).unwrap_or_else(|e| {
-            panic!("Line {} should be valid JSON: {}\nLine content: '{}'", i, e, line);
+            panic!(
+                "Line {} should be valid JSON: {}\nLine content: '{}'",
+                i, e, line
+            );
         });
         assert!(parsed.is_object(), "Each line should be a JSON object");
     }
@@ -288,6 +445,8 @@ fn test_stream_json_respects_symbols_filter() {
         include_calls: true,
         minify: true,
         filters: Default::default(),
+        include_collisions: false,
+        collisions_field: magellan::graph::query::CollisionField::Fqn,
     };
     stream_json_minified(&mut graph, &config, &mut buffer).unwrap();
     let json = String::from_utf8(buffer).unwrap();
@@ -326,6 +485,8 @@ fn helper() {}
         include_calls: false,
         minify: true,
         filters: Default::default(),
+        include_collisions: false,
+        collisions_field: magellan::graph::query::CollisionField::Fqn,
     };
     stream_json_minified(&mut graph, &config, &mut buffer).unwrap();
     let json = String::from_utf8(buffer).unwrap();
@@ -337,4 +498,3 @@ fn helper() {}
         "Calls should be empty when include_calls=false"
     );
 }
-

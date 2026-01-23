@@ -6,7 +6,10 @@ use anyhow::Result;
 use rusqlite::{params, Transaction, OptionalExtension};
 use std::fs;
 use std::path::{Path, PathBuf};
-use magellan::MAGELLAN_SCHEMA_VERSION;
+
+/// Current Magellan schema version
+/// v4: BLAKE3-based SymbolId, canonical_fqn, display_fqn
+pub const MAGELLAN_SCHEMA_VERSION: i64 = 4;
 
 /// Migration result summary
 #[derive(Debug, Clone)]
