@@ -130,8 +130,8 @@ impl FileSystemWatcher {
         Ok(Self {
             _watcher_thread: thread,
             batch_receiver: batch_rx,
-            legacy_pending_batch: RefCell::new(None),
-            legacy_pending_index: RefCell::new(0),
+            legacy_pending_batch: Arc::new(Mutex::new(None)),
+            legacy_pending_index: Arc::new(Mutex::new(0)),
         })
     }
 
