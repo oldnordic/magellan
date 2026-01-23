@@ -8,6 +8,7 @@ use anyhow::Result;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use sqlitegraph::{BackendDirection, GraphBackend, NeighborQuery};
+use std::io::Write;
 
 use super::{CallNode, CodeGraph, FileNode, ReferenceNode, SymbolNode};
 use crate::graph::query::{collision_groups, CollisionField};
@@ -1648,6 +1649,11 @@ pub fn export_csv(graph: &mut CodeGraph, config: &ExportConfig) -> Result<String
 
     // Write to buffer using csv::Writer
     let mut buffer = Vec::new();
+
+    // Add version header comment
+    use std::io::Write;
+    writeln!(buffer, "# Magellan Export Version: 2.0.0")?;
+
     {
         let mut writer = csv::Writer::from_writer(&mut buffer);
         for record in records {
