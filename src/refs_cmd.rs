@@ -3,10 +3,13 @@
 //! Shows calls (incoming/outgoing) for a symbol.
 
 use anyhow::Result;
-use magellan::{CallFact, CodeGraph};
 use magellan::common::{detect_language_from_path, resolve_path};
-use magellan::output::{JsonResponse, OutputFormat, RefsResponse, ReferenceMatch, Span, output_json};
-use magellan::output::rich::{SpanContext, SpanChecksums};
+use magellan::graph::query;
+use magellan::output::rich::{SpanChecksums, SpanContext};
+use magellan::output::{
+    output_json, JsonResponse, OutputFormat, ReferenceMatch, RefsResponse, Span,
+};
+use magellan::{CallFact, CodeGraph};
 use std::path::PathBuf;
 
 /// Run the refs command
@@ -16,6 +19,7 @@ use std::path::PathBuf;
 /// * `name` - Symbol name to query
 /// * `root` - Optional root directory for resolving relative paths
 /// * `path` - File path containing the symbol
+/// * `symbol_id` - Optional stable SymbolId for precise lookup
 /// * `direction` - "in" for callers, "out" for calls
 /// * `output_format` - Output format (Human or Json)
 /// * `with_context` - Include context lines
@@ -30,6 +34,7 @@ pub fn run_refs(
     name: String,
     root: Option<PathBuf>,
     path: PathBuf,
+    symbol_id: Option<String>,
     direction: String,
     output_format: OutputFormat,
     with_context: bool,
@@ -47,6 +52,10 @@ pub fn run_refs(
     }
     args.push("--path".to_string());
     args.push(path.to_string_lossy().to_string());
+    if let Some(ref sid) = symbol_id {
+        args.push("--symbol-id".to_string());
+        args.push(sid.clone());
+    }
     args.push("--direction".to_string());
     args.push(direction.clone());
 
@@ -62,6 +71,128 @@ pub fn run_refs(
         root_str.as_deref(),
         &db_path_str,
     )?;
+
+    // Handle --symbol-id alternative
+    if let Some(sid) = symbol_id {
+        let mut graph_mut = CodeGraph::open(&db_path)?;
+        let target_symbol = query::find_by_symbol_id(&mut graph_mut, &sid)?;
+
+        match target_symbol {
+            Some(symbol) => {
+                // Query references by SymbolId
+                // Fall back to FQN-based if symbol has display_fqn
+                if let Some(ref fqn) = symbol.display_fqn {
+                    // Use existing FQN-based reference query via name/path
+                    // For now, we use the name from the symbol
+                    let symbol_name = symbol.name.clone().unwrap_or_else(|| fqn.clone());
+                    // Use the provided path for FQN lookup
+                    let path_str = resolve_path(&path, &root);
+
+                    let calls: Vec<CallFact> = match direction.as_str() {
+                        "in" | "incoming" => {
+                            graph_mut.callers_of_symbol(&path_str, &symbol_name)?
+                        }
+                        "out" | "outgoing" => {
+                            graph_mut.calls_from_symbol(&path_str, &symbol_name)?
+                        }
+                        _ => {
+                            let err_msg = format!("Invalid direction: '{}'. Use 'in' or 'out'", direction);
+                            graph.execution_log().finish_execution(
+                                &exec_id,
+                                "error",
+                                Some(err_msg.as_str()),
+                                0,
+                                0,
+                                0,
+                            )?;
+                            anyhow::bail!(err_msg);
+                        }
+                    };
+
+                    // Handle JSON output mode
+                    if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
+                        graph
+                            .execution_log()
+                            .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
+                        return output_json_mode(
+                            &db_path,
+                            &symbol_name,
+                            &path_str,
+                            &direction,
+                            calls,
+                            &exec_id,
+                            output_format,
+                            with_context,
+                            with_semantics,
+                            with_checksums,
+                            context_lines,
+                        );
+                    }
+
+                    // Human mode
+                    if direction == "in" || direction == "incoming" {
+                        if calls.is_empty() {
+                            println!("No incoming calls to \"{}\"", symbol_name);
+                        } else {
+                            println!("Calls TO \"{}\":", symbol_name);
+                            for call in &calls {
+                                println!(
+                                    "  From: {} ({}) at {}:{}",
+                                    call.caller,
+                                    "Function",
+                                    call.file_path.display(),
+                                    call.start_line
+                                );
+                            }
+                        }
+                    } else {
+                        if calls.is_empty() {
+                            println!("No outgoing calls from \"{}\"", symbol_name);
+                        } else {
+                            println!("Calls FROM \"{}\":", symbol_name);
+                            for call in &calls {
+                                println!(
+                                    "  To: {} at {}:{}",
+                                    call.callee,
+                                    call.file_path.display(),
+                                    call.start_line
+                                );
+                            }
+                        }
+                    }
+
+                    graph
+                        .execution_log()
+                        .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
+                    return Ok(());
+                } else {
+                    // Symbol has no display_fqn, cannot lookup references
+                    graph.execution_log().finish_execution(
+                        &exec_id,
+                        "error",
+                        Some("Symbol has no display FQN for reference lookup"),
+                        0,
+                        0,
+                        0,
+                    )?;
+                    eprintln!("Symbol ID '{}' has no display FQN, cannot lookup references", sid);
+                    return Ok(());
+                }
+            }
+            None => {
+                graph.execution_log().finish_execution(
+                    &exec_id,
+                    "error",
+                    Some("Symbol ID not found"),
+                    0,
+                    0,
+                    0,
+                )?;
+                eprintln!("Symbol ID '{}' not found", sid);
+                return Ok(());
+            }
+        }
+    }
 
     let path_str = resolve_path(&path, &root);
 
@@ -86,7 +217,9 @@ pub fn run_refs(
                 &exec_id,
                 "error",
                 Some(err_msg.as_str()),
-                0, 0, 0,
+                0,
+                0,
+                0,
             )?;
             anyhow::bail!(err_msg);
         }
@@ -94,13 +227,22 @@ pub fn run_refs(
 
     // Handle JSON output mode
     if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
-        graph.execution_log().finish_execution(
+        graph
+            .execution_log()
+            .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
+        return output_json_mode(
+            &db_path,
+            &name,
+            &path_str,
+            &direction,
+            calls,
             &exec_id,
-            "success",
-            None,
-            0, 0, 0,
-        )?;
-        return output_json_mode(&db_path, &name, &path_str, &direction, calls, &exec_id, output_format, with_context, with_semantics, with_checksums, context_lines);
+            output_format,
+            with_context,
+            with_semantics,
+            with_checksums,
+            context_lines,
+        );
     }
 
     // Human mode (existing behavior)
@@ -135,12 +277,9 @@ pub fn run_refs(
         }
     }
 
-    graph.execution_log().finish_execution(
-        &exec_id,
-        "success",
-        None,
-        0, 0, 0,
-    )?;
+    graph
+        .execution_log()
+        .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
     Ok(())
 }
 
@@ -195,7 +334,8 @@ fn output_json_mode(
             // Add semantics if requested
             if with_semantics {
                 let kind = "call".to_string();
-                let language = detect_language_from_path(&call.file_path.to_string_lossy().to_string());
+                let language =
+                    detect_language_from_path(&call.file_path.to_string_lossy().to_string());
                 span = span.with_semantics_from(kind, language);
             }
 
@@ -211,13 +351,19 @@ fn output_json_mode(
 
             // For "in" direction, referenced_symbol is the caller
             // For "out" direction, referenced_symbol is the callee
-            let (referenced_symbol, target_symbol_id) = if direction == "in" || direction == "incoming" {
-                (call.caller.clone(), call.caller_symbol_id)
-            } else {
-                (call.callee.clone(), call.callee_symbol_id)
-            };
+            let (referenced_symbol, target_symbol_id) =
+                if direction == "in" || direction == "incoming" {
+                    (call.caller.clone(), call.caller_symbol_id)
+                } else {
+                    (call.callee.clone(), call.callee_symbol_id)
+                };
 
-            ReferenceMatch::new(span, referenced_symbol, Some("call".to_string()), target_symbol_id)
+            ReferenceMatch::new(
+                span,
+                referenced_symbol,
+                Some("call".to_string()),
+                target_symbol_id,
+            )
         })
         .collect();
 

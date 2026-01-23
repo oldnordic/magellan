@@ -215,6 +215,7 @@ enum Command {
         name: String,
         root: Option<PathBuf>,
         path: PathBuf,
+        symbol_id: Option<String>,
         direction: String,
         output_format: OutputFormat,
         with_context: bool,
@@ -814,6 +815,7 @@ fn parse_args() -> Result<Command> {
             let mut name: Option<String> = None;
             let mut root: Option<PathBuf> = None;
             let mut path: Option<PathBuf> = None;
+            let mut symbol_id: Option<String> = None;
             let mut direction = String::from("in"); // default
             let mut output_format = OutputFormat::Human;
             let mut with_context = false;
@@ -850,6 +852,13 @@ fn parse_args() -> Result<Command> {
                             return Err(anyhow::anyhow!("--path requires an argument"));
                         }
                         path = Some(PathBuf::from(&args[i + 1]));
+                        i += 2;
+                    }
+                    "--symbol-id" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--symbol-id requires an argument"));
+                        }
+                        symbol_id = Some(args[i + 1].clone());
                         i += 2;
                     }
                     "--direction" => {
@@ -902,6 +911,7 @@ fn parse_args() -> Result<Command> {
                 name,
                 root,
                 path,
+                symbol_id,
                 direction,
                 output_format,
                 with_context,
@@ -1575,6 +1585,7 @@ fn main() -> ExitCode {
             name,
             root,
             path,
+            symbol_id,
             direction,
             output_format,
             with_context,
@@ -1587,6 +1598,7 @@ fn main() -> ExitCode {
                 name,
                 root,
                 path,
+                symbol_id,
                 direction,
                 output_format,
                 with_context,
