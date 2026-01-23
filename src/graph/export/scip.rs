@@ -2,12 +2,23 @@
 //!
 //! Implements SCIP (Source Code Intelligence Protocol) export for Magellan.
 //! SCIP is a language-agnostic protocol for code indexing defined by Sourcegraph.
+//!
+//! # FQN Collision Limitation
+//!
+//! SCIP export uses the display_fqn (human-readable) for symbol encoding,
+//! which may result in collisions when multiple symbols share the same name
+//! in different files. The SCIP format does not natively support Magellan's
+//! symbol_id field for disambiguation.
+//!
+//! For complete ambiguity resolution, use Magellan's native JSON/JSONL exports
+//! which include both symbol_id (stable 32-char BLAKE3 hash) and canonical_fqn
+//! (full identity with file path).
 
 use anyhow::Result;
 use protobuf::{EnumOrUnknown, Message};
 use scip::types::{
-    symbol_information::Kind, Document, Index, Metadata, Occurrence, SymbolInformation,
-    SymbolRole, PositionEncoding,
+    symbol_information::Kind, Document, Index, Metadata, Occurrence, PositionEncoding,
+    SymbolInformation, SymbolRole,
 };
 use std::collections::HashMap;
 
@@ -74,7 +85,12 @@ fn magellan_symbol_to_scip(fqn: &str, language: &str) -> String {
     if descriptors.is_empty() {
         format!("magellan {}/{}.", language, symbol)
     } else {
-        format!("magellan {}/{}/{}.", language, descriptors.join("/"), symbol)
+        format!(
+            "magellan {}/{}/{}.",
+            language,
+            descriptors.join("/"),
+            symbol
+        )
     }
 }
 
@@ -102,6 +118,13 @@ fn map_symbol_kind(kind: &str) -> Kind {
 /// - Documents per file with occurrences (definitions and references)
 /// - Proper SCIP symbol encoding
 ///
+/// # FQN Collision Limitation
+///
+/// **Note:** SCIP symbol format uses display_fqn (human-readable) for encoding,
+/// which may have collisions when multiple symbols share the same name in different files.
+/// Use Magellan's native export formats (JSON/JSONL) for complete ambiguity resolution
+/// via symbol_id and canonical_fqn.
+///
 /// # Arguments
 /// * `graph` - CodeGraph to export
 /// * `config` - SCIP export configuration
@@ -116,6 +139,10 @@ pub fn export_scip(graph: &CodeGraph, config: &ScipExportConfig) -> Result<Vec<u
     // Build metadata
     let mut metadata = Metadata::new();
 
+    // Document FQN collision limitation in SCIP export
+    // SCIP symbol format uses display_fqn (human-readable) which may have collisions
+    // when multiple symbols share the same name in different files. Use Magellan's
+    // native export formats for complete ambiguity resolution via symbol_id.
     // Note: scip 0.6.1 ToolInfo doesn't have public name/version fields
     // The metadata.project_root is the primary metadata we can set
 
@@ -162,7 +189,9 @@ pub fn export_scip(graph: &CodeGraph, config: &ScipExportConfig) -> Result<Vec<u
                         .first()
                     {
                         let file_entity = graph.files.backend.get_node(*file_id)?;
-                        if let Ok(file_node) = serde_json::from_value::<super::FileNode>(file_entity.data) {
+                        if let Ok(file_node) =
+                            serde_json::from_value::<super::FileNode>(file_entity.data)
+                        {
                             file_node.path
                         } else {
                             continue;
@@ -201,7 +230,9 @@ pub fn export_scip(graph: &CodeGraph, config: &ScipExportConfig) -> Result<Vec<u
             }
             "Reference" => {
                 // Extract file from reference node
-                if let Ok(ref_node) = serde_json::from_value::<super::ReferenceNode>(entity.data.clone()) {
+                if let Ok(ref_node) =
+                    serde_json::from_value::<super::ReferenceNode>(entity.data.clone())
+                {
                     file_to_references
                         .entry(ref_node.file.clone())
                         .or_insert_with(Vec::new)
@@ -229,7 +260,8 @@ pub fn export_scip(graph: &CodeGraph, config: &ScipExportConfig) -> Result<Vec<u
         document.language = language.clone();
 
         // Set position encoding to UTF-8 code units (line/col based)
-        document.position_encoding = EnumOrUnknown::new(PositionEncoding::UTF8CodeUnitOffsetFromLineStart);
+        document.position_encoding =
+            EnumOrUnknown::new(PositionEncoding::UTF8CodeUnitOffsetFromLineStart);
 
         // Add symbol occurrences (definitions)
         for (_node_id, symbol) in &symbols {
