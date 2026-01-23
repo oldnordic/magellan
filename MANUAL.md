@@ -382,6 +382,60 @@ Get all code chunks from a file. Useful for getting complete file contents witho
 | `--db <FILE>` | Path | - | Database path (required) |
 | `--file <PATH>` | Path | - | File path (required) |
 
+### 3.12 migrate
+
+```bash
+magellan migrate --db <FILE> [--dry-run] [--no-backup]
+```
+
+Upgrades a Magellan database to the current schema version. Migration is
+required when upgrading to a new Magellan version that includes schema changes.
+
+| Argument | Type | Default | Description |
+|----------|------|---------|-------------|
+| `--db <FILE>` | Path | - | Database path (required) |
+| `--dry-run` | Flag | false | Check version without migrating |
+| `--no-backup` | Flag | false | Skip backup creation |
+
+**Migration Behavior:**
+
+- Creates timestamped backup before migration (`<db>.v<timestamp>.bak`)
+- Uses SQLite transaction for atomicity (rollback on error)
+- Shows old version and new version before running
+- No-op if database already at current version
+
+**Schema Version 4 (v1.5 BLAKE3 SymbolId):**
+
+Version 4 introduces BLAKE3-based SymbolId and canonical_fqn/display_fqn fields:
+- New symbols get 32-character BLAKE3 hash IDs
+- Existing symbols have `symbol_id: null` in exports
+- To get BLAKE3 IDs for all symbols, re-index after migration:
+  ```bash
+  rm ./magellan.db
+  magellan watch --root . --db ./magellan.db --scan-initial
+  ```
+
+**Examples:**
+
+```bash
+# Check current version without migrating
+magellan migrate --db ./magellan.db --dry-run
+
+# Migrate with backup (recommended)
+magellan migrate --db ./magellan.db
+
+# Migrate without backup (not recommended)
+magellan migrate --db ./magellan.db --no-backup
+```
+
+**Rollback:**
+
+If migration fails, the database remains unchanged due to transactional
+migration. To rollback a successful migration, restore from backup:
+```bash
+mv ./magellan.db.v<timestamp>.bak ./magellan.db
+```
+
 ---
 
 ## 5. Known Limitations
