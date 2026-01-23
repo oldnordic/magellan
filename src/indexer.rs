@@ -360,7 +360,21 @@ pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>
     }
 
     // Wait for watcher thread to finish
-    let _ = watcher_thread.join();
+    match watcher_thread.join() {
+        Ok(_) => {
+            // Clean exit
+        }
+        Err(panic_payload) => {
+            // Extract and log panic information
+            if let Some(msg) = panic_payload.downcast_ref::<&str>() {
+                eprintln!("Watcher thread panicked: {}", msg);
+            } else if let Some(msg) = panic_payload.downcast_ref::<String>() {
+                eprintln!("Watcher thread panicked: {}", msg);
+            } else {
+                eprintln!("Watcher thread panicked with unknown payload");
+            }
+        }
+    }
 
     Ok(total_processed)
 }
