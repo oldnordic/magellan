@@ -309,10 +309,62 @@ Total: 2 issues
 ### 3.8 export
 
 ```bash
-magellan export --db <FILE>
+magellan export --db <FILE> [--format json|jsonl|csv|scip|dot] [--output <PATH>] [--minify]
 ```
 
-Exports graph data to JSON.
+Exports graph data to various formats. All export formats include a version
+field for schema versioning.
+
+| Argument | Type | Default | Description |
+|----------|------|---------|-------------|
+| `--db <FILE>` | Path | - | Database path (required) |
+| `--format <FORMAT>` | Format | json | Export format |
+| `--output <PATH>` | Path | stdout | Write to file instead of stdout |
+| `--minify` | Flag | false | Use compact JSON (no pretty-printing) |
+| `--no-symbols` | Flag | false | Exclude symbols from export |
+| `--no-references` | Flag | false | Exclude references from export |
+| `--no-calls` | Flag | false | Exclude calls from export |
+| `--include-collisions` | Flag | false | Include collision groups (JSON only) |
+
+**Export Versions:**
+
+| Version | Changes |
+|---------|---------|
+| 2.0.0 | Added `symbol_id`, `canonical_fqn`, `display_fqn` fields to SymbolExport |
+
+**Format-Specific Version Encoding:**
+
+- **JSON**: Top-level `version` field
+- **JSONL**: First line is `{"type":"Version","version":"2.0.0"}`
+- **CSV**: Header comment `# Magellan Export Version: 2.0.0`
+- **SCIP**: Metadata includes version information
+- **DOT**: No version field (graphviz format)
+
+**SCIP Format Limitations:**
+
+SCIP export uses display_fqn for symbol encoding, which may have collisions
+when multiple symbols share the same name in different files. For complete
+ambiguity resolution, use JSON/JSONL exports which include `symbol_id`
+(stable BLAKE3 hash) and `canonical_fqn` (full identity with file path).
+
+**Examples:**
+
+```bash
+# Export to JSON (default)
+magellan export --db ./magellan.db > codegraph.json
+
+# Export to JSONL
+magellan export --db ./magellan.db --format jsonl > codegraph.jsonl
+
+# Export to CSV
+magellan export --db ./magellan.db --format csv > codegraph.csv
+
+# Export to SCIP (binary, requires --output)
+magellan export --db ./magellan.db --format scip --output codegraph.scip
+
+# Minified JSON
+magellan export --db ./magellan.db --minify > codegraph.json
+```
 
 ### 3.9 label
 
