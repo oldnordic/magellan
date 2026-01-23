@@ -46,7 +46,7 @@ fn print_usage() {
     eprintln!("  magellan status --db <FILE>");
     eprintln!("  magellan query --db <FILE> --file <PATH> [--kind <KIND>]");
     eprintln!("  magellan find --db <FILE> (--name <NAME> | --symbol-id <ID> | --ambiguous <NAME>) [--path <PATH>] [--first]");
-    eprintln!("  magellan refs --db <FILE> --name <NAME> --path <PATH> [--direction <in|out>] [--output <FORMAT>]");
+    eprintln!("  magellan refs --db <FILE> (--name <NAME> [--path <PATH>] | --symbol-id <ID> --path <PATH>) [--direction <in|out>] [--output <FORMAT>]");
     eprintln!("  magellan get --db <FILE> --file <PATH> --symbol <NAME>");
     eprintln!("  magellan get-file --db <FILE> --file <PATH>");
     eprintln!("  magellan files --db <FILE> [--symbols] [--output <FORMAT>]");
@@ -118,6 +118,7 @@ fn print_usage() {
     eprintln!("Refs arguments:");
     eprintln!("  --db <FILE>         Path to sqlitegraph database");
     eprintln!("  --name <NAME>       Symbol name to query");
+    eprintln!("  --symbol-id <ID>    Use SymbolId instead of name for precise lookup");
     eprintln!("  --path <PATH>       File path containing the symbol");
     eprintln!("  --direction <in|out> Show incoming (in) or outgoing (out) calls (default: in)");
     eprintln!("  --with-context      Include source code context lines");
