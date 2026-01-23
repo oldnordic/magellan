@@ -95,7 +95,11 @@ pub fn run_indexer_n(root_path: PathBuf, db_path: PathBuf, max_events: usize) ->
     let shutdown = Arc::new(AtomicBool::new(false));
 
     // Create watcher
-    let watcher = FileSystemWatcher::new(root_path.clone(), WatcherConfig::default(), shutdown.clone())?;
+    let watcher = FileSystemWatcher::new(
+        root_path.clone(),
+        WatcherConfig::default(),
+        shutdown.clone(),
+    )?;
 
     // Open graph
     let mut graph = CodeGraph::open(&db_path)?;
@@ -168,7 +172,24 @@ impl WatchPipelineConfig {
 
 /// Shared state for the watch pipeline.
 ///
-/// Uses a BTreeSet for deterministic ordering and a bounded wakeup channel.
+/// # Lock Ordering
+///
+/// To prevent deadlocks, follow this global lock acquisition order:
+///
+/// 1. **dirty_paths lock** (lowest priority)—acquired first
+/// 2. **wakeup channel send** (highest priority)—acquired last
+///
+/// **CRITICAL:** Never send to wakeup channel while holding other locks.
+/// Always acquire dirty_paths lock, modify data, send wakeup, THEN release.
+///
+/// This ordering prevents:
+/// - Lost wakeups (lock held during send ensures data isn't drained before signal)
+/// - Deadlocks (no circular wait: main thread waits for dirty_paths, never reverse)
+///
+/// # Invariants
+///
+/// - `dirty_paths` contains sorted, deduplicated paths (BTreeSet guarantees ordering)
+/// - `wakeup_tx` is a bounded channel (capacity 1) to prevent unbounded buffering
 #[derive(Clone)]
 struct PipelineSharedState {
     /// Dirty paths collected during scan/watch (sorted deterministically)
