@@ -831,6 +831,7 @@ fn get_file_path_from_symbol(graph: &mut CodeGraph, symbol_id: i64) -> Result<St
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 enum JsonlRecord {
+    Version { version: String },
     File(FileExport),
     Symbol(SymbolExport),
     Reference(ReferenceExport),
@@ -846,6 +847,11 @@ enum JsonlRecord {
 /// JSONL string with one record per line, deterministically sorted
 pub fn export_jsonl(graph: &mut CodeGraph) -> Result<String> {
     let mut records = Vec::new();
+
+    // Add version record first
+    records.push(JsonlRecord::Version {
+        version: "2.0.0".to_string(),
+    });
 
     // Get all entity IDs from the graph
     let entity_ids = graph.files.backend.entity_ids()?;
@@ -929,6 +935,8 @@ pub fn export_jsonl(graph: &mut CodeGraph) -> Result<String> {
 
     // Sort deterministically before output
     records.sort_by(|a, b| match (a, b) {
+        (JsonlRecord::Version { .. }, _) => std::cmp::Ordering::Less,
+        (_, JsonlRecord::Version { .. }) => std::cmp::Ordering::Greater,
         (JsonlRecord::File(a), JsonlRecord::File(b)) => a.path.cmp(&b.path),
         (JsonlRecord::Symbol(a), JsonlRecord::Symbol(b)) => {
             (&a.file, &a.name).cmp(&(&b.file, &b.name))
@@ -973,6 +981,11 @@ pub fn stream_ndjson<W: std::io::Write>(
     writer: &mut W,
 ) -> Result<()> {
     let mut records = Vec::new();
+
+    // Add version record first
+    records.push(JsonlRecord::Version {
+        version: "2.0.0".to_string(),
+    });
 
     // Get all entity IDs from the graph
     let entity_ids = graph.files.backend.entity_ids()?;
@@ -1066,6 +1079,8 @@ pub fn stream_ndjson<W: std::io::Write>(
 
     // Sort deterministically before output
     records.sort_by(|a, b| match (a, b) {
+        (JsonlRecord::Version { .. }, _) => std::cmp::Ordering::Less,
+        (_, JsonlRecord::Version { .. }) => std::cmp::Ordering::Greater,
         (JsonlRecord::File(a), JsonlRecord::File(b)) => a.path.cmp(&b.path),
         (JsonlRecord::Symbol(a), JsonlRecord::Symbol(b)) => {
             (&a.file, &a.name).cmp(&(&b.file, &b.name))
