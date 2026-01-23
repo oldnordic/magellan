@@ -2,9 +2,10 @@
 //!
 //! Extracts functions, classes, and methods from JavaScript source code.
 
+use crate::common::safe_slice;
+use crate::graph::canonical_fqn::FqnBuilder;
 use crate::ingest::{ScopeSeparator, ScopeStack, SymbolFact, SymbolKind};
 use crate::references::{CallFact, ReferenceFact};
-use crate::graph::canonical_fqn::FqnBuilder;
 use anyhow::Result;
 use std::path::PathBuf;
 
@@ -51,7 +52,14 @@ impl JavaScriptParser {
         let package_name = ".";
 
         // Walk tree with scope tracking
-        self.walk_tree_with_scope(&root_node, source, &file_path, &mut facts, &mut scope_stack, package_name);
+        self.walk_tree_with_scope(
+            &root_node,
+            source,
+            &file_path,
+            &mut facts,
+            &mut scope_stack,
+            package_name,
+        );
 
         facts
     }
@@ -76,7 +84,14 @@ impl JavaScriptParser {
         if kind == "export_statement" {
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
-                self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack, package_name);
+                self.walk_tree_with_scope(
+                    &child,
+                    source,
+                    file_path,
+                    facts,
+                    scope_stack,
+                    package_name,
+                );
             }
             return;
         }
@@ -85,14 +100,23 @@ impl JavaScriptParser {
         if kind == "class_declaration" {
             if let Some(name) = self.extract_name(node, source) {
                 // Create class symbol with parent scope
-                if let Some(fact) = self.extract_symbol_with_fqn(node, source, file_path, scope_stack, package_name) {
+                if let Some(fact) =
+                    self.extract_symbol_with_fqn(node, source, file_path, scope_stack, package_name)
+                {
                     facts.push(fact);
                 }
                 // Push class scope for children (methods)
                 scope_stack.push(&name);
                 let mut cursor = node.walk();
                 for child in node.children(&mut cursor) {
-                    self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack, package_name);
+                    self.walk_tree_with_scope(
+                        &child,
+                        source,
+                        file_path,
+                        facts,
+                        scope_stack,
+                        package_name,
+                    );
                 }
                 scope_stack.pop();
                 return;
@@ -100,7 +124,9 @@ impl JavaScriptParser {
         }
 
         // Check if this node is a symbol we care about
-        if let Some(fact) = self.extract_symbol_with_fqn(node, source, file_path, scope_stack, package_name) {
+        if let Some(fact) =
+            self.extract_symbol_with_fqn(node, source, file_path, scope_stack, package_name)
+        {
             facts.push(fact);
         }
 
@@ -172,8 +198,7 @@ impl JavaScriptParser {
         for child in node.children(&mut cursor) {
             match child.kind() {
                 "identifier" | "property_identifier" => {
-                    let name_bytes =
-                        &source[child.start_byte() as usize..child.end_byte() as usize];
+                    let name_bytes = safe_slice(source, child.start_byte() as usize, child.end_byte() as usize)?;
                     return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
                 }
                 _ => {}
@@ -205,7 +230,14 @@ impl JavaScriptParser {
         let package_name = ".";
 
         // Walk tree with scope tracking
-        Self::walk_tree_with_scope_static(&root_node, source, &file_path, &mut facts, &mut scope_stack, package_name);
+        Self::walk_tree_with_scope_static(
+            &root_node,
+            source,
+            &file_path,
+            &mut facts,
+            &mut scope_stack,
+            package_name,
+        );
 
         facts
     }
@@ -225,7 +257,14 @@ impl JavaScriptParser {
         if kind == "export_statement" {
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
-                Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack, package_name);
+                Self::walk_tree_with_scope_static(
+                    &child,
+                    source,
+                    file_path,
+                    facts,
+                    scope_stack,
+                    package_name,
+                );
             }
             return;
         }
@@ -234,14 +273,27 @@ impl JavaScriptParser {
         if kind == "class_declaration" {
             if let Some(name) = Self::extract_name_static(node, source) {
                 // Create class symbol with parent scope
-                if let Some(fact) = Self::extract_symbol_with_fqn_static(node, source, file_path, scope_stack, package_name) {
+                if let Some(fact) = Self::extract_symbol_with_fqn_static(
+                    node,
+                    source,
+                    file_path,
+                    scope_stack,
+                    package_name,
+                ) {
                     facts.push(fact);
                 }
                 // Push class scope for children (methods)
                 scope_stack.push(&name);
                 let mut cursor = node.walk();
                 for child in node.children(&mut cursor) {
-                    Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack, package_name);
+                    Self::walk_tree_with_scope_static(
+                        &child,
+                        source,
+                        file_path,
+                        facts,
+                        scope_stack,
+                        package_name,
+                    );
                 }
                 scope_stack.pop();
                 return;
@@ -249,14 +301,23 @@ impl JavaScriptParser {
         }
 
         // Check if this node is a symbol we care about
-        if let Some(fact) = Self::extract_symbol_with_fqn_static(node, source, file_path, scope_stack, package_name) {
+        if let Some(fact) =
+            Self::extract_symbol_with_fqn_static(node, source, file_path, scope_stack, package_name)
+        {
             facts.push(fact);
         }
 
         // Recurse into children
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack, package_name);
+            Self::walk_tree_with_scope_static(
+                &child,
+                source,
+                file_path,
+                facts,
+                scope_stack,
+                package_name,
+            );
         }
     }
 
@@ -317,8 +378,7 @@ impl JavaScriptParser {
         for child in node.children(&mut cursor) {
             match child.kind() {
                 "identifier" | "property_identifier" => {
-                    let name_bytes =
-                        &source[child.start_byte() as usize..child.end_byte() as usize];
+                    let name_bytes = safe_slice(source, child.start_byte() as usize, child.end_byte() as usize)?;
                     return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
                 }
                 _ => {}
@@ -523,7 +583,7 @@ impl JavaScriptParser {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "identifier" {
-                let name_bytes = &source[child.start_byte() as usize..child.end_byte() as usize];
+                let name_bytes = safe_slice(source, child.start_byte() as usize, child.end_byte() as usize)?;
                 return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
             }
         }
@@ -575,7 +635,7 @@ impl JavaScriptParser {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "identifier" {
-                let name_bytes = &source[child.start_byte() as usize..child.end_byte() as usize];
+                let name_bytes = safe_slice(source, child.start_byte() as usize, child.end_byte() as usize)?;
                 return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
             }
             // Handle member_expression calls like obj.method() - we want the method name
@@ -599,7 +659,7 @@ impl JavaScriptParser {
             // Find property_identifier (second child in obj.prop)
             let prop = &children[1];
             if prop.kind() == "property_identifier" {
-                let name_bytes = &source[prop.start_byte() as usize..prop.end_byte() as usize];
+                let name_bytes = safe_slice(source, prop.start_byte() as usize, prop.end_byte() as usize)?;
                 return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
             }
         }
@@ -863,7 +923,11 @@ class MyClass {
 
         // Class canonical FQN includes file path
         assert!(class_fact.canonical_fqn.is_some());
-        assert!(class_fact.canonical_fqn.as_ref().unwrap().contains(".::src/test.js::Struct MyClass"));
+        assert!(class_fact
+            .canonical_fqn
+            .as_ref()
+            .unwrap()
+            .contains(".::src/test.js::Struct MyClass"));
 
         // Class display FQN is just the class name with package
         // Note: package_name "." is placeholder, so we get "..MyClass"
@@ -878,11 +942,18 @@ class MyClass {
 
         // Method canonical FQN includes file path
         assert!(method_fact.canonical_fqn.is_some());
-        assert!(method_fact.canonical_fqn.as_ref().unwrap().contains(".::src/test.js::Method myMethod"));
+        assert!(method_fact
+            .canonical_fqn
+            .as_ref()
+            .unwrap()
+            .contains(".::src/test.js::Method myMethod"));
 
         // Method display FQN includes class scope
         // Note: package_name "." is placeholder, so we get "..MyClass.myMethod"
-        assert_eq!(method_fact.display_fqn.as_ref().unwrap(), "..MyClass.myMethod");
+        assert_eq!(
+            method_fact.display_fqn.as_ref().unwrap(),
+            "..MyClass.myMethod"
+        );
     }
 
     #[test]
@@ -899,7 +970,11 @@ class MyClass {
         assert!(fact.display_fqn.is_some());
 
         // Canonical FQN includes file path
-        assert!(fact.canonical_fqn.as_ref().unwrap().contains(".::src/test.js::Function foo"));
+        assert!(fact
+            .canonical_fqn
+            .as_ref()
+            .unwrap()
+            .contains(".::src/test.js::Function foo"));
 
         // Display FQN is human-readable
         // Note: package_name "." is placeholder, so we get "..foo"
