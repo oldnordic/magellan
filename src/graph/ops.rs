@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 
 use sqlitegraph::GraphBackend;
 
-use super::CodeGraph;
 use super::query;
+use super::CodeGraph;
 
 /// Deterministic reconcile outcome.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -178,7 +178,7 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
 
     // Store all code chunks in a single transaction
     if !code_chunks.is_empty() {
-        let _ = graph.store_code_chunks(&code_chunks);
+        graph.store_code_chunks(&code_chunks)?;
     }
 
     // Step 6: Index calls (all supported languages)
@@ -297,7 +297,6 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
     let calls_deleted: usize;
 
     if let Some(file_id) = graph.files.find_file_node(path)? {
-
         // Capture symbol IDs before deletion.
         let symbol_ids = graph.files.backend.neighbors(
             file_id.as_i64(),
@@ -536,7 +535,6 @@ pub mod test_helpers {
         let calls_deleted: usize;
 
         if let Some(file_id) = graph.files.find_file_node(path)? {
-
             // Capture symbol IDs before deletion.
             let symbol_ids = graph.files.backend.neighbors(
                 file_id.as_i64(),
@@ -685,10 +683,7 @@ pub mod test_helpers {
 ///
 /// Used to verify deletion completeness.
 fn count_chunks_for_file(graph: &CodeGraph, path: &str) -> usize {
-    graph
-        .chunks
-        .count_chunks_for_file(path)
-        .unwrap_or(0)
+    graph.chunks.count_chunks_for_file(path).unwrap_or(0)
 }
 
 /// Reconcile a file path against filesystem + content hash.
@@ -713,7 +708,8 @@ pub fn reconcile_file_path(
         {
             let deleted = delete_file_facts(graph, path_key)?;
             if !deleted.is_empty() {
-                eprintln!("Deleted {} symbols, {} references, {} calls for missing file {}",
+                eprintln!(
+                    "Deleted {} symbols, {} references, {} calls for missing file {}",
                     deleted.symbols_deleted,
                     deleted.references_deleted,
                     deleted.calls_deleted,
@@ -735,8 +731,8 @@ pub fn reconcile_file_path(
     // 3) Check if hash matches stored file node
     let unchanged = if let Some(file_id) = graph.files.find_file_node(path_key)? {
         let node = graph.files.backend.get_node(file_id.as_i64())?;
-        let file_node: crate::graph::schema::FileNode =
-            serde_json::from_value(node.data).unwrap_or_else(|_| crate::graph::schema::FileNode {
+        let file_node: crate::graph::schema::FileNode = serde_json::from_value(node.data)
+            .unwrap_or_else(|_| crate::graph::schema::FileNode {
                 path: path_key.to_string(),
                 hash: String::new(),
                 last_indexed_at: 0,
@@ -757,7 +753,8 @@ pub fn reconcile_file_path(
     {
         let deleted = delete_file_facts(graph, path_key)?;
         if !deleted.is_empty() {
-            eprintln!("Deleted {} symbols, {} references, {} calls for reindex of {}",
+            eprintln!(
+                "Deleted {} symbols, {} references, {} calls for reindex of {}",
                 deleted.symbols_deleted,
                 deleted.references_deleted,
                 deleted.calls_deleted,
