@@ -4,6 +4,7 @@
 
 mod collisions_cmd;
 mod export_cmd;
+mod migrate_cmd;
 mod files_cmd;
 mod find_cmd;
 mod get_cmd;
@@ -52,6 +53,7 @@ fn print_usage() {
     eprintln!("  magellan files --db <FILE> [--symbols] [--output <FORMAT>]");
     eprintln!("  magellan label --db <FILE> [--label <LABEL>]... [--list] [--count] [--show-code]");
     eprintln!("  magellan collisions --db <FILE> [--field <fqn|display_fqn|canonical_fqn>] [--limit <N>] [--output <FORMAT>]");
+    eprintln!("  magellan migrate --db <FILE> [--dry-run] [--no-backup]");
     eprintln!("  magellan verify --root <DIR> --db <FILE>");
     eprintln!();
     eprintln!("Commands:");
@@ -66,6 +68,7 @@ fn print_usage() {
     eprintln!("  files     List all indexed files");
     eprintln!("  label     Query symbols by label (language, kind, etc.)");
     eprintln!("  collisions List ambiguous symbol groups for a chosen field");
+    eprintln!("  migrate   Upgrade database to current schema version");
     eprintln!("  verify    Verify database vs filesystem");
     eprintln!();
     eprintln!("Global arguments:");
@@ -149,6 +152,11 @@ fn print_usage() {
     eprintln!("  --list             List all available labels with counts");
     eprintln!("  --count            Count entities with specified label(s)");
     eprintln!("  --show-code        Show source code for each matching symbol");
+    eprintln!();
+    eprintln!("Migrate arguments:");
+    eprintln!("  --db <FILE>         Path to sqlitegraph database");
+    eprintln!("  --dry-run           Check version without migrating");
+    eprintln!("  --no-backup         Skip backup creation");
     eprintln!();
     eprintln!("Verify arguments:");
     eprintln!("  --root <DIR>        Directory to verify against");
@@ -263,6 +271,11 @@ enum Command {
         field: CollisionField,
         limit: usize,
         output_format: OutputFormat,
+    },
+    Migrate {
+        db_path: PathBuf,
+        dry_run: bool,
+        no_backup: bool,
     },
 }
 
@@ -1023,6 +1036,43 @@ fn parse_args() -> Result<Command> {
                 output_format,
             })
         }
+        "migrate" => {
+            let mut db_path: Option<PathBuf> = None;
+            let mut dry_run = false;
+            let mut no_backup = false;
+
+            let mut i = 2;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--db" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--db requires an argument"));
+                        }
+                        db_path = Some(PathBuf::from(&args[i + 1]));
+                        i += 2;
+                    }
+                    "--dry-run" => {
+                        dry_run = true;
+                        i += 1;
+                    }
+                    "--no-backup" => {
+                        no_backup = true;
+                        i += 1;
+                    }
+                    _ => {
+                        return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
+                    }
+                }
+            }
+
+            let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+
+            Ok(Command::Migrate {
+                db_path,
+                dry_run,
+                no_backup,
+            })
+        }
         "verify" => {
             let mut root_path: Option<PathBuf> = None;
             let mut db_path: Option<PathBuf> = None;
@@ -1635,6 +1685,30 @@ fn main() -> ExitCode {
             if let Err(e) = collisions_cmd::run_collisions(db_path, field, limit, output_format) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::Migrate {
+            db_path,
+            dry_run,
+            no_backup,
+        }) => {
+            match migrate_cmd::run_migrate(db_path, dry_run, no_backup) {
+                Ok(result) => {
+                    if result.success {
+                        println!("{}", result.message);
+                        if let Some(ref backup) = result.backup_path {
+                            println!("Backup: {}", backup.display());
+                        }
+                    } else {
+                        eprintln!("Migration failed: {}", result.message);
+                        return ExitCode::from(1);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    return ExitCode::from(1);
+                }
             }
             ExitCode::SUCCESS
         }

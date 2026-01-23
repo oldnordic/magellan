@@ -3,7 +3,7 @@
 //! Migrates existing Magellan databases to schema version 4 (BLAKE3 SymbolId).
 
 use anyhow::Result;
-use rusqlite::{params, Transaction};
+use rusqlite::{params, Transaction, OptionalExtension};
 use std::fs;
 use std::path::{Path, PathBuf};
 use magellan::MAGELLAN_SCHEMA_VERSION;
@@ -48,13 +48,26 @@ pub fn run_migrate(
     // Open database and check current version
     let conn = rusqlite::Connection::open(&db_path)?;
 
-    let current_version: Option<i64> = conn
+    // Check if magellan_meta table exists
+    let has_meta_table: bool = conn
         .query_row(
-            "SELECT magellan_schema_version FROM magellan_meta WHERE id=1",
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='magellan_meta' LIMIT 1",
             [],
-            |row| row.get(0),
+            |_| Ok(true),
         )
-        .optional()?;
+        .unwrap_or(false);
+
+    let current_version: Option<i64> = if has_meta_table {
+        conn
+            .query_row(
+                "SELECT magellan_schema_version FROM magellan_meta WHERE id=1",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?
+    } else {
+        None
+    };
 
     let old_version = match current_version {
         Some(v) => v,
