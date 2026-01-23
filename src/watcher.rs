@@ -19,12 +19,11 @@ use anyhow::Result;
 use notify::RecursiveMode;
 use notify_debouncer_mini::new_debouncer;
 use serde::{Deserialize, Serialize};
-use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -376,10 +375,7 @@ fn extract_dirty_paths(
             }
             Err(crate::validation::PathValidationError::OutsideRoot(p, _)) => {
                 // Log the rejection but don't crash
-                eprintln!(
-                    "WARNING: Watcher rejected path outside project root: {}",
-                    p
-                );
+                eprintln!("WARNING: Watcher rejected path outside project root: {}", p);
             }
             Err(crate::validation::PathValidationError::SuspiciousTraversal(p)) => {
                 // Log suspicious path patterns
@@ -496,10 +492,7 @@ mod tests {
     #[test]
     fn test_batch_serialization() {
         let batch = WatcherBatch {
-            paths: vec![
-                PathBuf::from("/alpha.rs"),
-                PathBuf::from("/beta.rs"),
-            ],
+            paths: vec![PathBuf::from("/alpha.rs"), PathBuf::from("/beta.rs")],
         };
 
         let json = serde_json::to_string(&batch).unwrap();
