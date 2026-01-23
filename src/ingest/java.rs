@@ -2,6 +2,7 @@
 //!
 //! Extracts classes, interfaces, enums, methods, and packages from Java source code.
 
+use crate::common::safe_slice;
 use crate::graph::canonical_fqn::FqnBuilder;
 use crate::ingest::{ScopeSeparator, ScopeStack, SymbolFact, SymbolKind};
 use crate::references::{CallFact, ReferenceFact};
@@ -56,7 +57,13 @@ impl JavaParser {
                 if let Some(name) = self.extract_name(&child, source, "package_declaration") {
                     pkg_name = name.clone();
                     // Extract the package symbol itself (before pushing to scope)
-                    if let Some(fact) = self.extract_symbol_with_fqn(&child, source, &file_path, &scope_stack, &pkg_name) {
+                    if let Some(fact) = self.extract_symbol_with_fqn(
+                        &child,
+                        source,
+                        &file_path,
+                        &scope_stack,
+                        &pkg_name,
+                    ) {
                         facts.push(fact);
                     }
                     // Package becomes root scope: com.example.Class
@@ -69,7 +76,14 @@ impl JavaParser {
         }
 
         // Walk tree with scope tracking
-        self.walk_tree_with_scope(&root_node, source, &file_path, &mut facts, &mut scope_stack, &pkg_name);
+        self.walk_tree_with_scope(
+            &root_node,
+            source,
+            &file_path,
+            &mut facts,
+            &mut scope_stack,
+            &pkg_name,
+        );
 
         facts
     }
@@ -105,14 +119,23 @@ impl JavaParser {
         if is_type_scope {
             if let Some(name) = self.extract_name(node, source, kind) {
                 // Create type symbol with parent scope
-                if let Some(fact) = self.extract_symbol_with_fqn(node, source, file_path, scope_stack, package_name) {
+                if let Some(fact) =
+                    self.extract_symbol_with_fqn(node, source, file_path, scope_stack, package_name)
+                {
                     facts.push(fact);
                 }
                 // Push type scope for children (methods, nested types)
                 scope_stack.push(&name);
                 let mut cursor = node.walk();
                 for child in node.children(&mut cursor) {
-                    self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack, package_name);
+                    self.walk_tree_with_scope(
+                        &child,
+                        source,
+                        file_path,
+                        facts,
+                        scope_stack,
+                        package_name,
+                    );
                 }
                 scope_stack.pop();
                 return;
@@ -120,7 +143,9 @@ impl JavaParser {
         }
 
         // Check if this node is a symbol we care about
-        if let Some(fact) = self.extract_symbol_with_fqn(node, source, file_path, scope_stack, package_name) {
+        if let Some(fact) =
+            self.extract_symbol_with_fqn(node, source, file_path, scope_stack, package_name)
+        {
             facts.push(fact);
         }
 
@@ -141,7 +166,7 @@ impl JavaParser {
         source: &[u8],
         file_path: &PathBuf,
         scope_stack: &ScopeStack,
-        _package_name: &str,  // Not used - package is in ScopeStack
+        _package_name: &str, // Not used - package is in ScopeStack
     ) -> Option<SymbolFact> {
         let kind = node.kind();
 
@@ -204,8 +229,7 @@ impl JavaParser {
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
                 if child.kind() == "scoped_identifier" || child.kind() == "identifier" {
-                    let name_bytes =
-                        &source[child.start_byte() as usize..child.end_byte() as usize];
+                    let name_bytes = safe_slice(source, child.start_byte() as usize, child.end_byte() as usize)?;
                     return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
                 }
             }
@@ -216,7 +240,7 @@ impl JavaParser {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "identifier" {
-                let name_bytes = &source[child.start_byte() as usize..child.end_byte() as usize];
+                let name_bytes = safe_slice(source, child.start_byte() as usize, child.end_byte() as usize)?;
                 return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
             }
         }
@@ -247,10 +271,17 @@ impl JavaParser {
         let mut cursor = root_node.walk();
         for child in root_node.children(&mut cursor) {
             if child.kind() == "package_declaration" {
-                if let Some(name) = Self::extract_name_static(&child, source, "package_declaration") {
+                if let Some(name) = Self::extract_name_static(&child, source, "package_declaration")
+                {
                     pkg_name = name.clone();
                     // Extract the package symbol itself (before pushing to scope)
-                    if let Some(fact) = Self::extract_symbol_with_fqn_static(&child, source, &file_path, &scope_stack, &pkg_name) {
+                    if let Some(fact) = Self::extract_symbol_with_fqn_static(
+                        &child,
+                        source,
+                        &file_path,
+                        &scope_stack,
+                        &pkg_name,
+                    ) {
                         facts.push(fact);
                     }
                     // Package becomes root scope: com.example.Class
@@ -263,7 +294,14 @@ impl JavaParser {
         }
 
         // Walk tree with scope tracking
-        Self::walk_tree_with_scope_static(&root_node, source, &file_path, &mut facts, &mut scope_stack, &pkg_name);
+        Self::walk_tree_with_scope_static(
+            &root_node,
+            source,
+            &file_path,
+            &mut facts,
+            &mut scope_stack,
+            &pkg_name,
+        );
 
         facts
     }
@@ -293,14 +331,27 @@ impl JavaParser {
         if is_type_scope {
             if let Some(name) = Self::extract_name_static(node, source, kind) {
                 // Create type symbol with parent scope
-                if let Some(fact) = Self::extract_symbol_with_fqn_static(node, source, file_path, scope_stack, package_name) {
+                if let Some(fact) = Self::extract_symbol_with_fqn_static(
+                    node,
+                    source,
+                    file_path,
+                    scope_stack,
+                    package_name,
+                ) {
                     facts.push(fact);
                 }
                 // Push type scope for children (methods, nested types)
                 scope_stack.push(&name);
                 let mut cursor = node.walk();
                 for child in node.children(&mut cursor) {
-                    Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack, package_name);
+                    Self::walk_tree_with_scope_static(
+                        &child,
+                        source,
+                        file_path,
+                        facts,
+                        scope_stack,
+                        package_name,
+                    );
                 }
                 scope_stack.pop();
                 return;
@@ -308,14 +359,23 @@ impl JavaParser {
         }
 
         // Check if this node is a symbol we care about
-        if let Some(fact) = Self::extract_symbol_with_fqn_static(node, source, file_path, scope_stack, package_name) {
+        if let Some(fact) =
+            Self::extract_symbol_with_fqn_static(node, source, file_path, scope_stack, package_name)
+        {
             facts.push(fact);
         }
 
         // Recurse into children
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack, package_name);
+            Self::walk_tree_with_scope_static(
+                &child,
+                source,
+                file_path,
+                facts,
+                scope_stack,
+                package_name,
+            );
         }
     }
 
@@ -325,7 +385,7 @@ impl JavaParser {
         source: &[u8],
         file_path: &PathBuf,
         scope_stack: &ScopeStack,
-        _package_name: &str,  // Not used - package is in ScopeStack
+        _package_name: &str, // Not used - package is in ScopeStack
     ) -> Option<SymbolFact> {
         let kind = node.kind();
 
@@ -382,8 +442,7 @@ impl JavaParser {
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
                 if child.kind() == "scoped_identifier" || child.kind() == "identifier" {
-                    let name_bytes =
-                        &source[child.start_byte() as usize..child.end_byte() as usize];
+                    let name_bytes = safe_slice(source, child.start_byte() as usize, child.end_byte() as usize)?;
                     return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
                 }
             }
@@ -394,7 +453,7 @@ impl JavaParser {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "identifier" {
-                let name_bytes = &source[child.start_byte() as usize..child.end_byte() as usize];
+                let name_bytes = safe_slice(source, child.start_byte() as usize, child.end_byte() as usize)?;
                 return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
             }
         }
@@ -556,7 +615,7 @@ impl JavaParser {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "identifier" {
-                let name_bytes = &source[child.start_byte() as usize..child.end_byte() as usize];
+                let name_bytes = safe_slice(source, child.start_byte() as usize, child.end_byte() as usize)?;
                 return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
             }
         }
@@ -600,7 +659,7 @@ impl JavaParser {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "identifier" {
-                let name_bytes = &source[child.start_byte() as usize..child.end_byte() as usize];
+                let name_bytes = safe_slice(source, child.start_byte() as usize, child.end_byte() as usize)?;
                 return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
             }
         }
@@ -847,7 +906,10 @@ public class MyClass {
             .filter(|f| f.kind == SymbolKind::Method)
             .collect();
         assert_eq!(methods.len(), 1);
-        assert_eq!(methods[0].fqn, Some("com.example.MyClass.myMethod".to_string()));
+        assert_eq!(
+            methods[0].fqn,
+            Some("com.example.MyClass.myMethod".to_string())
+        );
     }
 
     #[test]
@@ -896,18 +958,42 @@ public class MyClass {
             .collect();
         assert_eq!(classes.len(), 1);
         // Canonical FQN format: crate_name::file_path::Kind symbol_name
-        assert!(classes[0].canonical_fqn.as_ref().unwrap().contains("src/test/Example.java"));
-        assert!(classes[0].canonical_fqn.as_ref().unwrap().contains("Struct"));
-        assert!(classes[0].canonical_fqn.as_ref().unwrap().contains("MyClass"));
+        assert!(classes[0]
+            .canonical_fqn
+            .as_ref()
+            .unwrap()
+            .contains("src/test/Example.java"));
+        assert!(classes[0]
+            .canonical_fqn
+            .as_ref()
+            .unwrap()
+            .contains("Struct"));
+        assert!(classes[0]
+            .canonical_fqn
+            .as_ref()
+            .unwrap()
+            .contains("MyClass"));
 
         let methods: Vec<_> = facts
             .iter()
             .filter(|f| f.kind == SymbolKind::Method)
             .collect();
         assert_eq!(methods.len(), 1);
-        assert!(methods[0].canonical_fqn.as_ref().unwrap().contains("src/test/Example.java"));
-        assert!(methods[0].canonical_fqn.as_ref().unwrap().contains("Method"));
-        assert!(methods[0].canonical_fqn.as_ref().unwrap().contains("myMethod"));
+        assert!(methods[0]
+            .canonical_fqn
+            .as_ref()
+            .unwrap()
+            .contains("src/test/Example.java"));
+        assert!(methods[0]
+            .canonical_fqn
+            .as_ref()
+            .unwrap()
+            .contains("Method"));
+        assert!(methods[0]
+            .canonical_fqn
+            .as_ref()
+            .unwrap()
+            .contains("myMethod"));
     }
 
     #[test]
@@ -965,7 +1051,11 @@ public class MyClass {
         assert!(methods[0].display_fqn.is_some());
 
         // Verify package name is included in display FQN
-        assert!(methods[0].display_fqn.as_ref().unwrap().starts_with("com.example"));
+        assert!(methods[0]
+            .display_fqn
+            .as_ref()
+            .unwrap()
+            .starts_with("com.example"));
     }
 
     #[test]
@@ -989,10 +1079,16 @@ class Outer {
         assert_eq!(classes.len(), 2);
 
         // Outer class display FQN
-        assert_eq!(classes[0].display_fqn.as_ref().unwrap(), "com.example.Outer");
+        assert_eq!(
+            classes[0].display_fqn.as_ref().unwrap(),
+            "com.example.Outer"
+        );
 
         // Inner class display FQN (nested)
-        assert_eq!(classes[1].display_fqn.as_ref().unwrap(), "com.example.Outer.Inner");
+        assert_eq!(
+            classes[1].display_fqn.as_ref().unwrap(),
+            "com.example.Outer.Inner"
+        );
 
         let methods: Vec<_> = facts
             .iter()
@@ -1001,6 +1097,9 @@ class Outer {
         assert_eq!(methods.len(), 1);
 
         // Method display FQN in nested class
-        assert_eq!(methods[0].display_fqn.as_ref().unwrap(), "com.example.Outer.Inner.method");
+        assert_eq!(
+            methods[0].display_fqn.as_ref().unwrap(),
+            "com.example.Outer.Inner.method"
+        );
     }
 }
