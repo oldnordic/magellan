@@ -5,9 +5,9 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use crate::{CodeGraph, WatcherConfig, generate_execution_id, OutputFormat, output_json};
-use magellan::WatchPipelineConfig;
+use crate::{generate_execution_id, output_json, CodeGraph, OutputFormat, WatcherConfig};
 use magellan::graph::validation;
+use magellan::WatchPipelineConfig;
 
 pub fn run_watch(
     root_path: PathBuf,
@@ -71,12 +71,16 @@ pub fn run_watch(
                     let response = magellan::output::command::ValidationResponse {
                         passed: false,
                         error_count,
-                        errors: report.errors.into_iter().map(|e| magellan::output::command::ValidationError {
-                            code: e.code,
-                            message: e.message,
-                            entity_id: e.entity_id,
-                            details: e.details,
-                        }).collect(),
+                        errors: report
+                            .errors
+                            .into_iter()
+                            .map(|e| magellan::output::command::ValidationError {
+                                code: e.code,
+                                message: e.message,
+                                entity_id: e.entity_id,
+                                details: e.details,
+                            })
+                            .collect(),
                         warning_count: 0,
                         warnings: vec![],
                     };
@@ -123,19 +127,27 @@ pub fn run_watch(
             let response = magellan::output::command::ValidationResponse {
                 passed: report.passed,
                 error_count: report.errors.len(),
-                errors: report.errors.into_iter().map(|e| magellan::output::command::ValidationError {
-                    code: e.code,
-                    message: e.message,
-                    entity_id: e.entity_id,
-                    details: e.details,
-                }).collect(),
+                errors: report
+                    .errors
+                    .into_iter()
+                    .map(|e| magellan::output::command::ValidationError {
+                        code: e.code,
+                        message: e.message,
+                        entity_id: e.entity_id,
+                        details: e.details,
+                    })
+                    .collect(),
                 warning_count: report.warnings.len(),
-                warnings: report.warnings.into_iter().map(|w| magellan::output::command::ValidationWarning {
-                    code: w.code,
-                    message: w.message,
-                    entity_id: w.entity_id,
-                    details: w.details,
-                }).collect(),
+                warnings: report
+                    .warnings
+                    .into_iter()
+                    .map(|w| magellan::output::command::ValidationWarning {
+                        code: w.code,
+                        message: w.message,
+                        entity_id: w.entity_id,
+                        details: w.details,
+                    })
+                    .collect(),
             };
             let json_response = magellan::JsonResponse::new(response, &exec_id);
             output_json(&json_response, output_format)?;
@@ -156,8 +168,14 @@ pub fn run_watch(
             }
         }
 
-        let outcome = if report.passed { "success" } else { "validation_failed" };
-        graph.execution_log().finish_execution(&exec_id, outcome, None, 0, 0, 0)?;
+        let outcome = if report.passed {
+            "success"
+        } else {
+            "validation_failed"
+        };
+        graph
+            .execution_log()
+            .finish_execution(&exec_id, outcome, None, 0, 0, 0)?;
         return Ok(());
     }
 
@@ -181,8 +199,16 @@ pub fn run_watch(
         });
     }
 
+    // Warmup parsers to avoid first-parse latency
+    if let Err(e) = magellan::ingest::pool::warmup_parsers() {
+        eprintln!("Warning: Parser warmup failed: {}", e);
+        eprintln!("First file parse will be slower than usual");
+        // Continue anyway - parsers will initialize on first use
+    }
+
     // Create pipeline configuration
-    let pipeline_config = WatchPipelineConfig::new(root_path, db_path.clone(), config, scan_initial);
+    let pipeline_config =
+        WatchPipelineConfig::new(root_path, db_path.clone(), config, scan_initial);
 
     // Run the deterministic watch pipeline
     let result = match magellan::run_watch_pipeline(pipeline_config, shutdown) {
@@ -207,23 +233,32 @@ pub fn run_watch(
 
                 if !report.passed {
                     let error_count = report.errors.len();
-                    if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
+                    if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty
+                    {
                         let response = magellan::output::command::ValidationResponse {
                             passed: report.passed,
                             error_count,
-                            errors: report.errors.into_iter().map(|e| magellan::output::command::ValidationError {
-                                code: e.code,
-                                message: e.message,
-                                entity_id: e.entity_id,
-                                details: e.details,
-                            }).collect(),
+                            errors: report
+                                .errors
+                                .into_iter()
+                                .map(|e| magellan::output::command::ValidationError {
+                                    code: e.code,
+                                    message: e.message,
+                                    entity_id: e.entity_id,
+                                    details: e.details,
+                                })
+                                .collect(),
                             warning_count: report.warnings.len(),
-                            warnings: report.warnings.into_iter().map(|w| magellan::output::command::ValidationWarning {
-                                code: w.code,
-                                message: w.message,
-                                entity_id: w.entity_id,
-                                details: w.details,
-                            }).collect(),
+                            warnings: report
+                                .warnings
+                                .into_iter()
+                                .map(|w| magellan::output::command::ValidationWarning {
+                                    code: w.code,
+                                    message: w.message,
+                                    entity_id: w.entity_id,
+                                    details: w.details,
+                                })
+                                .collect(),
                         };
                         let json_response = magellan::JsonResponse::new(response, &exec_id);
                         output_json(&json_response, output_format)?;
@@ -262,7 +297,9 @@ pub fn run_watch(
     // Record execution completion
     let outcome = if result.is_ok() { "success" } else { "error" };
     let error_msg = result.as_ref().err().map(|e| e.to_string());
-    graph.execution_log().finish_execution(&exec_id, outcome, error_msg.as_deref(), 0, 0, 0)?;
+    graph
+        .execution_log()
+        .finish_execution(&exec_id, outcome, error_msg.as_deref(), 0, 0, 0)?;
 
     result
 }
