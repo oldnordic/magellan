@@ -489,6 +489,9 @@ fn run_glob_listing(
     println!("Matched {} symbols for glob '{}':", matches.len(), pattern);
     for symbol in matches {
         println!("  Node ID: {}", symbol.node_id);
+        if let Some(id) = &symbol.symbol_id {
+            println!("    SymbolId: {}", id);
+        }
         println!(
             "    {} [{}] in {}:{} ({})",
             symbol.name,
