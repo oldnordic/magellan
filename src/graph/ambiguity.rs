@@ -13,7 +13,7 @@
 //! # Graph-Based Ambiguity Model
 //!
 //! Ambiguity is tracked using `alias_of` edges:
-//! - DisplayName node: Represents the human-readable name (Display FQN)
+//! - DisplayName node: Represents human-readable name (Display FQN)
 //! - alias_of edges: Connect DisplayName to each Symbol node with that Display FQN
 //!
 //! This approach:
@@ -21,9 +21,56 @@
 //! - Enables transactional updates (symbol deletion cascades)
 //! - Reuses existing edge query APIs
 
-use anyhow::Result;
-use sqlitegraph::{GraphBackend, NodeId};
 use crate::graph::schema::SymbolNode;
+use anyhow::Result;
+use rusqlite::params;
+use sqlitegraph::{EdgeSpec, GraphBackend, NodeId, NodeSpec};
+
+use super::CodeGraph;
+use crate::graph::query;
+
+/// Find or create a DisplayName node for ambiguity tracking
+///
+/// # Arguments
+///
+/// * `conn` - SQLite connection to underlying graph database
+/// * `display_fqn` - Display fully-qualified name (human-readable, potentially ambiguous)
+///
+/// # Returns
+///
+/// Entity ID of the DisplayName node
+///
+/// # Behavior
+///
+/// This function queries for an existing DisplayName node with the given display_fqn.
+/// If found, returns its ID. If not found, creates a new DisplayName node.
+/// This ensures one DisplayName node exists per unique display_fqn.
+fn find_or_create_display_name(conn: &rusqlite::Connection, display_fqn: &str) -> Result<i64> {
+    // Query for existing DisplayName node
+    let mut stmt = conn.prepare_cached(
+        "SELECT id FROM graph_entities
+         WHERE kind = 'DisplayName' AND name = ?1",
+    )?;
+
+    match stmt.query_row(params![display_fqn], |row| row.get::<i64, _>(0)) {
+        Ok(id) => Ok(id),
+        Err(rusqlite::Error::QueryReturnedNoRows) => {
+            // Create new DisplayName node
+            let node_spec = NodeSpec {
+                kind: "DisplayName".to_string(),
+                name: display_fqn.to_string(),
+                file_path: None,
+                data: "{}".to_string(),
+            };
+            let id = conn.execute(
+                "INSERT INTO graph_entities (kind, name, data) VALUES (?1, ?2, ?3)",
+                params![node_spec.kind, node_spec.name, node_spec.data],
+            )?;
+            Ok(id)
+        }
+        Err(e) => Err(anyhow::anyhow!("Failed to query DisplayName: {}", e)),
+    }
+}
 
 /// Ambiguity operations for CodeGraph
 ///
@@ -80,11 +127,7 @@ pub trait AmbiguityOps {
     ///
     /// The operation is idempotent: calling multiple times with same inputs
     /// produces the same graph structure.
-    fn create_ambiguous_group(
-        &mut self,
-        display_fqn: &str,
-        symbol_ids: &[i64],
-    ) -> Result<()>;
+    fn create_ambiguous_group(&mut self, display_fqn: &str, symbol_ids: &[i64]) -> Result<()>;
 
     /// Resolve a Display FQN to a specific Symbol by SymbolId
     ///
@@ -200,4 +243,48 @@ pub trait AmbiguityOps {
     /// }
     /// ```
     fn get_candidates(&mut self, display_fqn: &str) -> Result<Vec<(i64, SymbolNode)>>;
+}
+
+impl AmbiguityOps for CodeGraph {
+    fn create_ambiguous_group(&mut self, display_fqn: &str, symbol_ids: &[i64]) -> Result<()> {
+        // Step1: Find or create DisplayName node
+        let conn = self.chunks.connect()?;
+        let display_name_id = find_or_create_display_name(&conn, display_fqn)?;
+
+        // Step2: Create alias_of edges to all symbols
+        for symbol_id in symbol_ids {
+            let edge_spec = EdgeSpec {
+                from: display_name_id,
+                to: NodeId::from(*symbol_id),
+                edge_type: "alias_of".to_string(),
+                data: "{}".to_string(),
+            };
+            self.symbols.backend.insert_edge(edge_spec)?;
+        }
+
+        Ok(())
+    }
+
+    fn resolve_by_symbol_id(
+        &mut self,
+        display_fqn: &str,
+        preferred_symbol_id: &str,
+    ) -> Result<Option<SymbolNode>> {
+        // Delegate to Phase 23's find_by_symbol_id()
+        let symbol = query::find_by_symbol_id(self, preferred_symbol_id)?;
+
+        // Verify symbol matches display_fqn (optional validation)
+        if let Some(ref s) = symbol {
+            if s.display_fqn.as_ref() == Some(display_fqn) {
+                return Ok(symbol);
+            }
+        }
+
+        Ok(None)
+    }
+
+    fn get_candidates(&mut self, display_fqn: &str) -> Result<Vec<(i64, SymbolNode)>> {
+        // Delegate to Phase 23's get_ambiguous_candidates()
+        query::get_ambiguous_candidates(self, display_fqn)
+    }
 }
