@@ -3,6 +3,62 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-01-24
+
+### Fixed
+- Thread safety: Migrated `RefCell<T>` to `Arc<Mutex<T>>` for all concurrent state
+  - `FileSystemWatcher::legacy_pending_batch` now uses `Arc<Mutex<Option<WatcherBatch>>>`
+  - `FileSystemWatcher::legacy_pending_index` now uses `Arc<Mutex<usize>>`
+  - `PipelineSharedState::dirty_paths` now uses `Arc<Mutex<BTreeSet<PathBuf>>>`
+- Lock ordering enforced to prevent deadlocks:
+  1. Acquire `dirty_paths` lock first
+  2. Send wakeup signal while holding lock
+  3. Release lock
+- Error propagation in watcher shutdown with timeout-based termination
+- Added 29 verification tests across: bounds checking, call graphs, CLI export, FQN integration, orphan deletion, delete transactions, ignore rules, path validation, rich spans, symlink handling, watch buffering, and ambiguity resolution
+
+### Changed
+- RefCell removed from threading model - documented in MANUAL.md
+- TSAN test suite created for thread safety verification
+
+## [1.6.0] - Skipped
+
+Milestone skipped. CSV export fixes deferred to future release.
+
+## [1.5.0] - 2026-01-23
+
+### Added
+- **BLAKE3 SymbolId**: Stable 32-character hash identifiers (128 bits) for unambiguous symbol reference
+  - `--symbol-id <ID>` flag for find/refs commands to use stable IDs
+  - `--ambiguous <NAME>` flag to show all candidates for ambiguous names
+  - `symbol_id` field added to all symbol exports
+- **Canonical FQN**: Unambiguous symbol identity with file path
+  - `canonical_fqn`: Full FQN with file path (e.g., `crate::src/lib.rs::Function name`)
+  - `display_fqn`: Human-readable FQN without file path (e.g., `crate::module::name`)
+- **collisions command**: List ambiguous symbols that share the same display FQN
+  - `--field <FIELD>`: fqn, display_fqn, or canonical_fqn
+  - `--limit <N>`: Maximum groups to show
+- **migrate command**: Upgrade database schema with automatic backup
+  - `--dry-run`: Check version without migrating
+  - `--no-backup`: Skip backup creation
+- **Export format versions**: Added schema versioning to all export formats
+  - JSON: Top-level `version` field
+  - JSONL: Version record as first line
+  - CSV: Header comment with version
+  - SCIP: Metadata includes version
+  - DOT: Graphviz format (no version field)
+- **CSV export**: New export format for spreadsheet compatibility
+- **DOT export**: Graphviz DOT format for visualization
+
+### Changed
+- Export schema version bumped to 2.0.0
+- Database schema version bumped to 4 (BLAKE3 SymbolId)
+- `--first` flag deprecated in favor of `--symbol-id`
+
+### Fixed
+- FQN collisions now detectable via `collisions` command
+- Symbol identity now stable across re-indexing when position unchanged
+
 ## [1.4.0] - 2026-01-22
 
 ### Fixed

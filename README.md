@@ -47,7 +47,7 @@ cargo build --release
 - **Help**: Use `--help` or `-h` with any command to see usage information
 - **Native-v2 Backend**: Build with `--features native-v2` for improved performance
 
-## Quick Start
+### Quick Start
 
 ```bash
 # Start watching a project with initial scan
@@ -66,8 +66,11 @@ magellan query --db /path/to/magellan.db --explain
 # Show the byte/line span for a specific symbol
 magellan query --db /path/to/magellan.db --file src/lib.rs --symbol main --show-extent
 
-# Find a symbol by name
+# Find a symbol by name (v1.5: use --symbol-id for precise lookup)
 magellan find --db /path/to/magellan.db --name main
+magellan find --db /path/to/magellan.db --symbol-id <SYMBOL_ID>
+# Show all candidates for an ambiguous name
+magellan find --db /path/to/magellan.db --ambiguous main
 # List all symbols that match a glob pattern
 magellan find --db /path/to/magellan.db --list-glob "handler_*"
 
@@ -83,8 +86,17 @@ magellan label --db /path/to/magellan.db --label struct --show-code
 magellan get --db /path/to/magellan.db --file /path/to/file.rs --symbol main
 magellan get-file --db /path/to/magellan.db --file /path/to/file.rs
 
-# Export to JSON
+# List ambiguous symbols (v1.5)
+magellan collisions --db /path/to/magellan.db
+
+# Export to various formats (v1.5: jsonl, csv, scip, dot)
 magellan export --db /path/to/magellan.db > codegraph.json
+magellan export --db /path/to/magellan.db --format jsonl > codegraph.jsonl
+magellan export --db /path/to/magellan.db --format scip --output codegraph.scip
+magellan export --db /path/to/magellan.db --format dot | dot -Tpng -o graph.png
+
+# Migrate database to latest schema (v1.5)
+magellan migrate --db /path/to/magellan.db
 ```
 
 ## Commands
@@ -169,7 +181,7 @@ $ magellan query --db ./magellan.db --file src/main.rs --kind Function
 ### find
 
 ```bash
-magellan find --db <FILE> --name <NAME> [--path <PATH>]
+magellan find --db <FILE> --name <NAME> [--path <PATH>] [--symbol-id <ID>] [--ambiguous <NAME>] [--first]
 magellan find --db <FILE> --list-glob "<PATTERN>"
 ```
 
@@ -179,9 +191,12 @@ node IDs for deterministic scripting (e.g., feeding results to refactoring tooli
 | Argument | Description |
 |----------|-------------|
 | `--db <FILE>` | Path to database (required) |
-| `--name <NAME>` | Symbol name to find (required) |
+| `--name <NAME>` | Symbol name to find |
+| `--symbol-id <ID>` | Stable SymbolId for precise lookup (v1.5) |
+| `--ambiguous <NAME>` | Show all candidates for an ambiguous name (v1.5) |
 | `--path <PATH>` | Limit search to specific file (optional) |
 | `--list-glob <PATTERN>` | List all symbol names that match the glob (mutually exclusive with `--name`) |
+| `--first` | Use first match when ambiguous (deprecated; use --symbol-id) |
 
 ```
 $ magellan find --db ./magellan.db --name main
@@ -189,6 +204,12 @@ Found "main":
   File:     /path/to/src/main.rs
   Kind:     Function
   Location: Line 229, Column 0
+
+$ magellan find --db ./magellan.db --ambiguous main
+Ambiguous name "main" has 3 candidates:
+  [1] a1b2c3d4e5f67890123456789012ab - src/bin/main.rs::Function main
+  [2] b2c3d4e5f678901234567890123cd - src/lib.rs::Function main
+  [3] c3d4e5f6789012345678901234de - tests/integration_test.rs::Function main
 ```
 
 ### refs
@@ -226,10 +247,112 @@ Exit codes: 0 = up to date, 1 = issues found
 ### export
 
 ```bash
-magellan export --db <FILE>
+magellan export --db <FILE> [--format json|jsonl|csv|scip|dot] [--output <PATH>] [--minify] [--include-collisions]
 ```
 
-Export all graph data to JSON format.
+Export all graph data to various formats.
+
+| Argument | Description |
+|----------|-------------|
+| `--db <FILE>` | Path to database (required) |
+| `--format <FORMAT>` | Export format: json (default), jsonl, csv, scip, dot |
+| `--output <PATH>` | Write to file instead of stdout |
+| `--minify` | Use compact JSON (no pretty-printing) |
+| `--no-symbols` | Exclude symbols from export |
+| `--no-references` | Exclude references from export |
+| `--no-calls` | Exclude calls from export |
+| `--include-collisions` | Include collision groups (JSON only) |
+
+**Export Versions:**
+
+| Version | Changes |
+|---------|---------|
+| 2.0.0 | Added `symbol_id`, `canonical_fqn`, `display_fqn` fields to SymbolExport |
+
+**Format-Specific Version Encoding:**
+
+- **JSON**: Top-level `version` field
+- **JSONL**: First line is `{"type":"Version","version":"2.0.0"}`
+- **CSV**: Header comment `# Magellan Export Version: 2.0.0`
+- **SCIP**: Metadata includes version information
+- **DOT**: No version field (graphviz format)
+
+**Examples:**
+
+```bash
+# JSON export (default)
+magellan export --db ./magellan.db > codegraph.json
+
+# JSON Lines (one JSON object per line)
+magellan export --db ./magellan.db --format jsonl > codegraph.jsonl
+
+# CSV export
+magellan export --db ./magellan.db --format csv > codegraph.csv
+
+# SCIP export (binary, requires --output)
+magellan export --db ./magellan.db --format scip --output codegraph.scip
+
+# DOT graph format (pipe to graphviz)
+magellan export --db ./magellan.db --format dot | dot -Tpng -o graph.png
+
+# Include collision information in JSON
+magellan export --db ./magellan.db --include-collisions > codegraph.json
+```
+
+### collisions
+
+```bash
+magellan collisions --db <FILE> [--field <FIELD>] [--limit <N>]
+```
+
+List ambiguous symbols that share the same FQN or display FQN (v1.5).
+
+| Argument | Description |
+|----------|-------------|
+| `--db <FILE>` | Path to database (required) |
+| `--field <FIELD>` | Field to check: fqn, display_fqn, canonical_fqn (default: display_fqn) |
+| `--limit <N>` | Maximum groups to show (default: 50) |
+
+```
+$ magellan collisions --db ./magellan.db
+Collisions by display_fqn:
+
+main (3)
+  [1] a1b2c3d4e5f67890123456789012ab src/bin/main.rs
+       my_crate::src/bin/main.rs::Function main
+  [2] b2c3d4e5f678901234567890123cd src/lib.rs
+       my_crate::src/lib.rs::Function main
+  [3] c3d4e5f6789012345678901234de tests/integration_test.rs
+       my_crate::tests/integration_test.rs::Function main
+```
+
+### migrate
+
+```bash
+magellan migrate --db <FILE> [--dry-run] [--no-backup]
+```
+
+Upgrade a Magellan database to the current schema version (v1.5).
+
+| Argument | Description |
+|----------|-------------|
+| `--db <FILE>` | Path to database (required) |
+| `--dry-run` | Check version without migrating |
+| `--no-backup` | Skip backup creation (not recommended) |
+
+**Migration Behavior:**
+
+- Creates timestamped backup before migration (`<db>.v<timestamp>.bak`)
+- Uses SQLite transaction for atomicity (rollback on error)
+- Shows old version and new version before running
+- No-op if database already at current version
+
+**Schema Version 4 (v1.5 BLAKE3 SymbolId):**
+
+Version 4 introduces BLAKE3-based SymbolId and canonical_fqn/display_fqn fields:
+- New symbols get 32-character BLAKE3 hash IDs (128 bits)
+- Existing symbols have `symbol_id: null` in exports
+- To get BLAKE3 IDs for all symbols, re-index after migration
 
 ### Security
 
@@ -439,7 +562,7 @@ Test coverage:
 
 Tests pass on Linux (primary development platform). Other platforms not regularly tested.
 
-### Thread Safety Testing
+### Thread Safety Testing (v1.7)
 
 Magellan uses thread-safe synchronization for concurrent access to shared state. The v1.7 migration from `RefCell<T>` to `Arc<Mutex<T>>` ensures data races are eliminated.
 
@@ -468,21 +591,18 @@ The TSAN test suite is created and all tests pass. However, running with actual 
 All concurrent state uses `Arc<Mutex<T>>`:
 - `FileSystemWatcher::legacy_pending_batch: Arc<Mutex<Option<WatcherBatch>>>`
 - `FileSystemWatcher::legacy_pending_index: Arc<Mutex<usize>>`
-- `PipelineSharedState::dirty_paths: Arc<Mutex<BTreeSet<PathBuf>>>`
+- `PipelineSharedState::dirty_paths: Arc<Mutex<BTreeSet<PathBuf>>`
 
-Lock ordering is enforced:
+Lock ordering is enforced to prevent deadlocks:
 1. Acquire `dirty_paths` lock first
 2. Send wakeup signal while holding lock
 3. Release lock
 
-This ordering prevents lost wakeups and deadlocks.
-
 ## Known Limitations
 
-- **FQN collisions may occur**: Symbols with identical names in different files or modules may share the same Fully Qualified Name. This affects cross-file call resolution and find operations. Common in: `main` functions across binaries, test functions, and methods with generic names (`new`, `default`, etc.) in impl blocks. Collisions rate is typically 3-5% of symbols in large codebases.
+- **FQN collisions addressed in v1.5**: Symbols with identical names in different files or modules may share the same display FQN. The `collisions` command (v1.5) identifies these cases, and `--symbol-id` provides stable BLAKE3-based identifiers for unambiguous symbol reference. Common in: `main` functions across binaries, test functions, and methods with generic names (`new`, `default`, etc.) in impl blocks.
 - **No semantic analysis**: AST-level only; no type checking or cross-module resolution
 - **No incremental parsing**: File changes trigger full re-parse of that file
-- **Single-threaded watcher**: Event processing is sequential (CodeGraph uses SQLite concurrency)
 - **Cross-crate resolution**: Rust symbols across crates are resolved by name only
 - **Testing**: Primary development and testing on Linux; Windows and macOS not regularly tested in CI
 

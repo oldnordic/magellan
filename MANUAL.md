@@ -1,6 +1,6 @@
 # Magellan Operator Manual
 
-**Version 0.5.3** | *Last Updated: 2026-01-13*
+**Version 1.7.0** | *Last Updated: 2026-01-24*
 
 Comprehensive instructions for operating Magellan.
 
@@ -243,7 +243,7 @@ $ magellan query --db ./magellan.db --file src/main.rs --kind Function
 ### 3.5 find
 
 ```bash
-magellan find --db <FILE> --name <NAME> [--path <PATH>]
+magellan find --db <FILE> --name <NAME> [--path <PATH>] [--symbol-id <ID>] [--ambiguous <NAME>] [--first]
 magellan find --db <FILE> --list-glob "<PATTERN>"
 ```
 
@@ -252,9 +252,12 @@ Finds a symbol by name or previews all symbols that match a glob expression. Out
 | Argument | Description |
 |----------|-------------|
 | `--db <FILE>` | Database path (required) |
-| `--name <NAME>` | Symbol name (required unless `--list-glob`) |
+| `--name <NAME>` | Symbol name to find |
+| `--symbol-id <ID>` | Stable SymbolId for precise lookup (v1.5) |
+| `--ambiguous <NAME>` | Show all candidates for an ambiguous name (v1.5) |
 | `--path <PATH>` | Limit to specific file (optional) |
 | `--list-glob <PATTERN>` | Emit every symbol matching the glob (mutually exclusive with `--name`) |
+| `--first` | Use first match when ambiguous (deprecated; use --symbol-id) |
 
 ```
 $ magellan find --db ./magellan.db --name main
@@ -262,6 +265,12 @@ Found "main":
   File:     /path/to/src/main.rs
   Kind:     Function
   Location: Line 229, Column 0
+
+$ magellan find --db ./magellan.db --ambiguous main
+Ambiguous name "main" has 3 candidates:
+  [1] a1b2c3d4e5f67890123456789012ab - src/bin/main.rs::Function main
+  [2] b2c3d4e5f678901234567890123cd - src/lib.rs::Function main
+  [3] c3d4e5f6789012345678901234de - tests/integration_test.rs::Function main
 ```
 
 ### 3.6 refs
@@ -434,7 +443,54 @@ Get all code chunks from a file. Useful for getting complete file contents witho
 | `--db <FILE>` | Path | - | Database path (required) |
 | `--file <PATH>` | Path | - | File path (required) |
 
-### 3.12 migrate
+### 3.12 collisions
+
+```bash
+magellan collisions --db <FILE> [--field <FIELD>] [--limit <N>]
+```
+
+List ambiguous symbols that share the same FQN or display FQN (v1.5).
+
+| Argument | Type | Default | Description |
+|----------|------|---------|-------------|
+| `--db <FILE>` | Path | - | Database path (required) |
+| `--field <FIELD>` | String | display_fqn | Field to check: fqn, display_fqn, canonical_fqn |
+| `--limit <N>` | Integer | 50 | Maximum groups to show |
+
+**Collision Fields:**
+
+- `fqn`: Original FQN (may be file-relative)
+- `display_fqn`: Human-readable FQN (default)
+- `canonical_fqn`: Full FQN with file path (always unique per symbol)
+
+**Examples:**
+
+```bash
+# List collisions by display_fqn
+magellan collisions --db ./magellan.db
+
+# List collisions by canonical_fqn (should be empty)
+magellan collisions --db ./magellan.db --field canonical_fqn
+
+# Show up to 100 groups
+magellan collisions --db ./magellan.db --limit 100
+```
+
+**Output:**
+
+```
+Collisions by display_fqn:
+
+main (3)
+  [1] a1b2c3d4e5f67890123456789012ab src/bin/main.rs
+       my_crate::src/bin/main.rs::Function main
+  [2] b2c3d4e5f678901234567890123cd src/lib.rs
+       my_crate::src/lib.rs::Function main
+  [3] c3d4e5f6789012345678901234de tests/integration_test.rs
+       my_crate::tests/integration_test.rs::Function main
+```
+
+### 3.13 migrate
 
 ```bash
 magellan migrate --db <FILE> [--dry-run] [--no-backup]
@@ -459,7 +515,7 @@ required when upgrading to a new Magellan version that includes schema changes.
 **Schema Version 4 (v1.5 BLAKE3 SymbolId):**
 
 Version 4 introduces BLAKE3-based SymbolId and canonical_fqn/display_fqn fields:
-- New symbols get 32-character BLAKE3 hash IDs
+- New symbols get 32-character BLAKE3 hash IDs (128 bits)
 - Existing symbols have `symbol_id: null` in exports
 - To get BLAKE3 IDs for all symbols, re-index after migration:
   ```bash
@@ -537,6 +593,9 @@ access or path retrieval.
 **Symbol Node:**
 ```json
 {
+  "symbol_id": "a1b2c3d4e5f678901234567890123ab",
+  "canonical_fqn": "my_crate::src/lib.rs::Function function_name",
+  "display_fqn": "my_crate::my_module::function_name",
   "name": "function_name",
   "kind": "Function|Method|Class|Interface|Enum|Module|Union|Namespace|TypeAlias|Unknown",
   "byte_start": 1024,
@@ -545,6 +604,20 @@ access or path retrieval.
   "start_col": 0
 }
 ```
+
+**Symbol Node Fields (v1.5):**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `symbol_id` | string | 32-character BLAKE3 hash for stable symbol reference (v1.5) |
+| `canonical_fqn` | string | Unambiguous FQN with file path (v1.5) |
+| `display_fqn` | string | Human-readable FQN without file path (v1.5) |
+| `name` | string | Simple symbol name |
+| `kind` | string | Symbol kind |
+| `byte_start` | number | Start byte offset |
+| `byte_end` | number | End byte offset |
+| `start_line` | number | Start line (1-indexed) |
+| `start_col` | number | Start column (0-indexed) |
 
 **Call Node:**
 ```json
@@ -800,19 +873,28 @@ magellan export --db /var/cache/mag/app.db | grep -v "sqlite"
 
 ## Architecture
 
-### Threading Model
+### Threading Model (v1.7)
 
-Magellan uses a hybrid threading model:
+Magellan uses a hybrid threading model with thread-safe synchronization:
 
-- **Watcher:** Single-threaded design using `RefCell` for interior mutability.
-  Appropriate for the debounced event coalescing logic, which runs on one thread.
+- **Watcher:** Thread-safe design using `Arc<Mutex<T>>` for concurrent access.
+  - `legacy_pending_batch: Arc<Mutex<Option<WatcherBatch>>>`
+  - `legacy_pending_index: Arc<Mutex<usize>>`
 
 - **CodeGraph:** Thread-safe design for concurrent database access from multiple
   indexer threads. The graph database layer uses SQLite's built-in concurrency
   support to handle simultaneous access.
 
-**Note:** `RefCell` is not thread-safe. If the watcher becomes multi-threaded in
-the future, replace `RefCell<T>` with `Arc<Mutex<T>>` to maintain thread safety.
+- **Pipeline:** Thread-safe shared state with proper lock ordering:
+  - `dirty_paths: Arc<Mutex<BTreeSet<PathBuf>>>`
+  - Lock ordering enforced to prevent deadlocks
+
+**Lock Ordering:**
+1. Acquire `dirty_paths` lock first
+2. Send wakeup signal while holding lock
+3. Release lock
+
+This ordering prevents lost wakeups and deadlocks.
 
 ---
 
