@@ -1,7 +1,25 @@
 //! LRU cache for frequently accessed graph query results
 //!
-//! Provides thread-safe LRU caching for file nodes and symbol lookups
+//! Provides LRU caching for file nodes and symbol lookups
 //! to reduce database round-trips for hot data.
+//!
+//! # Thread Safety
+//!
+//! **This cache is NOT thread-safe.**
+//!
+//! `LruCache<K, V>` and `FileNodeCache` are designed for single-threaded use:
+//! - All methods require `&mut self` (exclusive mutable access)
+//! - `HashMap` and `VecDeque` have no synchronization primitives
+//! - No `Send` or `Sync` impls
+//!
+//! # Usage Pattern
+//!
+//! `FileNodeCache` is accessed exclusively through `CodeGraph`, which
+//! enforces single-threaded access. Do not share the cache directly
+//! across threads.
+//!
+//! For concurrent caching, wrap in `Mutex<LruCache<...>>` or use
+//! a thread-safe cache library (e.g., `moka`).
 
 use std::collections::{HashMap, VecDeque};
 use std::hash::Hash;
