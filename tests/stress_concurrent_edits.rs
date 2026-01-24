@@ -27,6 +27,22 @@
 //! - **Deterministic state**: Final graph state is consistent regardless of operation order
 //! - **Lock ordering**: `PipelineSharedState` follows global hierarchy (dirty_paths → wakeup)
 //!
+//! # Deadlock Detection
+//!
+//! These tests use timeout-based deadlock detection:
+//! - Each test runs in a separate thread with a 30-second timeout
+//! - If the test doesn't complete within 30 seconds, it's assumed to be deadlocked
+//! - Deadlock manifests as threads waiting forever for locks
+//! - Common causes: Incorrect lock ordering, missing lock releases, circular waits
+//!
+//! # How to debug deadlocks
+//!
+//! If a test times out with "DEADLOCK" error:
+//! 1. Check lock ordering in `src/indexer.rs` (dirty_paths → wakeup)
+//! 2. Verify no thread sends to wakeup channel while holding other locks
+//! 3. Ensure all Mutex guards are dropped (no implicit captures)
+//! 4. Look for recursive lock acquisition (not supported by Mutex)
+//!
 //! # How to run
 //!
 //! ```bash
@@ -45,8 +61,61 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::mpsc::sync_channel;
 use std::thread;
+use std::time::Duration;
 use std::time::Instant;
 use tempfile::TempDir;
+
+/// Deadlock detection helper.
+///
+/// Runs a closure in a separate thread and waits for it to complete.
+/// If the thread doesn't complete within the specified timeout, returns
+/// an error indicating a potential deadlock.
+///
+/// # What deadlock looks like
+///
+/// Deadlock manifests as threads waiting forever for locks:
+/// - Thread A holds lock 1, waits for lock 2
+/// - Thread B holds lock 2, waits for lock 1
+/// - Both threads wait forever → test never completes
+///
+/// # Why timeout is a reasonable proxy
+///
+/// - Stress tests should complete quickly (< 5 seconds typically)
+/// - 30-second timeout is generous for 1000 operations
+/// - If test doesn't complete, it's almost certainly a deadlock
+/// - Alternatives (TSAN, loom) are complex or unavailable
+///
+/// # Arguments
+/// * `duration` - Maximum time to wait for completion
+/// * `f` - Closure to run (must be Send + 'static)
+///
+/// # Returns
+/// - `Ok(T)` - Closure completed successfully
+/// - `Err("DEADLOCK")` - Closure didn't complete within timeout
+///
+/// # Panics
+/// Panics if the thread itself panics (propagates panic payload).
+fn with_deadlock_timeout<F, T>(duration: Duration, f: F) -> Result<T, &'static str>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    // Spawn a thread to run the test
+    let handle = thread::spawn(f);
+
+    // Wait for completion with timeout
+    let start = Instant::now();
+    while !handle.is_finished() {
+        if start.elapsed() >= duration {
+            // Thread didn't complete within timeout - potential deadlock
+            return Err("DEADLOCK");
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    // Thread completed, join and return result
+    handle.join().map_err(|_| "PANIC")
+}
 
 /// Test 1: Concurrent create operations (100 threads).
 ///
@@ -59,8 +128,10 @@ use tempfile::TempDir;
 /// - All 100 files created successfully
 /// - All 100 files indexed correctly with correct symbol counts
 /// - No data corruption (all files present in graph)
+/// - No deadlock (completes within 30 seconds)
 #[test]
 fn stress_concurrent_creates() {
+    with_deadlock_timeout(Duration::from_secs(30), || {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
 
@@ -137,6 +208,8 @@ fn stress_concurrent_creates() {
         "Expected 100 unique paths, got {} (possible duplicates)",
         paths.len()
     );
+    })
+    .expect("Test should complete without deadlock");
 }
 
 /// Test 2: Concurrent modify operations (50 threads, same file).
@@ -150,8 +223,10 @@ fn stress_concurrent_creates() {
 /// - File is indexed (final state depends on last write)
 /// - No corruption (exactly one file node exists)
 /// - File has exactly one symbol (whichever thread wrote last)
+/// - No deadlock (completes within 30 seconds)
 #[test]
 fn stress_concurrent_modifies() {
+    with_deadlock_timeout(Duration::from_secs(30), || {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
     let file_path = temp_dir.path().join("shared.rs");
@@ -225,6 +300,8 @@ fn stress_concurrent_modifies() {
         "Expected 1 symbol, got {} (possible corruption)",
         symbols.len()
     );
+    })
+    .expect("Test should complete without deadlock");
 }
 
 /// Test 3: Mixed create/modify/delete operations (100 operations).
@@ -238,8 +315,10 @@ fn stress_concurrent_modifies() {
 /// - All file system operations succeed
 /// - Final graph state is consistent (no orphaned references)
 /// - No data corruption (all file nodes valid)
+/// - No deadlock (completes within 30 seconds)
 #[test]
 fn stress_mixed_operations() {
+    with_deadlock_timeout(Duration::from_secs(30), || {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
 
@@ -359,6 +438,8 @@ fn stress_mixed_operations() {
         graph_file_count,
         file_nodes.len()
     );
+    })
+    .expect("Test should complete without deadlock");
 }
 
 /// Test 4: PipelineSharedState concurrent dirty_paths insertion.
@@ -374,8 +455,10 @@ fn stress_mixed_operations() {
 /// - No deadlock (all threads complete)
 /// - All paths drained correctly
 /// - Lock ordering followed correctly
+/// - Completes within 30 seconds
 #[test]
 fn stress_pipeline_shared_state() {
+    with_deadlock_timeout(Duration::from_secs(30), || {
     // Create PipelineSharedState-like structure
     let dirty_paths: Arc<Mutex<BTreeSet<PathBuf>>> = Arc::new(Mutex::new(BTreeSet::new()));
     let (wakeup_tx, _wakeup_rx) = sync_channel(1);
@@ -436,4 +519,6 @@ fn stress_pipeline_shared_state() {
         "Expected 1000 unique paths, got {}",
         unique.len()
     );
+    })
+    .expect("Test should complete without deadlock");
 }
