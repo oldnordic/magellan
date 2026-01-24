@@ -52,7 +52,7 @@ where
             *parser_ref = Some(parser);
         }
         Ok(f(parser_ref.as_mut().expect(
-            "Parser invariant violated: Option must be Some() after initialization (lines 49-52)"
+            "Parser invariant violated: Option must be Some() after initialization (lines 49-52)",
         )))
     })
 }
@@ -70,7 +70,7 @@ where
             *parser_ref = Some(parser);
         }
         Ok(f(parser_ref.as_mut().expect(
-            "Python parser invariant violated: Option must be Some() after initialization"
+            "Python parser invariant violated: Option must be Some() after initialization",
         )))
     })
 }
@@ -88,7 +88,7 @@ where
             *parser_ref = Some(parser);
         }
         Ok(f(parser_ref.as_mut().expect(
-            "C parser invariant violated: Option must be Some() after initialization"
+            "C parser invariant violated: Option must be Some() after initialization",
         )))
     })
 }
@@ -106,7 +106,7 @@ where
             *parser_ref = Some(parser);
         }
         Ok(f(parser_ref.as_mut().expect(
-            "C++ parser invariant violated: Option must be Some() after initialization"
+            "C++ parser invariant violated: Option must be Some() after initialization",
         )))
     })
 }
@@ -124,7 +124,7 @@ where
             *parser_ref = Some(parser);
         }
         Ok(f(parser_ref.as_mut().expect(
-            "Java parser invariant violated: Option must be Some() after initialization"
+            "Java parser invariant violated: Option must be Some() after initialization",
         )))
     })
 }
@@ -142,7 +142,7 @@ where
             *parser_ref = Some(parser);
         }
         Ok(f(parser_ref.as_mut().expect(
-            "JavaScript parser invariant violated: Option must be Some() after initialization"
+            "JavaScript parser invariant violated: Option must be Some() after initialization",
         )))
     })
 }
@@ -160,7 +160,7 @@ where
             *parser_ref = Some(parser);
         }
         Ok(f(parser_ref.as_mut().expect(
-            "TypeScript parser invariant violated: Option must be Some() after initialization"
+            "TypeScript parser invariant violated: Option must be Some() after initialization",
         )))
     })
 }
@@ -254,6 +254,31 @@ pub fn warmup_parsers() -> Result<()> {
     Ok(())
 }
 
+/// Clean up thread-local parser resources.
+///
+/// This is a no-op function provided for documentation and API completeness.
+/// The tree-sitter Parser automatically cleans up C resources via its Drop
+/// implementation when thread-local storage is destroyed.
+///
+/// # Note
+///
+/// Thread-local parsers are dropped when their thread exits.
+/// In long-running applications with thread pools, parsers persist
+/// for the pool's lifetime. This is intentional and avoids re-initialization cost.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use crate::ingest::pool::cleanup_parsers;
+///
+/// // During graceful shutdown
+/// cleanup_parsers();
+/// ```
+pub fn cleanup_parsers() {
+    // No-op: tree-sitter Parser implements Drop
+    // Kept for API completeness and documentation
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -285,8 +310,16 @@ mod tests {
                 let tree = parser.parse(b"", None);
                 tree.is_some()
             });
-            assert!(result.is_ok(), "Language {:?} should have a working parser", lang);
-            assert!(result.unwrap(), "Language {:?} should parse successfully", lang);
+            assert!(
+                result.is_ok(),
+                "Language {:?} should have a working parser",
+                lang
+            );
+            assert!(
+                result.unwrap(),
+                "Language {:?} should parse successfully",
+                lang
+            );
         }
     }
 
@@ -326,11 +359,9 @@ mod tests {
         });
 
         barrier.wait();
-        let main_result = with_parser(Language::Rust, |parser| {
-            parser.parse(source, None)
-        })
-        .unwrap()
-        .is_some();
+        let main_result = with_parser(Language::Rust, |parser| parser.parse(source, None))
+            .unwrap()
+            .is_some();
 
         let thread_result = handle.join().unwrap();
 
@@ -364,29 +395,30 @@ mod tests {
     #[test]
     fn test_parse_simple_rust() {
         let source = b"pub fn hello() -> String { \"world\".to_string() }";
-        let tree = with_parser(Language::Rust, |parser| {
-            parser.parse(source, None)
-        }).unwrap();
+        let tree = with_parser(Language::Rust, |parser| parser.parse(source, None)).unwrap();
 
-        assert!(tree.is_some(), "Simple Rust function should parse successfully");
+        assert!(
+            tree.is_some(),
+            "Simple Rust function should parse successfully"
+        );
     }
 
     #[test]
     fn test_parse_simple_python() {
         let source = b"def hello():\n    return \"world\"";
-        let tree = with_parser(Language::Python, |parser| {
-            parser.parse(source, None)
-        }).unwrap();
+        let tree = with_parser(Language::Python, |parser| parser.parse(source, None)).unwrap();
 
-        assert!(tree.is_some(), "Simple Python function should parse successfully");
+        assert!(
+            tree.is_some(),
+            "Simple Python function should parse successfully"
+        );
     }
 
     #[test]
     fn test_with_parser_unified_api() {
         // Test the unified with_parser API
-        let tree = with_parser(Language::Rust, |parser| {
-            parser.parse(b"struct Test;", None)
-        }).unwrap();
+        let tree =
+            with_parser(Language::Rust, |parser| parser.parse(b"struct Test;", None)).unwrap();
 
         assert!(tree.is_some(), "Parser should successfully parse");
         assert_eq!(tree.unwrap().root_node().kind(), "source_file");
@@ -395,8 +427,7 @@ mod tests {
     #[test]
     fn test_warmup_parsers() {
         // Warmup should succeed without errors
-        warmup_parsers()
-            .expect("Parser warmup should succeed");
+        warmup_parsers().expect("Parser warmup should succeed");
 
         // After warmup, all parsers should be initialized
         let test_cases: [(Language, &[u8]); 7] = [
