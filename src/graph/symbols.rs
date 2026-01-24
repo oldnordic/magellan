@@ -87,12 +87,17 @@ pub fn generate_symbol_id(language: &str, fqn: &str, span_id: &str) -> String {
 
     // Take first 8 bytes (64 bits) and format as hex
     let result = hasher.finalize();
-    format!("{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-            result[0], result[1], result[2], result[3],
-            result[4], result[5], result[6], result[7])
+    format!(
+        "{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        result[0], result[1], result[2], result[3], result[4], result[5], result[6], result[7]
+    )
 }
 
 /// Generate a SymbolId using BLAKE3 from semantic inputs (v1.5)
+///
+/// **NOTE:** This function is part of v1.5 Symbol Identity but NOT YET INTEGRATED.
+/// The current production code still uses `generate_symbol_id()` (SHA-256, 16 hex chars).
+/// This BLAKE3 implementation exists for future migration.
 ///
 /// This is the new SymbolId generation algorithm that excludes span information
 /// for refactoring stability. The ID is deterministic and based only on semantic
@@ -127,6 +132,7 @@ pub fn generate_symbol_id(language: &str, fqn: &str, span_id: &str) -> String {
 /// );
 /// assert_eq!(id.len(), 32);
 /// ```
+#[expect(dead_code)] // TODO(v1.6): Integrate BLAKE3-based symbol_id generation
 pub fn generate_symbol_id_v2(
     crate_name: &str,
     file_path: &str,
@@ -185,9 +191,10 @@ fn generate_span_id(file_path: &str, byte_start: usize, byte_end: usize) -> Stri
 
     // Take first 8 bytes (64 bits) and format as hex
     let result = hasher.finalize();
-    format!("{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-            result[0], result[1], result[2], result[3],
-            result[4], result[5], result[6], result[7])
+    format!(
+        "{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        result[0], result[1], result[2], result[3], result[4], result[5], result[6], result[7]
+    )
 }
 
 /// Symbol operations for CodeGraph
@@ -219,8 +226,8 @@ impl SymbolOps {
         let symbol_node = SymbolNode {
             symbol_id: Some(symbol_id),
             fqn: fact.fqn.clone(),
-            canonical_fqn: None,
-            display_fqn: None,
+            canonical_fqn: fact.canonical_fqn.clone(),
+            display_fqn: fact.display_fqn.clone(),
             name: fact.name.clone(),
             kind: format!("{:?}", fact.kind),
             kind_normalized: Some(fact.kind_normalized.clone()),
@@ -297,6 +304,8 @@ impl SymbolOps {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::graph::schema::SymbolNode;
+    use sqlitegraph::GraphBackend;
 
     #[test]
     fn test_symbol_id_deterministic() {
@@ -312,7 +321,10 @@ mod tests {
         let rust_id = generate_symbol_id("rust", "my_crate::main", "a1b2c3d4e5f6g7h8");
         let python_id = generate_symbol_id("python", "my_module.main", "a1b2c3d4e5f6g7h8");
 
-        assert_ne!(rust_id, python_id, "Different languages should produce different symbol IDs");
+        assert_ne!(
+            rust_id, python_id,
+            "Different languages should produce different symbol IDs"
+        );
     }
 
     #[test]
@@ -320,7 +332,10 @@ mod tests {
         let id1 = generate_symbol_id("rust", "my_crate::main", "a1b2c3d4e5f6g7h8");
         let id2 = generate_symbol_id("rust", "my_crate::foo", "a1b2c3d4e5f6g7h8");
 
-        assert_ne!(id1, id2, "Different FQNs should produce different symbol IDs");
+        assert_ne!(
+            id1, id2,
+            "Different FQNs should produce different symbol IDs"
+        );
     }
 
     #[test]
@@ -328,7 +343,10 @@ mod tests {
         let id1 = generate_symbol_id("rust", "my_crate::main", "a1b2c3d4e5f6g7h8");
         let id2 = generate_symbol_id("rust", "my_crate::main", "b1b2c3d4e5f6g7h8");
 
-        assert_ne!(id1, id2, "Different span IDs should produce different symbol IDs");
+        assert_ne!(
+            id1, id2,
+            "Different span IDs should produce different symbol IDs"
+        );
     }
 
     #[test]
@@ -339,7 +357,10 @@ mod tests {
         assert_eq!(id.len(), 16, "Symbol ID should be 16 characters");
 
         // All characters should be valid hex
-        assert!(id.chars().all(|c| c.is_ascii_hexdigit()), "Symbol ID should be hex");
+        assert!(
+            id.chars().all(|c| c.is_ascii_hexdigit()),
+            "Symbol ID should be hex"
+        );
     }
 
     #[test]
@@ -356,7 +377,10 @@ mod tests {
         let id1 = generate_span_id("src/main.rs", 10, 20);
         let id2 = generate_span_id("lib/main.rs", 10, 20);
 
-        assert_ne!(id1, id2, "Different file paths should produce different span IDs");
+        assert_ne!(
+            id1, id2,
+            "Different file paths should produce different span IDs"
+        );
     }
 
     #[test]
@@ -364,7 +388,10 @@ mod tests {
         let id1 = generate_span_id("test.rs", 0, 10);
         let id2 = generate_span_id("test.rs", 10, 20);
 
-        assert_ne!(id1, id2, "Different positions should produce different span IDs");
+        assert_ne!(
+            id1, id2,
+            "Different positions should produce different span IDs"
+        );
     }
 
     #[test]
@@ -375,7 +402,10 @@ mod tests {
         assert_eq!(id.len(), 16, "Span ID should be 16 characters");
 
         // All characters should be valid hex
-        assert!(id.chars().all(|c| c.is_ascii_hexdigit()), "Span ID should be hex");
+        assert!(
+            id.chars().all(|c| c.is_ascii_hexdigit()),
+            "Span ID should be hex"
+        );
     }
 
     #[test]
@@ -386,14 +416,14 @@ mod tests {
             "src/lib.rs",
             &["mod my_module".to_string()],
             "Function",
-            "my_function"
+            "my_function",
         );
         let id2 = generate_symbol_id_v2(
             "my_crate",
             "src/lib.rs",
             &["mod my_module".to_string()],
             "Function",
-            "my_function"
+            "my_function",
         );
 
         assert_eq!(id1, id2, "Same inputs should produce same SymbolId");
@@ -401,13 +431,7 @@ mod tests {
 
     #[test]
     fn test_generate_symbol_id_v2_length() {
-        let id = generate_symbol_id_v2(
-            "my_crate",
-            "src/lib.rs",
-            &[],
-            "Function",
-            "my_function"
-        );
+        let id = generate_symbol_id_v2("my_crate", "src/lib.rs", &[], "Function", "my_function");
 
         assert_eq!(id.len(), 32, "SymbolId should be 32 characters (128 bits)");
         assert!(id.chars().all(|c| c.is_ascii_hexdigit()), "Should be hex");
@@ -418,7 +442,13 @@ mod tests {
         let id1 = generate_symbol_id_v2("crate_a", "src/lib.rs", &[], "Function", "foo");
         let id2 = generate_symbol_id_v2("crate_b", "src/lib.rs", &[], "Function", "foo");
         let id3 = generate_symbol_id_v2("crate_a", "src/main.rs", &[], "Function", "foo");
-        let id4 = generate_symbol_id_v2("crate_a", "src/lib.rs", &["mod".to_string()], "Function", "foo");
+        let id4 = generate_symbol_id_v2(
+            "crate_a",
+            "src/lib.rs",
+            &["mod".to_string()],
+            "Function",
+            "foo",
+        );
         let id5 = generate_symbol_id_v2("crate_a", "src/lib.rs", &[], "Method", "foo");
         let id6 = generate_symbol_id_v2("crate_a", "src/lib.rs", &[], "Function", "bar");
 
@@ -444,7 +474,7 @@ mod tests {
             "src/lib.rs",
             &enclosing_items,
             "Method",
-            "my_method"
+            "my_method",
         );
 
         let id2 = generate_symbol_id_v2(
@@ -452,7 +482,7 @@ mod tests {
             "src/lib.rs",
             &enclosing_items,
             "Method",
-            "my_method"
+            "my_method",
         );
 
         assert_eq!(id1, id2, "Span-independent inputs should produce stable ID");
@@ -461,22 +491,46 @@ mod tests {
     #[test]
     fn test_generate_symbol_id_v2_field_order() {
         // Field order is alphabetical: crate_name, enclosing_items, file_path, symbol_kind, symbol_name
-        let id1 = generate_symbol_id_v2(
-            "crate",
-            "file.rs",
-            &["scope".to_string()],
-            "kind",
-            "name"
-        );
+        let id1 = generate_symbol_id_v2("crate", "file.rs", &["scope".to_string()], "kind", "name");
 
-        let id2 = generate_symbol_id_v2(
-            "crate",
-            "file.rs",
-            &["scope".to_string()],
-            "kind",
-            "name"
-        );
+        let id2 = generate_symbol_id_v2("crate", "file.rs", &["scope".to_string()], "kind", "name");
 
         assert_eq!(id1, id2, "Alphabetical field order should be deterministic");
+    }
+
+    #[test]
+    fn test_symbol_node_persists_fqn_fields() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
+
+        let test_file = temp_dir.path().join("test.rs");
+        std::fs::write(&test_file, "fn persist_me() {}\n").unwrap();
+
+        let path_str = test_file.to_string_lossy().to_string();
+        let source = std::fs::read(&test_file).unwrap();
+        graph.index_file(&path_str, &source).unwrap();
+
+        let entity_ids = graph.files.backend.entity_ids().unwrap();
+        let mut found = false;
+        for entity_id in entity_ids {
+            if let Ok(node) = graph.files.backend.get_node(entity_id) {
+                if node.kind == "Symbol" {
+                    if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data) {
+                        if symbol_node.name.as_deref() == Some("persist_me") {
+                            found = true;
+                            let canonical = symbol_node.canonical_fqn.as_deref().unwrap_or("");
+                            let display = symbol_node.display_fqn.as_deref().unwrap_or("");
+                            assert!(!canonical.is_empty(), "canonical_fqn should be persisted");
+                            assert!(!display.is_empty(), "display_fqn should be persisted");
+                            assert!(canonical.contains("persist_me"));
+                            assert!(display.contains("persist_me"));
+                        }
+                    }
+                }
+            }
+        }
+
+        assert!(found, "Expected to find symbol node for persist_me");
     }
 }
