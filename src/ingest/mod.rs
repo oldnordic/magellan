@@ -248,6 +248,21 @@ impl Parser {
 
     /// Extract symbol facts from Rust source code
     ///
+    /// # Deprecated
+    ///
+    /// This method creates a new parser instance per call, which is inefficient
+    /// for batch processing. Use `extract_symbols_with_parser` with the thread-local
+    /// parser pool instead:
+    ///
+    /// ```rust,ignore
+    /// use crate::ingest::pool::with_parser;
+    /// use crate::ingest::Language;
+    ///
+    /// let facts = with_parser(Language::Rust, |parser| {
+    ///     RustParser::extract_symbols_with_parser(parser, file_path, source)
+    /// })?;
+    /// ```
+    ///
     /// # Arguments
     /// * `file_path` - Path to the file (for context only, not accessed)
     /// * `source` - Source code content as bytes
@@ -259,6 +274,10 @@ impl Parser {
     /// - Pure function: same input → same output
     /// - No side effects
     /// - No filesystem access
+    #[deprecated(
+        since = "1.7.0",
+        note = "Use extract_symbols_with_parser with parser pool for better performance"
+    )]
     pub fn extract_symbols(&mut self, file_path: PathBuf, source: &[u8]) -> Vec<SymbolFact> {
         let tree = match self.parser.parse(source, None) {
             Some(t) => t,
