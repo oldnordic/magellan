@@ -288,6 +288,10 @@ pub fn run_watch(
                     }
                 }
             }
+
+            // Clean up parser resources (no-op but documents intent)
+            magellan::ingest::pool::cleanup_parsers();
+
             println!("SHUTDOWN");
             Ok(())
         }
