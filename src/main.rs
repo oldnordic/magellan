@@ -1334,7 +1334,7 @@ impl ExecutionTracker {
     /// Set execution outcome to error with message
     ///
     /// Currently unused but provided for API completeness and future error handling.
-    #[allow(dead_code)]
+    #[expect(dead_code)] // API completeness for future error handling
     fn set_error(&mut self, msg: String) {
         self.outcome = "error".to_string();
         self.error_message = Some(msg);
@@ -1343,7 +1343,7 @@ impl ExecutionTracker {
     /// Set indexing counts for execution tracking
     ///
     /// Currently unused but provided for API completeness and future tracking.
-    #[allow(dead_code)]
+    #[expect(dead_code)] // API completeness for future tracking
     fn set_counts(&mut self, files: usize, symbols: usize, references: usize) {
         self.files_indexed = files;
         self.symbols_indexed = symbols;
@@ -1697,6 +1697,9 @@ fn main() -> ExitCode {
                 Ok(result) => {
                     if result.success {
                         println!("{}", result.message);
+                        if result.old_version != result.new_version {
+                            println!("Version: {} -> {}", result.old_version, result.new_version);
+                        }
                         if let Some(ref backup) = result.backup_path {
                             println!("Backup: {}", backup.display());
                         }
