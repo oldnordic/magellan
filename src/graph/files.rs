@@ -1,6 +1,24 @@
 //! File node operations for CodeGraph
 //!
 //! Handles file node CRUD operations and in-memory file indexing.
+//!
+//! # Thread Safety
+//!
+//! **This module is NOT thread-safe.**
+//!
+//! `FileOps` is designed for single-threaded use only:
+//! - All methods require `&mut self` (exclusive access)
+//! - `file_index: HashMap` has no synchronization primitives
+//! - No `Send` or `Sync` impls
+//!
+//! # Usage Pattern
+//!
+//! `FileOps` is accessed exclusively through `CodeGraph`, which
+//! enforces single-threaded access. The parent `CodeGraph` instance
+//! must not be shared across threads.
+//!
+//! For concurrent file operations, use external synchronization
+//! (e.g., mutex wrapper around CodeGraph).
 
 use anyhow::Result;
 use sha2::{Digest, Sha256};
