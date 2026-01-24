@@ -22,6 +22,29 @@
 //!     // ... extract symbols
 //! })?;
 //! ```
+//!
+//! # Thread Safety Model
+//!
+//! **Thread-local storage: Each thread has its own parser instances**
+//!
+//! ## Design Principles
+//!
+//! - **Thread-local:** `thread_local!` macro creates separate storage per thread
+//! - **No locks:** RefCell provides single-threaded mutable access
+//! - **Lazy initialization:** Parsers created on first use per thread
+//! - **Automatic cleanup:** Parser's Drop trait cleans up C resources on thread exit
+//!
+//! ## Safety Guarantees
+//!
+//! - Each thread gets its own parser instance → no lock contention
+//! - RefCell ensures single-threaded borrow checking at runtime
+//! - No shared mutable state across threads
+//! - Safe to call `with_parser` from any thread
+//!
+//! ## Cleanup
+//!
+//! Thread-local parsers are automatically dropped when their thread exits.
+//! See `cleanup_parsers()` for documentation (no-op function for API completeness).
 
 use crate::ingest::detect::Language;
 use anyhow::Result;
