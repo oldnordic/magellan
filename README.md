@@ -439,6 +439,44 @@ Test coverage:
 
 Tests pass on Linux (primary development platform). Other platforms not regularly tested.
 
+### Thread Safety Testing
+
+Magellan uses thread-safe synchronization for concurrent access to shared state. The v1.7 migration from `RefCell<T>` to `Arc<Mutex<T>>` ensures data races are eliminated.
+
+**TSAN Test Suite:**
+
+```bash
+# Run TSAN thread safety tests
+cargo test --test tsan_thread_safety_tests
+```
+
+**What TSAN Detects:**
+- Data races from unsynchronized concurrent access
+- Missing mutexes around shared mutable state
+- Lock ordering violations that can cause deadlocks
+
+**Modules Tested:**
+- `FileSystemWatcher` - Concurrent batch access, legacy pending state
+- `PipelineSharedState` - Dirty path insertion, lock ordering
+
+**Current Status:**
+
+The TSAN test suite is created and all tests pass. However, running with actual ThreadSanitizer instrumentation (`-Zsanitizer=thread`) is currently blocked by Rust toolchain limitations (ABI mismatch errors in dependencies). See `TEST-01-TSAN-RESULTS.md` for details.
+
+**Manual Verification:**
+
+All concurrent state uses `Arc<Mutex<T>>`:
+- `FileSystemWatcher::legacy_pending_batch: Arc<Mutex<Option<WatcherBatch>>>`
+- `FileSystemWatcher::legacy_pending_index: Arc<Mutex<usize>>`
+- `PipelineSharedState::dirty_paths: Arc<Mutex<BTreeSet<PathBuf>>>`
+
+Lock ordering is enforced:
+1. Acquire `dirty_paths` lock first
+2. Send wakeup signal while holding lock
+3. Release lock
+
+This ordering prevents lost wakeups and deadlocks.
+
 ## Known Limitations
 
 - **FQN collisions may occur**: Symbols with identical names in different files or modules may share the same Fully Qualified Name. This affects cross-file call resolution and find operations. Common in: `main` functions across binaries, test functions, and methods with generic names (`new`, `default`, etc.) in impl blocks. Collisions rate is typically 3-5% of symbols in large codebases.

@@ -1,0 +1,41 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # Standard tests on stable Rust
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run tests
+        run: cargo test --all-targets
+
+  # ThreadSanitizer tests on nightly Rust
+  #
+  # NOTE: TSAN integration is currently blocked by Rust toolchain limitations.
+  # The -Zsanitizer=thread flag requires all dependencies (including std)
+  # to be compiled with the same sanitizer flag, which causes ABI mismatches.
+  #
+  # This job is kept for when TSAN support stabilizes in Rust.
+  # See: TEST-01-TSAN-RESULTS.md for details on current limitations.
+  #
+  # To enable when TSAN is available:
+  # 1. Remove the 'if: false' condition
+  # 2. Update Rust version to one with working TSAN support
+  # 3. Verify -Zsanitizer=thread works without ABI errors
+  tsan:
+    runs-on: ubuntu-latest
+    if: false  # Disabled until TSAN support stabilizes in Rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+      - name: Run TSAN tests
+        run: RUSTFLAGS="-Zsanitizer=thread" cargo test --test tsan_thread_safety_tests
