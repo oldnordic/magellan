@@ -111,11 +111,7 @@ impl ScopeStack {
     /// Used when exiting a module, class, or namespace.
     /// Returns the popped scope name, or None if stack was empty.
     pub fn pop(&mut self) -> Option<String> {
-        if self.scopes.is_empty() {
-            None
-        } else {
-            Some(self.scopes.pop().unwrap())
-        }
+        self.scopes.pop()
     }
 
     /// Get the current fully-qualified name
