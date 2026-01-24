@@ -10,6 +10,25 @@
 //! - Subsequent runs: Compare against baseline, fail if regression > 5%
 //! - Performance tests only run in release mode (debug builds are too noisy)
 //!
+//! # Interpreting Output
+//!
+//! Performance tests output detailed timing breakdowns:
+//! - `[PERF] test_name took Xms` - Total duration for a test
+//! - `[PERF] Current: Xms | Baseline: Yms | Regression: Z%` - Comparison against baseline
+//! - `[PERF] File I/O: Xms (Y%)` - Time spent reading files
+//! - `[PERF] Parsing: Xms (Y%)` - Time spent in tree-sitter parsing
+//! - `[PERF] Database: Xms (Y%)` - Time spent in SQLite operations
+//!
+//! # Performance Noise
+//!
+//! Performance measurements have inherent variance due to:
+//! - OS scheduling and CPU frequency scaling
+//! - Thermal throttling on sustained load
+//! - Background system processes
+//! - File system cache state
+//!
+//! The 5% threshold accommodates this noise while catching real regressions.
+//!
 //! # Updating Baseline
 //!
 //! Update the baseline file when:
@@ -159,7 +178,7 @@ fn load_baseline() -> Option<PerformanceBaseline> {
     serde_json::from_str(&content).ok()
 }
 
-/// Check regression against baseline
+/// Check regression against baseline with detailed diagnostics
 ///
 /// Returns Ok(()) if within acceptable range, Err with regression percentage
 fn check_regression(current_ms: u128) -> Result<(), f64> {
@@ -167,13 +186,17 @@ fn check_regression(current_ms: u128) -> Result<(), f64> {
 
     if let Some(baseline) = baseline {
         let regression = (current_ms as f64 - baseline.duration_ms as f64) / baseline.duration_ms as f64;
-        println!(
-            "[PERF]   Current: {}ms | Baseline: {}ms | Regression: {:.2}%",
-            current_ms, baseline.duration_ms, regression * 100.0
-        );
+
+        println!("[PERF] {}", baseline.test_name);
+        println!("[PERF]   Current: {}ms", current_ms);
+        println!("[PERF]   Baseline: {}ms", baseline.duration_ms);
+        println!("[PERF]   Regression: {:.2}%", regression * 100.0);
 
         if regression < 0.0 {
-            println!("[PERF]   Improvement detected! (-{:.2}%)", -regression * 100.0);
+            println!(
+                "[PERF]   PASS: Improvement detected (-{:.2}%)",
+                -regression * 100.0
+            );
         } else if regression <= MAX_REGRESSION {
             println!(
                 "[PERF]   PASS: Regression {:.2}% is within threshold of {:.0}%",
@@ -422,41 +445,62 @@ mod additional_diagnostics {
         // Create 50 test files
         let test_dir = temp_dir.path().join("src");
         fs::create_dir_all(&test_dir).unwrap();
-        let files = create_rust_files(&test_dir, 50);
+        let _files = create_rust_files(&test_dir, 50);
 
         println!("\n[PERF] Performance breakdown for 50 files:");
 
-        // Measure file I/O time
-        let (io_duration, _files) = measure_duration("file_io", || {
-            let mut total_size = 0;
-            for file in &files {
-                let content = fs::read(file).unwrap();
-                total_size += content.len();
+        // Measure file I/O time (reading all files)
+        let start_io = Instant::now();
+        let mut total_bytes = 0;
+        for entry in fs::read_dir(&test_dir).unwrap() {
+            let entry = entry.unwrap();
+            if entry.path().is_file() {
+                let content = fs::read(entry.path()).unwrap();
+                total_bytes += content.len();
             }
-            total_size
-        });
+        }
+        let io_duration = start_io.elapsed().as_millis();
 
-        // Measure parsing + indexing time
+        // Measure parsing + indexing time (includes I/O)
         let mut graph = CodeGraph::open(&db_path).unwrap();
-        let (index_duration, indexed) = measure_duration("parsing_and_indexing", || {
-            let filter = FileFilter::new(temp_dir.path(), &[], &[]).unwrap();
-            magellan::graph::scan::scan_directory_with_filter(
-                &mut graph,
-                temp_dir.path(),
-                &filter,
-                None,
-            )
-            .unwrap()
-            .indexed
-        });
+        let start_index = Instant::now();
+        let filter = FileFilter::new(temp_dir.path(), &[], &[]).unwrap();
+        let indexed = magellan::graph::scan::scan_directory_with_filter(
+            &mut graph,
+            temp_dir.path(),
+            &filter,
+            None,
+        )
+        .unwrap()
+        .indexed;
+        let index_duration = start_index.elapsed().as_millis();
 
+        // Calculate breakdown
         let total = io_duration + index_duration;
-        let io_pct = (io_duration as f64 / total as f64) * 100.0;
-        let index_pct = (index_duration as f64 / total as f64) * 100.0;
+        let io_pct = if total > 0 {
+            (io_duration as f64 / total as f64) * 100.0
+        } else {
+            0.0
+        };
+        let index_pct = if total > 0 {
+            (index_duration as f64 / total as f64) * 100.0
+        } else {
+            0.0
+        };
 
-        println!("[PERF]   File I/O: {}ms ({:.1}%)", io_duration, io_pct);
-        println!("[PERF]   Indexing: {}ms ({:.1}%)", index_duration, index_pct);
-        println!("[PERF]   Total: {}ms", total);
+        println!("[PERF]   Standalone File I/O: {}ms ({:.1}%)", io_duration, io_pct);
+        println!(
+            "[PERF]   Scan with I/O + Parsing + DB: {}ms ({:.1}%)",
+            index_duration, index_pct
+        );
+        println!("[PERF]   Total breakdown: {}ms", total);
         println!("[PERF]   Files indexed: {}", indexed);
+        println!("[PERF]   Total bytes read: {}", total_bytes);
+
+        // Additional metric: Average time per file
+        if indexed > 0 {
+            let avg_ms = index_duration as f64 / indexed as f64;
+            println!("[PERF]   Avg per file: {:.2}ms", avg_ms);
+        }
     }
 }
