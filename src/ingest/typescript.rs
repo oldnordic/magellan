@@ -2,6 +2,7 @@
 //!
 //! Extracts functions, classes, interfaces, methods, types, enums, and namespaces from TypeScript source code.
 
+use crate::common::safe_slice;
 use crate::graph::canonical_fqn::FqnBuilder;
 use crate::ingest::{ScopeSeparator, ScopeStack, SymbolFact, SymbolKind};
 use crate::references::{CallFact, ReferenceFact};
@@ -51,7 +52,14 @@ impl TypeScriptParser {
         let package_name = ".";
 
         // Walk tree with scope tracking
-        self.walk_tree_with_scope(&root_node, source, &file_path, &mut facts, &mut scope_stack, package_name);
+        self.walk_tree_with_scope(
+            &root_node,
+            source,
+            &file_path,
+            &mut facts,
+            &mut scope_stack,
+            package_name,
+        );
 
         facts
     }
@@ -77,7 +85,14 @@ impl TypeScriptParser {
         if kind == "export_statement" {
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
-                self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack, package_name);
+                self.walk_tree_with_scope(
+                    &child,
+                    source,
+                    file_path,
+                    facts,
+                    scope_stack,
+                    package_name,
+                );
             }
             return;
         }
@@ -91,14 +106,23 @@ impl TypeScriptParser {
         if is_type_scope {
             if let Some(name) = self.extract_name(node, source, kind) {
                 // Create type symbol with parent scope
-                if let Some(fact) = self.extract_symbol_with_fqn(node, source, file_path, scope_stack, package_name) {
+                if let Some(fact) =
+                    self.extract_symbol_with_fqn(node, source, file_path, scope_stack, package_name)
+                {
                     facts.push(fact);
                 }
                 // Push type scope for children (methods, nested types)
                 scope_stack.push(&name);
                 let mut cursor = node.walk();
                 for child in node.children(&mut cursor) {
-                    self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack, package_name);
+                    self.walk_tree_with_scope(
+                        &child,
+                        source,
+                        file_path,
+                        facts,
+                        scope_stack,
+                        package_name,
+                    );
                 }
                 scope_stack.pop();
                 return;
@@ -106,7 +130,9 @@ impl TypeScriptParser {
         }
 
         // Check if this node is a symbol we care about
-        if let Some(fact) = self.extract_symbol_with_fqn(node, source, file_path, scope_stack, package_name) {
+        if let Some(fact) =
+            self.extract_symbol_with_fqn(node, source, file_path, scope_stack, package_name)
+        {
             facts.push(fact);
         }
 
@@ -186,8 +212,7 @@ impl TypeScriptParser {
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
                 if child.kind() == "identifier" {
-                    let name_bytes =
-                        &source[child.start_byte() as usize..child.end_byte() as usize];
+                    let name_bytes = safe_slice(source, child.start_byte() as usize, child.end_byte() as usize)?;
                     return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
                 }
             }
@@ -199,8 +224,7 @@ impl TypeScriptParser {
         for child in node.children(&mut cursor) {
             match child.kind() {
                 "identifier" | "type_identifier" | "property_identifier" => {
-                    let name_bytes =
-                        &source[child.start_byte() as usize..child.end_byte() as usize];
+                    let name_bytes = safe_slice(source, child.start_byte() as usize, child.end_byte() as usize)?;
                     return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
                 }
                 _ => {}
@@ -232,7 +256,14 @@ impl TypeScriptParser {
         let package_name = ".";
 
         // Walk tree with scope tracking
-        Self::walk_tree_with_scope_static(&root_node, source, &file_path, &mut facts, &mut scope_stack, package_name);
+        Self::walk_tree_with_scope_static(
+            &root_node,
+            source,
+            &file_path,
+            &mut facts,
+            &mut scope_stack,
+            package_name,
+        );
 
         facts
     }
@@ -252,7 +283,14 @@ impl TypeScriptParser {
         if kind == "export_statement" {
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
-                Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack, package_name);
+                Self::walk_tree_with_scope_static(
+                    &child,
+                    source,
+                    file_path,
+                    facts,
+                    scope_stack,
+                    package_name,
+                );
             }
             return;
         }
@@ -266,14 +304,27 @@ impl TypeScriptParser {
         if is_type_scope {
             if let Some(name) = Self::extract_name_static(node, source, kind) {
                 // Create type symbol with parent scope
-                if let Some(fact) = Self::extract_symbol_with_fqn_static(node, source, file_path, scope_stack, package_name) {
+                if let Some(fact) = Self::extract_symbol_with_fqn_static(
+                    node,
+                    source,
+                    file_path,
+                    scope_stack,
+                    package_name,
+                ) {
                     facts.push(fact);
                 }
                 // Push type scope for children (methods, nested types)
                 scope_stack.push(&name);
                 let mut cursor = node.walk();
                 for child in node.children(&mut cursor) {
-                    Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack, package_name);
+                    Self::walk_tree_with_scope_static(
+                        &child,
+                        source,
+                        file_path,
+                        facts,
+                        scope_stack,
+                        package_name,
+                    );
                 }
                 scope_stack.pop();
                 return;
@@ -281,14 +332,23 @@ impl TypeScriptParser {
         }
 
         // Check if this node is a symbol we care about
-        if let Some(fact) = Self::extract_symbol_with_fqn_static(node, source, file_path, scope_stack, package_name) {
+        if let Some(fact) =
+            Self::extract_symbol_with_fqn_static(node, source, file_path, scope_stack, package_name)
+        {
             facts.push(fact);
         }
 
         // Recurse into children
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            Self::walk_tree_with_scope_static(&child, source, file_path, facts, scope_stack, package_name);
+            Self::walk_tree_with_scope_static(
+                &child,
+                source,
+                file_path,
+                facts,
+                scope_stack,
+                package_name,
+            );
         }
     }
 
@@ -356,8 +416,7 @@ impl TypeScriptParser {
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
                 if child.kind() == "identifier" {
-                    let name_bytes =
-                        &source[child.start_byte() as usize..child.end_byte() as usize];
+                    let name_bytes = safe_slice(source, child.start_byte() as usize, child.end_byte() as usize)?;
                     return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
                 }
             }
@@ -369,8 +428,7 @@ impl TypeScriptParser {
         for child in node.children(&mut cursor) {
             match child.kind() {
                 "identifier" | "type_identifier" | "property_identifier" => {
-                    let name_bytes =
-                        &source[child.start_byte() as usize..child.end_byte() as usize];
+                    let name_bytes = safe_slice(source, child.start_byte() as usize, child.end_byte() as usize)?;
                     return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
                 }
                 _ => {}
@@ -444,7 +502,7 @@ impl TypeScriptParser {
         }
 
         // Get the text of this node
-        let text_bytes = &source[node.start_byte() as usize..node.end_byte() as usize];
+        let text_bytes = safe_slice(source, node.start_byte() as usize, node.end_byte() as usize)?;
         let text = std::str::from_utf8(text_bytes).ok()?;
 
         // Find if this matches any symbol
@@ -574,7 +632,7 @@ impl TypeScriptParser {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "identifier" {
-                let name_bytes = &source[child.start_byte() as usize..child.end_byte() as usize];
+                let name_bytes = safe_slice(source, child.start_byte() as usize, child.end_byte() as usize)?;
                 return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
             }
         }
@@ -626,7 +684,7 @@ impl TypeScriptParser {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "identifier" {
-                let name_bytes = &source[child.start_byte() as usize..child.end_byte() as usize];
+                let name_bytes = safe_slice(source, child.start_byte() as usize, child.end_byte() as usize)?;
                 return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
             }
             // Handle member_expression calls like obj.method() - we want the property name
@@ -646,8 +704,7 @@ impl TypeScriptParser {
             // For member_expression, look for property_identifier
             for child in &children {
                 if child.kind() == "property_identifier" {
-                    let name_bytes =
-                        &source[child.start_byte() as usize..child.end_byte() as usize];
+                    let name_bytes = safe_slice(source, child.start_byte() as usize, child.end_byte() as usize)?;
                     return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
                 }
             }
@@ -909,7 +966,10 @@ namespace MyNamespace {
             .filter(|f| f.kind == SymbolKind::Method)
             .collect();
         assert_eq!(methods.len(), 1);
-        assert_eq!(methods[0].fqn, Some("MyNamespace.MyClass.myMethod".to_string()));
+        assert_eq!(
+            methods[0].fqn,
+            Some("MyNamespace.MyClass.myMethod".to_string())
+        );
     }
 
     #[test]
@@ -995,7 +1055,10 @@ namespace MyNamespace {
         assert_eq!(classes.len(), 1);
         assert!(classes[0].canonical_fqn.is_some());
         assert!(classes[0].display_fqn.is_some());
-        assert_eq!(classes[0].display_fqn.as_ref().unwrap(), "..MyNamespace.MyClass");
+        assert_eq!(
+            classes[0].display_fqn.as_ref().unwrap(),
+            "..MyNamespace.MyClass"
+        );
 
         // Check method
         let methods: Vec<_> = facts
@@ -1005,7 +1068,10 @@ namespace MyNamespace {
         assert_eq!(methods.len(), 1);
         assert!(methods[0].canonical_fqn.is_some());
         assert!(methods[0].display_fqn.is_some());
-        assert_eq!(methods[0].display_fqn.as_ref().unwrap(), "..MyNamespace.MyClass.myMethod");
+        assert_eq!(
+            methods[0].display_fqn.as_ref().unwrap(),
+            "..MyNamespace.MyClass.myMethod"
+        );
     }
 
     #[test]
