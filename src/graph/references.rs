@@ -63,6 +63,11 @@ impl ReferenceOps {
     }
     /// Index references for a file into the graph
     ///
+    /// # Status
+    ///
+    /// **LEGACY METHOD** - Superseded by `index_references_with_symbol_id()` which supports
+    /// both SymbolId and FQN lookups for v1.5+ compatibility. Kept for potential future use.
+    ///
     /// # Behavior
     /// 1. Parse symbols from source (to get correct spans for filtering)
     /// 2. Extract references to those symbols
@@ -73,6 +78,7 @@ impl ReferenceOps {
     /// * `path` - File path
     /// * `source` - File contents as bytes
     /// * `symbol_fqn_to_id` - Map of FQNs to their node IDs (ALL symbols in database)
+    #[expect(dead_code)] // LEGACY: Superseded by index_references_with_symbol_id (v1.5). Kept for potential future use. See: https://github.com/oldnordic/magellan/issues
     pub fn index_references(
         &self,
         path: &str,
@@ -195,6 +201,143 @@ impl ReferenceOps {
         Ok(references.len())
     }
 
+    /// Index references with dual SymbolId and FQN lookup support
+    ///
+    /// # Arguments
+    /// * `path` - File path
+    /// * `source` - File contents as bytes
+    /// * `symbol_id_to_id` - Map of SymbolId to entity_id (primary lookup)
+    /// * `fqn_to_id` - Map of FQN to entity_id (fallback for backward compatibility)
+    ///
+    /// # Returns
+    /// Number of references indexed
+    pub fn index_references_with_symbol_id(
+        &self,
+        path: &str,
+        source: &[u8],
+        symbol_id_to_id: &HashMap<String, i64>,
+        fqn_to_id: &HashMap<String, i64>,
+    ) -> Result<usize> {
+        let path_buf = PathBuf::from(path);
+        let language = detect_language(&path_buf);
+
+        // Build symbol_facts from ALL symbols in the database
+        // This enables cross-file reference matching
+        let mut all_symbol_facts: Vec<crate::ingest::SymbolFact> = Vec::new();
+
+        // Get all entity IDs from the graph
+        let entity_ids = match self.backend.entity_ids() {
+            Ok(ids) => ids,
+            Err(_) => return Ok(0), // If we can't get entities, no references to index
+        };
+
+        // Iterate through all entities and find Symbol nodes
+        for entity_id in entity_ids {
+            if let Ok(node) = self.backend.get_node(entity_id) {
+                // Check if this is a Symbol node by looking at the kind field
+                if node.kind == "Symbol" {
+                    if let Ok(symbol_node) = serde_json::from_value::<
+                        crate::graph::schema::SymbolNode,
+                    >(node.data.clone())
+                    {
+                        // Convert SymbolNode to SymbolFact
+                        if let Some(name) = &symbol_node.name {
+                            // Validate file_path is valid UTF-8 before creating SymbolFact
+                            let file_path_str = node.file_path.as_deref().unwrap_or("");
+                            if std::str::from_utf8(file_path_str.as_bytes()).is_ok() {
+                                // Extract FQN, fall back to name for backward compatibility
+                                let fqn = symbol_node
+                                    .fqn
+                                    .clone()
+                                    .or(symbol_node.name.clone())
+                                    .unwrap_or_default();
+
+                                all_symbol_facts.push(crate::ingest::SymbolFact {
+                                    file_path: PathBuf::from(file_path_str),
+                                    kind: match symbol_node.kind_normalized.as_deref() {
+                                        Some("fn") => crate::ingest::SymbolKind::Function,
+                                        Some("method") => crate::ingest::SymbolKind::Method,
+                                        Some("struct") => crate::ingest::SymbolKind::Class,
+                                        Some("enum") => crate::ingest::SymbolKind::Enum,
+                                        Some("trait") => crate::ingest::SymbolKind::Interface,
+                                        Some("mod") => crate::ingest::SymbolKind::Module,
+                                        _ => crate::ingest::SymbolKind::Unknown,
+                                    },
+                                    kind_normalized: symbol_node
+                                        .kind_normalized
+                                        .clone()
+                                        .unwrap_or(symbol_node.kind.clone()),
+                                    name: Some(name.clone()),
+                                    fqn: if fqn.is_empty() { None } else { Some(fqn) },
+                                    canonical_fqn: symbol_node.canonical_fqn.clone(),
+                                    display_fqn: symbol_node.display_fqn.clone(),
+                                    byte_start: symbol_node.byte_start as usize,
+                                    byte_end: symbol_node.byte_end as usize,
+                                    start_line: symbol_node.start_line as usize,
+                                    start_col: symbol_node.start_col as usize,
+                                    end_line: symbol_node.end_line as usize,
+                                    end_col: symbol_node.end_col as usize,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Extract references using language-specific parser
+        // Pass all_symbol_facts to enable cross-file reference matching
+        let references = match language {
+            Some(Language::Rust) => {
+                let mut parser = Parser::new()?;
+                parser.extract_references(path_buf.clone(), source, &all_symbol_facts)
+            }
+            Some(Language::Python) => {
+                let mut parser = PythonParser::new()?;
+                parser.extract_references(path_buf.clone(), source, &all_symbol_facts)
+            }
+            Some(Language::C) => {
+                let mut parser = CParser::new()?;
+                parser.extract_references(path_buf.clone(), source, &all_symbol_facts)
+            }
+            Some(Language::Cpp) => {
+                let mut parser = CppParser::new()?;
+                parser.extract_references(path_buf.clone(), source, &all_symbol_facts)
+            }
+            Some(Language::Java) => {
+                let mut parser = JavaParser::new()?;
+                parser.extract_references(path_buf.clone(), source, &all_symbol_facts)
+            }
+            Some(Language::JavaScript) => {
+                let mut parser = JavaScriptParser::new()?;
+                parser.extract_references(path_buf.clone(), source, &all_symbol_facts)
+            }
+            Some(Language::TypeScript) => {
+                let mut parser = TypeScriptParser::new()?;
+                parser.extract_references(path_buf.clone(), source, &all_symbol_facts)
+            }
+            None => Vec::new(),
+        };
+
+        // Insert reference nodes and REFERENCES edges
+        for reference in &references {
+            let target_symbol_id = symbol_id_to_id
+                .get(&reference.referenced_symbol)
+                .or_else(|| fqn_to_id.get(&reference.referenced_symbol));
+
+            if let Some(&target_symbol_id) = target_symbol_id {
+                let reference_id = self.insert_reference_node(reference)?;
+                self.insert_references_edge(
+                    reference_id,
+                    NodeId::from(target_symbol_id),
+                    reference,
+                )?;
+            }
+        }
+
+        Ok(references.len())
+    }
+
     /// Query all references to a specific symbol
     ///
     /// # Arguments
@@ -294,5 +437,65 @@ impl ReferenceOps {
             end_line: reference_node.end_line as usize,
             end_col: reference_node.end_col as usize,
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::graph::schema::SymbolNode;
+    use sqlitegraph::GraphBackend;
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_index_references_with_symbol_id_uses_fqn_fallback() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
+
+        let test_file = temp_dir.path().join("test.rs");
+        std::fs::write(
+            &test_file,
+            r#"
+fn foo() {}
+
+fn bar() {
+    foo();
+}
+"#,
+        )
+        .unwrap();
+
+        let path_str = test_file.to_string_lossy().to_string();
+        let source = std::fs::read(&test_file).unwrap();
+        graph.index_file(&path_str, &source).unwrap();
+
+        let mut symbol_id_to_id: HashMap<String, i64> = HashMap::new();
+        let mut fqn_to_id: HashMap<String, i64> = HashMap::new();
+
+        let entity_ids = graph.files.backend.entity_ids().unwrap();
+        for entity_id in entity_ids {
+            if let Ok(node) = graph.files.backend.get_node(entity_id) {
+                if node.kind == "Symbol" {
+                    if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data) {
+                        if let Some(symbol_id) = symbol_node.symbol_id {
+                            symbol_id_to_id.insert(symbol_id, entity_id);
+                        }
+
+                        let fqn = symbol_node.fqn.or(symbol_node.name).unwrap_or_default();
+
+                        if !fqn.is_empty() {
+                            fqn_to_id.insert(fqn, entity_id);
+                        }
+                    }
+                }
+            }
+        }
+
+        let count = graph
+            .references
+            .index_references_with_symbol_id(&path_str, &source, &symbol_id_to_id, &fqn_to_id)
+            .unwrap();
+
+        assert!(count > 0, "Expected at least one reference to be indexed");
     }
 }
