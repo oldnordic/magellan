@@ -221,11 +221,7 @@ impl SpanChecksums {
     }
 
     /// Compute both span and file checksums
-    pub fn compute(
-        file_path: &str,
-        byte_start: usize,
-        byte_end: usize,
-    ) -> Self {
+    pub fn compute(file_path: &str, byte_start: usize, byte_end: usize) -> Self {
         SpanChecksums {
             checksum_before: Self::compute_span_checksum(file_path, byte_start, byte_end),
             file_checksum_before: Self::compute_file_checksum(file_path),

@@ -28,15 +28,6 @@ fn write_and_sync(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Helper: Append bytes to file with synchronization
-fn append_and_sync(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    use std::fs::OpenOptions;
-    let mut file = OpenOptions::new().write(true).append(true).open(path)?;
-    std::io::Write::write_all(&mut file, bytes)?;
-    file.sync_all()?;
-    Ok(())
-}
-
 #[test]
 fn test_default_watch_performs_initial_scan() {
     // Setup: Create temp directory and database
@@ -86,7 +77,7 @@ fn test_modify_during_scan_is_flushed() {
 
     // Start the scan (simulating watch startup)
     let mut graph = CodeGraph::open(&db_path).unwrap();
-    let file_count = graph.scan_directory(&root_path, None).unwrap();
+    let _file_count = graph.scan_directory(&root_path, None).unwrap();
 
     // Wait for modifier thread to complete
     modifier_thread.join().unwrap();
@@ -98,7 +89,11 @@ fn test_modify_during_scan_is_flushed() {
     // Verify: Final state reflects v1 content, not v0
     let symbols = graph.symbols_in_file(&path_str).unwrap();
     assert_eq!(symbols.len(), 1, "Should have 1 symbol after flush");
-    assert_eq!(symbols[0].name.as_deref().unwrap(), "v1", "Should have v1 symbol, not v0");
+    assert_eq!(
+        symbols[0].name.as_deref().unwrap(),
+        "v1",
+        "Should have v1 symbol, not v0"
+    );
 }
 
 #[test]
@@ -126,7 +121,11 @@ fn test_rapid_modifications_produce_deterministic_final_state() {
     // Verify: Final state is v5 (last write wins)
     let symbols = graph.symbols_in_file(&path_str).unwrap();
     assert_eq!(symbols.len(), 1, "Should have 1 symbol");
-    assert_eq!(symbols[0].name.as_deref().unwrap(), "v5", "Should have v5 (last write)");
+    assert_eq!(
+        symbols[0].name.as_deref().unwrap(),
+        "v5",
+        "Should have v5 (last write)"
+    );
 }
 
 #[test]
@@ -198,9 +197,18 @@ fn test_deterministic_batch_ordering() {
     let mut file_names: Vec<_> = all_files.keys().collect();
     file_names.sort();
 
-    assert_eq!(file_names[0].as_str(), root_path.join("alpha.rs").to_string_lossy().as_ref());
-    assert_eq!(file_names[1].as_str(), root_path.join("beta.rs").to_string_lossy().as_ref());
-    assert_eq!(file_names[2].as_str(), root_path.join("zebra.rs").to_string_lossy().as_ref());
+    assert_eq!(
+        file_names[0].as_str(),
+        root_path.join("alpha.rs").to_string_lossy().as_ref()
+    );
+    assert_eq!(
+        file_names[1].as_str(),
+        root_path.join("beta.rs").to_string_lossy().as_ref()
+    );
+    assert_eq!(
+        file_names[2].as_str(),
+        root_path.join("zebra.rs").to_string_lossy().as_ref()
+    );
 }
 
 #[test]

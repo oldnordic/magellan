@@ -13,8 +13,8 @@
 //! Example: `magellan::my_module::MyStruct::my_method`
 //! Purpose: Human-readable form for CLI output and user interaction
 
-use crate::validation::normalize_path;
 use crate::ingest::{ScopeSeparator, ScopeStack, SymbolKind};
+use crate::validation::normalize_path;
 use std::path::Path;
 
 /// Builder for computing canonical and display FQN for symbols
@@ -130,10 +130,7 @@ impl FqnBuilder {
         let kind_str = self.kind_string(symbol_kind);
         format!(
             "{}::{}::{} {}",
-            self.crate_name,
-            self.file_path,
-            kind_str,
-            symbol_name
+            self.crate_name, self.file_path, kind_str, symbol_name
         )
     }
 
@@ -328,10 +325,7 @@ mod tests {
         let canonical = builder.canonical(&scope_stack, SymbolKind::Method, "my_method");
         let display = builder.display(&scope_stack, SymbolKind::Method, "my_method");
 
-        assert_eq!(
-            canonical,
-            "test_crate::src/test.rs::Method my_method"
-        );
+        assert_eq!(canonical, "test_crate::src/test.rs::Method my_method");
         assert_eq!(
             display,
             "test_crate::outer_module::inner_module::MyStruct::my_method"

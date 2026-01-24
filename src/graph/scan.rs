@@ -54,11 +54,7 @@ impl FileReadResult {
 
     /// Create a failed file read result
     fn error(rel_path: String, error_msg: String) -> Self {
-        let diagnostic = WatchDiagnostic::error(
-            rel_path.clone(),
-            DiagnosticStage::Read,
-            error_msg,
-        );
+        let diagnostic = WatchDiagnostic::error(rel_path.clone(), DiagnosticStage::Read, error_msg);
         Self {
             path_str: String::new(),
             rel_path,
@@ -317,7 +313,8 @@ mod tests {
 
         // Scan should only index .rs files (not .db files)
         let filter = FileFilter::new(temp_dir.path(), &[], &[]).unwrap();
-        let result = scan_directory_with_filter(&mut graph, temp_dir.path(), &filter, None).unwrap();
+        let result =
+            scan_directory_with_filter(&mut graph, temp_dir.path(), &filter, None).unwrap();
 
         assert_eq!(result.indexed, 1, "Should only scan 1 .rs file");
 
@@ -348,16 +345,14 @@ mod tests {
 
         let mut graph = crate::CodeGraph::open(&db_path).unwrap();
         let filter = FileFilter::new(temp_dir.path(), &[], &[]).unwrap();
-        let result = scan_directory_with_filter(&mut graph, temp_dir.path(), &filter, None).unwrap();
+        let result =
+            scan_directory_with_filter(&mut graph, temp_dir.path(), &filter, None).unwrap();
 
         // Only included.rs should be indexed
         assert_eq!(result.indexed, 1);
 
         // Should have diagnostic for ignored.rs
-        let ignored_diag = result
-            .diagnostics
-            .iter()
-            .find(|d| d.path() == "ignored.rs");
+        let ignored_diag = result.diagnostics.iter().find(|d| d.path() == "ignored.rs");
         assert!(ignored_diag.is_some());
     }
 
@@ -376,7 +371,8 @@ mod tests {
 
         let mut graph = crate::CodeGraph::open(&db_path).unwrap();
         let filter = FileFilter::new(temp_dir.path(), &["src/**".to_string()], &[]).unwrap();
-        let result = scan_directory_with_filter(&mut graph, temp_dir.path(), &filter, None).unwrap();
+        let result =
+            scan_directory_with_filter(&mut graph, temp_dir.path(), &filter, None).unwrap();
 
         // Only src/lib.rs should be indexed
         assert_eq!(result.indexed, 1);
@@ -400,7 +396,8 @@ mod tests {
 
         let mut graph = crate::CodeGraph::open(&db_path).unwrap();
         let filter = FileFilter::new(temp_dir.path(), &[], &["**/*test*.rs".to_string()]).unwrap();
-        let result = scan_directory_with_filter(&mut graph, temp_dir.path(), &filter, None).unwrap();
+        let result =
+            scan_directory_with_filter(&mut graph, temp_dir.path(), &filter, None).unwrap();
 
         // Only lib.rs should be indexed
         assert_eq!(result.indexed, 1);
@@ -437,7 +434,8 @@ mod tests {
             let filter = FileFilter::new(temp_dir.path(), &[], &[]).unwrap();
 
             // Scan should continue despite error
-            let result = scan_directory_with_filter(&mut graph, temp_dir.path(), &filter, None).unwrap();
+            let result =
+                scan_directory_with_filter(&mut graph, temp_dir.path(), &filter, None).unwrap();
 
             // At least the good file should be indexed
             assert!(result.indexed >= 1);
@@ -460,7 +458,8 @@ mod tests {
             // On non-Unix systems, just verify both files are indexed
             let mut graph = crate::CodeGraph::open(&db_path).unwrap();
             let filter = FileFilter::new(temp_dir.path(), &[], &[]).unwrap();
-            let result = scan_directory_with_filter(&mut graph, temp_dir.path(), &filter, None).unwrap();
+            let result =
+                scan_directory_with_filter(&mut graph, temp_dir.path(), &filter, None).unwrap();
             assert_eq!(result.indexed, 2);
         }
     }
@@ -480,7 +479,8 @@ mod tests {
 
         let mut graph = crate::CodeGraph::open(&db_path).unwrap();
         let filter = FileFilter::new(temp_dir.path(), &[], &[]).unwrap();
-        let result = scan_directory_with_filter(&mut graph, temp_dir.path(), &filter, None).unwrap();
+        let result =
+            scan_directory_with_filter(&mut graph, temp_dir.path(), &filter, None).unwrap();
 
         // After sorting, diagnostics should be in predictable order
         let mut sorted_diags = result.diagnostics.clone();
@@ -516,7 +516,8 @@ mod tests {
         let filter = FileFilter::new(temp_dir.path(), &[], &[]).unwrap();
 
         // Scan should succeed
-        let result = scan_directory_with_filter(&mut graph, temp_dir.path(), &filter, None).unwrap();
+        let result =
+            scan_directory_with_filter(&mut graph, temp_dir.path(), &filter, None).unwrap();
 
         // Should have indexed the valid file
         assert_eq!(result.indexed, 1);
@@ -546,7 +547,8 @@ mod tests {
 
         // Scan should handle the symlink safely
         // Since follow_links=false, WalkDir won't follow it
-        let _result = scan_directory_with_filter(&mut graph, temp_dir.path(), &filter, None).unwrap();
+        let _result =
+            scan_directory_with_filter(&mut graph, temp_dir.path(), &filter, None).unwrap();
 
         // The symlink itself might be indexed as a file (depending on WalkDir behavior)
         // But it should NOT escape the root
@@ -570,7 +572,8 @@ mod tests {
         let mut graph = crate::CodeGraph::open(&db_path).unwrap();
         let filter = FileFilter::new(temp_dir.path(), &[], &[]).unwrap();
 
-        let result = scan_directory_with_filter(&mut graph, temp_dir.path(), &filter, None).unwrap();
+        let result =
+            scan_directory_with_filter(&mut graph, temp_dir.path(), &filter, None).unwrap();
 
         // Both files should be indexed
         assert_eq!(result.indexed, 2);

@@ -187,13 +187,9 @@ pub fn validate_graph(graph: &mut CodeGraph) -> Result<ValidationReport> {
     }
 
     // Sort deterministically by code for consistent output
-    all_errors.sort_by(|a, b| {
-        a.code.cmp(&b.code)
-            .then_with(|| a.message.cmp(&b.message))
-    });
+    all_errors.sort_by(|a, b| a.code.cmp(&b.code).then_with(|| a.message.cmp(&b.message)));
     all_warnings.sort_by(|a: &ValidationWarning, b: &ValidationWarning| {
-        a.code.cmp(&b.code)
-            .then_with(|| a.message.cmp(&b.message))
+        a.code.cmp(&b.code).then_with(|| a.message.cmp(&b.message))
     });
 
     Ok(ValidationReport {
@@ -282,11 +278,10 @@ fn check_orphan_calls(graph: &mut CodeGraph) -> Result<Vec<ValidationError>> {
             continue;
         }
 
-        let call_node: crate::graph::schema::CallNode =
-            match serde_json::from_value(node.data) {
-                Ok(value) => value,
-                Err(_) => continue,
-            };
+        let call_node: crate::graph::schema::CallNode = match serde_json::from_value(node.data) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
 
         // Check for incoming CALLER edges (caller symbol -> call node)
         let callers = graph.calls.backend.neighbors(
@@ -396,10 +391,7 @@ pub fn pre_run_validate(
             errors.push(
                 ValidationError::new(
                     "INPUT_PATH_MISSING".to_string(),
-                    format!(
-                        "Input path does not exist: {}",
-                        input_path.display()
-                    ),
+                    format!("Input path does not exist: {}", input_path.display()),
                 )
                 .with_details(serde_json::json!({
                     "input_path": input_path.display().to_string(),
@@ -429,9 +421,10 @@ mod tests {
 
     #[test]
     fn test_validation_report_with_errors() {
-        let errors = vec![
-            ValidationError::new("TEST_ERROR".to_string(), "Test error".to_string()),
-        ];
+        let errors = vec![ValidationError::new(
+            "TEST_ERROR".to_string(),
+            "Test error".to_string(),
+        )];
         let report = ValidationReport::with_errors(errors);
         assert!(!report.passed);
         assert!(!report.is_clean());
@@ -480,9 +473,10 @@ mod tests {
     fn test_validation_report_serialization() {
         let report = ValidationReport {
             passed: false,
-            errors: vec![
-                ValidationError::new("ERROR_CODE".to_string(), "Error message".to_string()),
-            ],
+            errors: vec![ValidationError::new(
+                "ERROR_CODE".to_string(),
+                "Error message".to_string(),
+            )],
             warnings: vec![],
         };
 
@@ -530,7 +524,10 @@ mod tests {
         let report = validate_graph(&mut graph).unwrap();
 
         assert!(report.passed, "Clean graph should validate");
-        assert!(report.errors.is_empty(), "Clean graph should have no errors");
+        assert!(
+            report.errors.is_empty(),
+            "Clean graph should have no errors"
+        );
     }
 
     #[test]
@@ -566,15 +563,23 @@ mod tests {
         // Run validation - should detect the orphan
         let report = validate_graph(&mut graph).unwrap();
 
-        assert!(!report.passed, "Graph with orphan reference should fail validation");
+        assert!(
+            !report.passed,
+            "Graph with orphan reference should fail validation"
+        );
         assert!(!report.errors.is_empty(), "Should have errors");
 
         // Find the orphan reference error
-        let orphan_error = report.errors.iter()
+        let orphan_error = report
+            .errors
+            .iter()
             .find(|e| e.code == "ORPHAN_REFERENCE")
             .expect("Should have ORPHAN_REFERENCE error");
 
-        assert!(orphan_error.message.contains("test.rs"), "Error should mention file path");
+        assert!(
+            orphan_error.message.contains("test.rs"),
+            "Error should mention file path"
+        );
     }
 
     #[test]
@@ -586,7 +591,10 @@ mod tests {
         let report = validate_graph(&mut graph).unwrap();
 
         assert!(report.passed, "Empty graph should validate");
-        assert!(report.errors.is_empty(), "Empty graph should have no errors");
+        assert!(
+            report.errors.is_empty(),
+            "Empty graph should have no errors"
+        );
     }
 
     #[test]
@@ -626,7 +634,9 @@ mod tests {
         let report = validate_graph(&mut graph).unwrap();
 
         // Should detect missing caller
-        let missing_caller = report.errors.iter()
+        let missing_caller = report
+            .errors
+            .iter()
             .any(|e| e.code == "ORPHAN_CALL_NO_CALLER");
 
         assert!(missing_caller, "Should detect missing CALLER edge");
@@ -669,7 +679,9 @@ mod tests {
         let report = validate_graph(&mut graph).unwrap();
 
         // Should detect missing callee
-        let missing_callee = report.errors.iter()
+        let missing_callee = report
+            .errors
+            .iter()
             .any(|e| e.code == "ORPHAN_CALL_NO_CALLEE");
 
         assert!(missing_callee, "Should detect missing CALLS edge");
@@ -730,7 +742,10 @@ mod tests {
         let report = validate_graph(&mut graph).unwrap();
 
         assert!(!report.passed, "Graph with orphans should fail");
-        assert!(report.errors.len() >= 2, "Should have at least 2 errors (1 reference + 2 call errors)");
+        assert!(
+            report.errors.len() >= 2,
+            "Should have at least 2 errors (1 reference + 2 call errors)"
+        );
 
         // Verify errors are sorted by code
         for i in 1..report.errors.len() {
@@ -739,7 +754,8 @@ mod tests {
             assert!(
                 prev.code <= curr.code,
                 "Errors should be sorted by code: {} <= {}",
-                prev.code, curr.code
+                prev.code,
+                curr.code
             );
         }
     }
@@ -784,11 +800,16 @@ mod tests {
         assert!(!report.passed, "Missing root should fail validation");
         assert!(!report.errors.is_empty(), "Should have errors");
 
-        let root_error = report.errors.iter()
+        let root_error = report
+            .errors
+            .iter()
             .find(|e| e.code == "ROOT_PATH_MISSING")
             .expect("Should have ROOT_PATH_MISSING error");
 
-        assert!(root_error.message.contains("nonexistent"), "Error should mention the missing path");
+        assert!(
+            root_error.message.contains("nonexistent"),
+            "Error should mention the missing path"
+        );
     }
 
     #[test]
@@ -808,7 +829,9 @@ mod tests {
         assert!(!report.passed, "Missing input path should fail validation");
         assert!(!report.errors.is_empty(), "Should have errors");
 
-        let _input_error = report.errors.iter()
+        let _input_error = report
+            .errors
+            .iter()
             .find(|e| e.code == "INPUT_PATH_MISSING")
             .expect("Should have INPUT_PATH_MISSING error");
     }
@@ -825,25 +848,33 @@ mod tests {
         assert!(!report.passed, "Missing db parent should fail validation");
         assert!(!report.errors.is_empty(), "Should have errors");
 
-        let parent_error = report.errors.iter()
+        let parent_error = report
+            .errors
+            .iter()
             .find(|e| e.code == "DB_PARENT_MISSING")
             .expect("Should have DB_PARENT_MISSING error");
 
-        assert!(parent_error.message.contains("nonexistent"), "Error should mention missing parent");
+        assert!(
+            parent_error.message.contains("nonexistent"),
+            "Error should mention missing parent"
+        );
     }
 
     #[test]
     fn test_validation_report_with_warnings() {
         // Test ValidationReport with warnings
-        let warnings = vec![
-            ValidationWarning::new("WARN_CODE".to_string(), "Test warning".to_string()),
-        ];
+        let warnings = vec![ValidationWarning::new(
+            "WARN_CODE".to_string(),
+            "Test warning".to_string(),
+        )];
 
-        let report = ValidationReport::clean()
-            .with_warnings(warnings);
+        let report = ValidationReport::clean().with_warnings(warnings);
 
         assert!(report.passed, "Report with only warnings should still pass");
-        assert!(!report.is_clean(), "Report with warnings should not be clean");
+        assert!(
+            !report.is_clean(),
+            "Report with warnings should not be clean"
+        );
         assert_eq!(report.total_issues(), 1);
     }
 

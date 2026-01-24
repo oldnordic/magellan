@@ -4,14 +4,17 @@
 
 #![allow(clippy::needless_return)] // Allow explicit return for test clarity
 
+use protobuf::Message;
+use scip::types::Index;
 use std::fs;
 use tempfile::TempDir;
-use scip::types::Index;
-use protobuf::Message;
 
 /// Helper to create a test graph with known symbols
 /// Returns (db_path, file_path)
-fn create_test_graph_with_symbols(temp_dir: &TempDir, source: &str) -> (std::path::PathBuf, String) {
+fn create_test_graph_with_symbols(
+    temp_dir: &TempDir,
+    source: &str,
+) -> (std::path::PathBuf, String) {
     let db_path = temp_dir.path().join("magellan.db");
     let file_path = temp_dir.path().join("test.rs");
     fs::write(&file_path, source).unwrap();
@@ -111,13 +114,14 @@ fn test_scip_metadata_correct() {
         .unwrap_or_else(|e| panic!("Failed to parse SCIP bytes: {}", e));
 
     // Verify metadata exists
-    let metadata = parsed_index.metadata.as_ref()
+    let metadata = parsed_index
+        .metadata
+        .as_ref()
         .expect("Metadata should be present");
 
     // Verify project_root is set
     assert_eq!(
-        metadata.project_root,
-        ".",
+        metadata.project_root, ".",
         "Default config should set project_root to '.'"
     );
 
@@ -142,12 +146,13 @@ fn test_scip_metadata_correct() {
     let parsed_custom = Index::parse_from_bytes(&scip_bytes_custom)
         .unwrap_or_else(|e| panic!("Failed to parse custom SCIP bytes: {}", e));
 
-    let metadata_custom = parsed_custom.metadata.as_ref()
+    let metadata_custom = parsed_custom
+        .metadata
+        .as_ref()
         .expect("Custom metadata should be present");
 
     assert_eq!(
-        metadata_custom.project_root,
-        "/test/project",
+        metadata_custom.project_root, "/test/project",
         "Custom config should set project_root"
     );
 }
@@ -180,14 +185,15 @@ struct Point {
         .unwrap_or_else(|e| panic!("Failed to parse SCIP bytes: {}", e));
 
     // Find the document by relative_path
-    let document = parsed_index.documents.iter()
+    let document = parsed_index
+        .documents
+        .iter()
         .find(|d| d.relative_path.contains("test.rs"))
         .expect("Should find document for test.rs");
 
     // Verify document structure
     assert_eq!(
-        document.language,
-        "rust",
+        document.language, "rust",
         "Document should have correct language"
     );
     assert!(
@@ -243,10 +249,7 @@ fn main() {
                 occurrence.range[1] >= 0,
                 "Start column should be non-negative"
             );
-            assert!(
-                occurrence.range[2] >= 0,
-                "End line should be non-negative"
-            );
+            assert!(occurrence.range[2] >= 0, "End line should be non-negative");
             assert!(
                 occurrence.range[3] >= 0,
                 "End column should be non-negative"
@@ -292,7 +295,9 @@ mod outer {
         .unwrap_or_else(|e| panic!("Failed to parse SCIP bytes: {}", e));
 
     // Verify symbol format
-    let found_magellan_symbol = parsed_index.documents.iter()
+    let found_magellan_symbol = parsed_index
+        .documents
+        .iter()
         .flat_map(|d| &d.occurrences)
         .any(|occ| {
             // Symbols should end with "." (global symbol marker)
@@ -316,26 +321,29 @@ mod outer {
     );
 
     // Verify symbol information format
-    let found_valid_symbol_info = parsed_index.documents.iter()
-        .flat_map(|d| &d.symbols)
-        .any(|sym_info| {
-            // Symbol info should have a symbol field
-            if sym_info.symbol.is_empty() {
-                return false;
-            }
+    let found_valid_symbol_info =
+        parsed_index
+            .documents
+            .iter()
+            .flat_map(|d| &d.symbols)
+            .any(|sym_info| {
+                // Symbol info should have a symbol field
+                if sym_info.symbol.is_empty() {
+                    return false;
+                }
 
-            // Symbol should end with "."
-            if !sym_info.symbol.ends_with('.') {
-                return false;
-            }
+                // Symbol should end with "."
+                if !sym_info.symbol.ends_with('.') {
+                    return false;
+                }
 
-            // Symbol should start with "magellan "
-            if !sym_info.symbol.starts_with("magellan ") {
-                return false;
-            }
+                // Symbol should start with "magellan "
+                if !sym_info.symbol.starts_with("magellan ") {
+                    return false;
+                }
 
-            true
-        });
+                true
+            });
 
     assert!(
         found_valid_symbol_info,

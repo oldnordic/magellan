@@ -234,7 +234,7 @@ fn test_get_candidates_multiple() {
 
     // Get candidates for Handler display FQN
     // Note: The actual display_fqn may vary, so we find it from the indexed symbols
-    let candidates = graph.get_candidates("Handler").unwrap();
+    let _candidates = graph.get_candidates("Handler").unwrap();
 
     // Should find candidates (exact count depends on FQN computation)
     // Just verify the query doesn't error - empty result is valid for non-existent display_fqn

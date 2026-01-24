@@ -84,16 +84,18 @@ impl ChunkStore {
             ChunkStoreConnection::Shared(arc) => {
                 // Open a new connection to the same database.
                 // We need to extract the path from the existing connection.
-                let conn = arc.lock()
-                    .map_err(|_| rusqlite::Error::InvalidParameterName(
-                        "Shared connection lock failed".to_string()
-                    ))?;
+                let conn = arc.lock().map_err(|_| {
+                    rusqlite::Error::InvalidParameterName(
+                        "Shared connection lock failed".to_string(),
+                    )
+                })?;
                 // Get the database path from the existing connection
                 let path = conn.path().ok_or_else(|| {
                     rusqlite::Error::InvalidParameterName(
                         "Cannot get database path. :memory: databases have no file path. \
                         Use a file-based database (e.g., --db magellan.db) instead. \
-                        See MANUAL.md for details.".to_string()
+                        See MANUAL.md for details."
+                            .to_string(),
                     )
                 })?;
                 // Open a new connection to the same database
@@ -117,7 +119,8 @@ impl ChunkStore {
                 Ok(result)
             }
             ChunkStoreConnection::Shared(arc) => {
-                let conn = arc.lock()
+                let conn = arc
+                    .lock()
                     .map_err(|_| anyhow::anyhow!("Shared connection lock poisoned"))?;
                 let result = f(&conn)?;
                 Ok(result)
@@ -139,7 +142,8 @@ impl ChunkStore {
                 Ok(result)
             }
             ChunkStoreConnection::Shared(arc) => {
-                let mut conn = arc.lock()
+                let mut conn = arc
+                    .lock()
                     .map_err(|_| anyhow::anyhow!("Shared connection lock poisoned"))?;
                 let result = f(&mut conn)?;
                 Ok(result)
@@ -386,9 +390,11 @@ impl ChunkStore {
     pub fn count_chunks(&self) -> Result<usize> {
         self.with_conn(|conn| {
             let count: i64 = conn
-                .query_row("SELECT COUNT(*) FROM code_chunks", [], |row: &rusqlite::Row| {
-                    row.get(0)
-                })
+                .query_row(
+                    "SELECT COUNT(*) FROM code_chunks",
+                    [],
+                    |row: &rusqlite::Row| row.get(0),
+                )
                 .map_err(|e| anyhow::anyhow!("Failed to count chunks: {}", e))?;
 
             Ok(count as usize)
@@ -404,9 +410,7 @@ impl ChunkStore {
                 .query_row(
                     "SELECT COUNT(*) FROM code_chunks WHERE file_path = ?1",
                     params![file_path],
-                    |row: &rusqlite::Row| {
-                        row.get(0)
-                    },
+                    |row: &rusqlite::Row| row.get(0),
                 )
                 .map_err(|e| anyhow::anyhow!("Failed to count chunks for file: {}", e))?;
 

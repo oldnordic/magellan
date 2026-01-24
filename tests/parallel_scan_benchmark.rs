@@ -6,8 +6,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use magellan::CodeGraph;
 use magellan::graph::filter::FileFilter;
+use magellan::CodeGraph;
 
 /// Create a temporary directory with test source files
 fn create_test_files(temp_dir: &Path, count: usize) -> Vec<PathBuf> {
@@ -166,10 +166,7 @@ fn benchmark_parallel_vs_sequential_scan() {
         // Parallel should be at least as fast (or faster)
         // On single-core systems, they may be similar
         // On multi-core systems, parallel should be faster
-        println!(
-            "Files indexed: {} (both implementations)",
-            indexed_par
-        );
+        println!("Files indexed: {} (both implementations)", indexed_par);
 
         // Clean up test directory
         fs::remove_dir_all(&test_dir).unwrap();
@@ -198,13 +195,9 @@ fn benchmark_parallel_scan_correctness() {
     // Parallel scan
     let mut graph_par = CodeGraph::open(&db_path_par).unwrap();
     let filter = FileFilter::new(&test_dir, &[], &[]).unwrap();
-    let result_par = magellan::graph::scan::scan_directory_with_filter(
-        &mut graph_par,
-        &test_dir,
-        &filter,
-        None,
-    )
-    .unwrap();
+    let result_par =
+        magellan::graph::scan::scan_directory_with_filter(&mut graph_par, &test_dir, &filter, None)
+            .unwrap();
     let count_par = result_par.indexed;
 
     // Verify same number of files indexed

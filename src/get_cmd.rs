@@ -6,11 +6,11 @@ use anyhow::Result;
 use std::path::PathBuf;
 
 // Use the library items through the magellan library
-use magellan::{CodeGraph, generate_execution_id, OutputFormat};
 use magellan::common::detect_language_from_path;
-use magellan::output::{JsonResponse, Span, SymbolMatch, output_json};
-use magellan::output::rich::{SpanContext, SpanChecksums};
 use magellan::graph::query;
+use magellan::output::rich::{SpanChecksums, SpanContext};
+use magellan::output::{output_json, JsonResponse, Span, SymbolMatch};
+use magellan::{generate_execution_id, CodeGraph, OutputFormat};
 use serde::{Deserialize, Serialize};
 
 /// Response for get command with rich span data
@@ -58,8 +58,13 @@ pub fn run_get(
     let chunks = graph.get_code_chunks_for_symbol(&file_path, &symbol_name)?;
 
     if chunks.is_empty() {
-        eprintln!("No code chunks found for symbol '{}' in file '{}'", symbol_name, file_path);
-        graph.execution_log().finish_execution(&exec_id, "success", None, 0, 0, 0)?;
+        eprintln!(
+            "No code chunks found for symbol '{}' in file '{}'",
+            symbol_name, file_path
+        );
+        graph
+            .execution_log()
+            .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
         return Ok(());
     }
 
@@ -68,7 +73,8 @@ pub fn run_get(
         // For JSON output, we need to get the symbol node to get span information
         // Then we can enrich it with rich span data
         let mut graph_mut = CodeGraph::open(&db_path)?;
-        if let Ok(symbol_entries) = query::symbol_nodes_in_file_with_ids(&mut graph_mut, &file_path) {
+        if let Ok(symbol_entries) = query::symbol_nodes_in_file_with_ids(&mut graph_mut, &file_path)
+        {
             for (_node_id, symbol, symbol_id) in symbol_entries {
                 if let Some(ref name) = symbol.name {
                     if name == &symbol_name {
@@ -100,7 +106,9 @@ pub fn run_get(
                         // Add semantics if requested
                         if with_semantics {
                             let kind = symbol.kind_normalized.clone();
-                            let language = detect_language_from_path(&symbol.file_path.to_string_lossy().to_string());
+                            let language = detect_language_from_path(
+                                &symbol.file_path.to_string_lossy().to_string(),
+                            );
                             enriched_span = enriched_span.with_semantics_from(kind, language);
                         }
 
@@ -123,7 +131,8 @@ pub fn run_get(
                         );
 
                         // Get the content from chunks
-                        let content = chunks.iter()
+                        let content = chunks
+                            .iter()
                             .map(|c| c.content.clone())
                             .collect::<Vec<_>>()
                             .join("\n");
@@ -140,20 +149,31 @@ pub fn run_get(
                 }
             }
         }
-        graph.execution_log().finish_execution(&exec_id, "success", None, 0, 0, 0)?;
+        graph
+            .execution_log()
+            .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
         return Ok(());
     }
 
     // Human mode (existing behavior)
     for chunk in chunks {
-        println!("// Symbol: {} in {}", chunk.symbol_name.as_ref().unwrap_or(&symbol_name), chunk.file_path);
-        println!("// Kind: {}", chunk.symbol_kind.as_ref().unwrap_or(&"?".to_string()));
+        println!(
+            "// Symbol: {} in {}",
+            chunk.symbol_name.as_ref().unwrap_or(&symbol_name),
+            chunk.file_path
+        );
+        println!(
+            "// Kind: {}",
+            chunk.symbol_kind.as_ref().unwrap_or(&"?".to_string())
+        );
         println!("// Bytes: {}-{}", chunk.byte_start, chunk.byte_end);
         println!("{}", chunk.content);
         println!();
     }
 
-    graph.execution_log().finish_execution(&exec_id, "success", None, 0, 0, 0)?;
+    graph
+        .execution_log()
+        .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
     Ok(())
 }
 
@@ -183,7 +203,9 @@ pub fn run_get_file(db_path: PathBuf, file_path: String) -> Result<()> {
 
     if chunks.is_empty() {
         eprintln!("No code chunks found for file '{}'", file_path);
-        graph.execution_log().finish_execution(&exec_id, "success", None, 0, 0, 0)?;
+        graph
+            .execution_log()
+            .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
         return Ok(());
     }
 
@@ -194,11 +216,16 @@ pub fn run_get_file(db_path: PathBuf, file_path: String) -> Result<()> {
         let symbol = chunk.symbol_name.as_deref().unwrap_or("<unnamed>");
         let kind = chunk.symbol_kind.as_deref().unwrap_or("?");
 
-        println!("// {} ({}) [{}-{}]", symbol, kind, chunk.byte_start, chunk.byte_end);
+        println!(
+            "// {} ({}) [{}-{}]",
+            symbol, kind, chunk.byte_start, chunk.byte_end
+        );
         println!("{}", chunk.content);
         println!();
     }
 
-    graph.execution_log().finish_execution(&exec_id, "success", None, 0, 0, 0)?;
+    graph
+        .execution_log()
+        .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
     Ok(())
 }

@@ -2,8 +2,8 @@
 //!
 //! This test requires the `native-v2` feature to be enabled on sqlitegraph.
 
-use std::time::Instant;
 use std::path::PathBuf;
+use std::time::Instant;
 
 #[test]
 fn test_native_v2_vs_sqlite_backend() -> anyhow::Result<()> {
@@ -13,9 +13,15 @@ fn test_native_v2_vs_sqlite_backend() -> anyhow::Result<()> {
     println!("--- Test 1: SQLite Backend (Current Magellan) ---");
     let sqlite_results = benchmark_sqlite_backend(1000)?;
     println!("  SQLite Backend Results:");
-    println!("    1000 entity inserts: {:?}", sqlite_results.insert_entities);
+    println!(
+        "    1000 entity inserts: {:?}",
+        sqlite_results.insert_entities
+    );
     println!("    1000 edge inserts: {:?}", sqlite_results.insert_edges);
-    println!("    1000 neighbor queries: {:?}", sqlite_results.neighbor_queries);
+    println!(
+        "    1000 neighbor queries: {:?}",
+        sqlite_results.neighbor_queries
+    );
 
     // Test 2: Native V2 Backend (only if feature is available)
     #[cfg(feature = "native-v2")]
@@ -23,15 +29,24 @@ fn test_native_v2_vs_sqlite_backend() -> anyhow::Result<()> {
         println!("\n--- Test 2: Native V2 Backend (High Performance) ---");
         let native_results = benchmark_native_v2_backend(1000)?;
         println!("  Native V2 Backend Results:");
-        println!("    1000 entity inserts: {:?}", native_results.insert_entities);
+        println!(
+            "    1000 entity inserts: {:?}",
+            native_results.insert_entities
+        );
         println!("    1000 edge inserts: {:?}", native_results.insert_edges);
-        println!("    1000 neighbor queries: {:?}", native_results.neighbor_queries);
+        println!(
+            "    1000 neighbor queries: {:?}",
+            native_results.neighbor_queries
+        );
 
         // Compare results
         println!("\n--- Performance Comparison ---");
-        let speedup_entities = sqlite_results.insert_entities.as_nanos() as f64 / native_results.insert_entities.as_nanos() as f64;
-        let speedup_edges = sqlite_results.insert_edges.as_nanos() as f64 / native_results.insert_edges.as_nanos() as f64;
-        let speedup_queries = sqlite_results.neighbor_queries.as_nanos() as f64 / native_results.neighbor_queries.as_nanos() as f64;
+        let speedup_entities = sqlite_results.insert_entities.as_nanos() as f64
+            / native_results.insert_entities.as_nanos() as f64;
+        let speedup_edges = sqlite_results.insert_edges.as_nanos() as f64
+            / native_results.insert_edges.as_nanos() as f64;
+        let speedup_queries = sqlite_results.neighbor_queries.as_nanos() as f64
+            / native_results.neighbor_queries.as_nanos() as f64;
 
         println!("  Entity inserts: {:.2}x faster", speedup_entities);
         println!("  Edge inserts: {:.2}x faster", speedup_edges);

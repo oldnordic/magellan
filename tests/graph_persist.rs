@@ -1,4 +1,4 @@
-use magellan::{CodeGraph, Parser, SymbolKind};
+use magellan::{CodeGraph, SymbolKind};
 use std::path::PathBuf;
 use tempfile::TempDir;
 

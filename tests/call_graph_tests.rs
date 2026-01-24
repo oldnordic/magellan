@@ -162,10 +162,7 @@ fn invoke(widget: &Widget) {
     );
     assert_eq!(calls_to_render[0].caller, "invoke");
     assert_eq!(calls_to_render[0].callee, "render");
-    assert_eq!(
-        calls_to_render[0].file_path,
-        PathBuf::from("main.rs")
-    );
+    assert_eq!(calls_to_render[0].file_path, PathBuf::from("main.rs"));
 }
 
 #[test]

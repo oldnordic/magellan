@@ -3,9 +3,11 @@
 //! Lists all indexed files with optional symbol counts.
 
 use anyhow::Result;
-use magellan::CodeGraph;
 use magellan::graph::query::symbols_in_file;
-use magellan::output::{FilesResponse, JsonResponse, generate_execution_id, output_json, OutputFormat};
+use magellan::output::{
+    generate_execution_id, output_json, FilesResponse, JsonResponse, OutputFormat,
+};
+use magellan::CodeGraph;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -21,11 +23,7 @@ use std::path::PathBuf;
 ///
 /// # Returns
 /// Result indicating success or failure
-pub fn run_files(
-    db_path: PathBuf,
-    with_symbols: bool,
-    output_format: OutputFormat,
-) -> Result<()> {
+pub fn run_files(db_path: PathBuf, with_symbols: bool, output_format: OutputFormat) -> Result<()> {
     let mut graph = CodeGraph::open(&db_path)?;
     let exec_id = generate_execution_id();
 
@@ -61,7 +59,10 @@ pub fn run_files(
 
     // Get counts for execution tracking before moving
     let file_count = files.len();
-    let symbol_count = symbol_counts.as_ref().map(|c| c.values().sum()).unwrap_or(0);
+    let symbol_count = symbol_counts
+        .as_ref()
+        .map(|c| c.values().sum())
+        .unwrap_or(0);
 
     // Handle output based on format
     match output_format {

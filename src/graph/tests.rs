@@ -50,7 +50,9 @@ mod tests {
         assert_eq!(symbols2[0].name, Some("caller_in_file2".to_string()));
 
         // Get the symbol ID for defined_in_file1
-        let symbol_id = graph.symbol_id_by_name(file1_path, "defined_in_file1").unwrap();
+        let symbol_id = graph
+            .symbol_id_by_name(file1_path, "defined_in_file1")
+            .unwrap();
         assert!(symbol_id.is_some(), "Symbol defined_in_file1 should exist");
         let symbol_id = symbol_id.unwrap();
 
@@ -207,7 +209,10 @@ mod pragma_tests {
             let journal_mode: String = conn
                 .query_row("PRAGMA journal_mode", [], |row| row.get(0))
                 .unwrap();
-            assert_eq!(journal_mode, "wal", "WAL mode should persist across reopens");
+            assert_eq!(
+                journal_mode, "wal",
+                "WAL mode should persist across reopens"
+            );
         }
     }
 }

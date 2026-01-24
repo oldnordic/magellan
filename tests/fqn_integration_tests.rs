@@ -87,7 +87,10 @@ public class Application {
         .collect();
 
     assert_eq!(run.len(), 1);
-    assert_eq!(run[0].fqn.as_deref(), Some("com.example.app.Application.run"));
+    assert_eq!(
+        run[0].fqn.as_deref(),
+        Some("com.example.app.Application.run")
+    );
 
     // help method: com.example.app.Application.Helper.help
     let help: Vec<_> = symbols

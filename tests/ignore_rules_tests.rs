@@ -37,13 +37,8 @@ fn test_gitignore_and_ignore_honored() {
     // Create filter and scan
     let filter = FileFilter::new(root, &[], &[]).unwrap();
     let mut graph = CodeGraph::open(&db_path).unwrap();
-    let result = magellan::graph::scan::scan_directory_with_filter(
-        &mut graph,
-        root,
-        &filter,
-        None,
-    )
-    .unwrap();
+    let result =
+        magellan::graph::scan::scan_directory_with_filter(&mut graph, root, &filter, None).unwrap();
 
     // Only src/lib.rs should be indexed
     assert_eq!(result.indexed, 1);
@@ -55,14 +50,22 @@ fn test_gitignore_and_ignore_honored() {
         .find(|d| d.path().contains("ignored_dir"));
     assert!(ignored_dir_diag.is_some());
 
-    let target_diag = result.diagnostics.iter().find(|d| d.path().contains("target"));
+    let target_diag = result
+        .diagnostics
+        .iter()
+        .find(|d| d.path().contains("target"));
     assert!(target_diag.is_some());
 
-    let tmp_diag = result.diagnostics.iter().find(|d| d.path().ends_with(".tmp"));
+    let tmp_diag = result
+        .diagnostics
+        .iter()
+        .find(|d| d.path().ends_with(".tmp"));
     assert!(tmp_diag.is_some());
 
     // Verify src/lib.rs was actually indexed
-    let symbols = graph.symbols_in_file(&root.join("src/lib.rs").to_string_lossy()).unwrap();
+    let symbols = graph
+        .symbols_in_file(&root.join("src/lib.rs").to_string_lossy())
+        .unwrap();
     assert!(!symbols.is_empty());
 }
 
@@ -87,19 +90,17 @@ fn test_include_pattern_restricts() {
     // Create filter with --include "src/**"
     let filter = FileFilter::new(root, &["src/**".to_string()], &[]).unwrap();
     let mut graph = CodeGraph::open(&db_path).unwrap();
-    let result = magellan::graph::scan::scan_directory_with_filter(
-        &mut graph,
-        root,
-        &filter,
-        None,
-    )
-    .unwrap();
+    let result =
+        magellan::graph::scan::scan_directory_with_filter(&mut graph, root, &filter, None).unwrap();
 
     // Only src/** files should be indexed
     assert_eq!(result.indexed, 2);
 
     // Check that tests and examples have skip diagnostics
-    let tests_diag = result.diagnostics.iter().find(|d| d.path().contains("tests"));
+    let tests_diag = result
+        .diagnostics
+        .iter()
+        .find(|d| d.path().contains("tests"));
     assert!(tests_diag.is_some());
 
     let examples_diag = result
@@ -136,20 +137,11 @@ fn test_exclude_overrides_include() {
     fs::write(root.join("src/test_helper.rs"), "fn helper() {}").unwrap();
 
     // Create filter with --include "src/**" and --exclude "**/*test*"
-    let filter = FileFilter::new(
-        root,
-        &["src/**".to_string()],
-        &["**/*test*.rs".to_string()],
-    )
-    .unwrap();
+    let filter =
+        FileFilter::new(root, &["src/**".to_string()], &["**/*test*.rs".to_string()]).unwrap();
     let mut graph = CodeGraph::open(&db_path).unwrap();
-    let result = magellan::graph::scan::scan_directory_with_filter(
-        &mut graph,
-        root,
-        &filter,
-        None,
-    )
-    .unwrap();
+    let result =
+        magellan::graph::scan::scan_directory_with_filter(&mut graph, root, &filter, None).unwrap();
 
     // Only src/lib.rs should be indexed (test.rs and test_helper.rs are excluded)
     assert_eq!(result.indexed, 1);
@@ -160,8 +152,10 @@ fn test_exclude_overrides_include() {
         .iter()
         .find(|d| d.path() == "src/test.rs");
     assert!(test_diag.is_some());
-    assert!(matches!(test_diag.unwrap(), magellan::WatchDiagnostic::Skipped { reason, .. }
-        if matches!(reason, magellan::SkipReason::ExcludedByGlob)));
+    assert!(
+        matches!(test_diag.unwrap(), magellan::WatchDiagnostic::Skipped { reason, .. }
+        if matches!(reason, magellan::SkipReason::ExcludedByGlob))
+    );
 
     let helper_diag = result
         .diagnostics
@@ -201,13 +195,9 @@ fn test_error_on_one_file_continues() {
 
         let filter = FileFilter::new(root, &[], &[]).unwrap();
         let mut graph = CodeGraph::open(&db_path).unwrap();
-        let result = magellan::graph::scan::scan_directory_with_filter(
-            &mut graph,
-            root,
-            &filter,
-            None,
-        )
-        .unwrap();
+        let result =
+            magellan::graph::scan::scan_directory_with_filter(&mut graph, root, &filter, None)
+                .unwrap();
 
         // At least good1.rs and good2.rs should be indexed
         assert!(result.indexed >= 2);
@@ -237,13 +227,9 @@ fn test_error_on_one_file_continues() {
     {
         let filter = FileFilter::new(root, &[], &[]).unwrap();
         let mut graph = CodeGraph::open(&db_path).unwrap();
-        let result = magellan::graph::scan::scan_directory_with_filter(
-            &mut graph,
-            root,
-            &filter,
-            None,
-        )
-        .unwrap();
+        let result =
+            magellan::graph::scan::scan_directory_with_filter(&mut graph, root, &filter, None)
+                .unwrap();
 
         // On non-Unix, all 3 files should be indexed (no permission error)
         assert_eq!(result.indexed, 3);
@@ -273,23 +259,15 @@ fn test_deterministic_filtering() {
     // Scan twice with same filter configuration (new filter each time)
     let mut graph1 = CodeGraph::open(&db_path1).unwrap();
     let filter1 = FileFilter::new(root, &[], &[]).unwrap();
-    let result1 = magellan::graph::scan::scan_directory_with_filter(
-        &mut graph1,
-        root,
-        &filter1,
-        None,
-    )
-    .unwrap();
+    let result1 =
+        magellan::graph::scan::scan_directory_with_filter(&mut graph1, root, &filter1, None)
+            .unwrap();
 
     let mut graph2 = CodeGraph::open(&db_path2).unwrap();
     let filter2 = FileFilter::new(root, &[], &[]).unwrap();
-    let result2 = magellan::graph::scan::scan_directory_with_filter(
-        &mut graph2,
-        root,
-        &filter2,
-        None,
-    )
-    .unwrap();
+    let result2 =
+        magellan::graph::scan::scan_directory_with_filter(&mut graph2, root, &filter2, None)
+            .unwrap();
 
     // Results should be identical
     assert_eq!(result1.indexed, result2.indexed);
@@ -331,13 +309,8 @@ fn test_internal_ignores_precedence() {
     // Create filter
     let filter = FileFilter::new(root, &[], &[]).unwrap();
     let mut graph = CodeGraph::open(&db_path).unwrap();
-    let result = magellan::graph::scan::scan_directory_with_filter(
-        &mut graph,
-        root,
-        &filter,
-        None,
-    )
-    .unwrap();
+    let result =
+        magellan::graph::scan::scan_directory_with_filter(&mut graph, root, &filter, None).unwrap();
 
     // .db file should be skipped (internal ignore wins)
     assert_eq!(result.indexed, 0);
@@ -376,13 +349,8 @@ fn test_root_gitignore() {
     // Create filter
     let filter = FileFilter::new(root, &[], &[]).unwrap();
     let mut graph = CodeGraph::open(&db_path).unwrap();
-    let result = magellan::graph::scan::scan_directory_with_filter(
-        &mut graph,
-        root,
-        &filter,
-        None,
-    )
-    .unwrap();
+    let result =
+        magellan::graph::scan::scan_directory_with_filter(&mut graph, root, &filter, None).unwrap();
 
     // root_ignored.rs and src_ignored.rs should be skipped
     // root_included.rs and nested.rs should be indexed

@@ -1,4 +1,4 @@
-use magellan::{Parser, SymbolFact, SymbolKind};
+use magellan::{Parser, SymbolKind};
 use std::path::PathBuf;
 
 #[test]

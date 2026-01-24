@@ -733,7 +733,10 @@ fn main() {
     assert!(report.passed, "Report should indicate passed");
 
     // Assert is_clean is true
-    assert!(report.is_clean(), "Report should indicate clean (no errors or warnings)");
+    assert!(
+        report.is_clean(),
+        "Report should indicate clean (no errors or warnings)"
+    );
 
     // Assert total_issues is 0
     assert_eq!(report.total_issues(), 0, "Total issues should be 0");

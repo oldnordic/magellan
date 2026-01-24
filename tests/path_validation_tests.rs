@@ -4,8 +4,7 @@
 //! attacks across all supported platforms (Linux, macOS, Windows).
 
 use magellan::validation::{
-    validate_path_within_root, PathValidationError,
-    has_suspicious_traversal, is_safe_symlink,
+    has_suspicious_traversal, is_safe_symlink, validate_path_within_root, PathValidationError,
 };
 use std::fs;
 use std::path::Path;
@@ -53,7 +52,10 @@ fn test_single_parent_traversal_rejected() {
     match result {
         Err(PathValidationError::SuspiciousTraversal(_)) => {}
         Err(PathValidationError::CannotCanonicalize(_)) => {}
-        e => panic!("Expected SuspiciousTraversal or CannotCanonicalize, got {:?}", e),
+        e => panic!(
+            "Expected SuspiciousTraversal or CannotCanonicalize, got {:?}",
+            e
+        ),
     }
 }
 
@@ -90,7 +92,10 @@ fn test_multiple_parent_traversal_rejected() {
     // Should be flagged as suspicious (>=3 parents)
     match &result {
         Err(PathValidationError::SuspiciousTraversal(_)) => {}
-        e => panic!("Expected SuspiciousTraversal error for >=3 parents, got {:?}", e),
+        e => panic!(
+            "Expected SuspiciousTraversal error for >=3 parents, got {:?}",
+            e
+        ),
     }
 }
 
@@ -145,7 +150,7 @@ fn test_legitimate_two_parent_deep_path_accepted() {
 
     // Should work if file exists
     match result {
-        Ok(_) => {} // Good
+        Ok(_) => {}                                           // Good
         Err(PathValidationError::CannotCanonicalize(_)) => {} // File missing, ok
         Err(e) => panic!("Unexpected error: {:?}", e),
     }
@@ -332,7 +337,10 @@ fn test_broken_symlink_handled() {
 
     let result = is_safe_symlink(&symlink, root);
     // Broken symlink cannot be canonicalized
-    assert!(matches!(result, Err(PathValidationError::CannotCanonicalize(_))));
+    assert!(matches!(
+        result,
+        Err(PathValidationError::CannotCanonicalize(_))
+    ));
 }
 
 // =========================================================================
@@ -433,7 +441,10 @@ fn test_nonexistent_file_in_root() {
 
     let result = validate_path_within_root(&nonexistent, root);
     // Should fail to canonicalize
-    assert!(matches!(result, Err(PathValidationError::CannotCanonicalize(_))));
+    assert!(matches!(
+        result,
+        Err(PathValidationError::CannotCanonicalize(_))
+    ));
 }
 
 // =========================================================================

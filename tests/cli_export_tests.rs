@@ -68,8 +68,8 @@ fn distance(p1: &Point, p2: &Point) -> i32 {
     );
 
     // Verify output is valid JSON
-    let json: serde_json::Value = serde_json::from_str(&stdout)
-        .expect("Output should be valid JSON");
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Output should be valid JSON");
 
     // Check structure
     assert!(json.get("files").is_some(), "Should have files array");
@@ -124,8 +124,8 @@ fn helper() {}
     assert!(output.status.success(), "Process should exit successfully");
 
     // Parse output and verify symbol_id field present
-    let json: serde_json::Value = serde_json::from_str(&stdout)
-        .expect("Output should be valid JSON");
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Output should be valid JSON");
 
     let symbols = json["symbols"].as_array().expect("symbols should be array");
 
@@ -140,7 +140,10 @@ fn helper() {}
         }
     }
 
-    assert!(found_symbol_id, "At least one symbol should have a non-empty symbol_id");
+    assert!(
+        found_symbol_id,
+        "At least one symbol should have a non-empty symbol_id"
+    );
 }
 
 #[test]
@@ -352,11 +355,11 @@ fn test_export_to_file() {
     );
 
     // Read file and verify content
-    let exported_content = fs::read_to_string(&export_path)
-        .expect("Should be able to read export file");
+    let exported_content =
+        fs::read_to_string(&export_path).expect("Should be able to read export file");
 
-    let json: serde_json::Value = serde_json::from_str(&exported_content)
-        .expect("Export file should contain valid JSON");
+    let json: serde_json::Value =
+        serde_json::from_str(&exported_content).expect("Export file should contain valid JSON");
 
     assert!(json.get("files").is_some(), "Export should have files");
 }
@@ -405,8 +408,8 @@ fn helper() {}
 
     assert!(output.status.success(), "Process should exit successfully");
 
-    let json: serde_json::Value = serde_json::from_str(&stdout)
-        .expect("Output should be valid JSON");
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Output should be valid JSON");
 
     // Verify calls array is empty or not present
     let calls = json.get("calls").and_then(|v| v.as_array());
@@ -416,7 +419,9 @@ fn helper() {}
     }
 
     // Verify symbols are still included
-    let symbols = json["symbols"].as_array().expect("Symbols should be present");
+    let symbols = json["symbols"]
+        .as_array()
+        .expect("Symbols should be present");
     assert!(!symbols.is_empty(), "Symbols should be included");
 }
 
@@ -503,7 +508,9 @@ fn helper() {
         // Verify record_type column is present (Symbol, Reference, or Call)
         let record_type = line.split(',').next().unwrap_or("");
         assert!(
-            record_type == "Symbol" || record_type == "Reference" || record_type == "Call"
+            record_type == "Symbol"
+                || record_type == "Reference"
+                || record_type == "Call"
                 || record_type.contains("Symbol")
                 || record_type.contains("Reference")
                 || record_type.contains("Call"),
@@ -559,10 +566,7 @@ fn test_export_csv_proper_quoting() {
 
     // Should be able to read headers without error
     let headers = rdr.headers().expect("Should have valid CSV headers");
-    assert!(
-        headers.len() > 0,
-        "CSV should have at least one column"
-    );
+    assert!(headers.len() > 0, "CSV should have at least one column");
 
     // Count records - each should be parseable
     let mut record_count = 0;
@@ -571,10 +575,7 @@ fn test_export_csv_proper_quoting() {
         record_count += 1;
     }
 
-    assert!(
-        record_count > 0,
-        "CSV should have at least one data record"
-    );
+    assert!(record_count > 0, "CSV should have at least one data record");
 }
 
 #[test]
@@ -738,12 +739,14 @@ fn test_export_csv_to_file() {
     );
 
     // Read file and verify content
-    let exported_content = fs::read_to_string(&export_path)
-        .expect("Should be able to read export file");
+    let exported_content =
+        fs::read_to_string(&export_path).expect("Should be able to read export file");
 
     // Verify file is valid CSV (can be parsed by csv crate)
     let mut rdr = csv::Reader::from_reader(exported_content.as_bytes());
-    let headers = rdr.headers().expect("Export file should have valid CSV headers");
+    let headers = rdr
+        .headers()
+        .expect("Export file should have valid CSV headers");
     assert!(
         headers.len() > 0,
         "Export file should have at least one column"
@@ -1096,8 +1099,8 @@ fn test_export_dot_to_file() {
     );
 
     // Read file and verify content
-    let exported_content = fs::read_to_string(&export_path)
-        .expect("Should be able to read export file");
+    let exported_content =
+        fs::read_to_string(&export_path).expect("Should be able to read export file");
 
     assert!(
         exported_content.starts_with("strict digraph"),

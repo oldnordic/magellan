@@ -112,7 +112,10 @@ impl CallOps {
 
             // Build stable symbol_id lookup key: (file_path, symbol_name)
             if let Some(ref name) = symbol_fact.name {
-                let key = (symbol_fact.file_path.to_string_lossy().to_string(), name.clone());
+                let key = (
+                    symbol_fact.file_path.to_string_lossy().to_string(),
+                    name.clone(),
+                );
                 stable_symbol_ids.insert(key, stable_id);
             }
 
@@ -168,26 +171,34 @@ impl CallOps {
             // Extract simple name from FQN (after last :: or .)
             let simple_name = fqn.split("::").last().unwrap_or(fqn.as_str());
             let simple_name = simple_name.split('.').last().unwrap_or(simple_name);
-            name_to_ids.entry(simple_name.to_string()).or_default().push(id);
+            name_to_ids
+                .entry(simple_name.to_string())
+                .or_default()
+                .push(id);
         }
 
         // Insert call nodes and edges
         for mut call in calls {
             // Look up stable symbol_ids for caller and callee
-            let caller_key = (call.file_path.to_string_lossy().to_string(), call.caller.clone());
-            let callee_key = (call.file_path.to_string_lossy().to_string(), call.callee.clone());
+            let caller_key = (
+                call.file_path.to_string_lossy().to_string(),
+                call.caller.clone(),
+            );
+            let callee_key = (
+                call.file_path.to_string_lossy().to_string(),
+                call.callee.clone(),
+            );
 
             call.caller_symbol_id = stable_symbol_ids.get(&caller_key).and_then(|id| id.clone());
             call.callee_symbol_id = stable_symbol_ids.get(&callee_key).and_then(|id| id.clone());
 
             // Resolve callee symbol_id with fallback to simple name
-            let callee_symbol_id = symbol_ids.get(&call.callee)
-                .or_else(|| {
-                    // Fallback: try simple name lookup for cross-file calls
-                    // For method calls like widget.render(), call.callee is "render"
-                    // but the symbol might be stored as "Widget::render"
-                    name_to_ids.get(&call.callee).and_then(|ids| ids.first())
-                });
+            let callee_symbol_id = symbol_ids.get(&call.callee).or_else(|| {
+                // Fallback: try simple name lookup for cross-file calls
+                // For method calls like widget.render(), call.callee is "render"
+                // but the symbol might be stored as "Widget::render"
+                name_to_ids.get(&call.callee).and_then(|ids| ids.first())
+            });
 
             // Resolve caller symbol_id - always in current file, so FQN should work
             let caller_symbol_id = symbol_ids.get(&call.caller);

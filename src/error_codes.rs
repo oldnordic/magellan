@@ -142,7 +142,11 @@ mod tests {
             assert_eq!(parts.len(), 3, "Error code must have 3 parts: {}", code);
 
             // Verify category is 1-3 uppercase letters
-            assert!(parts[1].len() >= 1 && parts[1].len() <= 3, "Category must be 1-3 chars: {}", code);
+            assert!(
+                parts[1].len() >= 1 && parts[1].len() <= 3,
+                "Category must be 1-3 chars: {}",
+                code
+            );
             assert!(parts[1].chars().all(|c| c.is_ascii_uppercase()));
 
             // Verify number is 3 digits

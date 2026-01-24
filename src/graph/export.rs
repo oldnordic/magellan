@@ -22,7 +22,6 @@ use anyhow::Result;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use sqlitegraph::{BackendDirection, GraphBackend, NeighborQuery};
-use std::io::Write;
 
 use super::{CallNode, CodeGraph, FileNode, ReferenceNode, SymbolNode};
 use crate::graph::query::{collision_groups, CollisionField};
@@ -1449,106 +1448,47 @@ pub fn export_graph(graph: &mut CodeGraph, config: &ExportConfig) -> Result<Stri
 // CSV Export
 // ============================================================================
 
-/// CSV row for symbol entries
+/// Unified CSV row for all record types
 ///
-/// Flat structure optimized for tabular data with RFC 4180 compliance.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SymbolCsvRow {
-    /// Record type discriminator
-    pub record_type: String,
-    /// Stable symbol ID for cross-run correlation
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub symbol_id: Option<String>,
-    /// Symbol name
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    /// Symbol kind (Function, Method, Struct, etc.)
-    pub kind: String,
-    /// Normalized kind (optional)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub kind_normalized: Option<String>,
-    /// File path containing the symbol
-    pub file: String,
-    /// Byte start position
-    pub byte_start: usize,
-    /// Byte end position
-    pub byte_end: usize,
-    /// Start line (1-indexed)
-    pub start_line: usize,
-    /// Start column (1-indexed)
-    pub start_col: usize,
-    /// End line (1-indexed)
-    pub end_line: usize,
-    /// End column (1-indexed)
-    pub end_col: usize,
-}
-
-/// CSV row for reference entries
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ReferenceCsvRow {
-    /// Record type discriminator
-    pub record_type: String,
-    /// File containing the reference
-    pub file: String,
-    /// Referenced symbol name
-    pub referenced_symbol: String,
-    /// Stable ID of referenced symbol
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub target_symbol_id: Option<String>,
-    /// Byte start position
-    pub byte_start: usize,
-    /// Byte end position
-    pub byte_end: usize,
-    /// Start line (1-indexed)
-    pub start_line: usize,
-    /// Start column (1-indexed)
-    pub start_col: usize,
-    /// End line (1-indexed)
-    pub end_line: usize,
-    /// End column (1-indexed)
-    pub end_col: usize,
-}
-
-/// CSV row for call entries
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CallCsvRow {
-    /// Record type discriminator
-    pub record_type: String,
-    /// File containing the call
-    pub file: String,
-    /// Caller symbol name
-    pub caller: String,
-    /// Callee symbol name
-    pub callee: String,
-    /// Stable ID of caller symbol
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub caller_symbol_id: Option<String>,
-    /// Stable ID of callee symbol
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub callee_symbol_id: Option<String>,
-    /// Byte start position
-    pub byte_start: usize,
-    /// Byte end position
-    pub byte_end: usize,
-    /// Start line (1-indexed)
-    pub start_line: usize,
-    /// Start column (1-indexed)
-    pub start_col: usize,
-    /// End line (1-indexed)
-    pub end_line: usize,
-    /// End column (1-indexed)
-    pub end_col: usize,
-}
-
-/// Combined CSV record enum for serialization
-///
-/// All records include a record_type field for discrimination in combined output.
+/// Single struct with optional fields for different record types ensures
+/// consistent CSV headers across Symbol, Reference, and Call records.
 #[derive(Debug, Clone, Serialize)]
-#[serde(untagged)]
-enum CsvRecord {
-    Symbol(SymbolCsvRow),
-    Reference(ReferenceCsvRow),
-    Call(CallCsvRow),
+struct UnifiedCsvRow {
+    // Universal fields (always present)
+    record_type: String,
+    file: String,
+    byte_start: usize,
+    byte_end: usize,
+    start_line: usize,
+    start_col: usize,
+    end_line: usize,
+    end_col: usize,
+
+    // Symbol-specific (optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    symbol_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    kind_normalized: Option<String>,
+
+    // Reference-specific (optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    referenced_symbol: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    target_symbol_id: Option<String>,
+
+    // Call-specific (optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    caller: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    callee: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    caller_symbol_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    callee_symbol_id: Option<String>,
 }
 
 /// Export graph data to CSV format
@@ -1559,8 +1499,7 @@ enum CsvRecord {
 /// # Returns
 /// CSV string with all requested entities, deterministically sorted
 pub fn export_csv(graph: &mut CodeGraph, config: &ExportConfig) -> Result<String> {
-    // Collect and sort all records deterministically
-    let mut records: Vec<CsvRecord> = Vec::new();
+    let mut records: Vec<UnifiedCsvRow> = Vec::new();
 
     let entity_ids = graph.files.backend.entity_ids()?;
 
@@ -1574,12 +1513,8 @@ pub fn export_csv(graph: &mut CodeGraph, config: &ExportConfig) -> Result<String
                         serde_json::from_value::<SymbolNode>(entity.data.clone())
                     {
                         let file = get_file_path_from_symbol(graph, entity_id)?;
-                        records.push(CsvRecord::Symbol(SymbolCsvRow {
+                        records.push(UnifiedCsvRow {
                             record_type: "Symbol".to_string(),
-                            symbol_id: symbol_node.symbol_id,
-                            name: symbol_node.name,
-                            kind: symbol_node.kind,
-                            kind_normalized: symbol_node.kind_normalized,
                             file,
                             byte_start: symbol_node.byte_start,
                             byte_end: symbol_node.byte_end,
@@ -1587,7 +1522,17 @@ pub fn export_csv(graph: &mut CodeGraph, config: &ExportConfig) -> Result<String
                             start_col: symbol_node.start_col,
                             end_line: symbol_node.end_line,
                             end_col: symbol_node.end_col,
-                        }));
+                            symbol_id: symbol_node.symbol_id,
+                            name: symbol_node.name,
+                            kind: Some(symbol_node.kind),
+                            kind_normalized: symbol_node.kind_normalized,
+                            referenced_symbol: None,
+                            target_symbol_id: None,
+                            caller: None,
+                            callee: None,
+                            caller_symbol_id: None,
+                            callee_symbol_id: None,
+                        });
                     }
                 }
             }
@@ -1602,38 +1547,52 @@ pub fn export_csv(graph: &mut CodeGraph, config: &ExportConfig) -> Result<String
                             .unwrap_or("")
                             .to_string();
 
-                        records.push(CsvRecord::Reference(ReferenceCsvRow {
+                        records.push(UnifiedCsvRow {
                             record_type: "Reference".to_string(),
                             file: ref_node.file,
-                            referenced_symbol,
-                            target_symbol_id: None, // Would need lookup; acceptable for v1
                             byte_start: ref_node.byte_start as usize,
                             byte_end: ref_node.byte_end as usize,
                             start_line: ref_node.start_line as usize,
                             start_col: ref_node.start_col as usize,
                             end_line: ref_node.end_line as usize,
                             end_col: ref_node.end_col as usize,
-                        }));
+                            symbol_id: None,
+                            name: None,
+                            kind: None,
+                            kind_normalized: None,
+                            referenced_symbol: Some(referenced_symbol),
+                            target_symbol_id: None,
+                            caller: None,
+                            callee: None,
+                            caller_symbol_id: None,
+                            callee_symbol_id: None,
+                        });
                     }
                 }
             }
             "Call" => {
                 if config.include_calls {
                     if let Ok(call_node) = serde_json::from_value::<CallNode>(entity.data.clone()) {
-                        records.push(CsvRecord::Call(CallCsvRow {
+                        records.push(UnifiedCsvRow {
                             record_type: "Call".to_string(),
                             file: call_node.file,
-                            caller: call_node.caller,
-                            callee: call_node.callee,
-                            caller_symbol_id: call_node.caller_symbol_id,
-                            callee_symbol_id: call_node.callee_symbol_id,
                             byte_start: call_node.byte_start as usize,
                             byte_end: call_node.byte_end as usize,
                             start_line: call_node.start_line as usize,
                             start_col: call_node.start_col as usize,
                             end_line: call_node.end_line as usize,
                             end_col: call_node.end_col as usize,
-                        }));
+                            symbol_id: None,
+                            name: None,
+                            kind: None,
+                            kind_normalized: None,
+                            referenced_symbol: None,
+                            target_symbol_id: None,
+                            caller: Some(call_node.caller),
+                            callee: Some(call_node.callee),
+                            caller_symbol_id: call_node.caller_symbol_id,
+                            callee_symbol_id: call_node.callee_symbol_id,
+                        });
                     }
                 }
             }
@@ -1643,22 +1602,36 @@ pub fn export_csv(graph: &mut CodeGraph, config: &ExportConfig) -> Result<String
         }
     }
 
-    // Sort deterministically by record_type, then by keys
-    records.sort_by(|a, b| match (a, b) {
-        (CsvRecord::Symbol(a), CsvRecord::Symbol(b)) => {
-            (&a.record_type, &a.file, &a.name).cmp(&(&b.record_type, &b.file, &b.name))
+    // Sort deterministically by record_type, then by type-specific fields
+    records.sort_by(|a, b| {
+        // First by record type
+        let type_order = match (a.record_type.as_str(), b.record_type.as_str()) {
+            ("Call", "Call") => std::cmp::Ordering::Equal,
+            ("Call", "Reference") => std::cmp::Ordering::Greater,
+            ("Call", "Symbol") => std::cmp::Ordering::Greater,
+            ("Reference", "Call") => std::cmp::Ordering::Less,
+            ("Reference", "Reference") => std::cmp::Ordering::Equal,
+            ("Reference", "Symbol") => std::cmp::Ordering::Greater,
+            ("Symbol", "Call") => std::cmp::Ordering::Less,
+            ("Symbol", "Reference") => std::cmp::Ordering::Less,
+            ("Symbol", "Symbol") => std::cmp::Ordering::Equal,
+            _ => std::cmp::Ordering::Equal,
+        };
+
+        if type_order != std::cmp::Ordering::Equal {
+            return type_order;
         }
-        (CsvRecord::Reference(a), CsvRecord::Reference(b)) => (
-            &a.record_type,
-            &a.file,
-            &a.referenced_symbol,
-        )
-            .cmp(&(&b.record_type, &b.file, &b.referenced_symbol)),
-        (CsvRecord::Call(a), CsvRecord::Call(b)) => (&a.record_type, &a.file, &a.caller, &a.callee)
-            .cmp(&(&b.record_type, &b.file, &b.caller, &b.callee)),
-        // Type ordering: Reference < Call (no Symbol in mixed output since fields differ)
-        // For simplicity in combined output, we just use record_type
-        _ => std::cmp::Ordering::Equal,
+
+        // Within same type, sort by applicable fields
+        match a.record_type.as_str() {
+            "Symbol" => (&a.file, a.name.as_ref().unwrap_or(&String::new()))
+                .cmp(&(&b.file, b.name.as_ref().unwrap_or(&String::new()))),
+            "Reference" => (&a.record_type, &a.file, a.referenced_symbol.as_ref().unwrap_or(&String::new()))
+                .cmp(&(&b.record_type, &b.file, b.referenced_symbol.as_ref().unwrap_or(&String::new()))),
+            "Call" => (&a.record_type, &a.file, a.caller.as_ref().unwrap_or(&String::new()), a.callee.as_ref().unwrap_or(&String::new()))
+                .cmp(&(&b.record_type, &b.file, b.caller.as_ref().unwrap_or(&String::new()), b.callee.as_ref().unwrap_or(&String::new()))),
+            _ => std::cmp::Ordering::Equal,
+        }
     });
 
     // Write to buffer using csv::Writer
@@ -1671,11 +1644,7 @@ pub fn export_csv(graph: &mut CodeGraph, config: &ExportConfig) -> Result<String
     {
         let mut writer = csv::Writer::from_writer(&mut buffer);
         for record in records {
-            match record {
-                CsvRecord::Symbol(row) => writer.serialize(row)?,
-                CsvRecord::Reference(row) => writer.serialize(row)?,
-                CsvRecord::Call(row) => writer.serialize(row)?,
-            }
+            writer.serialize(record)?;
         }
         writer.flush()?;
     }

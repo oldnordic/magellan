@@ -40,7 +40,7 @@ impl SkipReason {
             SkipReason::IgnoredInternal => 0,     // Always first
             SkipReason::IgnoredByGitignore => 1,  // Then gitignore rules
             SkipReason::ExcludedByGlob => 2,      // Then CLI excludes
-            SkipReason::UnsupportedLanguage => 3,  // Then language detection
+            SkipReason::UnsupportedLanguage => 3, // Then language detection
             SkipReason::NotAFile => 4,            // Last
         }
     }
@@ -208,7 +208,11 @@ impl WatchDiagnostic {
             WatchDiagnostic::Skipped { path, reason } => {
                 format!("SKIP {}: {}", path, reason)
             }
-            WatchDiagnostic::Error { path, stage, message } => {
+            WatchDiagnostic::Error {
+                path,
+                stage,
+                message,
+            } => {
                 format!("ERROR {}: {}: {}", path, stage, message)
             }
         }
@@ -266,10 +270,8 @@ mod tests {
 
     #[test]
     fn test_watch_diagnostic_skipped() {
-        let diag = WatchDiagnostic::skipped(
-            "src/test.rs".to_string(),
-            SkipReason::UnsupportedLanguage,
-        );
+        let diag =
+            WatchDiagnostic::skipped("src/test.rs".to_string(), SkipReason::UnsupportedLanguage);
 
         assert_eq!(diag.path(), "src/test.rs");
         assert!(matches!(diag, WatchDiagnostic::Skipped { .. }));
@@ -294,10 +296,8 @@ mod tests {
             DiagnosticStage::Parse,
             "error".to_string(),
         );
-        let skipped = WatchDiagnostic::skipped(
-            "src/a.rs".to_string(),
-            SkipReason::UnsupportedLanguage,
-        );
+        let skipped =
+            WatchDiagnostic::skipped("src/a.rs".to_string(), SkipReason::UnsupportedLanguage);
 
         // Same path, but Error (variant=0) comes before Skipped (variant=1)
         let error_key = error.sort_key();
@@ -317,7 +317,8 @@ mod tests {
 
     #[test]
     fn test_format_stderr_skipped() {
-        let diag = WatchDiagnostic::skipped("target/lib.rs".to_string(), SkipReason::IgnoredInternal);
+        let diag =
+            WatchDiagnostic::skipped("target/lib.rs".to_string(), SkipReason::IgnoredInternal);
         let formatted = diag.format_stderr();
         assert_eq!(formatted, "SKIP target/lib.rs: internal ignore rule");
     }
@@ -330,13 +331,22 @@ mod tests {
             "unexpected end of file".to_string(),
         );
         let formatted = diag.format_stderr();
-        assert_eq!(formatted, "ERROR src/bad.rs: parsing source: unexpected end of file");
+        assert_eq!(
+            formatted,
+            "ERROR src/bad.rs: parsing source: unexpected end of file"
+        );
     }
 
     #[test]
     fn test_skip_reason_display() {
-        assert_eq!(SkipReason::UnsupportedLanguage.to_string(), "language not supported");
-        assert_eq!(SkipReason::IgnoredInternal.to_string(), "internal ignore rule");
+        assert_eq!(
+            SkipReason::UnsupportedLanguage.to_string(),
+            "language not supported"
+        );
+        assert_eq!(
+            SkipReason::IgnoredInternal.to_string(),
+            "internal ignore rule"
+        );
     }
 
     #[test]
@@ -349,7 +359,11 @@ mod tests {
     fn test_watch_diagnostic_sorting_vec() {
         let mut diagnostics = vec![
             WatchDiagnostic::skipped("src/c.rs".to_string(), SkipReason::ExcludedByGlob),
-            WatchDiagnostic::error("src/a.rs".to_string(), DiagnosticStage::Read, "error".to_string()),
+            WatchDiagnostic::error(
+                "src/a.rs".to_string(),
+                DiagnosticStage::Read,
+                "error".to_string(),
+            ),
             WatchDiagnostic::skipped("src/b.rs".to_string(), SkipReason::IgnoredInternal),
         ];
 

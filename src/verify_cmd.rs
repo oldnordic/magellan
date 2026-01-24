@@ -3,7 +3,7 @@
 use anyhow::Result;
 use std::path::PathBuf;
 
-use crate::{CodeGraph, generate_execution_id};
+use crate::{generate_execution_id, CodeGraph};
 
 pub fn run_verify(root_path: PathBuf, db_path: PathBuf) -> Result<u8> {
     // Build args for execution tracking
@@ -71,7 +71,9 @@ pub fn run_verify(root_path: PathBuf, db_path: PathBuf) -> Result<u8> {
     };
 
     let outcome = if exit_code == 0 { "success" } else { "success" }; // Verification success even if issues found
-    graph.execution_log().finish_execution(&exec_id, outcome, None, 0, 0, 0)?;
+    graph
+        .execution_log()
+        .finish_execution(&exec_id, outcome, None, 0, 0, 0)?;
 
     Ok(exit_code)
 }

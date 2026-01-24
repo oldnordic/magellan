@@ -36,7 +36,9 @@ pub struct ExecutionLog {
 
 impl ExecutionLog {
     pub fn new(db_path: &Path) -> Self {
-        Self { db_path: db_path.to_path_buf() }
+        Self {
+            db_path: db_path.to_path_buf(),
+        }
     }
 
     pub fn connect(&self) -> Result<rusqlite::Connection, rusqlite::Error> {
@@ -111,7 +113,14 @@ impl ExecutionLog {
             "INSERT INTO execution_log
                     (execution_id, tool_version, args, root, db_path, started_at, outcome)
                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'running')",
-            params![execution_id, tool_version, args_json, root, db_path, started_at],
+            params![
+                execution_id,
+                tool_version,
+                args_json,
+                root,
+                db_path,
+                started_at
+            ],
         )
         .map_err(|e| anyhow::anyhow!("Failed to insert execution log: {}", e))?;
 
@@ -208,9 +217,7 @@ impl ExecutionLog {
     pub fn list_all(&self, limit: Option<usize>) -> Result<Vec<ExecutionRecord>> {
         let conn = self.connect()?;
 
-        let limit_clause = limit
-            .map(|l| format!(" LIMIT {}", l))
-            .unwrap_or_default();
+        let limit_clause = limit.map(|l| format!(" LIMIT {}", l)).unwrap_or_default();
         let sql = format!(
             "SELECT id, execution_id, tool_version, args, root, db_path,
                     started_at, finished_at, duration_ms, outcome, error_message,
@@ -390,8 +397,7 @@ mod tests {
         for i in 0..5 {
             let id = format!("exec-{:03}", i);
             log.start_execution(&id, "0.1.0", &[], None, "/db").unwrap();
-            log.finish_execution(&id, "success", None, i, 0, 0)
-                .unwrap();
+            log.finish_execution(&id, "success", None, i, 0, 0).unwrap();
         }
 
         // List all

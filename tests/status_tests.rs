@@ -105,11 +105,15 @@ fn test_status_json_output_structure() {
         .expect("Failed to execute magellan status");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(output.status.success(), "Process should exit successfully: {}", stdout);
+    assert!(
+        output.status.success(),
+        "Process should exit successfully: {}",
+        stdout
+    );
 
     // Parse as JSON
-    let json: serde_json::Value = serde_json::from_str(&stdout)
-        .expect("Output should be valid JSON");
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Output should be valid JSON");
 
     // Verify structure
     assert_eq!(json["schema_version"], "1.0.0");
@@ -185,15 +189,13 @@ fn test_status_deterministic_ordering() {
 
     // execution_id should differ
     assert_ne!(
-        json1["execution_id"],
-        json2["execution_id"],
+        json1["execution_id"], json2["execution_id"],
         "execution_id should be unique per run"
     );
 
     // data field should be identical (deterministic)
     assert_eq!(
-        json1["data"],
-        json2["data"],
+        json1["data"], json2["data"],
         "data should be identical across runs (deterministic)"
     );
 
@@ -242,8 +244,14 @@ fn test_status_schema_version_present() {
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     // Verify schema_version field exists and has correct value
-    assert!(stdout.contains("\"schema_version\""), "Missing schema_version field");
-    assert!(stdout.contains("\"1.0.0\""), "Missing or incorrect schema version value");
+    assert!(
+        stdout.contains("\"schema_version\""),
+        "Missing schema_version field"
+    );
+    assert!(
+        stdout.contains("\"1.0.0\""),
+        "Missing or incorrect schema version value"
+    );
 }
 
 #[test]
@@ -351,9 +359,24 @@ fn test_status_human_mode_unchanged() {
     assert!(output.status.success());
 
     // Verify human-readable format (not JSON)
-    assert!(stdout.contains("files: 1"), "Should show files count in human format");
-    assert!(stdout.contains("symbols: 2"), "Should show symbols count in human format");
-    assert!(stdout.contains("calls:"), "Should show calls count in human format");
-    assert!(!stdout.contains("schema_version"), "Should not have JSON fields in human mode");
-    assert!(!stdout.contains("execution_id"), "Should not have JSON fields in human mode");
+    assert!(
+        stdout.contains("files: 1"),
+        "Should show files count in human format"
+    );
+    assert!(
+        stdout.contains("symbols: 2"),
+        "Should show symbols count in human format"
+    );
+    assert!(
+        stdout.contains("calls:"),
+        "Should show calls count in human format"
+    );
+    assert!(
+        !stdout.contains("schema_version"),
+        "Should not have JSON fields in human mode"
+    );
+    assert!(
+        !stdout.contains("execution_id"),
+        "Should not have JSON fields in human mode"
+    );
 }

@@ -3,9 +3,13 @@
 //! Exports graph data to JSON/JSONL/CSV/DOT/SCIP formats with stable IDs.
 
 use anyhow::Result;
-use magellan::CodeGraph;
-use magellan::graph::export::{export_graph, scip, stream_json, stream_json_minified, stream_ndjson, ExportConfig, ExportFilters, ExportFormat};
+use magellan::graph::export::{
+    export_graph, scip, stream_json, stream_json_minified, stream_ndjson, ExportConfig,
+    ExportFilters, ExportFormat,
+};
+use magellan::graph::query::CollisionField;
 use magellan::output::generate_execution_id;
+use magellan::CodeGraph;
 use std::fs::File;
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -36,6 +40,8 @@ pub fn run_export(
     include_references: bool,
     include_calls: bool,
     minify: bool,
+    include_collisions: bool,
+    collisions_field: CollisionField,
     filters: ExportFilters,
 ) -> Result<()> {
     let mut graph = CodeGraph::open(&db_path)?;
@@ -60,6 +66,13 @@ pub fn run_export(
     }
     if minify {
         args.push("--minify".to_string());
+    }
+    if include_collisions {
+        args.push("--include-collisions".to_string());
+        if collisions_field != CollisionField::Fqn {
+            args.push("--collisions-field".to_string());
+            args.push(collisions_field.as_str().to_string());
+        }
     }
     if let Some(ref file) = filters.file {
         args.push("--file".to_string());
@@ -107,7 +120,9 @@ pub fn run_export(
             }
             None => {
                 // SCIP is binary, warn user but still write to stdout
-                eprintln!("Warning: SCIP format is binary. Use --output file.scip for proper output.");
+                eprintln!(
+                    "Warning: SCIP format is binary. Use --output file.scip for proper output."
+                );
                 io::stdout().write_all(&scip_bytes)?;
             }
         }
@@ -120,6 +135,8 @@ pub fn run_export(
             include_calls,
             minify,
             filters,
+            include_collisions,
+            collisions_field,
         };
 
         // Use streaming for JSON and JSONL formats to reduce memory for large graphs
@@ -188,12 +205,9 @@ pub fn run_export(
 
     // Finish execution tracking
     graph.execution_log().finish_execution(
-        &exec_id,
-        "success",
-        None,
-        0,  // files_indexed
-        0,  // symbols_indexed
-        0,  // references_indexed
+        &exec_id, "success", None, 0, // files_indexed
+        0, // symbols_indexed
+        0, // references_indexed
     )?;
 
     Ok(())

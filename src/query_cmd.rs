@@ -3,10 +3,12 @@
 //! Lists symbols in a file, optionally filtered by kind.
 
 use anyhow::Result;
+use magellan::common::{
+    detect_language_from_path, format_symbol_kind, parse_symbol_kind, resolve_path,
+};
+use magellan::output::rich::{SpanChecksums, SpanContext};
+use magellan::output::{output_json, JsonResponse, OutputFormat, QueryResponse, Span, SymbolMatch};
 use magellan::{CodeGraph, SymbolFact};
-use magellan::common::{detect_language_from_path, format_symbol_kind, parse_symbol_kind, resolve_path};
-use magellan::output::{JsonResponse, OutputFormat, QueryResponse, Span, SymbolMatch, output_json};
-use magellan::output::rich::{SpanContext, SpanChecksums};
 use std::path::PathBuf;
 
 const QUERY_EXPLAIN_TEXT: &str = r#"Query Selector Cheatsheet
@@ -40,8 +42,8 @@ pub fn run_query(
     show_extent: bool,
     output_format: OutputFormat,
     with_context: bool,
-    _with_callers: bool,  // TODO: Implement caller references in query output
-    _with_callees: bool,  // TODO: Implement callee references in query output
+    _with_callers: bool, // TODO: Implement caller references in query output
+    _with_callees: bool, // TODO: Implement callee references in query output
     with_semantics: bool,
     with_checksums: bool,
     context_lines: usize,
@@ -85,14 +87,17 @@ pub fn run_query(
     )?;
 
     // Helper to finish execution on return
-    let finish_execution = |graph: &CodeGraph, outcome: &str, error_msg: Option<String>| -> Result<()> {
-        graph.execution_log().finish_execution(
-            &exec_id,
-            outcome,
-            error_msg.as_deref(),
-            0, 0, 0, // No indexing counts for query command
-        )
-    };
+    let finish_execution =
+        |graph: &CodeGraph, outcome: &str, error_msg: Option<String>| -> Result<()> {
+            graph.execution_log().finish_execution(
+                &exec_id,
+                outcome,
+                error_msg.as_deref(),
+                0,
+                0,
+                0, // No indexing counts for query command
+            )
+        };
 
     if explain {
         println!("{}", QUERY_EXPLAIN_TEXT);
@@ -133,7 +138,8 @@ pub fn run_query(
     // Handle JSON output mode - use symbol_nodes_in_file_with_ids for symbol_id propagation
     if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
         let mut graph_mut = CodeGraph::open(&db_path)?;
-        let mut symbols_with_ids = magellan::graph::query::symbol_nodes_in_file_with_ids(&mut graph_mut, &path_str)?;
+        let mut symbols_with_ids =
+            magellan::graph::query::symbol_nodes_in_file_with_ids(&mut graph_mut, &path_str)?;
 
         // Apply kind filter
         if let Some(ref filter_kind) = kind_filter {
@@ -142,14 +148,32 @@ pub fn run_query(
 
         // Apply symbol name filter
         if let Some(ref symbol_name) = symbol {
-            symbols_with_ids.retain(|(_, fact, _)| fact.name.as_deref() == Some(symbol_name.as_str()));
+            symbols_with_ids
+                .retain(|(_, fact, _)| fact.name.as_deref() == Some(symbol_name.as_str()));
         }
 
-        let symbols_with_ids: Vec<(SymbolFact, Option<String>)> =
-            symbols_with_ids.into_iter().map(|(_, fact, symbol_id)| (fact, symbol_id)).collect();
+        let symbols_with_ids: Vec<(SymbolFact, Option<String>)> = symbols_with_ids
+            .into_iter()
+            .map(|(_, fact, symbol_id)| (fact, symbol_id))
+            .collect();
 
         finish_execution(&graph, "success", None)?;
-        return output_json_mode(&path_str, symbols_with_ids, kind_str, show_extent, &symbol, &mut graph_mut, &exec_id, output_format, with_context, false, false, with_semantics, with_checksums, context_lines);
+        return output_json_mode(
+            &path_str,
+            symbols_with_ids,
+            kind_str,
+            show_extent,
+            &symbol,
+            &mut graph_mut,
+            &exec_id,
+            output_format,
+            with_context,
+            false,
+            false,
+            with_semantics,
+            with_checksums,
+            context_lines,
+        );
     }
 
     // Human mode - use existing flow
@@ -253,12 +277,9 @@ fn output_json_mode(
 
             // Add context if requested
             if with_context {
-                if let Some(context) = SpanContext::extract(
-                    &file_path,
-                    s.start_line,
-                    s.end_line,
-                    context_lines,
-                ) {
+                if let Some(context) =
+                    SpanContext::extract(&file_path, s.start_line, s.end_line, context_lines)
+                {
                     span = span.with_context(context);
                 }
             }
@@ -271,11 +292,7 @@ fn output_json_mode(
 
             // Add checksums if requested
             if with_checksums {
-                let checksums = SpanChecksums::compute(
-                    &file_path,
-                    s.byte_start,
-                    s.byte_end,
-                );
+                let checksums = SpanChecksums::compute(&file_path, s.byte_start, s.byte_end);
                 span = span.with_checksums(checksums);
             }
 
@@ -283,7 +300,7 @@ fn output_json_mode(
                 s.name.unwrap_or_else(|| "(unnamed)".to_string()),
                 s.kind_normalized,
                 span,
-                None, // parent not tracked yet
+                None,      // parent not tracked yet
                 symbol_id, // stable symbol ID from graph
             )
         })

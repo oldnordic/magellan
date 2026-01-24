@@ -37,10 +37,7 @@ pub fn index_calls(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<u
             };
 
             // Use FQN as key, fall back to name
-            let fqn = symbol_node
-                .fqn
-                .or(symbol_node.name)
-                .unwrap_or_default();
+            let fqn = symbol_node.fqn.or(symbol_node.name).unwrap_or_default();
 
             if fqn.is_empty() {
                 continue;

@@ -22,7 +22,9 @@ fn test_refs_with_context() {
     let source_file = temp_dir.path().join("test.rs");
 
     // Create a simple Rust file with a function that calls another
-    std::fs::write(&source_file, r#"
+    std::fs::write(
+        &source_file,
+        r#"
 fn helper() {
     println!("Helper function");
 }
@@ -31,7 +33,9 @@ fn main() {
     helper();
     println!("Hello, world!");
 }
-"#).unwrap();
+"#,
+    )
+    .unwrap();
 
     index_test_file(&source_file, &db_path);
 
@@ -73,9 +77,16 @@ fn main() {
         if !references.is_empty() {
             let first_ref = &references[0];
             if let Some(span) = first_ref.get("span") {
-                assert!(span.get("context").is_some(), "Context should be present with --with-context flag");
+                assert!(
+                    span.get("context").is_some(),
+                    "Context should be present with --with-context flag"
+                );
                 let context = &span["context"];
-                assert!(context.get("before").is_some() || context.get("after").is_some() || context.get("selected").is_some());
+                assert!(
+                    context.get("before").is_some()
+                        || context.get("after").is_some()
+                        || context.get("selected").is_some()
+                );
             }
         }
     }
@@ -118,7 +129,10 @@ fn test_refs_with_checksums() {
         if !references.is_empty() {
             let first_ref = &references[0];
             if let Some(span) = first_ref.get("span") {
-                assert!(span.get("checksums").is_some(), "Checksums should be present with --with-checksums flag");
+                assert!(
+                    span.get("checksums").is_some(),
+                    "Checksums should be present with --with-checksums flag"
+                );
                 let checksums = &span["checksums"];
                 assert!(checksums.get("checksum_before").is_some());
                 // Verify checksum format
@@ -167,7 +181,10 @@ fn test_refs_with_semantics() {
         if !references.is_empty() {
             let first_ref = &references[0];
             if let Some(span) = first_ref.get("span") {
-                assert!(span.get("semantics").is_some(), "Semantics should be present with --with-semantics flag");
+                assert!(
+                    span.get("semantics").is_some(),
+                    "Semantics should be present with --with-semantics flag"
+                );
                 let semantics = &span["semantics"];
                 assert!(semantics.get("kind").is_some());
                 assert!(semantics.get("language").is_some());
@@ -184,11 +201,15 @@ fn test_get_with_context() {
     let source_file = temp_dir.path().join("test.py");
 
     // Create a Python file
-    std::fs::write(&source_file, r#"
+    std::fs::write(
+        &source_file,
+        r#"
 def my_function():
     print("Hello")
     print("World")
-"#).unwrap();
+"#,
+    )
+    .unwrap();
 
     index_test_file(&source_file, &db_path);
 
@@ -225,10 +246,17 @@ def my_function():
     let symbol = &data["symbol"];
 
     if let Some(span) = symbol.get("span") {
-        assert!(span.get("context").is_some(), "Context should be present with --with-context flag");
+        assert!(
+            span.get("context").is_some(),
+            "Context should be present with --with-context flag"
+        );
         let context = &span["context"];
         // At least one of the context fields should be present
-        assert!(context.get("before").is_some() || context.get("selected").is_some() || context.get("after").is_some());
+        assert!(
+            context.get("before").is_some()
+                || context.get("selected").is_some()
+                || context.get("after").is_some()
+        );
     }
 }
 
@@ -268,7 +296,10 @@ fn test_get_with_checksums() {
     let data = &json["data"];
     if let Some(symbol) = data.get("symbol") {
         if let Some(span) = symbol.get("span") {
-            assert!(span.get("checksums").is_some(), "Checksums should be present with --with-checksums flag");
+            assert!(
+                span.get("checksums").is_some(),
+                "Checksums should be present with --with-checksums flag"
+            );
             let checksums = &span["checksums"];
             assert!(checksums.get("checksum_before").is_some());
             // Verify checksum format
@@ -287,7 +318,10 @@ fn test_context_lines_limit() {
     let source_file = temp_dir.path().join("test.rs");
 
     // Create a file with many lines
-    let content = (0..200).map(|i| format!("fn line_{}() {{}}", i)).collect::<Vec<_>>().join("\n");
+    let content = (0..200)
+        .map(|i| format!("fn line_{}() {{}}", i))
+        .collect::<Vec<_>>()
+        .join("\n");
     std::fs::write(&source_file, content).unwrap();
 
     index_test_file(&source_file, &db_path);
@@ -324,8 +358,16 @@ fn test_context_lines_limit() {
                 // Context should be capped, not 150 lines
                 let before_len = context["before"].as_array().map(|v| v.len()).unwrap_or(0);
                 let after_len = context["after"].as_array().map(|v| v.len()).unwrap_or(0);
-                assert!(before_len <= 100, "Context before should be capped at 100, got {}", before_len);
-                assert!(after_len <= 100, "Context after should be capped at 100, got {}", after_len);
+                assert!(
+                    before_len <= 100,
+                    "Context before should be capped at 100, got {}",
+                    before_len
+                );
+                assert!(
+                    after_len <= 100,
+                    "Context after should be capped at 100, got {}",
+                    after_len
+                );
             }
         }
     }
@@ -373,9 +415,18 @@ fn test_refs_without_flags_has_no_rich_data() {
                 let has_semantics = span.get("semantics").is_some() && !span["semantics"].is_null();
                 let has_checksums = span.get("checksums").is_some() && !span["checksums"].is_null();
 
-                assert!(!has_context, "Context should not be present without --with-context flag");
-                assert!(!has_semantics, "Semantics should not be present without --with-semantics flag");
-                assert!(!has_checksums, "Checksums should not be present without --with-checksums flag");
+                assert!(
+                    !has_context,
+                    "Context should not be present without --with-context flag"
+                );
+                assert!(
+                    !has_semantics,
+                    "Semantics should not be present without --with-semantics flag"
+                );
+                assert!(
+                    !has_checksums,
+                    "Checksums should not be present without --with-checksums flag"
+                );
             }
         }
     }
@@ -422,9 +473,18 @@ fn test_get_without_flags_has_no_rich_data() {
             let has_semantics = span.get("semantics").is_some() && !span["semantics"].is_null();
             let has_checksums = span.get("checksums").is_some() && !span["checksums"].is_null();
 
-            assert!(!has_context, "Context should not be present without --with-context flag");
-            assert!(!has_semantics, "Semantics should not be present without --with-semantics flag");
-            assert!(!has_checksums, "Checksums should not be present without --with-checksums flag");
+            assert!(
+                !has_context,
+                "Context should not be present without --with-context flag"
+            );
+            assert!(
+                !has_semantics,
+                "Semantics should not be present without --with-semantics flag"
+            );
+            assert!(
+                !has_checksums,
+                "Checksums should not be present without --with-checksums flag"
+            );
         }
     }
 }

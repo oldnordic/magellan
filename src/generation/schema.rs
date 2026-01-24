@@ -119,14 +119,7 @@ mod tests {
 
     #[test]
     fn test_code_chunk_byte_len() {
-        let chunk = CodeChunk::new(
-            "test.rs".to_string(),
-            100,
-            200,
-            "x".repeat(100),
-            None,
-            None,
-        );
+        let chunk = CodeChunk::new("test.rs".to_string(), 100, 200, "x".repeat(100), None, None);
 
         assert_eq!(chunk.byte_len(), 100);
     }

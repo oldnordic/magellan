@@ -239,7 +239,10 @@ fn test_broken_symlink() {
 
     let result = is_safe_symlink(&symlink, root);
     // Broken symlink cannot be canonicalized
-    assert!(matches!(result, Err(PathValidationError::CannotCanonicalize(_))));
+    assert!(matches!(
+        result,
+        Err(PathValidationError::CannotCanonicalize(_))
+    ));
 }
 
 #[test]

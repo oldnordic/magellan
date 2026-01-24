@@ -135,7 +135,7 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::output::rich::{SpanContext, SpanRelationships, SpanSemantics, SpanChecksums};
+use crate::output::rich::{SpanChecksums, SpanContext, SpanRelationships, SpanSemantics};
 
 /// Current JSON output schema version
 pub const MAGELLAN_JSON_SCHEMA_VERSION: &str = "1.0.0";
@@ -276,7 +276,6 @@ pub struct Span {
     pub end_col: usize,
 
     // Rich span extensions (optional, opt-in via CLI flags)
-
     /// Context lines around the span
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<SpanContext>,
@@ -349,9 +348,10 @@ impl Span {
 
         // Take first 8 bytes (64 bits) and format as hex
         let result = hasher.finalize();
-        format!("{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-                result[0], result[1], result[2], result[3],
-                result[4], result[5], result[6], result[7])
+        format!(
+            "{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+            result[0], result[1], result[2], result[3], result[4], result[5], result[6], result[7]
+        )
     }
 
     /// Create a new Span from component parts
@@ -447,7 +447,6 @@ impl Span {
         self.checksums = Some(checksums);
         self
     }
-
 }
 
 /// Symbol match result for query/find commands
@@ -740,7 +739,8 @@ impl ReferenceMatch {
         reference_kind: Option<String>,
         target_symbol_id: Option<String>,
     ) -> Self {
-        let match_id = Self::generate_match_id(&referenced_symbol, &span.file_path, span.byte_start);
+        let match_id =
+            Self::generate_match_id(&referenced_symbol, &span.file_path, span.byte_start);
         ReferenceMatch {
             match_id,
             span,
@@ -786,6 +786,33 @@ pub struct RefsResponse {
     pub file_path: String,
     /// Direction ("in" for callers, "out" for callees)
     pub direction: String,
+}
+
+/// Collision candidate details
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CollisionCandidate {
+    pub entity_id: i64,
+    pub symbol_id: Option<String>,
+    pub canonical_fqn: Option<String>,
+    pub display_fqn: Option<String>,
+    pub name: Option<String>,
+    pub file_path: Option<String>,
+}
+
+/// Collision group response entry
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CollisionGroup {
+    pub field: String,
+    pub value: String,
+    pub count: usize,
+    pub candidates: Vec<CollisionCandidate>,
+}
+
+/// Response for collisions command
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CollisionsResponse {
+    pub field: String,
+    pub groups: Vec<CollisionGroup>,
 }
 
 /// Response for files command
@@ -864,19 +891,27 @@ impl From<crate::graph::validation::ValidationReport> for ValidationResponse {
         ValidationResponse {
             passed: report.passed,
             error_count: report.errors.len(),
-            errors: report.errors.into_iter().map(|e| ValidationError {
-                code: e.code,
-                message: e.message,
-                entity_id: e.entity_id,
-                details: e.details,
-            }).collect(),
+            errors: report
+                .errors
+                .into_iter()
+                .map(|e| ValidationError {
+                    code: e.code,
+                    message: e.message,
+                    entity_id: e.entity_id,
+                    details: e.details,
+                })
+                .collect(),
             warning_count: report.warnings.len(),
-            warnings: report.warnings.into_iter().map(|w| ValidationWarning {
-                code: w.code,
-                message: w.message,
-                entity_id: w.entity_id,
-                details: w.details,
-            }).collect(),
+            warnings: report
+                .warnings
+                .into_iter()
+                .map(|w| ValidationWarning {
+                    code: w.code,
+                    message: w.message,
+                    entity_id: w.entity_id,
+                    details: w.details,
+                })
+                .collect(),
         }
     }
 }
@@ -972,7 +1007,11 @@ mod tests {
         assert_eq!(id.len(), 16, "Span ID should be 16 characters: {}", id);
 
         // All characters should be valid hex
-        assert!(id.chars().all(|c| c.is_ascii_hexdigit()), "Span ID should be hex: {}", id);
+        assert!(
+            id.chars().all(|c| c.is_ascii_hexdigit()),
+            "Span ID should be hex: {}",
+            id
+        );
 
         // Verify specific known hash (SHA-256 of "test.rs:10:20" truncated to 8 bytes)
         // This is a regression test to ensure we don't accidentally change the algorithm
@@ -1005,7 +1044,11 @@ mod tests {
         let id = generate_execution_id();
 
         // ID should be in format "{timestamp}-{pid}"
-        assert!(id.contains('-'), "Execution ID should contain separator: {}", id);
+        assert!(
+            id.contains('-'),
+            "Execution ID should contain separator: {}",
+            id
+        );
         let parts: Vec<&str> = id.split('-').collect();
         assert_eq!(parts.len(), 2, "Execution ID should have 2 parts: {}", id);
 
@@ -1097,8 +1140,10 @@ mod tests {
 
         for _ in 0..100 {
             let id = Span::generate_id(file_path, byte_start, byte_end);
-            assert_eq!(id, first_id,
-                "generate_id() must return identical ID for same inputs every time");
+            assert_eq!(
+                id, first_id,
+                "generate_id() must return identical ID for same inputs every time"
+            );
         }
     }
 
@@ -1112,9 +1157,18 @@ mod tests {
         let id2 = Span::generate_id("lib/main.rs", byte_start, byte_end);
         let id3 = Span::generate_id("src/helper.rs", byte_start, byte_end);
 
-        assert_ne!(id1, id2, "Different file paths should produce different IDs");
-        assert_ne!(id1, id3, "Different file paths should produce different IDs");
-        assert_ne!(id2, id3, "Different file paths should produce different IDs");
+        assert_ne!(
+            id1, id2,
+            "Different file paths should produce different IDs"
+        );
+        assert_ne!(
+            id1, id3,
+            "Different file paths should produce different IDs"
+        );
+        assert_ne!(
+            id2, id3,
+            "Different file paths should produce different IDs"
+        );
     }
 
     #[test]
@@ -1128,9 +1182,15 @@ mod tests {
         let id4 = Span::generate_id(file_path, 5, 15);
 
         assert_ne!(id1, id2, "Different positions should produce different IDs");
-        assert_ne!(id1, id3, "Different span lengths should produce different IDs");
+        assert_ne!(
+            id1, id3,
+            "Different span lengths should produce different IDs"
+        );
         assert_ne!(id2, id3, "Different positions should produce different IDs");
-        assert_ne!(id1, id4, "Different start positions should produce different IDs");
+        assert_ne!(
+            id1, id4,
+            "Different start positions should produce different IDs"
+        );
     }
 
     #[test]
@@ -1142,9 +1202,16 @@ mod tests {
         let id1 = Span::generate_id(file_path, position, position);
         let id2 = Span::generate_id(file_path, position, position);
 
-        assert_eq!(id1.len(), 16, "Zero-length span ID should still be 16 hex characters");
+        assert_eq!(
+            id1.len(),
+            16,
+            "Zero-length span ID should still be 16 hex characters"
+        );
         assert_eq!(id1, id2, "Zero-length span ID should be stable");
-        assert!(id1.chars().all(|c| c.is_ascii_hexdigit()), "Zero-length span ID should be valid hex");
+        assert!(
+            id1.chars().all(|c| c.is_ascii_hexdigit()),
+            "Zero-length span ID should be valid hex"
+        );
     }
 
     #[test]
@@ -1171,11 +1238,18 @@ mod tests {
         let id2 = Span::generate_id(file_path, 1_000_000, 1_000_100);
 
         assert_eq!(id1, id2, "Large offsets should produce stable IDs");
-        assert_eq!(id1.len(), 16, "Large offset span ID should be 16 characters");
+        assert_eq!(
+            id1.len(),
+            16,
+            "Large offset span ID should be 16 characters"
+        );
 
         // Different large offsets produce different IDs
         let id3 = Span::generate_id(file_path, 1_000_001, 1_000_100);
-        assert_ne!(id1, id3, "Different start positions with large offsets should differ");
+        assert_ne!(
+            id1, id3,
+            "Different start positions with large offsets should differ"
+        );
     }
 
     // === Task 04-02.2: UTF-8 safety tests ===
@@ -1189,17 +1263,34 @@ mod tests {
         // UTF-8 encoded paths with non-ASCII characters
         let id1 = Span::generate_id("src/test.rs", byte_start, byte_end);
         let id2 = Span::generate_id("src/test.rs", byte_start, byte_end);
-        let id3 = Span::generate_id("src/test文件.rs", byte_start, byte_end);  // Chinese characters
-        let id4 = Span::generate_id("src/testфайл.rs", byte_start, byte_end);  // Cyrillic characters
+        let id3 = Span::generate_id("src/test文件.rs", byte_start, byte_end); // Chinese characters
+        let id4 = Span::generate_id("src/testфайл.rs", byte_start, byte_end); // Cyrillic characters
 
         assert_eq!(id1, id2, "ASCII path should produce stable ID");
         assert_eq!(id1.len(), 16, "ASCII path span ID should be 16 characters");
-        assert_eq!(id3.len(), 16, "Chinese path span ID should be 16 characters");
-        assert_eq!(id4.len(), 16, "Cyrillic path span ID should be 16 characters");
+        assert_eq!(
+            id3.len(),
+            16,
+            "Chinese path span ID should be 16 characters"
+        );
+        assert_eq!(
+            id4.len(),
+            16,
+            "Cyrillic path span ID should be 16 characters"
+        );
 
-        assert_ne!(id1, id3, "Different paths (ASCII vs Chinese) should produce different IDs");
-        assert_ne!(id1, id4, "Different paths (ASCII vs Cyrillic) should produce different IDs");
-        assert_ne!(id3, id4, "Different paths (Chinese vs Cyrillic) should produce different IDs");
+        assert_ne!(
+            id1, id3,
+            "Different paths (ASCII vs Chinese) should produce different IDs"
+        );
+        assert_ne!(
+            id1, id4,
+            "Different paths (ASCII vs Cyrillic) should produce different IDs"
+        );
+        assert_ne!(
+            id3, id4,
+            "Different paths (Chinese vs Cyrillic) should produce different IDs"
+        );
     }
 
     #[test]
@@ -1212,9 +1303,20 @@ mod tests {
         let id_emoji = Span::generate_id("src/test.rs", byte_start, byte_end);
         let id_with_emoji = Span::generate_id("src/test-test.rs", byte_start, byte_end);
 
-        assert_eq!(id_emoji.len(), 16, "Span ID with emoji path should be 16 characters");
-        assert_eq!(id_with_emoji.len(), 16, "Span ID with emoji in name should be 16 characters");
-        assert_ne!(id_emoji, id_with_emoji, "Different paths should produce different IDs");
+        assert_eq!(
+            id_emoji.len(),
+            16,
+            "Span ID with emoji path should be 16 characters"
+        );
+        assert_eq!(
+            id_with_emoji.len(),
+            16,
+            "Span ID with emoji in name should be 16 characters"
+        );
+        assert_ne!(
+            id_emoji, id_with_emoji,
+            "Different paths should produce different IDs"
+        );
 
         // CJK (Chinese/Japanese/Korean) characters are multi-byte
         let id_cjk = Span::generate_id("src/テスト.rs", byte_start, byte_end);
@@ -1222,11 +1324,21 @@ mod tests {
 
         // Korean characters
         let id_korean = Span::generate_id("src/테스트.rs", byte_start, byte_end);
-        assert_eq!(id_korean.len(), 16, "Korean path span ID should be 16 characters");
+        assert_eq!(
+            id_korean.len(),
+            16,
+            "Korean path span ID should be 16 characters"
+        );
 
         // All different
-        assert_ne!(id_emoji, id_cjk, "Different paths (ASCII vs CJK) should differ");
-        assert_ne!(id_cjk, id_korean, "Different paths (Japanese vs Korean) should differ");
+        assert_ne!(
+            id_emoji, id_cjk,
+            "Different paths (ASCII vs CJK) should differ"
+        );
+        assert_ne!(
+            id_cjk, id_korean,
+            "Different paths (Japanese vs Korean) should differ"
+        );
     }
 
     #[test]
@@ -1239,42 +1351,73 @@ mod tests {
         let byte_end = 7;
 
         let extracted = source.get(byte_start..byte_end);
-        assert_eq!(extracted, Some("main"), "Safe extraction should work for valid UTF-8");
+        assert_eq!(
+            extracted,
+            Some("main"),
+            "Safe extraction should work for valid UTF-8"
+        );
 
         // Out of bounds returns None instead of panic
         let out_of_bounds = source.get(10..1000);
-        assert_eq!(out_of_bounds, None, "Out of bounds extraction should return None");
+        assert_eq!(
+            out_of_bounds, None,
+            "Out of bounds extraction should return None"
+        );
     }
 
     #[test]
     fn test_utf8_validation() {
         // Use source.is_char_boundary() to validate offsets
         // Use a multi-byte Unicode character (e with acute accent: \u{e9} = 0xc3 0xa9 in UTF-8)
-        let source = "Hello\u{e9}";  // "Hello" (5) + "é" (2) = 7 bytes
+        let source = "Hello\u{e9}"; // "Hello" (5) + "é" (2) = 7 bytes
 
         // Valid boundaries
-        assert!(source.is_char_boundary(0), "Byte 0 is always a valid boundary");
-        assert!(source.is_char_boundary(5), "After 'Hello' is valid (start of multi-byte char)");
-        assert!(source.is_char_boundary(7), "After 'é' is valid (end of string)");
-        assert!(source.is_char_boundary(source.len()), "End of string is valid boundary");
+        assert!(
+            source.is_char_boundary(0),
+            "Byte 0 is always a valid boundary"
+        );
+        assert!(
+            source.is_char_boundary(5),
+            "After 'Hello' is valid (start of multi-byte char)"
+        );
+        assert!(
+            source.is_char_boundary(7),
+            "After 'é' is valid (end of string)"
+        );
+        assert!(
+            source.is_char_boundary(source.len()),
+            "End of string is valid boundary"
+        );
 
         // Invalid boundaries (middle of the 2-byte 'é' character)
-        assert!(!source.is_char_boundary(6), "Byte 6 is in the middle of the 2-byte 'é'");
+        assert!(
+            !source.is_char_boundary(6),
+            "Byte 6 is in the middle of the 2-byte 'é'"
+        );
     }
 
     #[test]
     fn test_utf8_validation_three_byte_char() {
         // Test with a 3-byte UTF-8 character (CJK)
-        let source = "test\u{4e2d}";  // "test" (4) + "" (3) = 7 bytes
+        let source = "test\u{4e2d}"; // "test" (4) + "" (3) = 7 bytes
 
         assert!(source.is_char_boundary(0), "Start is boundary");
         assert!(source.is_char_boundary(4), "After 'test' is boundary");
         assert!(source.is_char_boundary(7), "After Chinese char is boundary");
-        assert!(source.is_char_boundary(source.len()), "End of string is valid");
+        assert!(
+            source.is_char_boundary(source.len()),
+            "End of string is valid"
+        );
 
         // Middle of the 3-byte Chinese character
-        assert!(!source.is_char_boundary(5), "Byte 5 is in the middle of 3-byte char");
-        assert!(!source.is_char_boundary(6), "Byte 6 is in the middle of 3-byte char");
+        assert!(
+            !source.is_char_boundary(5),
+            "Byte 5 is in the middle of 3-byte char"
+        );
+        assert!(
+            !source.is_char_boundary(6),
+            "Byte 6 is in the middle of 3-byte char"
+        );
     }
 
     #[test]
@@ -1285,15 +1428,17 @@ mod tests {
         let byte_end = 10;
 
         // "cafe" with combining acute accent (e + combining acute)
-        let decomposed = "cafe\u{0301}.rs";  // 5 bytes for "cafe" + 2 for combining acute + 3 for ".rs"
+        let decomposed = "cafe\u{0301}.rs"; // 5 bytes for "cafe" + 2 for combining acute + 3 for ".rs"
         let id1 = Span::generate_id(decomposed, byte_start, byte_end);
 
         // "cafe" with precomposed 'é' character
-        let precomposed = "caf\u{e9}.rs";  // 4 bytes for "caf" + 2 for é + 3 for ".rs"
+        let precomposed = "caf\u{e9}.rs"; // 4 bytes for "caf" + 2 for é + 3 for ".rs"
         let id2 = Span::generate_id(precomposed, byte_start, byte_end);
 
-        assert_ne!(id1, id2,
-            "Different Unicode representations should produce different span IDs (by design)");
+        assert_ne!(
+            id1, id2,
+            "Different Unicode representations should produce different span IDs (by design)"
+        );
     }
 
     #[test]
@@ -1338,13 +1483,7 @@ mod tests {
         // Verify SymbolMatch works without symbol_id
         let span = Span::new("lib.rs".into(), 10, 20, 2, 5, 2, 10);
 
-        let symbol = SymbolMatch::new(
-            "helper".into(),
-            "Function".into(),
-            span,
-            None,
-            None,
-        );
+        let symbol = SymbolMatch::new("helper".into(), "Function".into(), span, None, None);
 
         assert_eq!(symbol.symbol_id, None);
         assert_eq!(symbol.name, "helper");
@@ -1373,13 +1512,7 @@ mod tests {
     fn test_symbol_match_symbol_id_serialization_skips_when_none() {
         // Verify symbol_id is not included in JSON when None (skip_serializing_if)
         let span = Span::new("test.rs".into(), 0, 10, 1, 0, 1, 10);
-        let symbol = SymbolMatch::new(
-            "foo".into(),
-            "Function".into(),
-            span,
-            None,
-            None,
-        );
+        let symbol = SymbolMatch::new("foo".into(), "Function".into(), span, None, None);
 
         let json = serde_json::to_string(&symbol).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -1448,8 +1581,7 @@ mod tests {
             after: vec!["after".to_string()],
         };
 
-        let span = Span::new("test.rs".into(), 0, 10, 1, 0, 1, 10)
-            .with_context(context.clone());
+        let span = Span::new("test.rs".into(), 0, 10, 1, 0, 1, 10).with_context(context.clone());
 
         assert!(span.context.is_some());
         assert_eq!(span.context.as_ref().unwrap().before[0], "before");
@@ -1462,12 +1594,18 @@ mod tests {
         use crate::output::rich::SpanSemantics;
         let semantics = SpanSemantics::new("function".to_string(), "rust".to_string());
 
-        let span = Span::new("test.rs".into(), 0, 10, 1, 0, 1, 10)
-            .with_semantics(semantics.clone());
+        let span =
+            Span::new("test.rs".into(), 0, 10, 1, 0, 1, 10).with_semantics(semantics.clone());
 
         assert!(span.semantics.is_some());
-        assert_eq!(span.semantics.as_ref().unwrap().kind, Some("function".to_string()));
-        assert_eq!(span.semantics.as_ref().unwrap().language, Some("rust".to_string()));
+        assert_eq!(
+            span.semantics.as_ref().unwrap().kind,
+            Some("function".to_string())
+        );
+        assert_eq!(
+            span.semantics.as_ref().unwrap().language,
+            Some("rust".to_string())
+        );
     }
 
     #[test]
@@ -1476,8 +1614,14 @@ mod tests {
             .with_semantics_from("function".to_string(), "rust".to_string());
 
         assert!(span.semantics.is_some());
-        assert_eq!(span.semantics.as_ref().unwrap().kind, Some("function".to_string()));
-        assert_eq!(span.semantics.as_ref().unwrap().language, Some("rust".to_string()));
+        assert_eq!(
+            span.semantics.as_ref().unwrap().kind,
+            Some("function".to_string())
+        );
+        assert_eq!(
+            span.semantics.as_ref().unwrap().language,
+            Some("rust".to_string())
+        );
     }
 
     #[test]
@@ -1494,12 +1638,15 @@ mod tests {
             ..Default::default()
         };
 
-        let span = Span::new("test.rs".into(), 0, 10, 1, 0, 1, 10)
-            .with_relationships(relationships);
+        let span =
+            Span::new("test.rs".into(), 0, 10, 1, 0, 1, 10).with_relationships(relationships);
 
         assert!(span.relationships.is_some());
         assert_eq!(span.relationships.as_ref().unwrap().callers.len(), 1);
-        assert_eq!(span.relationships.as_ref().unwrap().callers[0].symbol, "caller");
+        assert_eq!(
+            span.relationships.as_ref().unwrap().callers[0].symbol,
+            "caller"
+        );
     }
 
     #[test]
@@ -1510,12 +1657,17 @@ mod tests {
             file_checksum_before: Some("sha256:def456".to_string()),
         };
 
-        let span = Span::new("test.rs".into(), 0, 10, 1, 0, 1, 10)
-            .with_checksums(checksums);
+        let span = Span::new("test.rs".into(), 0, 10, 1, 0, 1, 10).with_checksums(checksums);
 
         assert!(span.checksums.is_some());
-        assert_eq!(span.checksums.as_ref().unwrap().checksum_before, Some("sha256:abc123".to_string()));
-        assert_eq!(span.checksums.as_ref().unwrap().file_checksum_before, Some("sha256:def456".to_string()));
+        assert_eq!(
+            span.checksums.as_ref().unwrap().checksum_before,
+            Some("sha256:abc123".to_string())
+        );
+        assert_eq!(
+            span.checksums.as_ref().unwrap().file_checksum_before,
+            Some("sha256:def456".to_string())
+        );
     }
 
     #[test]
@@ -1554,7 +1706,6 @@ mod tests {
         assert!(!value.get("semantics").is_none() && !value["semantics"].is_null());
         assert_eq!(value["semantics"]["kind"], "function");
         assert_eq!(value["semantics"]["language"], "rust");
-
     }
     // === Task 14-01.3: StandardSpan verification tests ===
 
@@ -1563,12 +1714,12 @@ mod tests {
         // Verify field names match StandardSpan specification
         let span = Span::new(
             "test.rs".to_string(),
-            10,  // byte_start (inclusive)
-            20,  // byte_end (exclusive)
-            1,   // start_line (1-indexed)
-            5,   // start_col (0-indexed, byte-based)
-            2,   // end_line (1-indexed)
-            3,   // end_col (0-indexed, byte-based)
+            10, // byte_start (inclusive)
+            20, // byte_end (exclusive)
+            1,  // start_line (1-indexed)
+            5,  // start_col (0-indexed, byte-based)
+            2,  // end_line (1-indexed)
+            3,  // end_col (0-indexed, byte-based)
         );
 
         // Verify half-open range: length = end - start
@@ -1620,10 +1771,7 @@ mod tests {
 
     #[test]
     fn test_json_response_includes_metadata() {
-        let response = JsonResponse::new(
-            serde_json::json!({"test": "data"}),
-            "test-execution-123"
-        );
+        let response = JsonResponse::new(serde_json::json!({"test": "data"}), "test-execution-123");
 
         assert_eq!(response.schema_version, MAGELLAN_JSON_SCHEMA_VERSION);
         assert_eq!(response.execution_id, "test-execution-123");
@@ -1644,10 +1792,8 @@ mod tests {
     #[test]
     fn test_json_response_without_optional_fields() {
         // Test that response works even when optional fields are None
-        let mut response = JsonResponse::new(
-            serde_json::json!({"test": "data"}),
-            "test-execution-123"
-        );
+        let mut response =
+            JsonResponse::new(serde_json::json!({"test": "data"}), "test-execution-123");
         response.tool = None;
         response.timestamp = None;
 
@@ -1658,6 +1804,4 @@ mod tests {
         assert!(value.get("tool").is_none() || value["tool"].is_null());
         assert!(value.get("timestamp").is_none() || value["timestamp"].is_null());
     }
-
-
 }

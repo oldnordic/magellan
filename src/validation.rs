@@ -38,9 +38,8 @@ pub enum PathValidationError {
 /// # Returns
 /// Canonicalized absolute path, or error if path cannot be canonicalized
 pub fn canonicalize_path(path: &Path) -> Result<PathBuf, PathValidationError> {
-    std::fs::canonicalize(path).map_err(|_| {
-        PathValidationError::CannotCanonicalize(path.to_string_lossy().to_string())
-    })
+    std::fs::canonicalize(path)
+        .map_err(|_| PathValidationError::CannotCanonicalize(path.to_string_lossy().to_string()))
 }
 
 /// Normalize a path to a consistent format.
@@ -110,7 +109,9 @@ pub fn validate_path_within_root(path: &Path, root: &Path) -> Result<PathBuf, Pa
     // doesn't exist (which would cause canonicalize to fail)
     let path_str = path.to_string_lossy();
     if has_suspicious_traversal(&path_str) {
-        return Err(PathValidationError::SuspiciousTraversal(path_str.to_string()));
+        return Err(PathValidationError::SuspiciousTraversal(
+            path_str.to_string(),
+        ));
     }
 
     // Canonicalize both paths to absolute form
@@ -178,7 +179,7 @@ pub fn has_suspicious_traversal(path: &str) -> bool {
     for (i, part) in parts.iter().enumerate() {
         if *part == "." && i < parts.len() - 1 {
             // Found "./", check if any later part is ".."
-            if parts[i+1..].iter().any(|p| *p == "..") {
+            if parts[i + 1..].iter().any(|p| *p == "..") {
                 return true;
             }
         }
@@ -188,7 +189,7 @@ pub fn has_suspicious_traversal(path: &str) -> bool {
     let parts_win: Vec<&str> = path_win.split('\\').collect();
     for (i, part) in parts_win.iter().enumerate() {
         if *part == "." && i < parts_win.len() - 1 {
-            if parts_win[i+1..].iter().any(|p| *p == "..") {
+            if parts_win[i + 1..].iter().any(|p| *p == "..") {
                 return true;
             }
         }
@@ -209,10 +210,9 @@ pub fn has_suspicious_traversal(path: &str) -> bool {
 /// Ok if symlink is safe, Err if symlink target escapes root
 pub fn is_safe_symlink(symlink_path: &Path, root: &Path) -> Result<bool, PathValidationError> {
     // Read the symlink target
-    let target = std::fs::read_link(symlink_path)
-        .map_err(|_| PathValidationError::CannotCanonicalize(
-            symlink_path.to_string_lossy().to_string()
-        ))?;
+    let target = std::fs::read_link(symlink_path).map_err(|_| {
+        PathValidationError::CannotCanonicalize(symlink_path.to_string_lossy().to_string())
+    })?;
 
     // If target is absolute, validate it directly
     if target.is_absolute() {
@@ -229,19 +229,15 @@ pub fn is_safe_symlink(symlink_path: &Path, root: &Path) -> Result<bool, PathVal
     }
 
     // If relative, resolve relative to parent directory
-    let parent = symlink_path
-        .parent()
-        .unwrap_or(symlink_path);
+    let parent = symlink_path.parent().unwrap_or(symlink_path);
     let resolved = parent.join(&target);
 
     match validate_path_within_root(&resolved, root) {
         Ok(_) => Ok(true),
-        Err(PathValidationError::OutsideRoot(_, _)) => {
-            Err(PathValidationError::SymlinkEscape(
-                symlink_path.to_string_lossy().to_string(),
-                target.to_string_lossy().to_string(),
-            ))
-        }
+        Err(PathValidationError::OutsideRoot(_, _)) => Err(PathValidationError::SymlinkEscape(
+            symlink_path.to_string_lossy().to_string(),
+            target.to_string_lossy().to_string(),
+        )),
         Err(e) => Err(e),
     }
 }
@@ -249,7 +245,10 @@ pub fn is_safe_symlink(symlink_path: &Path, root: &Path) -> Result<bool, PathVal
 /// Validate a UTF-8 path using camino's Utf8Path.
 ///
 /// This is a convenience wrapper for UTF-8 path handling.
-pub fn validate_utf8_path(utf8_path: &Utf8Path, root: &Path) -> Result<PathBuf, PathValidationError> {
+pub fn validate_utf8_path(
+    utf8_path: &Utf8Path,
+    root: &Path,
+) -> Result<PathBuf, PathValidationError> {
     let path = Path::new(utf8_path.as_str());
     validate_path_within_root(path, root)
 }
@@ -334,7 +333,9 @@ mod tests {
     #[test]
     fn test_has_suspicious_traversal_parent_patterns() {
         assert!(has_suspicious_traversal("../../../etc/passwd"));
-        assert!(has_suspicious_traversal("..\\\\..\\\\..\\\\windows\\\\system32"));
+        assert!(has_suspicious_traversal(
+            "..\\\\..\\\\..\\\\windows\\\\system32"
+        ));
         assert!(has_suspicious_traversal("../config"));
         assert!(has_suspicious_traversal("..\\config"));
     }
@@ -457,7 +458,10 @@ mod tests {
                 PathValidationError::CannotCanonicalize(_) => {
                     // Broken symlinks are also unsafe
                 }
-                other => panic!("Expected SymlinkEscape or CannotCanonicalize, got: {:?}", other),
+                other => panic!(
+                    "Expected SymlinkEscape or CannotCanonicalize, got: {:?}",
+                    other
+                ),
             }
         }
     }

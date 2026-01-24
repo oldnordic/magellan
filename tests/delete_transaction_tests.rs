@@ -83,25 +83,26 @@ impl TestStruct {
     let global_calls_before = graph.count_calls().unwrap();
 
     TestSetup {
-        path: path.to_string(),
+        _path: path.to_string(),
         symbols_count: symbols.len(),
         references_count: reference_count,
         calls_count: call_count,
         chunks_count: chunk_count,
-        global_refs_before,
-        global_calls_before,
+        _global_refs_before: global_refs_before,
+        _global_calls_before: global_calls_before,
     }
 }
 
 /// Test setup data structure.
+#[allow(dead_code)] // Some fields reserved for future test expansion
 struct TestSetup {
-    path: String,
+    _path: String,
     symbols_count: usize,
     references_count: usize,
     calls_count: usize,
     chunks_count: usize,
-    global_refs_before: usize,
-    global_calls_before: usize,
+    _global_refs_before: usize,
+    _global_calls_before: usize,
 }
 
 // ============================================================================
@@ -126,34 +127,41 @@ fn test_verify_after_symbols_deleted() {
     let setup = create_file_with_data(&mut graph, path);
 
     // Delete with verification after symbols - this causes a rollback
-    let result = delete_file_facts_with_injection(
-        &mut graph,
-        path,
-        Some(FailPoint::AfterSymbolsDeleted),
-    )
-    .expect("Delete should succeed");
+    let result =
+        delete_file_facts_with_injection(&mut graph, path, Some(FailPoint::AfterSymbolsDeleted))
+            .expect("Delete should succeed");
 
     // Result reports what was attempted before rollback
     assert_eq!(
-        result.symbols_deleted,
-        setup.symbols_count,
+        result.symbols_deleted, setup.symbols_count,
         "Should report attempted symbol deletion"
     );
 
     // File should still exist (transaction was rolled back)
     let file_node = graph.get_file_node(path).unwrap();
-    assert!(file_node.is_some(), "File node should still exist after rollback");
+    assert!(
+        file_node.is_some(),
+        "File node should still exist after rollback"
+    );
 
     // Symbols should still exist (transaction was rolled back)
     let symbols = graph.symbols_in_file(path).unwrap();
-    assert_eq!(symbols.len(), setup.symbols_count, "Symbols should be restored after rollback");
+    assert_eq!(
+        symbols.len(),
+        setup.symbols_count,
+        "Symbols should be restored after rollback"
+    );
 
     // Chunks should still exist (deleted after commit, which never happened)
     let chunks = graph.get_code_chunks(path).unwrap();
-    assert_eq!(chunks.len(), setup.chunks_count, "Chunks should remain after rollback");
+    assert_eq!(
+        chunks.len(),
+        setup.chunks_count,
+        "Chunks should remain after rollback"
+    );
 
     // Complete the deletion (no verification point = full commit)
-    let result2 = delete_file_facts_with_injection(&mut graph, path, None)
+    let _result2 = delete_file_facts_with_injection(&mut graph, path, None)
         .expect("Complete delete should succeed");
 
     // Now everything should be deleted
@@ -177,22 +185,17 @@ fn test_verify_after_references_deleted() {
     let setup = create_file_with_data(&mut graph, path);
 
     // Delete with verification after references - this causes a rollback
-    let result = delete_file_facts_with_injection(
-        &mut graph,
-        path,
-        Some(FailPoint::AfterReferencesDeleted),
-    )
-    .expect("Delete should succeed");
+    let result =
+        delete_file_facts_with_injection(&mut graph, path, Some(FailPoint::AfterReferencesDeleted))
+            .expect("Delete should succeed");
 
     // Result reports what was attempted before rollback
     assert_eq!(
-        result.symbols_deleted,
-        setup.symbols_count,
+        result.symbols_deleted, setup.symbols_count,
         "Should report attempted symbol deletion"
     );
     assert_eq!(
-        result.references_deleted,
-        setup.references_count,
+        result.references_deleted, setup.references_count,
         "Should report attempted reference deletion"
     );
 
@@ -201,13 +204,24 @@ fn test_verify_after_references_deleted() {
 
     // File and symbols should still exist (transaction was rolled back)
     let file_node = graph.get_file_node(path).unwrap();
-    assert!(file_node.is_some(), "File node should still exist after rollback");
+    assert!(
+        file_node.is_some(),
+        "File node should still exist after rollback"
+    );
 
     let symbols = graph.symbols_in_file(path).unwrap();
-    assert_eq!(symbols.len(), setup.symbols_count, "Symbols should be restored after rollback");
+    assert_eq!(
+        symbols.len(),
+        setup.symbols_count,
+        "Symbols should be restored after rollback"
+    );
 
     let chunks = graph.get_code_chunks(path).unwrap();
-    assert_eq!(chunks.len(), setup.chunks_count, "Chunks should remain after rollback");
+    assert_eq!(
+        chunks.len(),
+        setup.chunks_count,
+        "Chunks should remain after rollback"
+    );
 
     // Complete the deletion
     let _result2 = delete_file_facts_with_injection(&mut graph, path, None)
@@ -228,27 +242,21 @@ fn test_verify_after_calls_deleted() {
     let setup = create_file_with_data(&mut graph, path);
 
     // Delete with verification after calls - this causes a rollback
-    let result = delete_file_facts_with_injection(
-        &mut graph,
-        path,
-        Some(FailPoint::AfterCallsDeleted),
-    )
-    .expect("Delete should succeed");
+    let result =
+        delete_file_facts_with_injection(&mut graph, path, Some(FailPoint::AfterCallsDeleted))
+            .expect("Delete should succeed");
 
     // Result reports what was attempted before rollback
     assert_eq!(
-        result.symbols_deleted,
-        setup.symbols_count,
+        result.symbols_deleted, setup.symbols_count,
         "Should report attempted symbol deletion"
     );
     assert_eq!(
-        result.references_deleted,
-        setup.references_count,
+        result.references_deleted, setup.references_count,
         "Should report attempted reference deletion"
     );
     assert_eq!(
-        result.calls_deleted,
-        setup.calls_count,
+        result.calls_deleted, setup.calls_count,
         "Should report attempted call deletion"
     );
 
@@ -257,13 +265,24 @@ fn test_verify_after_calls_deleted() {
 
     // File and symbols should still exist (transaction was rolled back)
     let file_node = graph.get_file_node(path).unwrap();
-    assert!(file_node.is_some(), "File node should still exist after rollback");
+    assert!(
+        file_node.is_some(),
+        "File node should still exist after rollback"
+    );
 
     let symbols = graph.symbols_in_file(path).unwrap();
-    assert_eq!(symbols.len(), setup.symbols_count, "Symbols should be restored after rollback");
+    assert_eq!(
+        symbols.len(),
+        setup.symbols_count,
+        "Symbols should be restored after rollback"
+    );
 
     let chunks = graph.get_code_chunks(path).unwrap();
-    assert_eq!(chunks.len(), setup.chunks_count, "Chunks should remain after rollback");
+    assert_eq!(
+        chunks.len(),
+        setup.chunks_count,
+        "Chunks should remain after rollback"
+    );
 
     // Complete the deletion
     let _result2 = delete_file_facts_with_injection(&mut graph, path, None)
@@ -284,38 +303,34 @@ fn test_verify_after_chunks_deleted() {
     let setup = create_file_with_data(&mut graph, path);
 
     // Delete with verification after chunks - transaction is committed, chunks deleted
-    let result = delete_file_facts_with_injection(
-        &mut graph,
-        path,
-        Some(FailPoint::AfterChunksDeleted),
-    )
-    .expect("Delete should succeed");
+    let result =
+        delete_file_facts_with_injection(&mut graph, path, Some(FailPoint::AfterChunksDeleted))
+            .expect("Delete should succeed");
 
     // AfterChunksDeleted happens AFTER commit, so graph changes are permanent
     assert_eq!(
-        result.symbols_deleted,
-        setup.symbols_count,
+        result.symbols_deleted, setup.symbols_count,
         "Should delete all symbols"
     );
     assert_eq!(
-        result.chunks_deleted,
-        setup.chunks_count,
+        result.chunks_deleted, setup.chunks_count,
         "Should delete all chunks"
     );
     assert_eq!(
-        result.references_deleted,
-        setup.references_count,
+        result.references_deleted, setup.references_count,
         "Should delete all references"
     );
     assert_eq!(
-        result.calls_deleted,
-        setup.calls_count,
+        result.calls_deleted, setup.calls_count,
         "Should delete all calls"
     );
 
     // File should be deleted (transaction was committed)
     let file_node = graph.get_file_node(path).unwrap();
-    assert!(file_node.is_none(), "File node should be deleted after commit");
+    assert!(
+        file_node.is_none(),
+        "File node should be deleted after commit"
+    );
 
     // Symbols query returns empty when file doesn't exist
     let symbols = graph.symbols_in_file(path).unwrap();
@@ -336,27 +351,21 @@ fn test_verify_before_file_deleted() {
     let setup = create_file_with_data(&mut graph, path);
 
     // Delete with verification after file node deleted (but before commit) - causes rollback
-    let result = delete_file_facts_with_injection(
-        &mut graph,
-        path,
-        Some(FailPoint::BeforeFileDeleted),
-    )
-    .expect("Delete should succeed");
+    let result =
+        delete_file_facts_with_injection(&mut graph, path, Some(FailPoint::BeforeFileDeleted))
+            .expect("Delete should succeed");
 
     // Result reports what was attempted before rollback
     assert_eq!(
-        result.symbols_deleted,
-        setup.symbols_count,
+        result.symbols_deleted, setup.symbols_count,
         "Should report attempted symbol deletion"
     );
     assert_eq!(
-        result.references_deleted,
-        setup.references_count,
+        result.references_deleted, setup.references_count,
         "Should report attempted reference deletion"
     );
     assert_eq!(
-        result.calls_deleted,
-        setup.calls_count,
+        result.calls_deleted, setup.calls_count,
         "Should report attempted call deletion"
     );
 
@@ -365,13 +374,24 @@ fn test_verify_before_file_deleted() {
 
     // File and symbols should still exist (transaction was rolled back)
     let file_node = graph.get_file_node(path).unwrap();
-    assert!(file_node.is_some(), "File node should still exist after rollback");
+    assert!(
+        file_node.is_some(),
+        "File node should still exist after rollback"
+    );
 
     let symbols = graph.symbols_in_file(path).unwrap();
-    assert_eq!(symbols.len(), setup.symbols_count, "Symbols should be restored after rollback");
+    assert_eq!(
+        symbols.len(),
+        setup.symbols_count,
+        "Symbols should be restored after rollback"
+    );
 
     let chunks = graph.get_code_chunks(path).unwrap();
-    assert_eq!(chunks.len(), setup.chunks_count, "Chunks should remain after rollback");
+    assert_eq!(
+        chunks.len(),
+        setup.chunks_count,
+        "Chunks should remain after rollback"
+    );
 
     // Complete the deletion
     let _result2 = delete_file_facts_with_injection(&mut graph, path, None)
@@ -401,13 +421,11 @@ fn test_successful_delete_with_injection() {
 
     // Verify delete result counts
     assert_eq!(
-        result.symbols_deleted,
-        setup.symbols_count,
+        result.symbols_deleted, setup.symbols_count,
         "Should delete all symbols"
     );
     assert_eq!(
-        result.chunks_deleted,
-        setup.chunks_count,
+        result.chunks_deleted, setup.chunks_count,
         "Should delete all chunks"
     );
 
@@ -436,18 +454,27 @@ fn test_delete_same_file_twice() {
     let _setup = create_file_with_data(&mut graph, path);
 
     // First delete should succeed
-    let result1 =
-        delete_file_facts_with_injection(&mut graph, path, None).expect("First delete should succeed");
-    assert!(result1.symbols_deleted > 0, "First delete should remove symbols");
+    let result1 = delete_file_facts_with_injection(&mut graph, path, None)
+        .expect("First delete should succeed");
+    assert!(
+        result1.symbols_deleted > 0,
+        "First delete should remove symbols"
+    );
 
     // Second delete should be a no-op (file doesn't exist)
-    let result2 =
-        delete_file_facts_with_injection(&mut graph, path, None).expect("Second delete should succeed");
-    assert_eq!(result2.symbols_deleted, 0, "Second delete should find no symbols");
+    let result2 = delete_file_facts_with_injection(&mut graph, path, None)
+        .expect("Second delete should succeed");
+    assert_eq!(
+        result2.symbols_deleted, 0,
+        "Second delete should find no symbols"
+    );
 
     // File should still not exist
     let file_node = graph.get_file_node(path).unwrap();
-    assert!(file_node.is_none(), "File should not exist after double delete");
+    assert!(
+        file_node.is_none(),
+        "File should not exist after double delete"
+    );
 }
 
 #[test]
@@ -467,8 +494,8 @@ fn test_delete_with_in_memory_index() {
     );
 
     // Delete successfully
-    let result = delete_file_facts_with_injection(&mut graph, path, None)
-        .expect("Delete should succeed");
+    let _result =
+        delete_file_facts_with_injection(&mut graph, path, None).expect("Delete should succeed");
 
     // File should not be in in-memory index after delete
     let file_node_after = graph.get_file_node(path).unwrap();
@@ -492,12 +519,12 @@ fn test_delete_one_file_doesnt_affect_another() {
     let path1 = "test_file1.rs";
     let path2 = "test_file2.rs";
 
-    let setup1 = create_file_with_data(&mut graph, path1);
+    let _setup1 = create_file_with_data(&mut graph, path1);
     let setup2 = create_file_with_data(&mut graph, path2);
 
     // Delete file1 completely
-    let result = delete_file_facts_with_injection(&mut graph, path1, None)
-        .expect("Delete should succeed");
+    let _result =
+        delete_file_facts_with_injection(&mut graph, path1, None).expect("Delete should succeed");
 
     // File1 should be deleted
     let file_node1 = graph.get_file_node(path1).unwrap();
@@ -537,15 +564,14 @@ fn test_delete_removes_code_chunks() {
     assert_eq!(chunks_before, setup.chunks_count);
 
     // Delete completely
-    let result = delete_file_facts_with_injection(&mut graph, path, None)
-        .expect("Delete should succeed");
+    let result =
+        delete_file_facts_with_injection(&mut graph, path, None).expect("Delete should succeed");
 
     // Verify chunks are gone
     let chunks_after = graph.get_code_chunks(path).unwrap();
     assert_eq!(chunks_after.len(), 0, "Code chunks should be deleted");
     assert_eq!(
-        result.chunks_deleted,
-        setup.chunks_count,
+        result.chunks_deleted, setup.chunks_count,
         "Should delete all chunks"
     );
 }
@@ -568,8 +594,8 @@ fn test_delete_removes_all_symbols() {
     assert!(initial_symbols > 0);
 
     // Delete completely
-    let result = delete_file_facts_with_injection(&mut graph, path, None)
-        .expect("Delete should succeed");
+    let result =
+        delete_file_facts_with_injection(&mut graph, path, None).expect("Delete should succeed");
 
     // Verify symbols are gone
     let file_node = graph.get_file_node(path).unwrap();
@@ -578,8 +604,7 @@ fn test_delete_removes_all_symbols() {
     let symbols_after = graph.symbols_in_file(path).unwrap();
     assert_eq!(symbols_after.len(), 0, "Symbols should be deleted");
     assert_eq!(
-        result.symbols_deleted,
-        setup.symbols_count,
+        result.symbols_deleted, setup.symbols_count,
         "All original symbols should be deleted"
     );
 }

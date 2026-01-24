@@ -1,4 +1,4 @@
-use magellan::{CodeGraph, Parser, ReferenceFact, SymbolKind};
+use magellan::{CodeGraph, Parser};
 use std::path::PathBuf;
 use tempfile::TempDir;
 
@@ -106,15 +106,9 @@ fn test_persist_and_query_references() {
     // Index file (symbols)
     graph.index_file(path, source).unwrap();
 
-    // Get symbols
-    let symbols = graph.symbols_in_file(path).unwrap();
-
     // Index references
     let reference_count = graph.index_references(path, source).unwrap();
     assert_eq!(reference_count, 1, "Should index 1 reference");
-
-    // Get symbols again to find foo's ID (we'll use the first symbol)
-    let symbols_after = graph.symbols_in_file(path).unwrap();
 
     // For this test, we'll just verify that references were indexed
     // The actual query test requires getting symbol IDs which is complex

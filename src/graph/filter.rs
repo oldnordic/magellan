@@ -174,10 +174,7 @@ impl FileFilter {
         // 5. CLI include patterns (if any provided)
         if !self.include_patterns.is_empty() {
             let rel_path = self.relative_path(path);
-            let matches_include = self
-                .include_patterns
-                .iter()
-                .any(|m| m.is_match(&rel_path));
+            let matches_include = self.include_patterns.iter().any(|m| m.is_match(&rel_path));
 
             if !matches_include {
                 return Some(SkipReason::ExcludedByGlob);
@@ -187,11 +184,7 @@ impl FileFilter {
         // 6. CLI exclude patterns
         if !self.exclude_patterns.is_empty() {
             let rel_path = self.relative_path(path);
-            if self
-                .exclude_patterns
-                .iter()
-                .any(|m| m.is_match(&rel_path))
-            {
+            if self.exclude_patterns.iter().any(|m| m.is_match(&rel_path)) {
                 return Some(SkipReason::ExcludedByGlob);
             }
         }
@@ -465,12 +458,8 @@ mod tests {
         fs::write(root.join("tests/integration.rs"), "fn test() {}").unwrap();
 
         // Include only src/**, exclude test files
-        let filter = FileFilter::new(
-            root,
-            &["src/**".to_string()],
-            &["**/*test*.rs".to_string()],
-        )
-        .unwrap();
+        let filter =
+            FileFilter::new(root, &["src/**".to_string()], &["**/*test*.rs".to_string()]).unwrap();
 
         // src/lib.rs should NOT be skipped
         assert_eq!(filter.should_skip(&root.join("src/lib.rs")), None);

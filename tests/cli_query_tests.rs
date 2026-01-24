@@ -807,18 +807,15 @@ struct Point {
     );
 
     // Parse JSON and verify structure
-    let json: serde_json::Value = serde_json::from_str(&stdout)
-        .expect("Output should be valid JSON");
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Output should be valid JSON");
 
     // Verify response wrapper
     assert_eq!(
         json["schema_version"], "1.0.0",
         "Schema version should be 1.0.0"
     );
-    assert!(
-        json["execution_id"].is_string(),
-        "Should have execution_id"
-    );
+    assert!(json["execution_id"].is_string(), "Should have execution_id");
 
     // Verify data structure
     let data = &json["data"];
@@ -842,10 +839,7 @@ struct Point {
     );
 
     let symbol_id = first_match["symbol_id"].as_str().unwrap();
-    assert!(
-        !symbol_id.is_empty(),
-        "symbol_id should be non-empty"
-    );
+    assert!(!symbol_id.is_empty(), "symbol_id should be non-empty");
 
     // Verify other expected fields
     assert_eq!(first_match["name"], "main");
@@ -1092,18 +1086,15 @@ fn caller2() {
     );
 
     // Parse JSON and verify structure
-    let json: serde_json::Value = serde_json::from_str(&stdout)
-        .expect("Output should be valid JSON");
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Output should be valid JSON");
 
     // Verify response wrapper
     assert_eq!(
         json["schema_version"], "1.0.0",
         "Schema version should be 1.0.0"
     );
-    assert!(
-        json["execution_id"].is_string(),
-        "Should have execution_id"
-    );
+    assert!(json["execution_id"].is_string(), "Should have execution_id");
 
     // Verify data structure
     let data = &json["data"];
@@ -1204,18 +1195,15 @@ fn main() {
     );
 
     // Parse JSON and verify structure
-    let json: serde_json::Value = serde_json::from_str(&stdout)
-        .expect("Output should be valid JSON");
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Output should be valid JSON");
 
     // Verify response wrapper
     assert_eq!(
         json["schema_version"], "1.0.0",
         "Schema version should be 1.0.0"
     );
-    assert!(
-        json["execution_id"].is_string(),
-        "Should have execution_id"
-    );
+    assert!(json["execution_id"].is_string(), "Should have execution_id");
 
     // Verify data structure
     let data = &json["data"];
@@ -1486,8 +1474,8 @@ fn test_files_with_symbol_counts() {
     );
 
     // Parse JSON and verify structure
-    let json: serde_json::Value = serde_json::from_str(&stdout)
-        .expect("Output should be valid JSON");
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Output should be valid JSON");
 
     // Verify response wrapper
     assert_eq!(json["schema_version"], "1.0.0");
@@ -1505,7 +1493,10 @@ fn test_files_with_symbol_counts() {
 
     // Verify symbol_counts field exists and is not None
     let symbol_counts = &data["symbol_counts"];
-    assert!(symbol_counts.is_object(), "symbol_counts should be an object");
+    assert!(
+        symbol_counts.is_object(),
+        "symbol_counts should be an object"
+    );
 
     // Verify counts match actual symbols
     let counts_obj = symbol_counts.as_object().unwrap();
@@ -1517,4 +1508,3 @@ fn test_files_with_symbol_counts() {
         assert!(count_val > 0, "Each file should have at least 1 symbol");
     }
 }
-

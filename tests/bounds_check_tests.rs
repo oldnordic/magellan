@@ -32,10 +32,14 @@ fn test_valid_byte_ranges_extract_code_chunks() {
     let chunks = graph.get_code_chunks(&path_str).unwrap();
     assert_eq!(chunks.len(), 1, "Should have 1 code chunk");
     assert_eq!(
-        chunks[0].symbol_name, Some("valid_function".to_string()),
+        chunks[0].symbol_name,
+        Some("valid_function".to_string()),
         "Code chunk should have correct symbol name"
     );
-    assert!(!chunks[0].content.is_empty(), "Code chunk should have content");
+    assert!(
+        !chunks[0].content.is_empty(),
+        "Code chunk should have content"
+    );
 }
 
 #[test]
@@ -62,14 +66,20 @@ impl MyStruct {
 
     // Index the file - should succeed without panic
     let symbol_count = graph.index_file(&path_str, &source).unwrap();
-    assert_eq!(symbol_count, 4, "Should index 4 symbols (2 functions, 1 struct, 1 method)");
+    assert_eq!(
+        symbol_count, 4,
+        "Should index 4 symbols (2 functions, 1 struct, 1 method)"
+    );
 
     // Verify all code chunks were extracted (all symbols should have valid byte ranges)
     let chunks = graph.get_code_chunks(&path_str).unwrap();
     assert_eq!(chunks.len(), 4, "Should have 4 code chunks for 4 symbols");
 
     // Verify chunks have correct content
-    let chunk_names: Vec<_> = chunks.iter().filter_map(|c| c.symbol_name.as_ref()).collect();
+    let chunk_names: Vec<_> = chunks
+        .iter()
+        .filter_map(|c| c.symbol_name.as_ref())
+        .collect();
     assert!(chunk_names.contains(&&"first_function".to_string()));
     assert!(chunk_names.contains(&&"second_function".to_string()));
     assert!(chunk_names.contains(&&"MyStruct".to_string()));
@@ -103,8 +113,14 @@ fn test_code_chunks_span_entire_function() {
     assert!(chunks[0].content.contains("42"));
 
     // Byte ranges should be valid (start < end, end <= source length)
-    assert!(chunks[0].byte_start < chunks[0].byte_end, "Byte start should be less than byte end");
-    assert!(chunks[0].byte_end <= source.len(), "Byte end should not exceed source length");
+    assert!(
+        chunks[0].byte_start < chunks[0].byte_end,
+        "Byte start should be less than byte end"
+    );
+    assert!(
+        chunks[0].byte_end <= source.len(),
+        "Byte end should not exceed source length"
+    );
 }
 
 #[test]
@@ -138,9 +154,15 @@ fn test_multiple_files_with_valid_byte_ranges() {
     }
 
     // Verify total symbol count
-    let symbols1 = graph.symbols_in_file(&file1.to_string_lossy().to_string()).unwrap();
-    let symbols2 = graph.symbols_in_file(&file2.to_string_lossy().to_string()).unwrap();
-    let symbols3 = graph.symbols_in_file(&file3.to_string_lossy().to_string()).unwrap();
+    let symbols1 = graph
+        .symbols_in_file(&file1.to_string_lossy().to_string())
+        .unwrap();
+    let symbols2 = graph
+        .symbols_in_file(&file2.to_string_lossy().to_string())
+        .unwrap();
+    let symbols3 = graph
+        .symbols_in_file(&file3.to_string_lossy().to_string())
+        .unwrap();
 
     assert_eq!(symbols1.len(), 1);
     assert_eq!(symbols2.len(), 1);
