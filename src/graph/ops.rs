@@ -183,6 +183,23 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
         graph.store_code_chunks(&code_chunks)?;
     }
 
+    // Step 5.5: Extract and store AST nodes
+    // Re-use the parser pool to get the tree-sitter tree for AST extraction
+    if let Some(lang) = language {
+        // with_parser returns Result<R> where R is the closure's return type.
+        // We return Vec<AstNode> directly (not wrapped in Result) to avoid double wrapping.
+        let ast_nodes_result = pool::with_parser(lang, |parser| {
+            parser.parse(source, None)
+                .map(|tree| crate::graph::extract_ast_nodes(&tree, source))
+                .unwrap_or_else(Vec::new)
+        });
+        if let Ok(ast_nodes) = ast_nodes_result {
+            if !ast_nodes.is_empty() {
+                insert_ast_nodes(graph, ast_nodes)?;
+            }
+        }
+    }
+
     // Step 6: Index calls (all supported languages)
     if language.is_some() {
         let _ = super::calls::index_calls(graph, path, source);
