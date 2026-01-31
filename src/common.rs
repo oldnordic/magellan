@@ -180,6 +180,133 @@ pub fn safe_str_slice<'a>(source: &'a str, start: usize, end: usize) -> Option<&
     }
 }
 
+/// Safely extract symbol content from source bytes, handling multi-byte UTF-8 boundaries
+///
+/// tree-sitter provides byte offsets that can split multi-byte UTF-8 characters
+/// (emojis, CJK, accented letters). Direct slicing with these offsets will panic
+/// if the offsets fall within a multi-byte character.
+///
+/// This function:
+/// 1. Validates the byte offsets are within bounds
+/// 2. Converts bytes to UTF-8 string
+/// 3. Adjusts the end offset to the nearest valid UTF-8 character boundary if needed
+/// 4. Returns the extracted content as a String, or None if extraction fails
+///
+/// # Arguments
+/// * `source` - Source file contents as bytes
+/// * `byte_start` - Start byte offset (inclusive) from tree-sitter
+/// * `byte_end` - End byte offset (exclusive) from tree-sitter
+///
+/// # Returns
+/// Some(String) with the extracted content, or None if:
+/// - Offsets are out of bounds
+/// - Source is not valid UTF-8
+/// - Start offset is not at a valid UTF-8 character boundary
+///
+/// # Example
+/// ```rust
+/// let source = "fn hello() { // Hi \u{1f44b} }"; // contains emoji
+/// let content = extract_symbol_content_safe(source.as_bytes(), 0, source.len());
+/// assert!(content.is_some());
+/// ```
+pub fn extract_symbol_content_safe(source: &[u8], byte_start: usize, byte_end: usize) -> Option<String> {
+    // Validate bounds
+    if byte_start > byte_end || byte_end > source.len() {
+        return None;
+    }
+
+    // Convert to UTF-8 string
+    let source_str = std::str::from_utf8(source).ok()?;
+
+    // Validate start is at a character boundary
+    if !source_str.is_char_boundary(byte_start) {
+        // Start offset splits a multi-byte character - return None
+        // rather than returning corrupted data
+        return None;
+    }
+
+    // Find the nearest valid UTF-8 boundary at or before byte_end
+    // This handles cases where tree-sitter's end offset splits a multi-byte character
+    let adjusted_end = find_char_boundary_before(source_str, byte_end);
+
+    // Extract content using the adjusted end offset
+    source_str.get(byte_start..adjusted_end).map(|s| s.to_string())
+}
+
+/// Safely extract context lines from source bytes around a byte span
+///
+/// Similar to `extract_symbol_content_safe`, but extracts context around
+/// a span rather than the span itself. This is useful for extracting
+/// surrounding lines for better context in code intelligence tools.
+///
+/// # Arguments
+/// * `source` - Source file contents as bytes
+/// * `byte_start` - Start byte offset of the span (inclusive)
+/// * `byte_end` - End byte offset of the span (exclusive)
+/// * `context_bytes` - Number of additional bytes to extract before and after
+///
+/// # Returns
+/// Some(String) with the extracted context, or None if extraction fails
+///
+/// # Example
+/// ```rust
+/// let source = "line1\nline2\nline3\nline4";
+/// let context = extract_context_safe(source.as_bytes(), 7, 13, 5);
+/// // Extracts around "line2" with 5 bytes of context
+/// ```
+pub fn extract_context_safe(
+    source: &[u8],
+    byte_start: usize,
+    byte_end: usize,
+    context_bytes: usize,
+) -> Option<String> {
+    // Validate bounds
+    if byte_start > byte_end || byte_end > source.len() {
+        return None;
+    }
+
+    // Convert to UTF-8 string
+    let source_str = std::str::from_utf8(source).ok()?;
+
+    // Calculate context bounds
+    let context_start = byte_start.saturating_sub(context_bytes);
+    let context_end = (byte_end + context_bytes).min(source.len());
+
+    // Adjust to valid UTF-8 boundaries
+    let adjusted_start = find_char_boundary_after(source_str, context_start);
+    let adjusted_end = find_char_boundary_before(source_str, context_end);
+
+    // Extract context
+    source_str
+        .get(adjusted_start..adjusted_end)
+        .map(|s| s.to_string())
+}
+
+/// Find the nearest valid UTF-8 character boundary at or before the given byte offset
+///
+/// If the offset is already at a valid boundary, returns it unchanged.
+/// Otherwise, searches backward to find the previous valid boundary.
+fn find_char_boundary_before(s: &str, offset: usize) -> usize {
+    let mut pos = offset.min(s.len());
+    while pos > 0 && !s.is_char_boundary(pos) {
+        pos -= 1;
+    }
+    pos
+}
+
+/// Find the nearest valid UTF-8 character boundary at or after the given byte offset
+///
+/// If the offset is already at a valid boundary, returns it unchanged.
+/// Otherwise, searches forward to find the next valid boundary.
+fn find_char_boundary_after(s: &str, offset: usize) -> usize {
+    let mut pos = offset;
+    let len = s.len();
+    while pos < len && !s.is_char_boundary(pos) {
+        pos += 1;
+    }
+    pos
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -296,5 +423,147 @@ mod tests {
         assert_eq!(parse_symbol_kind("unknown_kind"), None);
         assert_eq!(parse_symbol_kind(""), None);
         assert_eq!(parse_symbol_kind("xyz"), None);
+    }
+
+    #[test]
+    fn test_extract_symbol_content_safe_ascii() {
+        let source = b"fn hello() { return 42; }";
+        let result = extract_symbol_content_safe(source, 0, source.len());
+        assert_eq!(result, Some("fn hello() { return 42; }".to_string()));
+    }
+
+    #[test]
+    fn test_extract_symbol_content_safe_partial_range() {
+        let source = b"fn hello() { return 42; }";
+        let result = extract_symbol_content_safe(source, 3, 8);
+        assert_eq!(result, Some("hello".to_string()));
+    }
+
+    #[test]
+    fn test_extract_symbol_content_safe_emoji() {
+        // Emoji (4 bytes in UTF-8): \u{1f44b} = " waving hand"
+        let source = "fn test() { //  \u{1f44b}  }";
+        let bytes = source.as_bytes();
+        let result = extract_symbol_content_safe(bytes, 0, bytes.len());
+        assert_eq!(result, Some(source.to_string()));
+    }
+
+    #[test]
+    fn test_extract_symbol_content_safe_emoji_splits_end() {
+        // Test when byte_end splits the emoji (4 bytes)
+        // If end is in middle of emoji, should adjust to complete character
+        // Emoji \u{1f44b} is 4 bytes in UTF-8: [0xF0, 0x9F, 0x91, 0x8B]
+        let source: Vec<u8> = vec![
+            b'h', b'i',  // "hi"
+            0xF0, 0x9F, 0x91, 0x8B,  // emoji
+        ];
+        // Emoji bytes at positions 2,3,4,5
+        // If we end at position 4 (in middle of emoji), should adjust
+        let result = extract_symbol_content_safe(&source, 0, 4);
+        // Should return "hi" (stopping before the incomplete emoji)
+        assert_eq!(result, Some("hi".to_string()));
+    }
+
+    #[test]
+    fn test_extract_symbol_content_safe_start_at_boundary() {
+        let source = "abc\u{1f44b}xyz"; // "abc" + emoji + "xyz"
+        let bytes = source.as_bytes();
+        // Start at emoji boundary (position 3)
+        let result = extract_symbol_content_safe(bytes, 3, bytes.len());
+        assert_eq!(result, Some("\u{1F44B}xyz".to_string()));
+    }
+
+    #[test]
+    fn test_extract_symbol_content_safe_start_splits_char_returns_none() {
+        let source = "abc\u{1f44b}xyz"; // "abc" + emoji + "xyz"
+        let bytes = source.as_bytes();
+        // Emoji is at positions 3-6 (4 bytes)
+        // Start at position 4 (in middle of emoji) should return None
+        let result = extract_symbol_content_safe(bytes, 4, bytes.len());
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_extract_symbol_content_safe_out_of_bounds() {
+        let source = b"hello";
+        assert_eq!(extract_symbol_content_safe(source, 0, 100), None);
+        assert_eq!(extract_symbol_content_safe(source, 10, 20), None);
+        assert_eq!(extract_symbol_content_safe(source, 5, 3), None);
+    }
+
+    #[test]
+    fn test_extract_symbol_content_safe_cjk() {
+        // CJK characters (Chinese) are 3 bytes each in UTF-8
+        let source = "fn 你好() { return 世界; }";
+        let bytes = source.as_bytes();
+        let result = extract_symbol_content_safe(bytes, 0, bytes.len());
+        assert_eq!(result, Some(source.to_string()));
+    }
+
+    #[test]
+    fn test_extract_symbol_content_safe_accented() {
+        // Accented letters (2 bytes in UTF-8)
+        let source = "fn héllo() { return café; }";
+        let bytes = source.as_bytes();
+        let result = extract_symbol_content_safe(bytes, 0, bytes.len());
+        assert_eq!(result, Some(source.to_string()));
+    }
+
+    #[test]
+    fn test_extract_context_safe() {
+        let source = "line1\nline2\nline3\nline4";
+        let bytes = source.as_bytes();
+        // Extract around "line2" (positions 6-11)
+        let result = extract_context_safe(bytes, 6, 11, 3);
+        // Should include context around line2
+        assert!(result.is_some());
+        let context = result.unwrap();
+        assert!(context.contains("line2"));
+    }
+
+    #[test]
+    fn test_extract_context_safe_with_emoji() {
+        let source = "before\u{1f44b}after";
+        let bytes = source.as_bytes();
+        // Emoji is 4 bytes starting at position 6
+        // Extract around the emoji (positions 6-10)
+        let result = extract_context_safe(bytes, 6, 10, 2);
+        assert!(result.is_some());
+        let context = result.unwrap();
+        // Should contain valid UTF-8 (String is always valid UTF-8)
+        assert!(!context.is_empty());
+        // Verify the emoji is present or at least some valid content
+        assert!(context.len() > 0);
+    }
+
+    #[test]
+    fn test_find_char_boundary_before() {
+        let s = "a\u{1f44b}b"; // "a" + emoji + "b"
+        // Emoji starts at position 1, ends at position 5 (4 bytes)
+        assert_eq!(find_char_boundary_before(s, 5), 5); // Already at boundary
+        assert_eq!(find_char_boundary_before(s, 4), 1); // In middle of emoji, go to start
+        assert_eq!(find_char_boundary_before(s, 3), 1); // In middle of emoji, go to start
+        assert_eq!(find_char_boundary_before(s, 2), 1); // In middle of emoji, go to start
+        assert_eq!(find_char_boundary_before(s, 1), 1); // At boundary
+        assert_eq!(find_char_boundary_before(s, 0), 0); // At start
+    }
+
+    #[test]
+    fn test_find_char_boundary_after() {
+        let s = "a\u{1f44b}b"; // "a" + emoji + "b"
+        // Emoji starts at position 1, ends at position 5 (4 bytes)
+        assert_eq!(find_char_boundary_after(s, 0), 0); // Already at boundary
+        assert_eq!(find_char_boundary_after(s, 1), 1); // At boundary
+        assert_eq!(find_char_boundary_after(s, 2), 5); // In middle of emoji, go to end
+        assert_eq!(find_char_boundary_after(s, 3), 5); // In middle of emoji, go to end
+        assert_eq!(find_char_boundary_after(s, 4), 5); // In middle of emoji, go to end
+        assert_eq!(find_char_boundary_after(s, 5), 5); // At boundary
+    }
+
+    #[test]
+    fn test_extract_symbol_content_safe_invalid_utf8() {
+        let source: &[u8] = &[0xFF, 0xFE, 0xFD]; // Invalid UTF-8
+        let result = extract_symbol_content_safe(source, 0, 3);
+        assert_eq!(result, None);
     }
 }

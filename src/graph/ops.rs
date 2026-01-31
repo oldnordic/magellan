@@ -9,6 +9,7 @@ use sqlitegraph::{GraphBackend, SnapshotId};
 
 use super::query;
 use super::CodeGraph;
+use crate::common::extract_symbol_content_safe;
 
 /// Deterministic reconcile outcome.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -153,16 +154,12 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
     }
 
     // Step 5: Extract and store code chunks for each symbol
-    let source_str = std::str::from_utf8(source)
-        .map_err(|e| anyhow::anyhow!("Source is not valid UTF-8: {}", e))?;
-
+    // Use safe UTF-8 extraction to handle multi-byte characters that tree-sitter may split
     let mut code_chunks = Vec::new();
     for fact in &symbol_facts {
-        // Extract source content for this symbol's byte span
-        // Bounds check: both byte_start <= byte_end AND byte_end <= source length
-        if fact.byte_start <= fact.byte_end && fact.byte_end <= source_str.len() {
-            let content = source_str[fact.byte_start..fact.byte_end].to_string();
-
+        // Safely extract source content for this symbol's byte span
+        // This handles multi-byte UTF-8 characters that could be split by tree-sitter offsets
+        if let Some(content) = extract_symbol_content_safe(source, fact.byte_start, fact.byte_end) {
             let chunk = CodeChunk::new(
                 path.to_string(),
                 fact.byte_start,
@@ -174,6 +171,8 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
 
             code_chunks.push(chunk);
         }
+        // If extraction fails (invalid UTF-8 or split character), skip this symbol's chunk
+        // This is a graceful degradation - the symbol is still indexed, just without content
     }
 
     // Store all code chunks in a single transaction

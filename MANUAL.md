@@ -146,7 +146,45 @@ fn main() {
 0       9  <- Byte offsets from file start
 ```
 
-### 3.4 Position Data in JSON
+### 3.4 UTF-8 Safety
+
+**Magellan handles multi-byte UTF-8 characters safely.**
+
+Tree-sitter provides byte offsets that can split multi-byte UTF-8 characters (emojis, CJK, accented letters). Direct string slicing with these offsets would panic in Rust. Magellan uses safe extraction functions to handle this.
+
+#### Multi-byte UTF-8 Character Sizes
+
+| Character Type | UTF-8 Bytes | Examples |
+|----------------|-------------|----------|
+| ASCII | 1 byte | `a`, `0`, `\n` |
+| Accented Latin | 2 bytes | `é`, `ñ`, `ü` |
+| CJK (Chinese/Japanese/Korean) | 3 bytes | `你`, `は`, `한` |
+| Emoji | 4 bytes | ``, ``, `` |
+
+#### Safe Extraction Behavior
+
+When extracting symbol content from byte offsets:
+
+1. **Start offset at valid boundary**: Content is extracted normally
+2. **Start offset splits character**: Returns `None` (graceful failure)
+3. **End offset splits character**: Adjusts end to previous valid boundary (truncates incomplete character)
+
+This ensures:
+- No panics from invalid UTF-8 slicing
+- Valid UTF-8 in all extracted content
+- Graceful degradation for edge cases
+
+#### Example
+
+```rust
+// Emoji \u{1f44b} is 4 bytes: [0xF0, 0x9F, 0x91, 0x8B]
+let source = "fn test() \u{1f44b} {}";
+
+// If tree-sitter returns end offset that splits the emoji,
+// Magellan truncates to the last complete character before the split
+```
+
+### 3.5 Position Data in JSON
 
 When exporting to JSON or querying with `--show-extent`, positions are reported as:
 
@@ -164,7 +202,7 @@ When exporting to JSON or querying with `--show-extent`, positions are reported 
 - `start_line`: 1-indexed line number
 - `start_col`: 0-indexed column offset within the line
 
-### 3.5 Why These Conventions?
+### 3.6 Why These Conventions?
 
 Magellan uses tree-sitter parsers for all supported languages. Tree-sitter's position conventions were chosen to:
 
@@ -190,7 +228,7 @@ magellan watch --root <DIR> --db <FILE> [--debounce-ms <N>] [--scan-initial]
 | `--debounce-ms <N>` | Integer | 500 | Debounce delay in milliseconds |
 | `--scan-initial` | Flag | - | Scan directory on startup |
 
-### 3.2 status
+### 4.2 status
 
 ```bash
 magellan status --db <FILE>

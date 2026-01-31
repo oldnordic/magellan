@@ -25,7 +25,10 @@ pub mod validation;
 pub mod verify;
 pub mod watcher;
 
-pub use common::{detect_language_from_path, format_symbol_kind, parse_symbol_kind, resolve_path};
+pub use common::{
+    detect_language_from_path, extract_context_safe, extract_symbol_content_safe, format_symbol_kind,
+    parse_symbol_kind, resolve_path,
+};
 pub use diagnostics::{DiagnosticStage, SkipReason, WatchDiagnostic};
 pub use generation::{ChunkStore, CodeChunk};
 pub use graph::filter::FileFilter;

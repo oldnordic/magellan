@@ -183,7 +183,37 @@ impl SpanContext {
 }
 
 impl SpanChecksums {
+    /// Safely extract bytes from a file for checksum computation
+    ///
+    /// This helper function extracts a byte slice from a file with bounds checking.
+    /// It operates on raw bytes (not UTF-8 strings), so it's safe for any file content.
+    ///
+    /// # Arguments
+    ///
+    /// * `file_path` - Path to the source file
+    /// * `byte_start` - Start byte offset of span
+    /// * `byte_end` - End byte offset of span
+    ///
+    /// # Returns
+    /// Some(Vec<u8>) with the extracted bytes, or None if:
+    /// - File cannot be read
+    /// - Offsets are out of bounds
+    fn extract_from_bytes(file_path: &str, byte_start: usize, byte_end: usize) -> Option<Vec<u8>> {
+        let content = std::fs::read(file_path).ok()?;
+
+        // Validate bounds
+        if byte_start > byte_end || byte_end > content.len() {
+            return None;
+        }
+
+        // Extract the byte slice
+        content.get(byte_start..byte_end).map(|s| s.to_vec())
+    }
+
     /// Compute SHA-256 checksum of span content
+    ///
+    /// This function computes a checksum of raw bytes, not UTF-8 strings.
+    /// It's safe for any file content, including files with multi-byte UTF-8 characters.
     ///
     /// # Arguments
     ///
@@ -195,11 +225,10 @@ impl SpanChecksums {
         byte_start: usize,
         byte_end: usize,
     ) -> Option<String> {
-        let content = std::fs::read(file_path).ok()?;
-        let span_bytes = content.get(byte_start..byte_end)?;
+        let span_bytes = Self::extract_from_bytes(file_path, byte_start, byte_end)?;
 
         let mut hasher = Sha256::new();
-        hasher.update(span_bytes);
+        hasher.update(&span_bytes);
         let result = hasher.finalize();
 
         Some(format!("sha256:{}", hex::encode(result)))
