@@ -237,6 +237,86 @@ mod tests {
         let export: GraphExport = serde_json::from_str(&json).unwrap();
         assert!(!export.collisions.is_empty());
     }
+
+    #[test]
+    fn test_csv_export_mixed_record_types() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let mut graph = CodeGraph::open(&db_path).unwrap();
+
+        // Create a file with symbols, references, and calls
+        let file1 = temp_dir.path().join("test.rs");
+        std::fs::write(
+            &file1,
+            r#"
+fn main() {
+    println!("hello");
+    helper();
+}
+
+fn helper() {}
+"#,
+        )
+        .unwrap();
+
+        let path1 = file1.to_string_lossy().to_string();
+        let source1 = std::fs::read(&file1).unwrap();
+        graph.index_file(&path1, &source1).unwrap();
+
+        // Export to CSV with all record types
+        let config = ExportConfig {
+            format: ExportFormat::Csv,
+            include_symbols: true,
+            include_references: true,
+            include_calls: true,
+            minify: false,
+            filters: ExportFilters::default(),
+            include_collisions: false,
+            collisions_field: CollisionField::Fqn,
+        };
+
+        let csv = export_graph(&mut graph, &config).unwrap();
+
+        // Verify CSV output
+        let lines: Vec<&str> = csv.lines().collect();
+        assert!(lines.len() > 1, "CSV should have header + data rows");
+
+        // Check header contains all expected columns
+        let header = lines[0];
+        assert!(header.contains("record_type"));
+        assert!(header.contains("file"));
+        assert!(header.contains("symbol_id"));
+        assert!(header.contains("name"));
+        assert!(header.contains("kind"));
+        assert!(header.contains("referenced_symbol"));
+        assert!(header.contains("target_symbol_id"));
+        assert!(header.contains("caller"));
+        assert!(header.contains("callee"));
+        assert!(header.contains("caller_symbol_id"));
+        assert!(header.contains("callee_symbol_id"));
+
+        // Verify all data rows have the same number of columns
+        let header_cols: Vec<&str> = header.split(',').collect();
+        let expected_col_count = header_cols.len();
+
+        for (i, line) in lines.iter().skip(1).enumerate() {
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let data_cols: Vec<&str> = line.split(',').collect();
+            assert_eq!(
+                data_cols.len(),
+                expected_col_count,
+                "Row {} has {} columns, expected {}",
+                i + 2,
+                data_cols.len(),
+                expected_col_count
+            );
+        }
+
+        // Verify version header is present
+        assert!(csv.starts_with("# Magellan Export Version: 2.0.0"));
+    }
 }
 
 impl Default for ExportConfig {
@@ -1461,6 +1541,12 @@ pub fn export_graph(graph: &mut CodeGraph, config: &ExportConfig) -> Result<Stri
 ///
 /// Single struct with optional fields for different record types ensures
 /// consistent CSV headers across Symbol, Reference, and Call records.
+///
+/// NOTE: We do NOT use `skip_serializing_if` on optional fields because
+/// the CSV crate writes headers based on the first record. If we skip fields,
+/// subsequent records with different field sets will fail with "found record
+/// with X fields, but the previous record has Y fields". Instead, we always
+/// write all fields (empty strings for None values) to ensure consistent headers.
 #[derive(Debug, Clone, Serialize)]
 struct UnifiedCsvRow {
     // Universal fields (always present)
@@ -1473,30 +1559,20 @@ struct UnifiedCsvRow {
     end_line: usize,
     end_col: usize,
 
-    // Symbol-specific (optional)
-    #[serde(skip_serializing_if = "Option::is_none")]
+    // Symbol-specific (optional, but always serialized as empty string if None)
     symbol_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     kind: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     kind_normalized: Option<String>,
 
-    // Reference-specific (optional)
-    #[serde(skip_serializing_if = "Option::is_none")]
+    // Reference-specific (optional, but always serialized as empty string if None)
     referenced_symbol: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     target_symbol_id: Option<String>,
 
-    // Call-specific (optional)
-    #[serde(skip_serializing_if = "Option::is_none")]
+    // Call-specific (optional, but always serialized as empty string if None)
     caller: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     callee: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     caller_symbol_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     callee_symbol_id: Option<String>,
 }
 
