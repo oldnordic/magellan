@@ -514,7 +514,10 @@ mod tests {
     #[test]
     fn test_check_orphan_references_clean_graph() {
         // Create a graph with valid Symbol and Reference nodes with proper REFERENCES edges
-        let mut graph = crate::CodeGraph::open(":memory:").unwrap();
+        // Use file-based database because :memory: doesn't work with separate connections
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("test.db");
+        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
 
         // Index a file to create a Symbol node
         let file_path = "/test/test.rs";
@@ -538,7 +541,10 @@ mod tests {
     #[test]
     fn test_check_orphan_references_with_orphans() {
         // Create a graph and manually insert an orphan Reference node
-        let mut graph = crate::CodeGraph::open(":memory:").unwrap();
+        // Use file-based database because :memory: doesn't work with separate connections
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("test.db");
+        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
 
         use sqlitegraph::NodeSpec;
 

@@ -839,6 +839,42 @@ pub fn insert_ast_nodes(graph: &mut CodeGraph, nodes: Vec<crate::graph::AstNode>
     Ok(nodes.len())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ast_nodes_indexed_with_file() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test.db");
+
+        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
+
+        let source = b"fn main() { if true { println!(\"hello\"); } }";
+        graph.index_file("test.rs", source).unwrap();
+
+        // Verify AST nodes were created
+        let conn = graph.chunks.connect().unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM ast_nodes", [], |row| row.get(0))
+            .unwrap();
+
+        assert!(count > 0, "AST nodes should be created during indexing");
+
+        // Verify specific nodes exist
+        let if_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM ast_nodes WHERE kind = 'if_expression'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(if_count > 0, "if_expression should be indexed");
+    }
+}
+
 /// Count AST nodes for a file path.
 ///
 /// Used to verify deletion completeness.

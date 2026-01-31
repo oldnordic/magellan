@@ -24,7 +24,10 @@ mod tests {
     #[test]
     fn test_cross_file_references() {
         // This test demonstrates the bug: cross-file references are NOT created
-        let mut graph = crate::CodeGraph::open(":memory:").unwrap();
+        // Use file-based database because :memory: doesn't work with separate connections
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("test.db");
+        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
 
         // File 1: defines a function
         let file1_path = "/test/file1.rs";
