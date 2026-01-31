@@ -3,7 +3,7 @@
 //! Handles call indexing and query operations for CALLS edges.
 
 use anyhow::Result;
-use sqlitegraph::GraphBackend;
+use sqlitegraph::{GraphBackend, SnapshotId};
 use std::collections::HashMap;
 
 use crate::graph::schema::SymbolNode;
@@ -25,8 +25,9 @@ pub fn index_calls(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<u
     // Prefer symbols defined in the current file for duplicate names.
     let mut symbol_fqn_to_id: HashMap<String, (i64, bool)> = HashMap::new();
     let entity_ids = graph.files.backend.entity_ids()?;
+    let snapshot = SnapshotId::current();
     for entity_id in entity_ids {
-        if let Ok(node) = graph.files.backend.get_node(entity_id) {
+        if let Ok(node) = graph.files.backend.get_node(snapshot, entity_id) {
             if node.kind != "Symbol" {
                 continue;
             }

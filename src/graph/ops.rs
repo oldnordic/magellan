@@ -5,7 +5,7 @@
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 
-use sqlitegraph::GraphBackend;
+use sqlitegraph::{GraphBackend, SnapshotId};
 
 use super::query;
 use super::CodeGraph;
@@ -255,11 +255,13 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
     // These are the expected counts we will verify against.
 
     // Count symbols defined by this file (DEFINES edges)
+    let snapshot = SnapshotId::current();
     let expected_symbols: usize = if let Some(file_id) = graph.files.find_file_node(path)? {
         graph
             .files
             .backend
             .neighbors(
+                snapshot,
                 file_id.as_i64(),
                 sqlitegraph::NeighborQuery {
                     direction: sqlitegraph::BackendDirection::Outgoing,
@@ -298,7 +300,9 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
 
     if let Some(file_id) = graph.files.find_file_node(path)? {
         // Capture symbol IDs before deletion.
+        let snapshot = SnapshotId::current();
         let symbol_ids = graph.files.backend.neighbors(
+            snapshot,
             file_id.as_i64(),
             sqlitegraph::NeighborQuery {
                 direction: sqlitegraph::BackendDirection::Outgoing,
@@ -438,13 +442,14 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
 ///
 /// Used to verify deletion completeness.
 fn count_references_in_file(graph: &CodeGraph, path: &str) -> usize {
+    let snapshot = SnapshotId::current();
     graph
         .references
         .backend
         .entity_ids()
         .map(|ids| {
             ids.iter()
-                .filter_map(|id| graph.references.backend.get_node(*id).ok())
+                .filter_map(|id| graph.references.backend.get_node(snapshot, *id).ok())
                 .filter(|node| {
                     node.kind == "Reference"
                         && node
@@ -463,13 +468,14 @@ fn count_references_in_file(graph: &CodeGraph, path: &str) -> usize {
 ///
 /// Used to verify deletion completeness.
 fn count_calls_in_file(graph: &CodeGraph, path: &str) -> usize {
+    let snapshot = SnapshotId::current();
     graph
         .calls
         .backend
         .entity_ids()
         .map(|ids| {
             ids.iter()
-                .filter_map(|id| graph.calls.backend.get_node(*id).ok())
+                .filter_map(|id| graph.calls.backend.get_node(snapshot, *id).ok())
                 .filter(|node| {
                     node.kind == "Call"
                         && node
@@ -536,7 +542,9 @@ pub mod test_helpers {
 
         if let Some(file_id) = graph.files.find_file_node(path)? {
             // Capture symbol IDs before deletion.
+            let snapshot = SnapshotId::current();
             let symbol_ids = graph.files.backend.neighbors(
+                snapshot,
                 file_id.as_i64(),
                 sqlitegraph::NeighborQuery {
                     direction: sqlitegraph::BackendDirection::Outgoing,
@@ -729,8 +737,9 @@ pub fn reconcile_file_path(
     let new_hash = graph.files.compute_hash(&source);
 
     // 3) Check if hash matches stored file node
+    let snapshot = SnapshotId::current();
     let unchanged = if let Some(file_id) = graph.files.find_file_node(path_key)? {
-        let node = graph.files.backend.get_node(file_id.as_i64())?;
+        let node = graph.files.backend.get_node(snapshot, file_id.as_i64())?;
         let file_node: crate::graph::schema::FileNode = serde_json::from_value(node.data)
             .unwrap_or_else(|_| crate::graph::schema::FileNode {
                 path: path_key.to_string(),

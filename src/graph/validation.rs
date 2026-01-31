@@ -5,7 +5,7 @@
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use sqlitegraph::GraphBackend;
+use sqlitegraph::{BackendDirection, GraphBackend, NeighborQuery, SnapshotId};
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -207,9 +207,10 @@ fn check_orphan_references(graph: &mut CodeGraph) -> Result<Vec<ValidationError>
 
     // Get all Reference node entity IDs
     let entity_ids = graph.references.backend.entity_ids()?;
+    let snapshot = SnapshotId::current();
 
     for entity_id in entity_ids {
-        let node = match graph.references.backend.get_node(entity_id) {
+        let node = match graph.references.backend.get_node(snapshot, entity_id) {
             Ok(n) => n,
             Err(_) => continue,
         };
@@ -226,6 +227,7 @@ fn check_orphan_references(graph: &mut CodeGraph) -> Result<Vec<ValidationError>
 
         // Check if this reference has outgoing REFERENCES edges
         let neighbors = graph.references.backend.neighbors(
+            snapshot,
             entity_id,
             NeighborQuery {
                 direction: BackendDirection::Outgoing,
@@ -267,9 +269,10 @@ fn check_orphan_calls(graph: &mut CodeGraph) -> Result<Vec<ValidationError>> {
 
     // Get all Call node entity IDs
     let entity_ids = graph.calls.backend.entity_ids()?;
+    let snapshot = SnapshotId::current();
 
     for entity_id in entity_ids {
-        let node = match graph.calls.backend.get_node(entity_id) {
+        let node = match graph.calls.backend.get_node(snapshot, entity_id) {
             Ok(n) => n,
             Err(_) => continue,
         };
@@ -285,6 +288,7 @@ fn check_orphan_calls(graph: &mut CodeGraph) -> Result<Vec<ValidationError>> {
 
         // Check for incoming CALLER edges (caller symbol -> call node)
         let callers = graph.calls.backend.neighbors(
+            snapshot,
             entity_id,
             NeighborQuery {
                 direction: BackendDirection::Incoming,
@@ -294,6 +298,7 @@ fn check_orphan_calls(graph: &mut CodeGraph) -> Result<Vec<ValidationError>> {
 
         // Check for outgoing CALLS edges (call node -> callee symbol)
         let callees = graph.calls.backend.neighbors(
+            snapshot,
             entity_id,
             NeighborQuery {
                 direction: BackendDirection::Outgoing,

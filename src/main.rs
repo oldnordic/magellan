@@ -277,6 +277,26 @@ enum Command {
         dry_run: bool,
         no_backup: bool,
     },
+    Chunks {
+        db_path: PathBuf,
+        output_format: OutputFormat,
+        limit: Option<usize>,
+        file_filter: Option<String>,
+        kind_filter: Option<String>,
+    },
+    ChunkBySpan {
+        db_path: PathBuf,
+        file_path: String,
+        byte_start: usize,
+        byte_end: usize,
+        output_format: OutputFormat,
+    },
+    ChunkBySymbol {
+        db_path: PathBuf,
+        symbol_name: String,
+        file_filter: Option<String>,
+        output_format: OutputFormat,
+    },
 }
 
 fn parse_args() -> Result<Command> {

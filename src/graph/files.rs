@@ -22,7 +22,7 @@
 
 use anyhow::Result;
 use sha2::{Digest, Sha256};
-use sqlitegraph::{GraphBackend, NodeId, NodeSpec, SqliteGraphBackend};
+use sqlitegraph::{GraphBackend, NodeId, NodeSpec, SnapshotId, SqliteGraphBackend};
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -74,7 +74,8 @@ impl FileOps {
 
         if let Some(id) = self.find_file_node(path)? {
             // File exists, update hash and timestamps
-            let node = self.backend.get_node(id.as_i64())?;
+            let snapshot = SnapshotId::current();
+            let node = self.backend.get_node(snapshot, id.as_i64())?;
 
             // Parse existing FileNode, update hash and timestamps, serialize back
             let mut file_node: FileNode =
@@ -139,9 +140,10 @@ impl FileOps {
 
         // Use SqliteGraphBackend's entity_ids method
         let ids = self.backend.entity_ids()?;
+        let snapshot = SnapshotId::current();
 
         for id in ids {
-            let node = match self.backend.get_node(id) {
+            let node = match self.backend.get_node(snapshot, id) {
                 Ok(n) => n,
                 Err(_) => continue,
             };
@@ -171,7 +173,8 @@ impl FileOps {
         node_id: i64,
         file_path: std::path::PathBuf,
     ) -> Result<Option<SymbolFact>> {
-        let node = self.backend.get_node(node_id)?;
+        let snapshot = SnapshotId::current();
+        let node = self.backend.get_node(snapshot, node_id)?;
 
         let symbol_node: Option<crate::graph::schema::SymbolNode> =
             serde_json::from_value(node.data).ok();
@@ -230,7 +233,8 @@ impl FileOps {
             None => return Ok(None),
         };
 
-        let entity = self.backend.get_node(node_id.as_i64())?;
+        let snapshot = SnapshotId::current();
+        let entity = self.backend.get_node(snapshot, node_id.as_i64())?;
         let file_node: FileNode = serde_json::from_value(entity.data)?;
         Ok(Some(file_node))
     }
@@ -252,8 +256,9 @@ impl FileOps {
         let mut result = HashMap::new();
 
         let entity_ids = self.backend.entity_ids()?;
+        let snapshot = SnapshotId::current();
         for id in entity_ids {
-            let entity = self.backend.get_node(id)?;
+            let entity = self.backend.get_node(snapshot, id)?;
             if entity.kind == "File" {
                 if let Ok(file_node) = serde_json::from_value::<FileNode>(entity.data) {
                     result.insert(file_node.path.clone(), file_node);

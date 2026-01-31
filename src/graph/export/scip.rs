@@ -28,7 +28,7 @@ use crate::ingest::detect::detect_language;
 use super::CodeGraph;
 
 // Import the GraphBackend trait for backend methods
-use sqlitegraph::GraphBackend;
+use sqlitegraph::{BackendDirection, GraphBackend, NeighborQuery, SnapshotId};
 
 /// SCIP export configuration
 #[derive(Debug, Clone)]
@@ -132,8 +132,6 @@ fn map_symbol_kind(kind: &str) -> Kind {
 /// # Returns
 /// SCIP protobuf bytes
 pub fn export_scip(graph: &CodeGraph, config: &ScipExportConfig) -> Result<Vec<u8>> {
-    use sqlitegraph::{BackendDirection, NeighborQuery};
-
     let mut index = Index::new();
 
     // Build metadata
@@ -167,10 +165,11 @@ pub fn export_scip(graph: &CodeGraph, config: &ScipExportConfig) -> Result<Vec<u
 
     // Get all entity IDs
     let entity_ids = graph.files.backend.entity_ids()?;
+    let snapshot = SnapshotId::current();
 
     // First pass: collect symbols and references by file
     for entity_id in entity_ids {
-        let entity = graph.files.backend.get_node(entity_id)?;
+        let entity = graph.files.backend.get_node(snapshot, entity_id)?;
 
         match entity.kind.as_str() {
             "Symbol" => {
@@ -180,6 +179,7 @@ pub fn export_scip(graph: &CodeGraph, config: &ScipExportConfig) -> Result<Vec<u
                         .files
                         .backend
                         .neighbors(
+                            snapshot,
                             entity_id,
                             NeighborQuery {
                                 direction: BackendDirection::Incoming,
@@ -188,7 +188,7 @@ pub fn export_scip(graph: &CodeGraph, config: &ScipExportConfig) -> Result<Vec<u
                         )?
                         .first()
                     {
-                        let file_entity = graph.files.backend.get_node(*file_id)?;
+                        let file_entity = graph.files.backend.get_node(snapshot, *file_id)?;
                         if let Ok(file_node) =
                             serde_json::from_value::<super::FileNode>(file_entity.data)
                         {

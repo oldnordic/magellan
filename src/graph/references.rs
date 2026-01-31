@@ -4,7 +4,8 @@
 
 use anyhow::Result;
 use sqlitegraph::{
-    BackendDirection, EdgeSpec, GraphBackend, NeighborQuery, NodeId, NodeSpec, SqliteGraphBackend,
+    BackendDirection, EdgeSpec, GraphBackend, NeighborQuery, NodeId, NodeSpec, SnapshotId,
+    SqliteGraphBackend,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -31,10 +32,11 @@ impl ReferenceOps {
     /// Determinism: collects candidate entity IDs, sorts ascending, deletes in that order.
     pub fn delete_references_in_file(&self, path: &str) -> Result<usize> {
         let entity_ids = self.backend.entity_ids()?;
+        let snapshot = SnapshotId::current();
 
         let mut to_delete: Vec<i64> = Vec::new();
         for entity_id in entity_ids {
-            let node = match self.backend.get_node(entity_id) {
+            let node = match self.backend.get_node(snapshot, entity_id) {
                 Ok(n) => n,
                 Err(_) => continue,
             };
@@ -99,8 +101,9 @@ impl ReferenceOps {
         };
 
         // Iterate through all entities and find Symbol nodes
+        let snapshot = SnapshotId::current();
         for entity_id in entity_ids {
-            if let Ok(node) = self.backend.get_node(entity_id) {
+            if let Ok(node) = self.backend.get_node(snapshot, entity_id) {
                 // Check if this is a Symbol node by looking at the kind field
                 if node.kind == "Symbol" {
                     if let Ok(symbol_node) = serde_json::from_value::<
@@ -232,8 +235,9 @@ impl ReferenceOps {
         };
 
         // Iterate through all entities and find Symbol nodes
+        let snapshot = SnapshotId::current();
         for entity_id in entity_ids {
-            if let Ok(node) = self.backend.get_node(entity_id) {
+            if let Ok(node) = self.backend.get_node(snapshot, entity_id) {
                 // Check if this is a Symbol node by looking at the kind field
                 if node.kind == "Symbol" {
                     if let Ok(symbol_node) = serde_json::from_value::<
@@ -347,7 +351,9 @@ impl ReferenceOps {
     /// Vector of ReferenceFact for all references to the symbol
     pub fn references_to_symbol(&mut self, symbol_id: i64) -> Result<Vec<ReferenceFact>> {
         // Query incoming REFERENCES edges
+        let snapshot = SnapshotId::current();
         let neighbor_ids = self.backend.neighbors(
+            snapshot,
             symbol_id,
             NeighborQuery {
                 direction: BackendDirection::Incoming,
@@ -415,7 +421,8 @@ impl ReferenceOps {
 
     /// Convert a reference node to ReferenceFact
     fn reference_fact_from_node(&self, node_id: i64) -> Result<Option<ReferenceFact>> {
-        let node = self.backend.get_node(node_id)?;
+        let snapshot = SnapshotId::current();
+        let node = self.backend.get_node(snapshot, node_id)?;
 
         let reference_node: Option<ReferenceNode> = serde_json::from_value(node.data).ok();
 
@@ -473,8 +480,9 @@ fn bar() {
         let mut fqn_to_id: HashMap<String, i64> = HashMap::new();
 
         let entity_ids = graph.files.backend.entity_ids().unwrap();
+        let snapshot = SnapshotId::current();
         for entity_id in entity_ids {
-            if let Ok(node) = graph.files.backend.get_node(entity_id) {
+            if let Ok(node) = graph.files.backend.get_node(snapshot, entity_id) {
                 if node.kind == "Symbol" {
                     if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data) {
                         if let Some(symbol_id) = symbol_node.symbol_id {

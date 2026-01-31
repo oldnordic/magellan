@@ -21,7 +21,7 @@ pub mod scip;
 use anyhow::Result;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
-use sqlitegraph::{BackendDirection, GraphBackend, NeighborQuery};
+use sqlitegraph::{BackendDirection, GraphBackend, NeighborQuery, SnapshotId};
 
 use super::{CallNode, CodeGraph, FileNode, ReferenceNode, SymbolNode};
 use crate::graph::query::{collision_groups, CollisionField};
@@ -440,10 +440,11 @@ pub fn export_json(graph: &mut CodeGraph) -> Result<String> {
 
     // Get all entity IDs from the graph
     let entity_ids = graph.files.backend.entity_ids()?;
+    let snapshot = SnapshotId::current();
 
     // Process each entity
     for entity_id in entity_ids {
-        let entity = graph.files.backend.get_node(entity_id)?;
+        let entity = graph.files.backend.get_node(snapshot, entity_id)?;
 
         match entity.kind.as_str() {
             "File" => {
@@ -566,10 +567,11 @@ pub fn stream_json<W: std::io::Write>(
 
     // Get all entity IDs from the graph
     let entity_ids = graph.files.backend.entity_ids()?;
+    let snapshot = SnapshotId::current();
 
     // Process each entity
     for entity_id in entity_ids {
-        let entity = graph.files.backend.get_node(entity_id)?;
+        let entity = graph.files.backend.get_node(snapshot, entity_id)?;
 
         match entity.kind.as_str() {
             "File" => {
@@ -703,10 +705,11 @@ pub fn stream_json_minified<W: std::io::Write>(
 
     // Get all entity IDs from the graph
     let entity_ids = graph.files.backend.entity_ids()?;
+    let snapshot = SnapshotId::current();
 
     // Process each entity
     for entity_id in entity_ids {
-        let entity = graph.files.backend.get_node(entity_id)?;
+        let entity = graph.files.backend.get_node(snapshot, entity_id)?;
 
         match entity.kind.as_str() {
             "File" => {
@@ -818,7 +821,9 @@ pub fn stream_json_minified<W: std::io::Write>(
 /// Get the file path for a symbol by following DEFINES edge
 fn get_file_path_from_symbol(graph: &mut CodeGraph, symbol_id: i64) -> Result<String> {
     // Query incoming DEFINES edges to find the File node
+    let snapshot = SnapshotId::current();
     let file_ids = graph.files.backend.neighbors(
+        snapshot,
         symbol_id,
         NeighborQuery {
             direction: BackendDirection::Incoming,
@@ -827,7 +832,7 @@ fn get_file_path_from_symbol(graph: &mut CodeGraph, symbol_id: i64) -> Result<St
     )?;
 
     if let Some(file_id) = file_ids.first() {
-        let entity = graph.files.backend.get_node(*file_id)?;
+        let entity = graph.files.backend.get_node(snapshot, *file_id)?;
         if entity.kind == "File" {
             if let Ok(file_node) = serde_json::from_value::<FileNode>(entity.data) {
                 return Ok(file_node.path);
@@ -869,10 +874,11 @@ pub fn export_jsonl(graph: &mut CodeGraph) -> Result<String> {
 
     // Get all entity IDs from the graph
     let entity_ids = graph.files.backend.entity_ids()?;
+    let snapshot = SnapshotId::current();
 
     // Process each entity and create typed records
     for entity_id in entity_ids {
-        let entity = graph.files.backend.get_node(entity_id)?;
+        let entity = graph.files.backend.get_node(snapshot, entity_id)?;
 
         match entity.kind.as_str() {
             "File" => {
@@ -1003,10 +1009,11 @@ pub fn stream_ndjson<W: std::io::Write>(
 
     // Get all entity IDs from the graph
     let entity_ids = graph.files.backend.entity_ids()?;
+    let snapshot = SnapshotId::current();
 
     // Process each entity and create typed records
     for entity_id in entity_ids {
-        let entity = graph.files.backend.get_node(entity_id)?;
+        let entity = graph.files.backend.get_node(snapshot, entity_id)?;
 
         match entity.kind.as_str() {
             "File" => {
@@ -1153,10 +1160,11 @@ pub fn export_dot(graph: &mut CodeGraph, config: &ExportConfig) -> Result<String
 
     // Collect all Call nodes from the graph
     let entity_ids = graph.files.backend.entity_ids()?;
+    let snapshot = SnapshotId::current();
     let mut calls = Vec::new();
 
     for entity_id in entity_ids {
-        let entity = graph.files.backend.get_node(entity_id)?;
+        let entity = graph.files.backend.get_node(snapshot, entity_id)?;
         if entity.kind == "Call" {
             if let Ok(call_node) = serde_json::from_value::<CallNode>(entity.data) {
                 calls.push(call_node);
@@ -1304,10 +1312,11 @@ pub fn export_graph(graph: &mut CodeGraph, config: &ExportConfig) -> Result<Stri
 
             // Get all entity IDs from the graph
             let entity_ids = graph.files.backend.entity_ids()?;
+            let snapshot = SnapshotId::current();
 
             // Process each entity
             for entity_id in entity_ids {
-                let entity = graph.files.backend.get_node(entity_id)?;
+                let entity = graph.files.backend.get_node(snapshot, entity_id)?;
 
                 match entity.kind.as_str() {
                     "File" => {
@@ -1502,9 +1511,10 @@ pub fn export_csv(graph: &mut CodeGraph, config: &ExportConfig) -> Result<String
     let mut records: Vec<UnifiedCsvRow> = Vec::new();
 
     let entity_ids = graph.files.backend.entity_ids()?;
+    let snapshot = SnapshotId::current();
 
     for entity_id in entity_ids {
-        let entity = graph.files.backend.get_node(entity_id)?;
+        let entity = graph.files.backend.get_node(snapshot, entity_id)?;
 
         match entity.kind.as_str() {
             "Symbol" => {

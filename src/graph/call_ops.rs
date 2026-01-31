@@ -4,7 +4,8 @@
 
 use anyhow::Result;
 use sqlitegraph::{
-    BackendDirection, EdgeSpec, GraphBackend, NeighborQuery, NodeId, NodeSpec, SqliteGraphBackend,
+    BackendDirection, EdgeSpec, GraphBackend, NeighborQuery, NodeId, NodeSpec, SnapshotId,
+    SqliteGraphBackend,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -34,7 +35,8 @@ impl CallOps {
 
         let mut to_delete: Vec<i64> = Vec::new();
         for entity_id in entity_ids {
-            let node = match self.backend.get_node(entity_id) {
+            let snapshot = SnapshotId::current();
+            let node = match self.backend.get_node(snapshot, entity_id) {
                 Ok(n) => n,
                 Err(_) => continue,
             };
@@ -90,7 +92,8 @@ impl CallOps {
         let mut stable_symbol_ids: HashMap<(String, String), Option<String>> = HashMap::new();
 
         for symbol_id in symbol_ids.values() {
-            let node = match self.backend.get_node(*symbol_id) {
+            let snapshot = SnapshotId::current();
+            let node = match self.backend.get_node(snapshot, *symbol_id) {
                 Ok(value) => value,
                 Err(_) => continue,
             };
@@ -226,7 +229,9 @@ impl CallOps {
     /// Vector of CallFact for all calls from this symbol
     pub fn calls_from_symbol(&mut self, symbol_id: i64) -> Result<Vec<CallFact>> {
         // Query outgoing CALLER edges from caller to Call nodes
+        let snapshot = SnapshotId::current();
         let neighbor_ids = self.backend.neighbors(
+            snapshot,
             symbol_id,
             NeighborQuery {
                 direction: BackendDirection::Outgoing,
@@ -253,7 +258,9 @@ impl CallOps {
     /// Vector of CallFact for all calls to this symbol
     pub fn callers_of_symbol(&mut self, symbol_id: i64) -> Result<Vec<CallFact>> {
         // Query incoming CALLS edges to callee
+        let snapshot = SnapshotId::current();
         let neighbor_ids = self.backend.neighbors(
+            snapshot,
             symbol_id,
             NeighborQuery {
                 direction: BackendDirection::Incoming,
@@ -326,7 +333,8 @@ impl CallOps {
 
     /// Convert a call node to CallFact
     fn call_fact_from_node(&self, node_id: i64) -> Result<Option<CallFact>> {
-        let node = self.backend.get_node(node_id)?;
+        let snapshot = SnapshotId::current();
+        let node = self.backend.get_node(snapshot, node_id)?;
 
         let call_node: Option<CallNode> = serde_json::from_value(node.data).ok();
 

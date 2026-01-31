@@ -4,7 +4,7 @@
 
 use anyhow::Result;
 use rusqlite::params;
-use sqlitegraph::{BackendDirection, GraphBackend, NeighborQuery};
+use sqlitegraph::{BackendDirection, GraphBackend, NeighborQuery, SnapshotId};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -64,8 +64,10 @@ pub fn symbol_nodes_in_file(graph: &mut CodeGraph, path: &str) -> Result<Vec<(i6
     };
 
     let path_buf = PathBuf::from(path);
+    let snapshot = SnapshotId::current();
 
     let neighbor_ids = graph.files.backend.neighbors(
+        snapshot,
         file_id.as_i64(),
         NeighborQuery {
             direction: BackendDirection::Outgoing,
@@ -112,8 +114,10 @@ pub fn symbol_nodes_in_file_with_ids(
     };
 
     let path_buf = PathBuf::from(path);
+    let snapshot = SnapshotId::current();
 
     let neighbor_ids = graph.files.backend.neighbors(
+        snapshot,
         file_id.as_i64(),
         NeighborQuery {
             direction: BackendDirection::Outgoing,
@@ -123,7 +127,7 @@ pub fn symbol_nodes_in_file_with_ids(
 
     let mut entries = Vec::new();
     for symbol_node_id in neighbor_ids {
-        if let Ok(node) = graph.files.backend.get_node(symbol_node_id) {
+        if let Ok(node) = graph.files.backend.get_node(snapshot, symbol_node_id) {
             if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data.clone()) {
                 // Convert to SymbolFact
                 let kind = match symbol_node.kind.as_str() {
@@ -212,7 +216,9 @@ pub fn symbol_id_by_name(graph: &mut CodeGraph, path: &str, name: &str) -> Resul
     };
 
     // Query neighbors via DEFINES edges
+    let snapshot = SnapshotId::current();
     let neighbor_ids = graph.files.backend.neighbors(
+        snapshot,
         file_id.as_i64(),
         NeighborQuery {
             direction: BackendDirection::Outgoing,
@@ -222,7 +228,7 @@ pub fn symbol_id_by_name(graph: &mut CodeGraph, path: &str, name: &str) -> Resul
 
     // Find symbol with matching name
     for symbol_node_id in neighbor_ids {
-        if let Ok(node) = graph.files.backend.get_node(symbol_node_id) {
+        if let Ok(node) = graph.files.backend.get_node(snapshot, symbol_node_id) {
             if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data) {
                 if symbol_node
                     .name
@@ -314,10 +320,11 @@ pub fn index_references(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Res
 
     // Get all entity IDs from the graph
     let entity_ids = graph.files.backend.entity_ids()?;
+    let snapshot = SnapshotId::current();
 
     // Iterate through all entities and find Symbol nodes
     for entity_id in entity_ids {
-        if let Ok(node) = graph.files.backend.get_node(entity_id) {
+        if let Ok(node) = graph.files.backend.get_node(snapshot, entity_id) {
             // Check if this is a Symbol node by looking at the kind field
             if node.kind == "Symbol" {
                 if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data) {
@@ -522,9 +529,10 @@ impl CodeGraph {
     pub fn get_symbols_by_label(&self, label: &str) -> Result<Vec<SymbolQueryResult>> {
         let entity_ids = self.get_entities_by_label(label)?;
         let mut results = Vec::new();
+        let snapshot = SnapshotId::current();
 
         for entity_id in entity_ids {
-            if let Ok(node) = self.symbols.backend.get_node(entity_id) {
+            if let Ok(node) = self.symbols.backend.get_node(snapshot, entity_id) {
                 let symbol_node: SymbolNode =
                     serde_json::from_value(node.data).unwrap_or_else(|_| SymbolNode {
                         symbol_id: None,
@@ -560,9 +568,10 @@ impl CodeGraph {
     pub fn get_symbols_by_labels(&self, labels: &[&str]) -> Result<Vec<SymbolQueryResult>> {
         let entity_ids = self.get_entities_by_labels(labels)?;
         let mut results = Vec::new();
+        let snapshot = SnapshotId::current();
 
         for entity_id in entity_ids {
-            if let Ok(node) = self.symbols.backend.get_node(entity_id) {
+            if let Ok(node) = self.symbols.backend.get_node(snapshot, entity_id) {
                 let symbol_node: SymbolNode =
                     serde_json::from_value(node.data).unwrap_or_else(|_| SymbolNode {
                         symbol_id: None,
@@ -925,9 +934,10 @@ fn test_function() -> i32 {
         // Get symbols by using the backend to find the actual display_fqn
         let entity_ids = graph.files.backend.entity_ids().unwrap();
         let mut found_display_fqn: Option<String> = None;
+        let snapshot = SnapshotId::current();
 
         for entity_id in entity_ids {
-            if let Ok(node) = graph.files.backend.get_node(entity_id) {
+            if let Ok(node) = graph.files.backend.get_node(snapshot, entity_id) {
                 if node.kind == "Symbol" {
                     if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data) {
                         if symbol_node.name.as_deref() == Some("unique_function") {
@@ -991,9 +1001,10 @@ fn test_function() -> i32 {
         // Find the display_fqn for common_name symbols
         let entity_ids = graph.files.backend.entity_ids().unwrap();
         let mut common_display_fqn: Option<String> = None;
+        let snapshot = SnapshotId::current();
 
         for entity_id in entity_ids {
-            if let Ok(node) = graph.files.backend.get_node(entity_id) {
+            if let Ok(node) = graph.files.backend.get_node(snapshot, entity_id) {
                 if node.kind == "Symbol" {
                     if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data) {
                         if symbol_node.name.as_deref() == Some("common_name") {

@@ -29,7 +29,7 @@ use anyhow::Result;
 use blake3::Hasher;
 use sha2::{Digest, Sha256};
 use sqlitegraph::{
-    add_label, BackendDirection, EdgeSpec, GraphBackend, NeighborQuery, NodeId, NodeSpec,
+    add_label, BackendDirection, EdgeSpec, GraphBackend, NeighborQuery, NodeId, NodeSpec, SnapshotId,
     SqliteGraphBackend,
 };
 use std::rc::Rc;
@@ -284,7 +284,9 @@ impl SymbolOps {
     /// Delete all symbols and DEFINES edges for a file
     pub fn delete_file_symbols(&self, file_id: NodeId) -> Result<()> {
         // Find all outgoing DEFINES edges
+        let snapshot = SnapshotId::current();
         let neighbor_ids = self.backend.neighbors(
+            snapshot,
             file_id.as_i64(),
             NeighborQuery {
                 direction: BackendDirection::Outgoing,
@@ -513,8 +515,9 @@ mod tests {
 
         let entity_ids = graph.files.backend.entity_ids().unwrap();
         let mut found = false;
+        let snapshot = SnapshotId::current();
         for entity_id in entity_ids {
-            if let Ok(node) = graph.files.backend.get_node(entity_id) {
+            if let Ok(node) = graph.files.backend.get_node(snapshot, entity_id) {
                 if node.kind == "Symbol" {
                     if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data) {
                         if symbol_node.name.as_deref() == Some("persist_me") {
