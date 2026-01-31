@@ -19,6 +19,9 @@
 //! **Workaround:** Use file-based databases for CodeGraph operations.
 //! See [MANUAL.md](../../MANUAL.md#known-limitations) for details.
 pub mod ambiguity;
+mod ast_node;
+mod ast_extractor;
+mod ast_ops;
 mod cache;
 mod call_ops;
 mod calls;
@@ -66,7 +69,10 @@ use crate::generation::{ChunkStore, CodeChunk};
 use crate::references::{CallFact, ReferenceFact};
 
 // Re-export public types
+pub use ast_extractor::{extract_ast_nodes, language_from_path, normalize_node_kind};
+pub use ast_node::{AstNode, AstNodeWithText, is_structural_kind};
 pub use cache::CacheStats;
+pub use db_compat::ensure_ast_schema;
 pub use db_compat::MAGELLAN_SCHEMA_VERSION;
 pub use export::{ExportConfig, ExportFormat};
 pub use freshness::{check_freshness, FreshnessStatus, STALE_THRESHOLD_SECS};
@@ -223,6 +229,15 @@ impl CodeGraph {
 
         // Ensure metrics tables exist
         metrics.ensure_schema()?;
+
+        // Ensure AST nodes schema exists
+        {
+            let ast_conn = rusqlite::Connection::open(&db_path_buf).map_err(|e| {
+                anyhow::anyhow!("Failed to open connection for AST schema: {}", e)
+            })?;
+            db_compat::ensure_ast_schema(&ast_conn)
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        }
 
         // Detect if this is an upgrade (metrics tables exist but are empty)
         let needs_backfill = {
