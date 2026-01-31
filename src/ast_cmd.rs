@@ -3,6 +3,79 @@
 //! Provides commands for querying and displaying AST (Abstract Syntax Tree) nodes
 //! from the code graph database. Supports file-based queries, position-based queries,
 //! and kind-based filtering.
+//!
+//! # Commands
+//!
+//! ## `magellan ast`
+//!
+//! Query AST nodes for a file.
+//!
+//! ```bash
+//! magellan ast --db <FILE> --file <PATH> [--position <OFFSET>] [--output <FORMAT>]
+//! ```
+//!
+//! ### Arguments
+//!
+//! - `--db <FILE>` - Path to the Magellan database (required)
+//! - `--file <PATH>` - File path to query (required)
+//! - `--position <OFFSET>` - Byte offset in the file to find node at (optional)
+//! - `--output <FORMAT>` - Output format: human, json, or pretty (default: human)
+//!
+//! ### Examples
+//!
+//! Show all AST nodes for a file:
+//! ```bash
+//! magellan ast --db .codemcp/magellan.db --file src/main.rs
+//! ```
+//!
+//! Find node at byte position 100:
+//! ```bash
+//! magellan ast --db .codemcp/magellan.db --file src/main.rs --position 100
+//! ```
+//!
+//! Output as JSON:
+//! ```bash
+//! magellan ast --db .codemcp/magellan.db --file src/main.rs --output json
+//! ```
+//!
+//! ## `magellan find-ast`
+//!
+//! Find AST nodes by kind across all files.
+//!
+//! ```bash
+//! magellan find-ast --db <FILE> --kind <KIND> [--output <FORMAT>]
+//! ```
+//!
+//! ### Arguments
+//!
+//! - `--db <FILE>` - Path to the Magellan database (required)
+//! - `--kind <KIND>` - Node kind to find (e.g., function_item, if_expression, block) (required)
+//! - `--output <FORMAT>` - Output format: human, json, or pretty (default: human)
+//!
+//! ### Examples
+//!
+//! Find all if expressions:
+//! ```bash
+//! magellan find-ast --db .codemcp/magellan.db --kind if_expression
+//! ```
+//!
+//! Find all function definitions as JSON:
+//! ```bash
+//! magellan find-ast --db .codemcp/magellan.db --kind function_item --output json
+//! ```
+//!
+//! ### Common Node Kinds
+//!
+//! - `function_item` - Function definitions
+//! - `struct_item` - Struct definitions
+//! - `enum_item` - Enum definitions
+//! - `impl_item` - Implementation blocks
+//! - `if_expression` - If statements/expressions
+//! - `while_expression` - While loops
+//! - `for_expression` - For loops
+//! - `match_expression` - Match expressions
+//! - `block` - Code blocks
+//! - `call_expression` - Function calls
 
 use anyhow::Result;
 use std::path::PathBuf;
