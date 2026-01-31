@@ -1,6 +1,9 @@
 //! Database migration command implementation
 //!
-//! Migrates existing Magellan databases to schema version 4 (BLAKE3 SymbolId).
+//! Handles migrations from schema v1-v4 to v5:
+//! - v2: magellan_meta table
+//! - v4: BLAKE3-based SymbolId (additive fields)
+//! - v5: AST nodes table for hierarchy storage
 
 use anyhow::Result;
 use rusqlite::{params, Transaction, OptionalExtension};
@@ -9,7 +12,8 @@ use std::path::{Path, PathBuf};
 
 /// Current Magellan schema version
 /// v4: BLAKE3-based SymbolId, canonical_fqn, display_fqn
-pub const MAGELLAN_SCHEMA_VERSION: i64 = 4;
+/// v5: AST nodes table for hierarchy storage
+pub const MAGELLAN_SCHEMA_VERSION: i64 = 5;
 
 /// Migration result summary
 #[derive(Debug, Clone)]
@@ -187,6 +191,34 @@ fn migrate_from_version(tx: &Transaction, old_version: i64) -> Result<()> {
         // SymbolNode schema changes are additive (Option fields with defaults)
         // No explicit schema migration needed - just version bump
         // Existing symbols will have symbol_id=None, new symbols get BLAKE3 IDs
+    }
+
+    if old_version < 5 {
+        // v4 -> v5: AST nodes table
+        // Create ast_nodes table for storing AST hierarchy
+        tx.execute(
+            "CREATE TABLE IF NOT EXISTS ast_nodes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                parent_id INTEGER,
+                kind TEXT NOT NULL,
+                byte_start INTEGER NOT NULL,
+                byte_end INTEGER NOT NULL
+            )",
+            [],
+        )?;
+
+        // Create indexes for efficient queries
+        tx.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ast_nodes_parent
+             ON ast_nodes(parent_id)",
+            [],
+        )?;
+
+        tx.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ast_nodes_span
+             ON ast_nodes(byte_start, byte_end)",
+            [],
+        )?;
     }
 
     Ok(())
