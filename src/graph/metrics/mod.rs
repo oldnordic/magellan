@@ -59,6 +59,9 @@ impl MetricsOps {
     }
 
     /// Get current Unix timestamp in seconds
+    ///
+    /// Reserved for future timestamp tracking in metrics operations.
+    #[allow(dead_code)]
     fn now() -> i64 {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)

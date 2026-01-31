@@ -5,7 +5,7 @@
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use sqlitegraph::{BackendDirection, GraphBackend, NeighborQuery, SnapshotId};
+use sqlitegraph::{GraphBackend, SnapshotId};
 use std::path::Path;
 use std::path::PathBuf;
 
