@@ -66,3 +66,4 @@ docs/archive/
 # Internal issues/reviews (development only)
 docs/CODE_REVIEW*.md
 docs/COMBINED_ISSUES*.md
+docs/AST_NODES_*.md
