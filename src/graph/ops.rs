@@ -185,6 +185,39 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
         let _ = super::calls::index_calls(graph, path, source);
     }
 
+    // Step 7: Compute and store metrics (fan-in, fan-out, LOC, complexity)
+    // Convert SymbolFacts to SymbolNode format for metrics computation
+    use crate::graph::schema::SymbolNode;
+    let symbol_nodes: Vec<SymbolNode> = symbol_facts
+        .iter()
+        .filter_map(|fact| {
+            // Skip symbols without valid position data
+            if fact.start_line == 0 && fact.byte_start == 0 {
+                return None;
+            }
+            Some(SymbolNode {
+                symbol_id: None,  // Computed by metrics module
+                name: fact.name.clone(),
+                kind: fact.kind_normalized.clone(),
+                kind_normalized: Some(fact.kind_normalized.clone()),
+                fqn: fact.fqn.clone(),
+                display_fqn: fact.display_fqn.clone(),
+                canonical_fqn: fact.canonical_fqn.clone(),
+                byte_start: fact.byte_start,
+                byte_end: fact.byte_end,
+                start_line: fact.start_line,
+                start_col: fact.start_col,
+                end_line: fact.end_line,
+                end_col: fact.end_col,
+            })
+        })
+        .collect();
+
+    if let Err(e) = graph.metrics.compute_for_file(path, source, &symbol_nodes) {
+        // Metrics computation failure shouldn't block indexing
+        eprintln!("Warning: Failed to compute metrics for '{}': {}", path, e);
+    }
+
     // Invalidate cache for this file since it was just modified
     graph.invalidate_cache(path);
 
