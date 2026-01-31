@@ -2,6 +2,7 @@
 //!
 //! Usage: magellan <command> [arguments]
 
+mod ast_cmd;
 mod collisions_cmd;
 mod export_cmd;
 mod migrate_cmd;
@@ -58,6 +59,8 @@ fn print_usage() {
     eprintln!("  magellan collisions --db <FILE> [--field <fqn|display_fqn|canonical_fqn>] [--limit <N>] [--output <FORMAT>]");
     eprintln!("  magellan migrate --db <FILE> [--dry-run] [--no-backup] [--output <FORMAT>]");
     eprintln!("  magellan verify --root <DIR> --db <FILE>");
+    eprintln!("  magellan ast --db <FILE> --file <PATH> [--position <OFFSET>] [--output <FORMAT>]");
+    eprintln!("  magellan find-ast --db <FILE> --kind <KIND> [--output <FORMAT>]");
     eprintln!();
     eprintln!("Commands:");
     eprintln!("  watch           Watch directory and index changes");
@@ -76,6 +79,8 @@ fn print_usage() {
     eprintln!("  collisions      List ambiguous symbol groups for a chosen field");
     eprintln!("  migrate         Upgrade database to current schema version");
     eprintln!("  verify          Verify database vs filesystem");
+    eprintln!("  ast             Query AST nodes for a file");
+    eprintln!("  find-ast        Find AST nodes by kind");
     eprintln!();
     eprintln!("Global arguments:");
     eprintln!("  --output <FORMAT>   Output format: human (default), json (compact), or pretty (formatted)");
@@ -320,6 +325,17 @@ enum Command {
         db_path: PathBuf,
         symbol_name: String,
         file_filter: Option<String>,
+        output_format: OutputFormat,
+    },
+    Ast {
+        db_path: PathBuf,
+        file_path: String,
+        position: Option<usize>,
+        output_format: OutputFormat,
+    },
+    FindAst {
+        db_path: PathBuf,
+        kind: String,
         output_format: OutputFormat,
     },
 }
@@ -1518,6 +1534,107 @@ fn parse_args() -> Result<Command> {
                 show_code,
             })
         }
+        "ast" => {
+            let mut db_path: Option<PathBuf> = None;
+            let mut file_path: Option<String> = None;
+            let mut position: Option<usize> = None;
+            let mut output_format = OutputFormat::Human;
+
+            let mut i = 2;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--db" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--db requires an argument"));
+                        }
+                        db_path = Some(PathBuf::from(&args[i + 1]));
+                        i += 2;
+                    }
+                    "--file" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--file requires an argument"));
+                        }
+                        file_path = Some(args[i + 1].clone());
+                        i += 2;
+                    }
+                    "--position" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--position requires an argument"));
+                        }
+                        position = Some(args[i + 1].parse().map_err(|_| anyhow::anyhow!("--position must be a number"))?);
+                        i += 2;
+                    }
+                    "--output" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--output requires an argument"));
+                        }
+                        output_format = OutputFormat::from_str(&args[i + 1]).ok_or_else(|| {
+                            anyhow::anyhow!("Invalid output format: {}", args[i + 1])
+                        })?;
+                        i += 2;
+                    }
+                    _ => {
+                        return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
+                    }
+                }
+            }
+
+            let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+            let file_path = file_path.ok_or_else(|| anyhow::anyhow!("--file is required"))?;
+
+            Ok(Command::Ast {
+                db_path,
+                file_path,
+                position,
+                output_format,
+            })
+        }
+        "find-ast" => {
+            let mut db_path: Option<PathBuf> = None;
+            let mut kind: Option<String> = None;
+            let mut output_format = OutputFormat::Human;
+
+            let mut i = 2;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--db" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--db requires an argument"));
+                        }
+                        db_path = Some(PathBuf::from(&args[i + 1]));
+                        i += 2;
+                    }
+                    "--kind" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--kind requires an argument"));
+                        }
+                        kind = Some(args[i + 1].clone());
+                        i += 2;
+                    }
+                    "--output" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--output requires an argument"));
+                        }
+                        output_format = OutputFormat::from_str(&args[i + 1]).ok_or_else(|| {
+                            anyhow::anyhow!("Invalid output format: {}", args[i + 1])
+                        })?;
+                        i += 2;
+                    }
+                    _ => {
+                        return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
+                    }
+                }
+            }
+
+            let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+            let kind = kind.ok_or_else(|| anyhow::anyhow!("--kind is required"))?;
+
+            Ok(Command::FindAst {
+                db_path,
+                kind,
+                output_format,
+            })
+        }
         _ => Err(anyhow::anyhow!("Unknown command: {}", command)),
     }
 }
@@ -2091,6 +2208,29 @@ fn main() -> ExitCode {
                 validate_only,
                 output_format,
             ) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::Ast {
+            db_path,
+            file_path,
+            position,
+            output_format,
+        }) => {
+            if let Err(e) = ast_cmd::run_ast_command(db_path, file_path, position, output_format) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::FindAst {
+            db_path,
+            kind,
+            output_format,
+        }) => {
+            if let Err(e) = ast_cmd::run_find_ast_command(db_path, kind, output_format) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
