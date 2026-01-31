@@ -450,7 +450,7 @@ impl ReferenceOps {
 #[cfg(test)]
 mod tests {
     use crate::graph::schema::SymbolNode;
-    use sqlitegraph::GraphBackend;
+    use sqlitegraph::{GraphBackend, SnapshotId};
     use std::collections::HashMap;
 
     #[test]

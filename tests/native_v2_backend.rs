@@ -115,8 +115,9 @@ fn benchmark_sqlite_backend(count: usize) -> anyhow::Result<BenchmarkResults> {
 
     // Benchmark neighbor queries
     let start = Instant::now();
+    let snapshot = sqlitegraph::SnapshotId::current();
     for i in 0..count {
-        let _ = graph.neighbors((i + 1) as i64, sqlitegraph::NeighborQuery::default())?;
+        let _ = graph.neighbors(snapshot, (i + 1) as i64, sqlitegraph::NeighborQuery::default())?;
     }
     let neighbor_queries = start.elapsed();
 
@@ -172,8 +173,9 @@ fn benchmark_native_v2_backend(count: usize) -> anyhow::Result<BenchmarkResults>
 
     // Benchmark neighbor queries
     let start = Instant::now();
+    let snapshot = sqlitegraph::SnapshotId::current();
     for i in 0..count {
-        let _ = graph.neighbors((i + 1) as i64, sqlitegraph::NeighborQuery::default())?;
+        let _ = graph.neighbors(snapshot, (i + 1) as i64, sqlitegraph::NeighborQuery::default())?;
     }
     let neighbor_queries = start.elapsed();
 

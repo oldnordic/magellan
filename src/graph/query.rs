@@ -796,7 +796,7 @@ mod tests {
         symbol_nodes_in_file_with_ids, symbols_in_file, CollisionField,
     };
     use crate::graph::schema::SymbolNode;
-    use sqlitegraph::GraphBackend;
+    use sqlitegraph::{GraphBackend, SnapshotId};
 
     #[test]
     fn test_index_references_propagates_count() {
