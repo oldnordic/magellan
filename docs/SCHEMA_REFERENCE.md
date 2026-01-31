@@ -9,10 +9,11 @@ This document describes the data schema used by Magellan, intended to be followe
 3. [Symbol Properties](#symbol-properties)
 4. [Reference Types](#reference-types)
 5. [Call Graph Structure](#call-graph-structure)
-6. [Canonical FQN vs Display FQN](#canonical-fqn-vs-display-fqn)
-7. [Node Types](#node-types)
-8. [Edge Types](#edge-types)
-9. [Language Support](#language-support)
+6. [AST Node Schema](#ast-node-schema-v190)
+7. [Canonical FQN vs Display FQN](#canonical-fqn-vs-display-fqn)
+8. [Node Types](#node-types)
+9. [Edge Types](#edge-types)
+10. [Language Support](#language-support)
 
 ---
 
@@ -22,23 +23,24 @@ This document describes the data schema used by Magellan, intended to be followe
 
 Stable identifier for symbols across indexing runs.
 
-**Format**: 16 hex characters (64 bits)
+**Format**: 32 hex characters (128 bits)
 
 **Generation**:
 ```
-symbol_id = SHA256(language + ":" + fqn + ":" + span_id)[0:16]
+symbol_id = BLAKE3(language + ":" + fqn + ":" + byte_start + ":" + byte_end)
 ```
 
 **Components**:
 - `language`: Programming language (e.g., "rust", "python")
 - `fqn`: Fully-qualified name
-- `span_id`: Span-based stable ID
+- `byte_start`: Start byte offset
+- `byte_end`: End byte offset
 
 **Stability**:
 - Stable across re-indexing when position unchanged
 - Changes on: rename, move, file rename, signature change
 
-**Example**: `a1b2c3d4e5f6g7h8`
+**Example**: `28e17e99cb937643a1b2c3d4e5f67890`
 
 ### Span ID
 
@@ -327,6 +329,70 @@ Stored in graph database:
 
 ---
 
+## AST Node Schema (v1.9.0)
+
+Abstract Syntax Tree node representation for hierarchical code structure analysis.
+
+### AstNode Schema
+
+Stored in database for each AST node:
+
+```json
+{
+  "id": 123,
+  "parent_id": 120,
+  "kind": "if_expression",
+  "byte_start": 1500,
+  "byte_end": 1650
+}
+```
+
+### Field Descriptions
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | number | Yes | Internal node ID (auto-increment) |
+| `parent_id` | number | No | Parent node ID (null for root nodes) |
+| `kind` | string | Yes | Tree-sitter node kind |
+| `byte_start` | number | Yes | Start byte offset |
+| `byte_end` | number | Yes | End byte offset |
+
+### AST Node Kinds
+
+Common structural node kinds extracted:
+
+| Kind | Description | Example |
+|------|-------------|---------|
+| `function_item` | Function definition | `fn foo() {}` |
+| `struct_item` | Struct definition | `struct Foo {}` |
+| `enum_item` | Enum definition | `enum Bar {}` |
+| `impl_item` | Implementation block | `impl Foo {}` |
+| `if_expression` | If statement | `if x { }` |
+| `while_expression` | While loop | `while x { }` |
+| `for_expression` | For loop | `for x in y { }` |
+| `loop_expression` | Loop block | `loop { }` |
+| `match_expression` | Match expression | `match x { }` |
+| `block` | Code block | `{ statements }` |
+| `call_expression` | Function call | `foo()` |
+| `return_expression` | Return statement | `return x` |
+| `let_declaration` | Variable declaration | `let x = 1` |
+| `unsafe_block` | Unsafe block | `unsafe { }` |
+
+### AST Query API
+
+```bash
+# Show AST tree for a file
+magellan ast --db code.db --file src/main.rs
+
+# Find AST nodes by kind
+magellan find-ast --db code.db --kind if_expression
+
+# Get node at specific position
+magellan ast --db code.db --file src/main.rs --position 1234
+```
+
+---
+
 ## Canonical FQN vs Display FQN
 
 ### Canonical FQN (Unambiguous Identity)
@@ -394,6 +460,7 @@ Stored in sqlitegraph:
 | `Reference` | Symbol reference | ReferenceNode data |
 | `Call` | Function call | CallNode data |
 | `CodeChunk` | Source code chunk | content, checksum |
+| `AstNode` | AST node (v1.9.0) | kind, parent_id, byte_start, byte_end |
 
 ### FileNode Schema
 

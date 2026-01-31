@@ -3,6 +3,37 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0] - 2026-01-31
+
+### Added
+- **AST Node Storage**: Schema v5 adds `ast_nodes` table for hierarchical code structure
+  - `ast_nodes` table: id, parent_id, kind, byte_start, byte_end
+  - Indexes on `parent_id` and `(byte_start, byte_end)` for efficient queries
+  - Parent-child relationships tracked via stack-based traversal
+- **AST CLI Commands**: Two new commands for querying AST structure
+  - `ast` - Show AST tree for a file with optional position filtering
+  - `find-ast` - Find AST nodes by kind across all files
+  - Both commands support JSON output via `--output json`
+- **AST Extraction Integration**: Automatic AST extraction during file indexing
+  - Uses tree-sitter parse trees for all supported languages
+  - Extracts structural nodes (functions, blocks, control flow, etc.)
+  - Stores parent-child relationships for tree reconstruction
+- **Analysis Scripts**: Three new scripts for AST-based code analysis
+  - `scripts/ast-query.sh` - Query AST nodes by kind, show counts and tree structure
+  - `scripts/complexity.sh` - Calculate cyclomatic complexity using decision points
+  - `scripts/nesting.sh` - Find deeply nested code using parent relationships
+- **Database Migration**: Automatic v4→v5 migration with `ast_nodes` table creation
+
+### Changed
+- Bumped `MAGELLAN_SCHEMA_VERSION` from 4 to 5
+- Modified `ensure_magellan_meta()` to auto-upgrade v4 databases on open
+
+### Technical
+- All 450+ lib tests pass (20 new AST tests in `src/graph/ast_tests.rs`)
+- 4 new migration tests for v4→v5 upgrade path
+- JSON output includes `parent_id` for tree reconstruction
+- Common AST node kinds documented in MANUAL.md (function_item, if_expression, etc.)
+
 ## [1.8.0] - 2026-01-31
 
 ### Added

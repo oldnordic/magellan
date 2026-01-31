@@ -2,8 +2,8 @@
 
 **Status:** Reference Document
 **Purpose:** Design LogicGraph/PathGraph integration with Magellan
-**Date:** 2026-01-30
-**Magellan Version:** 1.4.0
+**Date:** 2026-01-31
+**Magellan Version:** 1.9.0
 
 ---
 
@@ -137,6 +137,36 @@ CREATE TABLE code_chunks (
 - `idx_chunks_file_path` on `(file_path)`
 - `idx_chunks_symbol_name` on `(symbol_name)`
 - `idx_chunks_content_hash` on `(content_hash)` - For duplicate detection
+
+#### `ast_nodes` - AST Node Storage (v1.9.0)
+
+```sql
+CREATE TABLE ast_nodes (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    parent_id  INTEGER,                  -- Parent node for tree structure
+    kind       TEXT NOT NULL,            -- Node type from tree-sitter
+    byte_start INTEGER NOT NULL,         -- Start byte offset
+    byte_end   INTEGER NOT NULL,         -- End byte offset
+    FOREIGN KEY (parent_id) REFERENCES ast_nodes(id)
+);
+```
+
+**Indexes:**
+- `idx_ast_nodes_parent` on `(parent_id)` - For parent-child queries
+- `idx_ast_nodes_span` on `(byte_start, byte_end)` - For position queries
+
+**Common node kinds:**
+- `function_item` - Function definitions
+- `struct_item` - Struct definitions
+- `impl_item` - Implementation blocks
+- `if_expression` - If statements
+- `while_expression` - While loops
+- `for_expression` - For loops
+- `loop_expression` - Loop blocks
+- `match_expression` - Match expressions
+- `block` - Code blocks
+- `call_expression` - Function calls
+- `return_expression` - Return statements
 
 #### `execution_log` - Operation Tracking
 
@@ -280,6 +310,8 @@ magellan <command> [arguments]
 | `get` | Get source code | `--db`, `--file`, `--symbol` |
 | `files` | List all files | `--db` |
 | `label` | Query by labels | `--db`, `--label`, `--list` |
+| `ast` | Show AST tree for file | `--db`, `--file`, `--position` |
+| `find-ast` | Find AST nodes by kind | `--db`, `--kind` |
 | `migrate` | Upgrade schema | `--db`, `--dry-run` |
 | `verify` | Validate vs filesystem | `--root`, `--db` |
 
@@ -314,6 +346,7 @@ symbols: 7562
 references: 102104
 calls: 26325
 code_chunks: 456
+ast_nodes: 15234
 ```
 
 ---
@@ -345,6 +378,9 @@ magellan/src/
 │   ├── symbols.rs       # Symbol operations
 │   ├── references.rs    # Reference operations
 │   ├── calls.rs         # Call graph operations
+│   ├── ast_node.rs      # AST node types (v1.9.0)
+│   ├── ast_extractor.rs # AST extraction from tree-sitter (v1.9.0)
+│   ├── ast_ops.rs       # AST query operations (v1.9.0)
 │   ├── filter.rs        # File filtering
 │   ├── freshness.rs     # staleness detection
 │   ├── export.rs        # JSON/SCIP export
@@ -359,6 +395,7 @@ magellan/src/
 │   ├── mod.rs
 │   ├── command.rs       # Response types
 │   └── rich.rs          # Human-readable output
+├── ast_cmd.rs           # AST CLI commands (v1.9.0)
 ├── references.rs        # Reference fact types
 └── verify.rs            # Graph validation logic
 ```

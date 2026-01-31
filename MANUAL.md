@@ -1,6 +1,6 @@
 # Magellan Operator Manual
 
-**Version 1.8.0** | *Last Updated: 2026-01-31*
+**Version 1.9.0** | *Last Updated: 2026-01-31*
 
 Comprehensive instructions for operating Magellan.
 
@@ -749,6 +749,123 @@ migration. To rollback a successful migration, restore from backup:
 ```bash
 mv ./magellan.db.v<timestamp>.bak ./magellan.db
 ```
+
+### 4.15 ast
+
+```bash
+magellan ast --db <FILE> --file <PATH> [--position <OFFSET>] [--output <FORMAT>]
+```
+
+Queries AST (Abstract Syntax Tree) nodes for a source file. Shows hierarchical structure with parent-child relationships and supports filtering by byte position.
+
+| Argument | Type | Default | Description |
+|----------|------|---------|-------------|
+| `--db <FILE>` | Path | - | Database path (required) |
+| `--file <PATH>` | Path | - | File path to query (required) |
+| `--position <OFFSET>` | Integer | - | Byte offset in the file (optional) |
+| `--output <FORMAT>` | Format | human | Output: human, json, or pretty |
+
+**Output Formats:**
+
+- **human** (default): Tree structure with `└──` showing parent-child relationships
+- **json**: Compact JSON with node metadata
+- **pretty**: Formatted JSON with indentation
+
+**Examples:**
+
+```bash
+# Show AST tree for a file
+magellan ast --db ./magellan.db --file src/main.rs
+
+# Find node at specific byte position
+magellan ast --db ./magellan.db --file src/main.rs --position 1000
+
+# Output as JSON
+magellan ast --db ./magellan.db --file src/main.rs --output json
+```
+
+**Human-Readable Output:**
+
+```
+AST nodes for src/main.rs (73 nodes):
+impl_item (1278:2542)
+  └── function_item (1332:1876)
+    └── block (1536:1876)
+      └── let_declaration (1546:1594)
+        └── call_expression (1565:1593)
+```
+
+**JSON Output Schema:**
+
+```json
+{
+  "schema_version": "1.0.0",
+  "execution_id": "...",
+  "data": {
+    "count": 73,
+    "file_path": "src/main.rs",
+    "nodes": [
+      {
+        "id": 1789,
+        "kind": "function_item",
+        "parent_id": 1788,
+        "byte_start": 1332,
+        "byte_end": 1876
+      }
+    ]
+  }
+}
+```
+
+---
+
+### 4.16 find-ast
+
+```bash
+magellan find-ast --db <FILE> --kind <KIND> [--output <FORMAT>]
+```
+
+Finds AST nodes by kind across all indexed files.
+
+| Argument | Type | Default | Description |
+|----------|------|---------|-------------|
+| `--db <FILE>` | Path | - | Database path (required) |
+| `--kind <KIND>` | String | - | Node kind to find (required) |
+| `--output <FORMAT>` | Format | human | Output: human, json, or pretty |
+
+**Examples:**
+
+```bash
+# Find all function definitions
+magellan find-ast --db ./magellan.db --kind function_item
+
+# Find all if expressions
+magellan find-ast --db ./magellan.db --kind if_expression
+
+# Find all impl blocks
+magellan find-ast --db ./magellan.db --kind impl_item
+
+# Output as JSON
+magellan find-ast --db ./magellan.db --kind function_item --output json
+```
+
+**Common Node Kinds:**
+
+| Kind | Description |
+|------|-------------|
+| `function_item` | Function definitions |
+| `struct_item` | Struct definitions |
+| `impl_item` | Implementation blocks |
+| `enum_item` | Enum definitions |
+| `mod_item` | Module declarations |
+| `if_expression` | If statements/expressions |
+| `while_expression` | While loops |
+| `for_expression` | For loops |
+| `loop_expression` | Loop blocks |
+| `match_expression` | Match expressions |
+| `block` | Code blocks |
+| `call_expression` | Function calls |
+| `return_expression` | Return statements |
 
 ---
 

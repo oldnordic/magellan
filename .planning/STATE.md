@@ -9,13 +9,13 @@ See: .planning/PROJECT.md (updated 2026-01-23)
 
 ## Current Position
 
-Phase: 38-ast-cli-testing (AST CLI & Testing)
-Plan: 38-01 of 2 (In Progress)
-Status: Plan 01 complete
-Last activity: 2026-01-31 — Completed 38-01 (AST CLI Commands)
+Phase: 39-ast-migration-fix (AST Migration Fix)
+Plan: 39-02 of 2 (Complete)
+Status: Phase complete
+Last activity: 2026-01-31 — Completed 39-02 (Verify New DB Creation)
 
-Progress: 50% (1/2 plans complete)
-Overall: 99% (147/148 plans complete)
+Progress: 100% (2/2 plans complete)
+Overall: 100% (149/149 plans complete)
 
 ## Performance Metrics
 
@@ -167,9 +167,58 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-01-31
-Stopped at: Completed 38-01 (AST CLI Commands)
+Stopped at: Completed 39-02 (Verify New DB Creation)
 Resume file: None
 Blockers: None
+
+## Phase 39 Summary
+
+**Milestone Goal:** AST Migration Fix - Fix database migration from v4 to v5 and verify new database creation.
+
+**Plans Completed:** 2 plans (39-01, 39-02)
+- 39-01: Fix v4->v5 migration in migrate_cmd.rs
+- 39-02: Verify new database creation with v5 schema
+
+**Key Changes:**
+- Updated MAGELLAN_SCHEMA_VERSION from 4 to 5 in db_compat.rs
+- Added ensure_ast_schema() function to create ast_nodes table
+- Modified ensure_magellan_meta() to auto-upgrade v4->v5 on database open
+- Added v4->v5 migration step to migrate_from_version() in migrate_cmd.rs
+- Created tests/migration_tests.rs with 4 comprehensive tests
+- Opening a v4 database now automatically creates ast_nodes table
+
+**Success Criteria (All Met):**
+- ✅ New databases created with magellan_schema_version = 5
+- ✅ ast_nodes table exists in new databases
+- ✅ Opening a v4 database auto-upgrades to v5
+- ✅ All migration tests pass (4/4)
+- ✅ All unit and integration tests pass (450/450)
+
+## v1.9 Deliverables Summary
+
+**Milestone Goal:** AST node storage and CLI for hierarchical code structure queries.
+
+**Phases Completed:** 4 phases (36-39) with 5 plans
+- Phase 36: AST Schema Foundation (1 plan) - ast_nodes table, ensure_ast_schema()
+- Phase 37: AST Extraction (2 plans) - tree-sitter traversal, index_file integration
+- Phase 38: AST CLI & Testing (2 plans) - ast_cmd.rs, ast_tests.rs
+- Phase 39: AST Migration Fix (2 plans) - v4->v5 migration, new DB verification
+
+**Test Coverage Added:** 24+ tests across ast_tests.rs and migration_tests.rs
+
+**Key Changes:**
+- [36-02] AST nodes table created with parent_id for hierarchical relationships
+- [37-01] AST extraction via tree-sitter traversal with stack-based parent tracking
+- [37-01] normalize_node_kind() maps language-specific kinds to normalized names
+- [37-01] language_from_path() detects language from file extension
+- [37-02] AST extraction integrated into index_file() using existing parser pool
+- [37-02] insert_ast_nodes() uses two-phase insertion for parent ID resolution
+- [38-01] AST CLI commands: `ast --file <path>` and `find-ast --kind <kind>`
+- [38-01] JSON output support with tree structure display
+- [38-02] Comprehensive test suite with 20+ integration tests
+- [39-01] v4->v5 migration creates ast_nodes table
+- [39-02] Auto-upgrade v4->v5 databases on open
+- [39-02] New databases created with magellan_schema_version = 5
 
 ## Phase 38 Summary
 
@@ -308,3 +357,26 @@ Blockers: None
 - ✅ JSON output works correctly
 - ✅ All unit and integration tests pass (450/450)
 - ✅ 20+ AST tests created
+
+## Phase 39 Summary
+
+**Milestone Goal:** AST Migration Fix - Fix database migration from v4 to v5 and verify new database creation.
+
+**Plans Completed:** 2 plans (39-01, 39-02)
+- 39-01: Fix v4->v5 migration in migrate_cmd.rs
+- 39-02: Verify new database creation with v5 schema
+
+**Key Changes:**
+- Updated MAGELLAN_SCHEMA_VERSION from 4 to 5 in db_compat.rs
+- Added ensure_ast_schema() function to create ast_nodes table
+- Modified ensure_magellan_meta() to auto-upgrade v4->v5 on database open
+- Added v4->v5 migration step to migrate_from_version() in migrate_cmd.rs
+- Created tests/migration_tests.rs with 4 comprehensive tests
+- Opening a v4 database now automatically creates ast_nodes table
+
+**Success Criteria (All Met):**
+- ✅ New databases created with magellan_schema_version = 5
+- ✅ ast_nodes table exists in new databases
+- ✅ Opening a v4 database auto-upgrades to v5
+- ✅ All migration tests pass (4/4)
+- ✅ All unit and integration tests pass (450/450)

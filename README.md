@@ -8,6 +8,7 @@ A deterministic codebase mapping tool. Watches source files, extracts AST-level 
 - Extracts AST-level facts: functions, classes, methods, enums, modules
 - Tracks symbol references: function calls and type references (7 languages)
 - Builds call graphs: caller → callee relationships across indexed files (7 languages)
+- Stores AST nodes for hierarchical code structure analysis (v1.9.0)
 - Stores code chunks for token-efficient LLM context (v1.8.0)
 - Computes metrics: fan-in, fan-out, LOC, complexity per file/symbol (v1.8.0)
 - Safely extracts UTF-8 content from byte offsets without panicking on multi-byte characters (v1.8.0)
@@ -533,6 +534,57 @@ Found 3 chunks for "main":
   tests/test.rs:10-50 [fn] main
 ```
 
+### ast
+
+```bash
+magellan ast --db <FILE> --file <PATH> [--position <N>] [--output FORMAT]
+```
+
+Show AST tree for a file (v1.9.0). Displays the hierarchical structure of Abstract Syntax Tree nodes extracted during indexing.
+
+| Argument | Description |
+|----------|-------------|
+| `--db <FILE>` | Path to database (required) |
+| `--file <PATH>` | File path to query (required) |
+| `--position <N>` | Show node at byte position (optional) |
+| `--output FORMAT` | Output format: human, json, pretty |
+
+```
+$ magellan ast --db ./magellan.db --file src/main.rs
+AST nodes for src/main.rs (365 nodes):
+function_item (2130:2256)
+  └── block (2176:2256)
+    └── call_expression (2212:2239)
+      └── call_expression (2212:2229)
+if_expression (4423:4553)
+  └── block (4444:4553)
+    └── return_expression (4468:4479)
+```
+
+### find-ast
+
+```bash
+magellan find-ast --db <FILE> --kind <KIND> [--output FORMAT]
+```
+
+Find AST nodes by kind across all files (v1.9.0).
+
+| Argument | Description |
+|----------|-------------|
+| `--db <FILE>` | Path to database (required) |
+| `--kind <KIND>` | AST node kind to find (required) |
+| `--output FORMAT` | Output format: human, json, pretty |
+
+Common node kinds: `function_item`, `struct_item`, `impl_item`, `if_expression`, `while_expression`, `for_expression`, `loop_expression`, `match_expression`, `block`, `call_expression`, `return_expression`.
+
+```
+$ magellan find-ast --db ./magellan.db --kind if_expression
+Found 16 AST nodes with kind 'if_expression':
+  - if_expression @ 4423:4553
+  - if_expression @ 6817:7443
+  ...
+```
+
 ## Supported Languages
 
 | Language | Extensions | Parser |
@@ -559,10 +611,11 @@ Found 3 chunks for "main":
 - `CALLER` - Symbol -> Call
 - `CALLS` - Call -> Symbol
 
-**Tables (v1.8.0):**
+**Tables (v1.9.0):**
 - `code_chunks` - Stored source code snippets by byte span with SHA-256 deduplication
 - `file_metrics` - Fan-in, fan-out, LOC, complexity per file
 - `symbol_metrics` - Fan-in, fan-out, LOC, cyclomatic complexity per symbol
+- `ast_nodes` - Hierarchical AST structure with parent-child relationships (v1.9.0)
 
 **Symbol Kinds:**
 Function, Method, Class, Interface, Enum, Module, Union, Namespace, TypeAlias, Unknown
@@ -598,6 +651,7 @@ src/
 ├── query_cmd.rs         # Query command
 ├── find_cmd.rs          # Find command
 ├── refs_cmd.rs          # Refs command
+├── ast_cmd.rs           # AST command (v1.9.0)
 ├── verify_cmd.rs        # Verify CLI handler
 ├── watch_cmd.rs         # Watch CLI handler
 ├── output/              # Output formatting
@@ -611,6 +665,9 @@ src/
     ├── references.rs    # Reference node operations
     ├── calls.rs         # Call edge operations
     ├── call_ops.rs      # Call node operations
+    ├── ast_node.rs      # AST node types (v1.9.0)
+    ├── ast_extractor.rs # AST extraction from tree-sitter (v1.9.0)
+    ├── ast_ops.rs       # AST query operations (v1.9.0)
     ├── ops.rs           # Graph indexing operations
     ├── query.rs         # Query operations
     ├── count.rs         # Count operations

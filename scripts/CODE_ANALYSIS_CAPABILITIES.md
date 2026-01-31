@@ -4,8 +4,8 @@
 
 | Tool | Version | Purpose |
 |------|---------|---------|
-| magellan | 1.7.0 | Code graph database, stores symbols/refs/calls |
-| llmgrep | 1.7.0 | Search symbols by mode (symbols/references/calls) |
+| magellan | 1.9.0 | Code graph database, stores symbols/refs/calls/**AST** |
+| llmgrep | 1.9.0 | Search symbols by mode (symbols/references/calls) |
 
 ### Analysis Capabilities
 
@@ -17,11 +17,13 @@
 | **Get source code** | ✅ `get` | ❌ | ✅ |
 | **List files** | ✅ `files --symbols` | ❌ | ✅ |
 | **Query by label** | ✅ `label --list` | ❌ | ✅ |
+| **Query AST nodes** | ✅ `ast` | ❌ | ✅ |
+| **Find by AST kind** | ✅ `find-ast` | ❌ | ✅ |
 | **JSON output** | ✅ | ✅ `--output json` | ✅ |
 
 ---
 
-## PathLite: What We CAN Build Now
+## PathLite: What We CAN Build Now (Enhanced with AST v5)
 
 ### 1. Call Chain Analysis (Forward & Backward) ✅
 
@@ -80,7 +82,31 @@ llmgrep --db magellan.db search --query "symbol" --mode references --output json
 
 **Implemented:** `magellan-workflow.sh hotspots`
 
-### 7. Guard/Invariant Verification ⚠️ (Call-Chain Level)
+### 7. Cyclomatic Complexity via AST (Phase 36+) ✅ **NEW**
+
+- Count decision points (if/while/for/loop/match)
+- Per-function complexity scoring
+- Identify overly complex functions
+
+**Implemented:** `scripts/complexity.sh`
+
+### 8. Nesting Depth Analysis (Phase 36+) ✅ **NEW**
+
+- Find deeply nested code blocks
+- Track nesting hierarchy using AST parent relationships
+- Identify refactoring candidates
+
+**Implemented:** `scripts/nesting.sh`
+
+### 9. AST Structure Queries (Phase 36+) ✅ **NEW**
+
+- Query nodes by kind (function, if, for, match, etc.)
+- Show tree structure with parent-child relationships
+- Position-based queries (find node at byte offset)
+
+**Implemented:** `scripts/ast-query.sh`, `magellan ast`, `magellan find-ast`
+
+### 10. Guard/Invariant Verification ⚠️ (Call-Chain Level)
 
 - Define guards as graph constraints
 - Verify constraint satisfaction via reachability
@@ -132,7 +158,7 @@ These features genuinely require AST/CFG infrastructure:
 
 ---
 
-## Database Schema
+## Database Schema (v5)
 
 ```sql
 graph_entities         -- Nodes (symbols with file_path, kind, data)
@@ -141,6 +167,7 @@ graph_labels           -- Labels (entity_id, label)
 graph_properties        -- Properties (entity_id, key, value)
 file_metrics           -- Phase 34: File-level metrics (fan-in/out, LOC, complexity)
 symbol_metrics        -- Phase 34: Symbol-level metrics
+ast_nodes              -- Phase 36: AST hierarchy (id, parent_id, kind, byte_start, byte_end)
 ```
 
 ## Edge Types Available
@@ -160,11 +187,17 @@ Examples depend on your project's code:
 
 ## Scripts Available
 
+### Core Scripts
 1. **magellan-workflow.sh** - Main workflow for watcher management, search, get, refs
 2. **call-chain.sh** - Forward/backward call analysis
 3. **blast-zone.sh** - Impact analysis
 4. **unreachable.sh** - Find unreachable public functions
 5. **module-deps.sh** - Module dependency graph
+
+### AST Scripts (v5+)
+1. **ast-query.sh** - Query AST nodes by kind, file, show tree structure
+2. **complexity.sh** - Cyclomatic complexity using AST decision points
+3. **nesting.sh** - Find deeply nested code using parent relationships
 
 ## Example Usage
 
@@ -190,6 +223,16 @@ dot -Tpng deps.dot -o deps.png
 
 # Show hotspots (Phase 34+)
 ./scripts/magellan-workflow.sh hotspots 50
+
+# AST queries (Phase 36+)
+./scripts/ast-query.sh --count
+./scripts/ast-query.sh --kind if_expression
+
+# Complexity analysis (Phase 36+)
+./scripts/complexity.sh --threshold 10
+
+# Nesting analysis (Phase 36+)
+./scripts/nesting.sh --threshold 4
 ```
 
 ---
@@ -213,11 +256,13 @@ PROJECT_NAME=myproject DB_DIR=/path/to/db ./scripts/magellan-workflow.sh start
 
 1. **llmgrep --mode calls** - finds who-calls-who relationships
 2. **magellan refs supports --direction** - critical for forward/backward chains
-3. **Graph is function-level, not statement-level** - CFG requires AST
+3. **Graph is function-level** - CFG requires AST
 4. **Multiple "forward" symbols** - need precise symbol identification (name + path or symbol-id)
 5. **PathLite is valuable now** - 80% of value for 20% of effort
 6. **PathFull requires more investment** - Remaining 20% for 80% more effort
 7. **Phase 34 metrics** - Pre-computed tables enable fast hotspots and complexity queries
+8. **Phase 36 AST nodes** - Enable complexity, nesting, and structure queries
+9. **Schema v5 required** for AST scripts - run `magellan migrate` to upgrade
 
 ---
 
