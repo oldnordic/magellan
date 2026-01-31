@@ -154,6 +154,7 @@ where
 }
 
 /// Save baseline measurements to file
+#[allow(dead_code)]
 fn save_baseline(name: &str, file_count: usize, duration_ms: u128) {
     // Ensure directory exists
     if let Some(parent) = Path::new(BASELINE_PATH).parent() {
@@ -173,6 +174,7 @@ fn save_baseline(name: &str, file_count: usize, duration_ms: u128) {
 }
 
 /// Load baseline measurements from file
+#[allow(dead_code)]
 fn load_baseline() -> Option<PerformanceBaseline> {
     let content = fs::read_to_string(BASELINE_PATH).ok()?;
     serde_json::from_str(&content).ok()
@@ -181,6 +183,7 @@ fn load_baseline() -> Option<PerformanceBaseline> {
 /// Check regression against baseline with detailed diagnostics
 ///
 /// Returns Ok(()) if within acceptable range, Err with regression percentage
+#[allow(dead_code)]
 fn check_regression(current_ms: u128) -> Result<(), f64> {
     let baseline = load_baseline();
 
@@ -433,6 +436,7 @@ fn test_regression_check() {
 
 #[cfg(test)]
 mod additional_diagnostics {
+    #[allow(unused_imports)]
     use super::*;
 
     /// Test performance breakdown by component

@@ -374,7 +374,7 @@ fn test_chunk_count_matches_symbol_count() {
     let path = "test_count.rs";
 
     // Index the file
-    let symbol_count = graph.index_file(path, source.as_bytes()).unwrap();
+    let _symbol_count = graph.index_file(path, source.as_bytes()).unwrap();
 
     // Count symbols directly
     let symbols = graph.symbols_in_file(path).unwrap();
