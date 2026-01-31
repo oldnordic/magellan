@@ -1220,6 +1220,196 @@ fn parse_args() -> Result<Command> {
 
             Ok(Command::GetFile { db_path, file_path })
         }
+        "chunks" => {
+            let mut db_path: Option<PathBuf> = None;
+            let mut output_format = OutputFormat::Human;
+            let mut limit: Option<usize> = None;
+            let mut file_filter: Option<String> = None;
+            let mut kind_filter: Option<String> = None;
+
+            let mut i = 2;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--db" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--db requires an argument"));
+                        }
+                        db_path = Some(PathBuf::from(&args[i + 1]));
+                        i += 2;
+                    }
+                    "--output" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--output requires an argument"));
+                        }
+                        output_format = OutputFormat::from_str(&args[i + 1]).ok_or_else(|| {
+                            anyhow::anyhow!("Invalid output format: {}", args[i + 1])
+                        })?;
+                        i += 2;
+                    }
+                    "--limit" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--limit requires an argument"));
+                        }
+                        limit = Some(args[i + 1].parse().map_err(|_| {
+                            anyhow::anyhow!("--limit must be a number")
+                        })?);
+                        i += 2;
+                    }
+                    "--file" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--file requires an argument"));
+                        }
+                        file_filter = Some(args[i + 1].clone());
+                        i += 2;
+                    }
+                    "--kind" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--kind requires an argument"));
+                        }
+                        kind_filter = Some(args[i + 1].clone());
+                        i += 2;
+                    }
+                    _ => {
+                        return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
+                    }
+                }
+            }
+
+            let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+
+            Ok(Command::Chunks {
+                db_path,
+                output_format,
+                limit,
+                file_filter,
+                kind_filter,
+            })
+        }
+        "chunk-by-span" => {
+            let mut db_path: Option<PathBuf> = None;
+            let mut file_path: Option<String> = None;
+            let mut byte_start: Option<usize> = None;
+            let mut byte_end: Option<usize> = None;
+            let mut output_format = OutputFormat::Human;
+
+            let mut i = 2;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--db" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--db requires an argument"));
+                        }
+                        db_path = Some(PathBuf::from(&args[i + 1]));
+                        i += 2;
+                    }
+                    "--file" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--file requires an argument"));
+                        }
+                        file_path = Some(args[i + 1].clone());
+                        i += 2;
+                    }
+                    "--start" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--start requires an argument"));
+                        }
+                        byte_start = Some(args[i + 1].parse().map_err(|_| {
+                            anyhow::anyhow!("--start must be a number")
+                        })?);
+                        i += 2;
+                    }
+                    "--end" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--end requires an argument"));
+                        }
+                        byte_end = Some(args[i + 1].parse().map_err(|_| {
+                            anyhow::anyhow!("--end must be a number")
+                        })?);
+                        i += 2;
+                    }
+                    "--output" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--output requires an argument"));
+                        }
+                        output_format = OutputFormat::from_str(&args[i + 1]).ok_or_else(|| {
+                            anyhow::anyhow!("Invalid output format: {}", args[i + 1])
+                        })?;
+                        i += 2;
+                    }
+                    _ => {
+                        return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
+                    }
+                }
+            }
+
+            let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+            let file_path = file_path.ok_or_else(|| anyhow::anyhow!("--file is required"))?;
+            let byte_start = byte_start.ok_or_else(|| anyhow::anyhow!("--start is required"))?;
+            let byte_end = byte_end.ok_or_else(|| anyhow::anyhow!("--end is required"))?;
+
+            Ok(Command::ChunkBySpan {
+                db_path,
+                file_path,
+                byte_start,
+                byte_end,
+                output_format,
+            })
+        }
+        "chunk-by-symbol" => {
+            let mut db_path: Option<PathBuf> = None;
+            let mut symbol_name: Option<String> = None;
+            let mut output_format = OutputFormat::Human;
+            let mut file_filter: Option<String> = None;
+
+            let mut i = 2;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--db" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--db requires an argument"));
+                        }
+                        db_path = Some(PathBuf::from(&args[i + 1]));
+                        i += 2;
+                    }
+                    "--symbol" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--symbol requires an argument"));
+                        }
+                        symbol_name = Some(args[i + 1].clone());
+                        i += 2;
+                    }
+                    "--output" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--output requires an argument"));
+                        }
+                        output_format = OutputFormat::from_str(&args[i + 1]).ok_or_else(|| {
+                            anyhow::anyhow!("Invalid output format: {}", args[i + 1])
+                        })?;
+                        i += 2;
+                    }
+                    "--file" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--file requires an argument"));
+                        }
+                        file_filter = Some(args[i + 1].clone());
+                        i += 2;
+                    }
+                    _ => {
+                        return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
+                    }
+                }
+            }
+
+            let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+            let symbol_name = symbol_name.ok_or_else(|| anyhow::anyhow!("--symbol is required"))?;
+
+            Ok(Command::ChunkBySymbol {
+                db_path,
+                symbol_name,
+                output_format,
+                file_filter,
+            })
+        }
         "label" => {
             let mut db_path: Option<PathBuf> = None;
             let mut labels: Vec<String> = Vec::new();
@@ -1742,6 +1932,44 @@ fn main() -> ExitCode {
         }
         Ok(Command::GetFile { db_path, file_path }) => {
             if let Err(e) = get_cmd::run_get_file(db_path, file_path) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::Chunks {
+            db_path,
+            output_format,
+            limit,
+            file_filter,
+            kind_filter,
+        }) => {
+            if let Err(e) = get_cmd::run_chunks(db_path, output_format, limit, file_filter, kind_filter) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::ChunkBySpan {
+            db_path,
+            file_path,
+            byte_start,
+            byte_end,
+            output_format,
+        }) => {
+            if let Err(e) = get_cmd::run_chunk_by_span(db_path, file_path, byte_start, byte_end, output_format) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::ChunkBySymbol {
+            db_path,
+            symbol_name,
+            output_format,
+            file_filter,
+        }) => {
+            if let Err(e) = get_cmd::run_chunk_by_symbol(db_path, symbol_name, output_format, file_filter) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
