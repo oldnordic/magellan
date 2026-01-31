@@ -3,6 +3,41 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-01-31
+
+### Added
+- **Safe UTF-8 content extraction**: New public API functions for converting tree-sitter byte offsets to UTF-8 text without panicking on multi-byte character boundaries
+  - `extract_symbol_content_safe()` - Extract symbol source code from byte offsets with UTF-8 safety
+  - `extract_context_safe()` - Extract symbol with before/after context lines
+  - `safe_str_slice()` - Safe UTF-8 string slicing with bounds checking (exported from lib.rs)
+  - Handles ASCII (1 byte), accented Latin (2 bytes), CJK (3 bytes), emoji (4 bytes)
+- **Metrics computation during indexing**: File and symbol metrics automatically computed during file indexing
+  - `file_metrics` table: fan_in, fan_out, symbol_count, LOC, complexity_score per file
+  - `symbol_metrics` table: fan_in, fan_out, LOC, cyclomatic complexity per symbol
+  - Metrics computed in `src/graph/metrics.rs` and wired into `index_file()` Step 7
+- **Chunk storage commands**: Three new commands for querying stored code chunks
+  - `chunks` - List all chunks with optional filters (limit, file pattern, symbol kind)
+  - `chunk-by-span` - Get chunk by exact byte range (file, start, end)
+  - `chunk-by-symbol` - Get all chunks for a symbol name (global search, optional file filter)
+- **Script enhancements**: `magellan-workflow.sh` updated with new commands
+  - `hotspots` - Show top N files by complexity score with tabular output
+  - `chunks` - Wrapper for chunk listing
+  - `chunk-by-symbol` - Get chunks by symbol name
+  - `chunk-by-span` - Get chunk by byte range
+  - `file-metrics` - Show metrics for a specific file
+  - `backfill` - Trigger metrics backfill helper
+
+### Changed
+- `src/output/rich.rs` - Added `extract_from_bytes()` helper for safe checksum computation on byte slices
+- `src/lib.rs` - Exported `extract_context_safe`, `extract_symbol_content_safe`, `safe_str_slice` as public API
+
+### Technical
+- All chunk commands support JSON output via `--output json` or `--output pretty`
+- Chunks use SHA-256 content hashing for deduplication detection
+- Metrics use BLAKE3 SymbolId for stable symbol identification
+- UTF-8 extraction uses `is_char_boundary()` for valid UTF-8 boundary detection
+- Integration tests: 14 tests in `tests/safe_extraction_tests.rs` with multi-byte UTF-8 fixtures
+
 ## [1.7.0] - 2026-01-24
 
 ### Fixed

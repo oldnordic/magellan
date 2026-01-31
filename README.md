@@ -8,6 +8,9 @@ A deterministic codebase mapping tool. Watches source files, extracts AST-level 
 - Extracts AST-level facts: functions, classes, methods, enums, modules
 - Tracks symbol references: function calls and type references (7 languages)
 - Builds call graphs: caller → callee relationships across indexed files (7 languages)
+- Stores code chunks for token-efficient LLM context (v1.8.0)
+- Computes metrics: fan-in, fan-out, LOC, complexity per file/symbol (v1.8.0)
+- Safely extracts UTF-8 content from byte offsets without panicking on multi-byte characters (v1.8.0)
 - Persists everything to a sqlitegraph database
 - Handles errors gracefully - keeps running even when files are unreadable
 - Shuts down cleanly on SIGINT/SIGTERM
@@ -85,6 +88,11 @@ magellan label --db /path/to/magellan.db --label struct --show-code
 # Get code chunks without re-reading files
 magellan get --db /path/to/magellan.db --file /path/to/file.rs --symbol main
 magellan get-file --db /path/to/magellan.db --file /path/to/file.rs
+
+# List and query chunks (v1.8.0)
+magellan chunks --db /path/to/magellan.db --limit 50 --kind fn
+magellan chunk-by-symbol --db /path/to/magellan.db --symbol main
+magellan chunk-by-span --db /path/to/magellan.db --file src/main.rs --start 100 --end 200
 
 # List ambiguous symbols (v1.5)
 magellan collisions --db /path/to/magellan.db
@@ -463,6 +471,68 @@ Get all code chunks from a file. Useful for getting complete file contents witho
 | `--db <FILE>` | Path to database (required) |
 | `--file <PATH>` | File path (required) |
 
+### chunks
+
+```bash
+magellan chunks --db <FILE> [--limit N] [--file PATTERN] [--kind KIND] [--output FORMAT]
+```
+
+List all code chunks in the database (v1.8.0). Code chunks are source code snippets stored by byte span during file indexing, enabling token-efficient queries without re-reading files.
+
+| Argument | Description |
+|----------|-------------|
+| `--db <FILE>` | Path to database (required) |
+| `--limit N` | Limit number of chunks returned |
+| `--file PATTERN` | Filter by file path pattern (substring match) |
+| `--kind KIND` | Filter by symbol kind (fn, struct, method, class, etc.) |
+| `--output FORMAT` | Output format: human, json, pretty |
+
+```
+$ magellan chunks --db ./magellan.db --kind fn --limit 10
+10 chunks:
+  src/main.rs:100-200 [fn] main
+  src/lib.rs:50-120 [fn] helper
+```
+
+### chunk-by-span
+
+```bash
+magellan chunk-by-span --db <FILE> --file <PATH> --start <N> --end <N> [--output FORMAT]
+```
+
+Get a code chunk by file path and exact byte range (v1.8.0). Useful for retrieving code when you know the precise byte offsets from tree-sitter.
+
+| Argument | Description |
+|----------|-------------|
+| `--db <FILE>` | Path to database (required) |
+| `--file <PATH>` | File path containing the chunk (required) |
+| `--start <N>` | Byte offset where chunk starts (required) |
+| `--end <N>` | Byte offset where chunk ends (required) |
+| `--output FORMAT` | Output format: human, json, pretty |
+
+### chunk-by-symbol
+
+```bash
+magellan chunk-by-symbol --db <FILE> --symbol <NAME> [--file PATTERN] [--output FORMAT]
+```
+
+Get all code chunks for a symbol name (v1.8.0). Performs a global search across all files, unlike `get` which requires a specific file path.
+
+| Argument | Description |
+|----------|-------------|
+| `--db <FILE>` | Path to database (required) |
+| `--symbol <NAME>` | Symbol name to find (required) |
+| `--file PATTERN` | Filter by file path pattern (optional) |
+| `--output FORMAT` | Output format: human, json, pretty |
+
+```
+$ magellan chunk-by-symbol --db ./magellan.db --symbol main
+Found 3 chunks for "main":
+  src/bin/main.rs:100-200 [fn] main
+  src/lib.rs:50-150 [fn] main
+  tests/test.rs:10-50 [fn] main
+```
+
 ## Supported Languages
 
 | Language | Extensions | Parser |
@@ -488,6 +558,11 @@ Get all code chunks from a file. Useful for getting complete file contents witho
 - `REFERENCES` - Reference -> Symbol
 - `CALLER` - Symbol -> Call
 - `CALLS` - Call -> Symbol
+
+**Tables (v1.8.0):**
+- `code_chunks` - Stored source code snippets by byte span with SHA-256 deduplication
+- `file_metrics` - Fan-in, fan-out, LOC, complexity per file
+- `symbol_metrics` - Fan-in, fan-out, LOC, cyclomatic complexity per symbol
 
 **Symbol Kinds:**
 Function, Method, Class, Interface, Enum, Module, Union, Namespace, TypeAlias, Unknown
