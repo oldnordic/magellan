@@ -33,7 +33,8 @@ pub fn expected_sqlitegraph_schema_version() -> i64 {
 /// Phase 5: added execution_log table for tracking Magellan runs.
 /// Phase 11: FQN-based symbol_id generation (breaking change).
 /// Phase 20: Added canonical_fqn/display_fqn fields, switched to BLAKE3 (breaking change).
-pub const MAGELLAN_SCHEMA_VERSION: i64 = 4;
+/// Phase 36: Added ast_nodes table for AST hierarchy storage.
+pub const MAGELLAN_SCHEMA_VERSION: i64 = 5;
 
 /// Ensure Magellan-owned metadata exists and matches expected versions.
 ///
@@ -94,12 +95,27 @@ pub fn ensure_magellan_meta(db_path: &Path) -> Result<(), DbCompatError> {
             Ok(())
         }
         Some((found_magellan, found_sqlitegraph)) => {
+            // Check if we need to upgrade magellan schema
             if found_magellan != MAGELLAN_SCHEMA_VERSION {
-                return Err(DbCompatError::MagellanSchemaMismatch {
-                    path: db_path.to_path_buf(),
-                    found: found_magellan,
-                    expected: MAGELLAN_SCHEMA_VERSION,
-                });
+                // For v4 -> v5, we can do a lightweight migration here
+                // since this is just adding a table, not changing core schema
+                if found_magellan == 4 && MAGELLAN_SCHEMA_VERSION == 5 {
+                    // Create ast_nodes table
+                    ensure_ast_schema(&conn)?;
+
+                    // Update version
+                    conn.execute(
+                        "UPDATE magellan_meta SET magellan_schema_version = ?1 WHERE id = 1",
+                        params![MAGELLAN_SCHEMA_VERSION],
+                    )
+                    .map_err(|e| map_sqlite_query_err(db_path, e))?;
+                } else {
+                    return Err(DbCompatError::MagellanSchemaMismatch {
+                        path: db_path.to_path_buf(),
+                        found: found_magellan,
+                        expected: MAGELLAN_SCHEMA_VERSION,
+                    });
+                }
             }
 
             if found_sqlitegraph != expected_sqlitegraph {
@@ -113,6 +129,43 @@ pub fn ensure_magellan_meta(db_path: &Path) -> Result<(), DbCompatError> {
             Ok(())
         }
     }
+}
+
+/// Ensure ast_nodes table exists for Phase 36
+///
+/// Creates ast_nodes table with parent_id for tree structure and indexes
+/// for efficient parent-child and span queries.
+pub fn ensure_ast_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
+    // Main ast_nodes table
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS ast_nodes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            parent_id INTEGER,
+            kind TEXT NOT NULL,
+            byte_start INTEGER NOT NULL,
+            byte_end INTEGER NOT NULL
+        )",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    // Index for parent-child queries
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ast_nodes_parent
+         ON ast_nodes(parent_id)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    // Index for span-based position queries
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ast_nodes_span
+         ON ast_nodes(byte_start, byte_end)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    Ok(())
 }
 
 /// Ensure metrics tables exist for Phase 34
