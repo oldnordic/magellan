@@ -45,6 +45,14 @@ impl MetricsOps {
         }
     }
 
+    /// Ensure metrics tables exist (creates if new DB)
+    pub fn ensure_schema(&self) -> Result<()> {
+        let conn = self.connect()?;
+        // Delegate to db_compat module which has the schema definition
+        crate::graph::db_compat::ensure_metrics_schema(&conn)
+            .map_err(|e| anyhow::anyhow!("Failed to ensure metrics schema: {}", e))
+    }
+
     /// Open a connection to the database
     fn connect(&self) -> Result<rusqlite::Connection, rusqlite::Error> {
         rusqlite::Connection::open(&self.db_path)

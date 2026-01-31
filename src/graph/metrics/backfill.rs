@@ -5,9 +5,7 @@
 
 use anyhow::Result;
 use rusqlite::params;
-use std::path::Path;
 
-use super::schema::{FileMetrics, SymbolMetrics};
 use super::MetricsOps;
 
 /// Result of a backfill operation

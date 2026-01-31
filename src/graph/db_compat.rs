@@ -115,6 +115,70 @@ pub fn ensure_magellan_meta(db_path: &Path) -> Result<(), DbCompatError> {
     }
 }
 
+/// Ensure metrics tables exist for Phase 34
+///
+/// Creates file_metrics and symbol_metrics tables with indexes if they don't exist.
+pub fn ensure_metrics_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
+    // File-level metrics table
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS file_metrics (
+            file_path TEXT PRIMARY KEY,
+            symbol_count INTEGER NOT NULL,
+            loc INTEGER NOT NULL,
+            estimated_loc REAL NOT NULL,
+            fan_in INTEGER NOT NULL DEFAULT 0,
+            fan_out INTEGER NOT NULL DEFAULT 0,
+            complexity_score REAL NOT NULL DEFAULT 0.0,
+            last_updated INTEGER NOT NULL
+        )",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    // Symbol-level metrics table
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS symbol_metrics (
+            symbol_id INTEGER PRIMARY KEY,
+            symbol_name TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            loc INTEGER NOT NULL,
+            estimated_loc REAL NOT NULL,
+            fan_in INTEGER NOT NULL DEFAULT 0,
+            fan_out INTEGER NOT NULL DEFAULT 0,
+            cyclomatic_complexity INTEGER NOT NULL DEFAULT 1,
+            last_updated INTEGER NOT NULL,
+            FOREIGN KEY (symbol_id) REFERENCES graph_entities(id) ON DELETE CASCADE
+        )",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    // Indexes for query performance
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_symbol_metrics_fan_in
+         ON symbol_metrics(fan_in DESC)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_symbol_metrics_fan_out
+         ON symbol_metrics(fan_out DESC)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_file_metrics_complexity
+         ON file_metrics(complexity_score DESC)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    Ok(())
+}
+
 /// Result of a successful preflight.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PreflightOk {

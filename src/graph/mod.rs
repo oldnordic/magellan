@@ -31,6 +31,7 @@ pub mod export;
 mod files;
 pub mod filter;
 mod freshness;
+pub mod metrics;
 mod ops;
 pub mod query;
 mod references;
@@ -42,6 +43,9 @@ pub mod validation;
 
 // Re-export small public types from ops.
 pub use ops::{DeleteResult, ReconcileOutcome};
+
+// Re-export metrics types
+pub use metrics::BackfillResult;
 
 // Re-export test helpers for integration tests.
 // The test_helpers module is public in ops.rs for use by delete_transaction_tests.rs
@@ -109,6 +113,9 @@ pub struct CodeGraph {
 
     /// Execution log module for tracking Magellan runs
     execution_log: execution_log::ExecutionLog,
+
+    /// Metrics module for pre-computed file and symbol metrics
+    metrics: metrics::MetricsOps,
 
     /// File node cache for frequently accessed files
     file_node_cache: cache::FileNodeCache,
@@ -211,10 +218,41 @@ impl CodeGraph {
         let execution_log = execution_log::ExecutionLog::new(&db_path_buf);
         execution_log.ensure_schema()?;
 
+        // Initialize MetricsOps
+        let metrics = metrics::MetricsOps::new(&db_path_buf);
+
+        // Ensure metrics tables exist
+        metrics.ensure_schema()?;
+
+        // Detect if this is an upgrade (metrics tables exist but are empty)
+        let needs_backfill = {
+            // Create a temporary connection to check the database state
+            let check_conn = rusqlite::Connection::open(&db_path_buf).map_err(|e| {
+                anyhow::anyhow!("Failed to open connection for backfill check: {}", e)
+            })?;
+
+            // Check if metrics tables are empty
+            let metric_count: i64 = check_conn
+                .query_row("SELECT COUNT(*) FROM file_metrics", [], |row| row.get(0))
+                .unwrap_or(0);
+
+            // Also check if we have symbols (indicating existing database)
+            let symbol_count: i64 = check_conn
+                .query_row(
+                    "SELECT COUNT(*) FROM graph_entities WHERE kind = 'Symbol'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0);
+
+            // Backfill needed if: no metrics but we have symbols
+            metric_count == 0 && symbol_count > 0
+        };
+
         // Initialize file node cache with capacity of 128 entries
         let file_node_cache = cache::FileNodeCache::new(128);
 
-        Ok(Self {
+        let mut graph = Self {
             files,
             symbols: symbols::SymbolOps {
                 backend: Rc::clone(&backend),
@@ -225,8 +263,17 @@ impl CodeGraph {
             calls: call_ops::CallOps { backend },
             chunks,
             execution_log,
+            metrics,
             file_node_cache,
-        })
+        };
+
+        // Trigger backfill if we have existing symbols but no metrics
+        if needs_backfill {
+            // Silent backfill with no progress callback
+            let _ = graph.backfill_metrics(None);
+        }
+
+        Ok(graph)
     }
 
     /// Index a file into the graph (idempotent)
@@ -454,6 +501,25 @@ impl CodeGraph {
         progress: Option<&ScanProgress>,
     ) -> Result<usize> {
         scan::scan_directory(self, dir_path, progress)
+    }
+
+    /// Backfill metrics for all existing files in the database
+    ///
+    /// This is called automatically after database migration to schema version 5.
+    /// Can also be called manually to recompute metrics.
+    ///
+    /// # Arguments
+    /// * `progress` - Optional callback for progress updates (current, total)
+    ///
+    /// # Returns
+    /// BackfillResult with total files processed and any errors
+    pub fn backfill_metrics(
+        &mut self,
+        progress: Option<&ScanProgress>,
+    ) -> Result<metrics::BackfillResult> {
+        // Convert ScanProgress (Send + Sync) to plain Fn for backfill
+        let progress_callback = progress.map(|p| p as &dyn Fn(usize, usize));
+        self.metrics.backfill_all_metrics(progress_callback)
     }
 
     /// Export all graph data to JSON format
