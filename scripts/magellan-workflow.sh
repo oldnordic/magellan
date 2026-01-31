@@ -4,6 +4,8 @@
 # This is a template script - copy to your project and customize DB_FILE, SRC_DIR, and PROJECT_NAME
 #
 # Usage: ./scripts/magellan-workflow.sh [command] [args]
+#
+# Version: 1.8.0 - Supports metrics, chunks, safe UTF-8 extraction
 
 set -e
 
@@ -24,12 +26,14 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
 NC='\033[0m' # No Color
 
 log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 log_cmd() { echo -e "${CYAN}[CMD]${NC} $1"; }
+log_success() { echo -e "${MAGENTA}[OK]${NC} $1"; }
 
 # Check if magellan is installed
 check_tools() {
@@ -300,7 +304,8 @@ show_hotspots() {
 
     # Query using file_metrics table if available (Phase 34+)
     if sqlite3 "$DB_FILE" "SELECT name FROM sqlite_master WHERE name='file_metrics'" 2>/dev/null | grep -q .; then
-        sqlite3 "$DB_FILE" "SELECT file_path, symbol_count, loc, complexity_score
+        echo -e "file_path\tsymbols\tLOC\tfan_in\tfan_out\tcomplexity"
+        sqlite3 "$DB_FILE" "SELECT file_path, symbol_count, loc, fan_in, fan_out, complexity_score
                                      FROM file_metrics
                                      ORDER BY complexity_score DESC
                                      LIMIT $limit" 2>/dev/null | column -t -s '|'
@@ -309,6 +314,98 @@ show_hotspots() {
         log_info "Showing top files by symbol count instead..."
         magellan files --db "$DB_FILE" | head -n $((limit + 1))
     fi
+}
+
+# Show all code chunks
+show_chunks() {
+    check_tools
+
+    local limit="${1:-50}"
+    local file_filter="${2:-}"
+    local kind_filter="${3:-}"
+    local output_format="${4:-human}"
+
+    log_cmd "magellan chunks --db $DB_FILE --limit $limit ${file:+--file $file_filter} ${kind:+--kind $kind} --output $output_format"
+    magellan chunks --db "$DB_FILE" --limit "$limit" ${file_filter:+--file "$file_filter"} ${kind_filter:+--kind "$kind_filter"} --output "$output_format"
+}
+
+# Get chunk by symbol name
+chunk_by_symbol() {
+    check_tools
+
+    if [ -z "$1" ]; then
+        log_error "Usage: $0 chunk-by-symbol <symbol_name> [--file <pattern>] [--output <format>]"
+        exit 1
+    fi
+
+    local symbol="$1"
+    local file_pattern=""
+    local output_format="human"
+
+    shift
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --file)
+                file_pattern="$2"
+                shift 2
+                ;;
+            --output)
+                output_format="$2"
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    magellan chunk-by-symbol --db "$DB_FILE" --symbol "$symbol" ${file_pattern:+--file "$file_pattern"} --output "$output_format"
+}
+
+# Get chunk by byte span
+chunk_by_span() {
+    check_tools
+
+    if [ -z "$3" ]; then
+        log_error "Usage: $0 chunk-by-span <file_path> <start> <end> [--output <format>]"
+        exit 1
+    fi
+
+    local file_path="$1"
+    local start="$2"
+    local end="$3"
+    local output_format="${4:-human}"
+
+    magellan chunk-by-span --db "$DB_FILE" --file "$file_path" --start "$start" --end "$end" --output "$output_format"
+}
+
+# Show symbol metrics for a file
+show_file_metrics() {
+    check_tools
+
+    local file_path="$1"
+
+    if [ -z "$file_path" ]; then
+        log_error "Usage: $0 file-metrics <file_path>"
+        exit 1
+    fi
+
+    log_info "Metrics for $file_path:"
+    echo ""
+
+    sqlite3 "$DB_FILE" "SELECT * FROM file_metrics WHERE file_path = '$file_path'" 2>/dev/null || {
+        log_warn "No metrics found for this file"
+    }
+}
+
+# Trigger metrics backfill
+backfill_metrics() {
+    check_tools
+
+    log_info "Triggering metrics backfill..."
+    log_warn "This requires opening the database with CodeGraph"
+    log_info "Run: magellan migrate --db $DB_FILE"
+    log_info "Or delete and reindex: $0 rebuild"
 }
 
 # Main command dispatcher
@@ -355,28 +452,50 @@ case "${1:-status}" in
     hotspots)
         show_hotspots "${2:-20}"
         ;;
+    chunks)
+        show_chunks "${2:-50}" "${3:-}" "${4:-}" "${5:-human}"
+        ;;
+    chunk-by-symbol)
+        shift
+        chunk_by_symbol "$@"
+        ;;
+    chunk-by-span)
+        shift
+        chunk_by_span "$@"
+        ;;
+    file-metrics)
+        show_file_metrics "$2"
+        ;;
+    backfill)
+        backfill_metrics
+        ;;
     *)
         cat << 'EOF'
 Usage: ./scripts/magellan-workflow.sh <command> [args]
 
 Commands:
-  start           Start the Magellan watcher
-  stop            Stop the Magellan watcher
-  status          Show watcher and database status
-  restart         Restart the watcher
-  search <query>  Search for symbols (with --mode and --output options)
-  get <name>      Get symbol code with context
-  refs <name>     Find references to a symbol
-  check-wire <name> Check if symbol is wired (has callers/references)
-  files           List all indexed files
-  query-file <path> Query symbols in a specific file
-  rebuild         Rebuild database from scratch
-  hotspots [n]     Show top N files by complexity score
+  start              Start the Magellan watcher
+  stop               Stop the Magellan watcher
+  status             Show watcher and database status
+  restart            Restart the watcher
+  search <query>     Search for symbols (with --mode and --output options)
+  get <name>         Get symbol code with context
+  refs <name>        Find references to a symbol
+  check-wire <name>  Check if symbol is wired (has callers/references)
+  files              List all indexed files
+  query-file <path>  Query symbols in a specific file
+  rebuild            Rebuild database from scratch
+  hotspots [n]        Show top N files by complexity score
+  chunks [n] [file] [kind] [fmt]  List code chunks (n=50, filter by file/kind)
+  chunk-by-symbol <name> [--file <pat>]  Get all chunks for a symbol
+  chunk-by-span <file> <start> <end>   Get chunk by byte range
+  file-metrics <path> Show metrics for a specific file
+  backfill           Trigger metrics backfill (requires rebuild)
 
 Environment Variables:
-  PROJECT_NAME    Database name (default: magellan)
-  DB_DIR          Database directory (default: .codemcp)
-  SRC_DIR         Source directory (default: src)
+  PROJECT_NAME       Database name (default: magellan)
+  DB_DIR             Database directory (default: .codemcp)
+  SRC_DIR            Source directory (default: src)
 
 Examples:
   ./scripts/magellan-workflow.sh start
@@ -385,6 +504,9 @@ Examples:
   ./scripts/magellan-workflow.sh get "my_function"
   ./scripts/magellan-workflow.sh check-wire "some_function"
   ./scripts/magellan-workflow.sh hotspots 50
+  ./scripts/magellan-workflow.sh chunks 100 "src/graph" "fn"
+  ./scripts/magellan-workflow.sh chunk-by-symbol "CodeGraph" --file "src/graph"
+  ./scripts/magellan-workflow.sh file-metrics "src/main.rs"
 
 Database: $DB_FILE
 EOF
