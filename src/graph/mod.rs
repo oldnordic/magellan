@@ -29,6 +29,7 @@ mod db_compat;
 mod execution_log;
 pub mod export;
 mod files;
+pub mod metrics;
 pub mod filter;
 mod freshness;
 mod ops;
@@ -42,6 +43,9 @@ pub mod validation;
 
 // Re-export small public types from ops.
 pub use ops::{DeleteResult, ReconcileOutcome};
+
+// Re-export metrics types
+pub use metrics::BackfillResult;
 
 // Re-export test helpers for integration tests.
 // The test_helpers module is public in ops.rs for use by delete_transaction_tests.rs
@@ -109,6 +113,9 @@ pub struct CodeGraph {
 
     /// Execution log module for tracking Magellan runs
     execution_log: execution_log::ExecutionLog,
+
+    /// Metrics module for pre-computed file and symbol metrics
+    metrics: metrics::MetricsOps,
 
     /// File node cache for frequently accessed files
     file_node_cache: cache::FileNodeCache,
@@ -211,6 +218,9 @@ impl CodeGraph {
         let execution_log = execution_log::ExecutionLog::new(&db_path_buf);
         execution_log.ensure_schema()?;
 
+        // Initialize MetricsOps
+        let metrics = metrics::MetricsOps::new(&db_path_buf);
+
         // Initialize file node cache with capacity of 128 entries
         let file_node_cache = cache::FileNodeCache::new(128);
 
@@ -225,6 +235,7 @@ impl CodeGraph {
             calls: call_ops::CallOps { backend },
             chunks,
             execution_log,
+            metrics,
             file_node_cache,
         })
     }
@@ -454,6 +465,25 @@ impl CodeGraph {
         progress: Option<&ScanProgress>,
     ) -> Result<usize> {
         scan::scan_directory(self, dir_path, progress)
+    }
+
+    /// Backfill metrics for all existing files in the database
+    ///
+    /// This is called automatically after database migration to schema version 5.
+    /// Can also be called manually to recompute metrics.
+    ///
+    /// # Arguments
+    /// * `progress` - Optional callback for progress updates (current, total)
+    ///
+    /// # Returns
+    /// BackfillResult with total files processed and any errors
+    pub fn backfill_metrics(
+        &mut self,
+        progress: Option<&ScanProgress>,
+    ) -> Result<metrics::BackfillResult> {
+        // Convert ScanProgress (Send + Sync) to plain Fn for backfill
+        let progress_callback = progress.map(|p| p as &dyn Fn(usize, usize));
+        self.metrics.backfill_all_metrics(progress_callback)
     }
 
     /// Export all graph data to JSON format
