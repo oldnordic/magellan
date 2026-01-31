@@ -57,6 +57,8 @@ pub use ops::test_helpers;
 // Re-export symbol ID generation function
 pub use symbols::generate_symbol_id;
 #[cfg(test)]
+mod ast_tests;
+#[cfg(test)]
 mod tests;
 
 use anyhow::Result;
