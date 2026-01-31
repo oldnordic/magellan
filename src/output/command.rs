@@ -855,6 +855,22 @@ pub struct ValidationResponse {
     pub warnings: Vec<ValidationWarning>,
 }
 
+/// Response for migrate command
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MigrateResponse {
+    /// Whether migration succeeded
+    pub success: bool,
+    /// Path to backup file (if created)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backup_path: Option<String>,
+    /// Previous schema version
+    pub old_version: i64,
+    /// New schema version
+    pub new_version: i64,
+    /// Human-readable message
+    pub message: String,
+}
+
 /// A validation error with structured data
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ValidationError {

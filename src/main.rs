@@ -16,7 +16,7 @@ mod watch_cmd;
 use anyhow::Result;
 use magellan::graph::export::ExportFilters;
 use magellan::graph::query::CollisionField;
-use magellan::output::{generate_execution_id, output_json, JsonResponse, StatusResponse};
+use magellan::output::{generate_execution_id, output_json, JsonResponse, MigrateResponse, StatusResponse};
 use magellan::{CodeGraph, ExportFormat, OutputFormat, WatcherConfig};
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -56,7 +56,7 @@ fn print_usage() {
     eprintln!("  magellan files --db <FILE> [--symbols] [--output <FORMAT>]");
     eprintln!("  magellan label --db <FILE> [--label <LABEL>]... [--list] [--count] [--show-code]");
     eprintln!("  magellan collisions --db <FILE> [--field <fqn|display_fqn|canonical_fqn>] [--limit <N>] [--output <FORMAT>]");
-    eprintln!("  magellan migrate --db <FILE> [--dry-run] [--no-backup]");
+    eprintln!("  magellan migrate --db <FILE> [--dry-run] [--no-backup] [--output <FORMAT>]");
     eprintln!("  magellan verify --root <DIR> --db <FILE>");
     eprintln!();
     eprintln!("Commands:");
@@ -180,6 +180,7 @@ fn print_usage() {
     eprintln!("  --db <FILE>         Path to sqlitegraph database");
     eprintln!("  --dry-run           Check version without migrating");
     eprintln!("  --no-backup         Skip backup creation");
+    eprintln!("  --output <FORMAT>   Output format: human (default), json (compact), or pretty (formatted)");
     eprintln!();
     eprintln!("Verify arguments:");
     eprintln!("  --root <DIR>        Directory to verify against");
@@ -299,6 +300,7 @@ enum Command {
         db_path: PathBuf,
         dry_run: bool,
         no_backup: bool,
+        output_format: OutputFormat,
     },
     Chunks {
         db_path: PathBuf,
@@ -1083,6 +1085,7 @@ fn parse_args() -> Result<Command> {
             let mut db_path: Option<PathBuf> = None;
             let mut dry_run = false;
             let mut no_backup = false;
+            let mut output_format = OutputFormat::Human;
 
             let mut i = 2;
             while i < args.len() {
@@ -1102,6 +1105,15 @@ fn parse_args() -> Result<Command> {
                         no_backup = true;
                         i += 1;
                     }
+                    "--output" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--output requires an argument"));
+                        }
+                        output_format = OutputFormat::from_str(&args[i + 1]).ok_or_else(|| {
+                            anyhow::anyhow!("Invalid output format: {}", args[i + 1])
+                        })?;
+                        i += 2;
+                    }
                     _ => {
                         return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
                     }
@@ -1114,6 +1126,7 @@ fn parse_args() -> Result<Command> {
                 db_path,
                 dry_run,
                 no_backup,
+                output_format,
             })
         }
         "verify" => {
@@ -1925,20 +1938,40 @@ fn main() -> ExitCode {
             db_path,
             dry_run,
             no_backup,
+            output_format,
         }) => {
             match migrate_cmd::run_migrate(db_path, dry_run, no_backup) {
                 Ok(result) => {
-                    if result.success {
-                        println!("{}", result.message);
-                        if result.old_version != result.new_version {
-                            println!("Version: {} -> {}", result.old_version, result.new_version);
+                    match output_format {
+                        OutputFormat::Json | OutputFormat::Pretty => {
+                            let response = MigrateResponse {
+                                success: result.success,
+                                backup_path: result.backup_path.map(|p| p.to_string_lossy().to_string()),
+                                old_version: result.old_version,
+                                new_version: result.new_version,
+                                message: result.message,
+                            };
+                            let exec_id = generate_execution_id();
+                            let json_response = JsonResponse::new(response, &exec_id);
+                            if let Err(e) = output_json(&json_response, output_format) {
+                                eprintln!("Error: {}", e);
+                                return ExitCode::from(1);
+                            }
                         }
-                        if let Some(ref backup) = result.backup_path {
-                            println!("Backup: {}", backup.display());
+                        OutputFormat::Human => {
+                            if result.success {
+                                println!("{}", result.message);
+                                if result.old_version != result.new_version {
+                                    println!("Version: {} -> {}", result.old_version, result.new_version);
+                                }
+                                if let Some(ref backup) = result.backup_path {
+                                    println!("Backup: {}", backup.display());
+                                }
+                            } else {
+                                eprintln!("Migration failed: {}", result.message);
+                                return ExitCode::from(1);
+                            }
                         }
-                    } else {
-                        eprintln!("Migration failed: {}", result.message);
-                        return ExitCode::from(1);
                     }
                 }
                 Err(e) => {
