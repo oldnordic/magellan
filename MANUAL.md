@@ -86,6 +86,11 @@ magellan label --db ./magellan.db --label rust --label fn
 magellan get --db ./magellan.db --file src/main.rs --symbol main
 magellan get-file --db ./magellan.db --file src/main.rs
 
+# List and query chunks (NEW in 1.7.0)
+magellan chunks --db ./magellan.db
+magellan chunk-by-symbol --db ./magellan.db --symbol main
+magellan chunk-by-span --db ./magellan.db --file src/main.rs --start 100 --end 200
+
 # Export to JSON
 magellan export --db ./magellan.db > codegraph.json
 ```
@@ -198,6 +203,8 @@ $ magellan status --db ./magellan.db
 files: 30
 symbols: 349
 references: 262
+calls: 87
+code_chunks: 349
 ```
 
 ### 3.3 files
@@ -443,7 +450,82 @@ Get all code chunks from a file. Useful for getting complete file contents witho
 | `--db <FILE>` | Path | - | Database path (required) |
 | `--file <PATH>` | Path | - | File path (required) |
 
-### 3.12 collisions
+### 3.12 Chunk Storage
+
+Magellan stores source code snippets as **chunks** - contiguous spans of source code identified by byte offsets. Chunks are created automatically during file indexing and stored in the database, enabling token-efficient code queries without re-reading source files.
+
+**How Chunks Work:**
+
+- **Creation:** During indexing, each symbol's source code is extracted and stored as a chunk with its byte span (start/end offsets)
+- **Deduplication:** Chunks are hashed using SHA-256; identical code shares the same `content_hash` for deduplication detection
+- **Storage:** Chunks persist in the `code_chunks` table with metadata (file path, symbol name, symbol kind, timestamps)
+- **Retrieval:** Query chunks by symbol name, byte span, or list all chunks with filters
+
+**Use Cases:**
+
+- **Token-efficient LLM context:** Retrieve only the code you need instead of entire files
+- **Deduplication detection:** Find duplicate code via `content_hash` comparisons
+- **Symbol body extraction:** Get function/method implementations without full file reads
+- **Code search by kind:** Filter chunks by symbol type (functions, structs, classes, etc.)
+
+**Related Commands:**
+
+- `get` - Get code for a specific symbol in a specific file
+- `get-file` - Get all chunks for a file
+- `query` - List symbols with metadata (find byte spans to use with chunk-by-span)
+- `chunks` - List all chunks in database
+- `chunk-by-span` - Get chunk by exact byte range
+- `chunk-by-symbol` - Get all chunks for a symbol name (global search)
+
+**JSON Output Format:**
+
+All chunk commands support JSON output via `--output json` or `--output pretty`. The CodeChunk schema:
+
+```json
+{
+  "id": 123,
+  "file_path": "src/main.rs",
+  "byte_start": 100,
+  "byte_end": 200,
+  "content": "fn main() {\n    println!(\"Hello\");\n}",
+  "content_hash": "a1b2c3d4e5f6789012345678901234...",
+  "symbol_name": "main",
+  "symbol_kind": "fn",
+  "created_at": 1704067200
+}
+```
+
+**Field Descriptions:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | number | Unique auto-incremented identifier |
+| `file_path` | string | Absolute path to source file |
+| `byte_start` | number | Byte offset where chunk starts in source file |
+| `byte_end` | number | Byte offset where chunk ends in source file |
+| `content` | string | Source code content for this span |
+| `content_hash` | string | SHA-256 hash of content (for deduplication) |
+| `symbol_name` | string/null | Symbol name this chunk represents |
+| `symbol_kind` | string/null | Symbol kind (fn, struct, method, class, etc.) |
+| `created_at` | number | Unix timestamp when chunk was created |
+
+**Example Workflow:**
+
+```bash
+# 1. Query symbols to find byte spans
+magellan query --db ./magellan.db --file src/main.rs --show-extent
+
+# 2. Get specific chunk by byte span
+magellan chunk-by-span --db ./magellan.db --file src/main.rs --start 100 --end 200
+
+# 3. Or get all chunks for a symbol name (global search)
+magellan chunk-by-symbol --db ./magellan.db --symbol main
+
+# 4. List all function chunks
+magellan chunks --db ./magellan.db --kind fn
+```
+
+### 3.13 collisions
 
 ```bash
 magellan collisions --db <FILE> [--field <FIELD>] [--limit <N>]
@@ -490,7 +572,93 @@ main (3)
        my_crate::tests/integration_test.rs::Function main
 ```
 
-### 3.13 migrate
+### 3.13 chunks
+
+```bash
+magellan chunks --db <FILE> [--limit N] [--file PATTERN] [--kind KIND] [--output FORMAT]
+```
+
+List all code chunks in the database. Code chunks are source code snippets stored by byte span during file indexing, enabling token-efficient queries without re-reading files.
+
+| Argument | Type | Default | Description |
+|----------|------|---------|-------------|
+| `--db <FILE>` | Path | - | Database path (required) |
+| `--limit N` | Integer | - | Limit number of chunks returned |
+| `--file PATTERN` | String | - | Filter by file path pattern (substring match) |
+| `--kind KIND` | String | - | Filter by symbol kind (fn, struct, method, class, etc.) |
+| `--output FORMAT` | Format | human | Output format: human, json, pretty |
+
+**Examples:**
+
+```bash
+# List all chunks in database
+magellan chunks --db ./magellan.db
+
+# List all function chunks
+magellan chunks --db ./magellan.db --kind fn
+
+# List chunks from specific file pattern
+magellan chunks --db ./magellan.db --file src/main.rs
+
+# JSON output with metadata
+magellan chunks --db ./magellan.db --output json
+```
+
+### 3.14 chunk-by-span
+
+```bash
+magellan chunk-by-span --db <FILE> --file <PATH> --start <N> --end <N> [--output FORMAT]
+```
+
+Get a code chunk by file path and exact byte range. Useful for retrieving code when you know the precise byte offsets.
+
+| Argument | Type | Default | Description |
+|----------|------|---------|-------------|
+| `--db <FILE>` | Path | - | Database path (required) |
+| `--file <PATH>` | Path | - | File path containing the chunk (required) |
+| `--start <N>` | Integer | - | Byte offset where chunk starts (required) |
+| `--end <N>` | Integer | - | Byte offset where chunk ends (required) |
+| `--output FORMAT` | Format | human | Output format: human, json, pretty |
+
+**Examples:**
+
+```bash
+# Get chunk for specific byte range
+magellan chunk-by-span --db ./magellan.db --file src/main.rs --start 100 --end 200
+
+# JSON output with full metadata
+magellan chunk-by-span --db ./magellan.db --file src/main.rs --start 100 --end 200 --output json
+```
+
+### 3.15 chunk-by-symbol
+
+```bash
+magellan chunk-by-symbol --db <FILE> --symbol <NAME> [--file PATTERN] [--output FORMAT]
+```
+
+Get all code chunks for a symbol name. Performs a global search across all files (unlike `get` which requires a specific file path).
+
+| Argument | Type | Default | Description |
+|----------|------|---------|-------------|
+| `--db <FILE>` | Path | - | Database path (required) |
+| `--symbol <NAME>` | String | - | Symbol name to find (required) |
+| `--file PATTERN` | String | - | Filter by file path pattern (optional) |
+| `--output FORMAT` | Format | human | Output format: human, json, pretty |
+
+**Examples:**
+
+```bash
+# Find all chunks for symbol "main"
+magellan chunk-by-symbol --db ./magellan.db --symbol main
+
+# Find all chunks in specific file pattern
+magellan chunk-by-symbol --db ./magellan.db --symbol main --file src/
+
+# JSON output
+magellan chunk-by-symbol --db ./magellan.db --symbol main --output json
+```
+
+### 3.16 migrate
 
 ```bash
 magellan migrate --db <FILE> [--dry-run] [--no-backup]
