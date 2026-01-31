@@ -131,7 +131,7 @@ impl<K: Hash + Eq + Clone, V> LruCache<K, V> {
     ///
     /// Provided for API completeness and debugging. Currently unused internally
     /// but kept for public API surface.
-    #[expect(dead_code)] // Provided for API completeness and debugging
+    #[allow(dead_code)] // Provided for API completeness and debugging
     pub fn len(&self) -> usize {
         self.map.len()
     }
@@ -140,7 +140,7 @@ impl<K: Hash + Eq + Clone, V> LruCache<K, V> {
     ///
     /// Provided for API completeness and debugging. Currently unused internally
     /// but kept for public API surface.
-    #[expect(dead_code)] // Provided for API completeness and debugging
+    #[allow(dead_code)] // Provided for API completeness and debugging
     pub fn is_empty(&self) -> bool {
         self.map.is_empty()
     }
@@ -158,7 +158,7 @@ impl<K: Hash + Eq + Clone, V> LruCache<K, V> {
     ///
     /// Provided for API completeness and debugging. Currently unused internally
     /// but kept for public API surface.
-    #[expect(dead_code)] // Provided for API completeness and debugging
+    #[allow(dead_code)] // Provided for API completeness and debugging
     pub fn hit_rate(&self) -> f64 {
         self.stats().hit_rate()
     }

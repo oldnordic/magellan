@@ -42,9 +42,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use magellan::graph::filter::FileFilter;
-use magellan::CodeGraph;
-
 /// Baseline file path
 const BASELINE_PATH: &str = ".planning/phases/33-verification/PERFORMANCE_BASELINE.json";
 

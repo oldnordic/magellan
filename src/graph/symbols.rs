@@ -132,7 +132,7 @@ pub fn generate_symbol_id(language: &str, fqn: &str, span_id: &str) -> String {
 /// );
 /// assert_eq!(id.len(), 32);
 /// ```
-#[expect(dead_code)] // TODO(v1.6): Integrate BLAKE3-based symbol_id generation
+#[allow(dead_code)] // TODO(v1.6): Integrate BLAKE3-based symbol_id generation
 pub fn generate_symbol_id_v2(
     crate_name: &str,
     file_path: &str,

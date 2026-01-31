@@ -282,7 +282,9 @@ fn helper() {}
         assert!(lines.len() > 1, "CSV should have header + data rows");
 
         // Check header contains all expected columns
-        let header = lines[0];
+        // The first line is a comment, so find the actual CSV header
+        let header = lines.iter().find(|line| !line.starts_with('#') && !line.is_empty())
+            .expect("Should have a CSV header row");
         assert!(header.contains("record_type"));
         assert!(header.contains("file"));
         assert!(header.contains("symbol_id"));

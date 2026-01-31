@@ -486,13 +486,16 @@ fn helper() {
     // Split by lines and verify structure
     let lines: Vec<&str> = stdout.lines().collect();
 
-    // First line should be header
+    // First line should be header (skip comment lines)
     assert!(
         !lines.is_empty(),
         "CSV output should have at least a header row"
     );
 
-    let header = lines.first().unwrap();
+    // Find the actual CSV header (skip comment lines starting with #)
+    let header = lines.iter()
+        .find(|line| !line.starts_with('#') && !line.is_empty())
+        .expect("CSV should have a header row");
     // Header should contain record_type as first column
     assert!(
         header.starts_with("record_type"),
@@ -500,9 +503,13 @@ fn helper() {
         header
     );
 
-    // Verify each data line is valid CSV
-    for (i, line) in lines.iter().skip(1).enumerate() {
-        if line.is_empty() {
+    // Verify each data line is valid CSV (skip comment and header lines)
+    let header_idx = lines.iter()
+        .position(|line| !line.starts_with('#') && !line.is_empty())
+        .expect("Should find header line");
+
+    for (i, line) in lines.iter().skip(header_idx + 1).enumerate() {
+        if line.is_empty() || line.starts_with('#') {
             continue;
         }
         // Verify record_type column is present (Symbol, Reference, or Call)
@@ -561,8 +568,15 @@ fn test_export_csv_proper_quoting() {
 
     assert!(output.status.success(), "Process should exit successfully");
 
+    // Filter out comment lines before parsing
+    let csv_data: String = stdout
+        .lines()
+        .filter(|line| !line.starts_with('#'))
+        .collect::<Vec<&str>>()
+        .join("\n");
+
     // Parse with csv crate to verify RFC 4180 compliance
-    let mut rdr = csv::Reader::from_reader(stdout.as_bytes());
+    let mut rdr = csv::Reader::from_reader(csv_data.as_bytes());
 
     // Should be able to read headers without error
     let headers = rdr.headers().expect("Should have valid CSV headers");
@@ -681,8 +695,15 @@ fn helper() {}
 
     assert!(output.status.success(), "Process should exit successfully");
 
+    // Filter out comment lines before parsing
+    let csv_data: String = stdout
+        .lines()
+        .filter(|line| !line.starts_with('#'))
+        .collect::<Vec<&str>>()
+        .join("\n");
+
     // Parse CSV and verify symbol_id column present
-    let mut rdr = csv::Reader::from_reader(stdout.as_bytes());
+    let mut rdr = csv::Reader::from_reader(csv_data.as_bytes());
     let headers = rdr.headers().expect("Should have valid CSV headers");
 
     // Check that symbol_id column exists in headers
