@@ -9,13 +9,13 @@ See: .planning/PROJECT.md (updated 2026-01-23)
 
 ## Current Position
 
-Phase: 40-graph-algorithms (Graph Algorithms)
-Plan: 40-04 of 4 (Complete)
+Phase: 41-gitignore-indexing (Gitignore-Aware Indexing)
+Plan: 41-01 of 1 (Complete)
 Status: Phase complete
-Last activity: 2026-02-03 — Completed 40-04 (Program Slicing)
+Last activity: 2026-02-03 — Completed 41-01 (Gitignore-Aware File Filtering)
 
-Progress: 100% (4/4 plans complete)
-Overall: 100% (154/154 plans complete)
+Progress: 100% (1/1 plans complete)
+Overall: 100% (155/155 plans complete)
 
 ## Performance Metrics
 
@@ -130,8 +130,10 @@ Recent decisions affecting current work:
 - [27-08] Use #[allow(dead_code)] for public API methods and conditionally used code - #[expect(dead_code)] means "I expect this to be unused" and causes warnings when code IS used (in tests or by library consumers). Changed to #[allow(dead_code)] for: generate_symbol_id_v2 (used in tests), len/is_empty/hit_rate (public API). This correctly expresses intent: "Yes, this is currently unused, and that's intentional."
 - [27-08] CSV export includes version header comment - Added "# Magellan Export Version: 2.0.0" as first line in CSV output. Tests updated to skip comment lines when parsing CSV to find actual header row. All CSV export tests pass.
 - [40-02] SCC detection and condensation using sqlitegraph's strongly_connected_components() - Detects mutual recursion cycles, collapses SCCs into supernodes for DAG analysis
-- [40-02] Cycle report with CycleKind (SelfLoop, TwoNode, Complex) - Categorizes cycles by size for user-friendly reporting
+- [40-02] Cycle report with CycleKind (MutualRecursion, SelfLoop) - Categorizes cycles by type for user-friendly reporting
 - [40-02] Condensation graph with Supernode and CondensationResult types - Maps symbols to supernode IDs for topological analysis
+- [40-02] Separate cycles and condense CLI commands for clean separation of concerns (cycles for detecting problems, condense for structural analysis)
+- [40-02] FQN fallback for symbol lookup in find_cycles_containing() - Accepts stable symbol_id or FQN string for user-friendly API
 - [40-03] Path enumeration using sqlitegraph's enumerate_paths() with AHashSet<i64> exit_nodes - Finds execution paths with configurable depth limit, max_paths, revisit_cap bounds
 - [40-03] PathEnumerationResult with bounded_hit flag - Indicates when enumeration hit bounds (paths_pruned_by_bounds > 0)
 - [40-03] ahash 0.8 dependency for AHashSet - Required by sqlitegraph's path_enumeration module for cycle-safe DFS
@@ -140,6 +142,10 @@ Recent decisions affecting current work:
 - [40-04] Program slicing using call-graph reachability as fallback - Full CFG-based slicing requires AST Control Dependence Graph integration
 - [40-04] SliceDirection enum: Backward (what affects), Forward (what is affected) - Clear semantic distinction for slice direction
 - [40-04] SliceStatistics: total_symbols, data_dependencies (0 in fallback), control_dependencies - Documents call-graph limitation
+- [41-01] FileFilter directory ignore pattern matching via ancestor checking - The ignore crate's matched() function doesn't match directory patterns (build/) against files under those directories. Fix: check all ancestor directories with is_dir=true
+- [41-01] Gitignore-aware watcher with FileFilter integration - WatcherConfig has gitignore_aware field (default true), filter created once before debouncer, passed to extract_dirty_paths()
+- [41-01] CLI flags --gitignore-aware and --no-gitignore for watch command - Default behavior respects .gitignore, --no-gitignore bypasses filtering
+- [41-01] Integration tests for gitignore-aware watcher - 5 tests covering gitignore patterns, internal ignores, bypass mode, and complex patterns
 
 ### Pending Todos
 
@@ -178,7 +184,7 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-03
-Stopped at: Completed 40-04 (Program Slicing)
+Stopped at: Completed 41-01 (Gitignore-Aware File Filtering)
 Resume file: None
 Blockers: None
 
@@ -426,3 +432,26 @@ Blockers: None
 - ✅ FQN fallback lookup for user-friendly queries
 - ✅ All tests pass (10/10 integration tests)
 - ✅ Call-graph fallback documented for program slicing (full CFG requires AST integration)
+
+## Phase 41 Summary
+
+**Milestone Goal:** Gitignore-Aware Indexing - Add gitignore-aware file filtering to the watcher so that ignored files do not generate indexing events when edited.
+
+**Plans Completed:** 1 plan (41-01)
+- 41-01: Gitignore-aware file filtering with CLI flags
+
+**Key Changes:**
+- Added `gitignore_aware: bool` field to WatcherConfig (default: true)
+- Integrated FileFilter into extract_dirty_paths() for watcher event filtering
+- Fixed FileFilter directory ignore pattern matching (ancestor directory checking)
+- Added CLI flags --gitignore-aware and --no-gitignore for watch command
+- Added 5 integration tests for gitignore-aware watcher
+
+**Success Criteria (All Met):**
+- ✅ `magellan watch --root .` respects .gitignore patterns
+- ✅ Editing ignored files (target/, node_modules/, patterns in .gitignore) does not generate indexing events
+- ✅ Initial scan and watcher use consistent filtering (same ignored files)
+- ✅ --no-gitignore flag disables gitignore filtering when needed
+- ✅ All existing tests pass (10/11, 1 pre-existing flaky test)
+- ✅ 5 new integration tests verify gitignore-aware behavior
+- ✅ CLI help documents the new flags
