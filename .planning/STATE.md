@@ -9,13 +9,13 @@ See: .planning/PROJECT.md (updated 2026-01-23)
 
 ## Current Position
 
-Phase: 41-gitignore-indexing (Gitignore-Aware Indexing)
-Plan: 41-01 of 1 (Complete)
-Status: Phase complete
-Last activity: 2026-02-03 — Completed 41-01 (Gitignore-Aware File Filtering)
+Phase: 42-ast-cfg-rust (AST-based CFG for Rust)
+Plan: 42-01 of 1 (Complete)
+Status: Plan complete
+Last activity: 2026-02-03 — Completed 42-01 (CFG Database Schema)
 
 Progress: 100% (1/1 plans complete)
-Overall: 100% (155/155 plans complete)
+Overall: 100% (156/156 plans complete)
 
 ## Performance Metrics
 
@@ -146,6 +146,12 @@ Recent decisions affecting current work:
 - [41-01] Gitignore-aware watcher with FileFilter integration - WatcherConfig has gitignore_aware field (default true), filter created once before debouncer, passed to extract_dirty_paths()
 - [41-01] CLI flags --gitignore-aware and --no-gitignore for watch command - Default behavior respects .gitignore, --no-gitignore bypasses filtering
 - [41-01] Integration tests for gitignore-aware watcher - 5 tests covering gitignore patterns, internal ignores, bypass mode, and complex patterns
+- [42-01] cfg_blocks table with function_id, kind, terminator, and span fields - Basic blocks stored as side table with FOREIGN KEY to graph_entities for function association
+- [42-01] CFG_EDGE constant for identifying CFG edges in graph_edges table - Uses "CFG_BLOCK" edge_type to distinguish from call/reference edges
+- [42-01] ensure_cfg_schema() function with 3 indexes (function_id, span, terminator) - Efficient queries for function CFG, position lookup, and terminator-based analysis
+- [42-01] MAGELLAN_SCHEMA_VERSION bumped to 7 with v6->v7 migration - Automatic upgrade on database open, follows existing migration pattern
+- [42-01] CfgBlock and CfgEdge types defined in schema.rs - Rust types for CFG data with serde serialization support
+- [42-01] ensure_cfg_schema() called in CodeGraph::open - CFG tables created automatically during database initialization
 
 ### Pending Todos
 
@@ -184,7 +190,7 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-03
-Stopped at: Completed 41-01 (Gitignore-Aware File Filtering)
+Stopped at: Completed 42-01 (CFG Database Schema)
 Resume file: None
 Blockers: None
 
@@ -455,3 +461,30 @@ Blockers: None
 - ✅ All existing tests pass (10/11, 1 pre-existing flaky test)
 - ✅ 5 new integration tests verify gitignore-aware behavior
 - ✅ CLI help documents the new flags
+
+## Phase 42 Summary
+
+**Milestone Goal:** AST-based CFG for Rust - Design and implement database schema for storing Control Flow Graph (CFG) data extracted from AST to enable intra-procedural analysis.
+
+**Plans Completed:** 1 plan (42-01)
+- 42-01: CFG database schema with cfg_blocks table and v6->v7 migration
+
+**Key Changes:**
+- Added cfg_blocks table with function_id, kind, terminator, and span fields
+- Added CFG_EDGE constant ("CFG_BLOCK") for identifying CFG edges in graph_edges
+- Added ensure_cfg_schema() function following existing ensure_ast_schema pattern
+- Created 3 indexes for efficient CFG queries (function_id, span, terminator)
+- Bumped MAGELLAN_SCHEMA_VERSION to 7 with automatic v6->v7 migration
+- Defined CfgBlock and CfgEdge types in schema.rs
+- Called ensure_cfg_schema() in CodeGraph::open for automatic table creation
+- Re-exported ensure_cfg_schema, CFG_EDGE, CfgBlock, CfgEdge from graph module
+
+**Success Criteria (All Met):**
+- ✅ CfgBlock type defined in schema.rs with all required fields
+- ✅ CfgEdge type defined in schema.rs
+- ✅ ensure_cfg_schema() function creates cfg_blocks table
+- ✅ MAGELLAN_SCHEMA_VERSION = 7
+- ✅ v6 -> v7 migration path defined
+- ✅ ensure_cfg_schema() called in CodeGraph::open
+- ✅ All indexes created (function_id, span, terminator)
+- ✅ cargo check passes (457/457 library tests pass)

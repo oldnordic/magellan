@@ -23,6 +23,7 @@ pub mod ambiguity;
 mod ast_node;
 mod ast_extractor;
 mod ast_ops;
+mod cfg_extractor;
 mod cache;
 mod call_ops;
 mod calls;
@@ -79,6 +80,8 @@ pub use algorithms::{
 };
 pub use ast_extractor::{extract_ast_nodes, language_from_path, normalize_node_kind};
 pub use ast_node::{AstNode, AstNodeWithText, is_structural_kind};
+// Re-export CFG types for public API
+pub use cfg_extractor::{BlockKind, CfgExtractor, TerminatorKind};
 pub use cache::CacheStats;
 pub use db_compat::{ensure_ast_schema, ensure_cfg_schema, CFG_EDGE};
 pub use db_compat::MAGELLAN_SCHEMA_VERSION;
