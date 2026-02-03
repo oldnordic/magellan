@@ -10,12 +10,12 @@ See: .planning/PROJECT.md (updated 2026-01-23)
 ## Current Position
 
 Phase: 42-ast-cfg-rust (AST-based CFG for Rust)
-Plan: 42-03 of 3 (Complete)
-Status: Plan complete
-Last activity: 2026-02-03 — Completed 42-03 (CFG Integration)
+Plan: 42-04 of 4 (Complete)
+Status: Phase complete
+Last activity: 2026-02-03 — Completed 42-04 (Documentation Update)
 
-Progress: 100% (3/3 plans complete)
-Overall: 100% (159/159 plans complete)
+Progress: 100% (4/4 plans complete)
+Overall: 100% (163/163 plans complete)
 
 ## Performance Metrics
 
@@ -203,32 +203,66 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-03
-Stopped at: Completed 42-03 (CFG Integration)
+Stopped at: Completed 42-04 (Documentation Update)
 Resume file: None
 Blockers: None
 
 ## Phase 42 Summary
 
-**Milestone Goal:** AST Migration Fix - Fix database migration from v4 to v5 and verify new database creation.
+**Milestone Goal:** AST-based CFG for Rust - Design and implement database schema and AST-based extraction for Control Flow Graph (CFG) data to enable intra-procedural analysis.
 
-**Plans Completed:** 2 plans (39-01, 39-02)
-- 39-01: Fix v4->v5 migration in migrate_cmd.rs
-- 39-02: Verify new database creation with v5 schema
+**Plans Completed:** 4 plans (42-01, 42-02, 42-03, 42-04)
+- 42-01: CFG database schema with cfg_blocks table and v6->v7 migration
+- 42-02: CFG extractor module with CfgExtractor for AST-based control flow extraction
+- 42-03: CFG integration into indexing pipeline with CfgOps module
+- 42-04: Documentation update (ROADMAP, STATE, CFG_LIMITATIONS.md)
 
 **Key Changes:**
-- Updated MAGELLAN_SCHEMA_VERSION from 4 to 5 in db_compat.rs
-- Added ensure_ast_schema() function to create ast_nodes table
-- Modified ensure_magellan_meta() to auto-upgrade v4->v5 on database open
-- Added v4->v5 migration step to migrate_from_version() in migrate_cmd.rs
-- Created tests/migration_tests.rs with 4 comprehensive tests
-- Opening a v4 database now automatically creates ast_nodes table
+- Added cfg_blocks table with function_id, kind, terminator, and span fields
+- Added CFG_EDGE constant ("CFG_BLOCK") for identifying CFG edges in graph_edges
+- Added ensure_cfg_schema() function following existing ensure_ast_schema pattern
+- Created 3 indexes for efficient CFG queries (function_id, span, terminator)
+- Bumped MAGELLAN_SCHEMA_VERSION to 7 with automatic v6->v7 migration
+- Defined CfgBlock and CfgEdge types in schema.rs
+- Called ensure_cfg_schema() in CodeGraph::open for automatic table creation
+- Re-exported ensure_cfg_schema, CFG_EDGE, CfgBlock, CfgEdge from graph module
+- Created CfgExtractor struct with extract_cfg_from_function() for AST-based CFG extraction
+- Implemented BlockKind enum covering all Rust control flow contexts
+- Implemented TerminatorKind enum for block exit types
+- Created visitor methods for all Rust control flow constructs (visit_if, visit_loop, visit_match)
+- Added comprehensive unit tests (13 tests covering all constructs)
+- Created CfgOps module with insert_cfg_blocks(), delete_cfg_for_functions(), get_cfg_for_function(), get_cfg_for_file()
+- Added cfg_ops field to CodeGraph struct and initialized in CodeGraph::open
+- Integrated CFG extraction into index_file() for .rs files using function symbol tracking
+- Added CFG cleanup to delete_file_facts() using delete_cfg_for_functions()
+- Added cfg_blocks_deleted field to DeleteResult struct
+- Created 5 integration tests for CFG extraction and cleanup
+- Updated ROADMAP.md with Phase 42 complete status
+- Created docs/CFG_LIMITATIONS.md with comprehensive limitations documentation
 
 **Success Criteria (All Met):**
-- ✅ New databases created with magellan_schema_version = 5
-- ✅ ast_nodes table exists in new databases
-- ✅ Opening a v4 database auto-upgrades to v5
-- ✅ All migration tests pass (4/4)
-- ✅ All unit and integration tests pass (450/450)
+- ✅ CfgBlock type defined in schema.rs with all required fields
+- ✅ CfgEdge type defined in schema.rs
+- ✅ ensure_cfg_schema() function creates cfg_blocks table
+- ✅ MAGELLAN_SCHEMA_VERSION = 7
+- ✅ v6 -> v7 migration path defined
+- ✅ ensure_cfg_schema() called in CodeGraph::open
+- ✅ All indexes created (function_id, span, terminator)
+- ✅ cfg_extractor.rs module exists with CfgExtractor struct
+- ✅ BlockKind and TerminatorKind enums with as_str() display methods
+- ✅ Methods for if/else, loop/while/for, match, return/break/continue
+- ✅ Module exported from graph/mod.rs
+- ✅ cargo test cfg_extractor passes (13/13 tests)
+- ✅ cargo check passes (471/471 library tests pass)
+- ✅ CfgOps module created with all CRUD operations
+- ✅ CfgOps added to CodeGraph struct
+- ✅ CFG extraction integrated into index_file()
+- ✅ CFG cleanup integrated into delete_file_facts()
+- ✅ Integration tests pass (5/5 tests)
+- ✅ ROADMAP.md updated with Phase 42 complete
+- ✅ STATE.md updated with Phase 42 status
+- ✅ CFG_LIMITATIONS.md created (388 lines)
+- ✅ 42-RESEARCH.md marked as archived
 
 ## v1.9 Deliverables Summary
 
