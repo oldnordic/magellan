@@ -131,8 +131,12 @@ Recent decisions affecting current work:
 - [27-08] CSV export includes version header comment - Added "# Magellan Export Version: 2.0.0" as first line in CSV output. Tests updated to skip comment lines when parsing CSV to find actual header row. All CSV export tests pass.
 - [40-02] SCC detection and condensation using sqlitegraph's strongly_connected_components() - Detects mutual recursion cycles, collapses SCCs into supernodes for DAG analysis
 - [40-02] Cycle report with CycleKind (SelfLoop, TwoNode, Complex) - Categorizes cycles by size for user-friendly reporting
-- [40-03] Path enumeration between symbols using sqlitegraph's enumerate_paths() - Finds execution paths with configurable depth limit
-- [40-03] PathStatistics tracks count, max depth, cycles found - Provides metrics for path query results
+- [40-02] Condensation graph with Supernode and CondensationResult types - Maps symbols to supernode IDs for topological analysis
+- [40-03] Path enumeration using sqlitegraph's enumerate_paths() with AHashSet<i64> exit_nodes - Finds execution paths with configurable depth limit, max_paths, revisit_cap bounds
+- [40-03] PathEnumerationResult with bounded_hit flag - Indicates when enumeration hit bounds (paths_pruned_by_bounds > 0)
+- [40-03] ahash 0.8 dependency for AHashSet - Required by sqlitegraph's path_enumeration module for cycle-safe DFS
+- [40-03] ExecutionPath and PathStatistics types for path results - Tracks avg_length, min_length, max_length, unique_symbols
+- [40-03] paths CLI subcommand with --start, --end, --max-depth, --max-paths flags - Follows existing CLI pattern (path_enumeration_cmd.rs)
 - [40-04] Program slicing using call-graph reachability as fallback - Full CFG-based slicing requires AST Control Dependence Graph integration
 - [40-04] SliceDirection enum: Backward (what affects), Forward (what is affected) - Clear semantic distinction for slice direction
 - [40-04] SliceStatistics: total_symbols, data_dependencies (0 in fallback), control_dependencies - Documents call-graph limitation
