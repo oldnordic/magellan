@@ -695,3 +695,181 @@ mod tests {
         assert!(!if_blocks.is_empty());
     }
 }
+
+/// LLVM IR-based CFG extraction (OPTIONAL feature)
+///
+/// This module provides more precise CFG extraction using LLVM IR,
+/// which sees optimizations, macro expansion, and compiler-generated code.
+/// Requires clang to emit IR for C/C++ files.
+///
+/// **This is OPTIONAL** - AST-based CFG (see CfgExtractor above) works
+/// for all languages including C/C++.
+///
+/// To enable: --features llvm-cfg
+/// Requires: clang installed, matching LLVM version
+#[cfg(feature = "llvm-cfg")]
+pub mod llvm_cfg {
+    use super::CfgBlock;
+    use anyhow::Result;
+
+    /// LLVM IR-based CFG extractor for C/C++
+    ///
+    /// Uses LLVM C API (via inkwell) to extract precise CFG from LLVM IR.
+    /// More accurate than AST for:
+    /// - Compiler optimizations
+    /// - Macro expansion
+    /// - Template instantiation
+    /// - Inline expansion
+    ///
+    /// **Status:** Stub implementation - full extraction deferred
+    pub struct LlvmCfgExtractor {
+        /// Path to clang binary for IR generation
+        clang_path: std::path::PathBuf,
+        /// LLVM context for IR parsing
+        #[allow(dead_code)]
+        context: Option<inkwell::context::Context>,
+    }
+
+    impl LlvmCfgExtractor {
+        /// Create a new LLVM CFG extractor
+        ///
+        /// # Errors
+        /// Returns error if clang is not found or LLVM version mismatch
+        pub fn new() -> Result<Self> {
+            // Find clang in PATH
+            let clang_path = Self::find_clang()?;
+
+            Ok(Self {
+                clang_path,
+                context: None, // Initialized when needed
+            })
+        }
+
+        /// Extract CFG blocks from LLVM IR for a C/C++ function
+        ///
+        /// # Process
+        /// 1. Compile C/C++ source to LLVM IR (.ll file) using clang
+        /// 2. Parse IR using LLVM C API
+        /// 3. Walk basic blocks in each function
+        /// 4. Extract terminator info for each block
+        ///
+        /// # Limitations
+        /// - Requires clang installation
+        /// - LLVM version must match inkwell binding
+        /// - Slower than AST (requires compilation)
+        /// - Only works for C/C++ (not other languages)
+        ///
+        /// # Arguments
+        /// * `ir_file` - Path to .ll IR file or .c/.cpp source
+        /// * `function_name` - Name of function to analyze
+        /// * `function_id` - Database ID for storing blocks
+        ///
+        /// # Returns
+        /// Vector of CFG blocks (stub for now)
+        pub fn extract_cfg_from_ir(
+            &self,
+            _ir_file: &std::path::Path,
+            function_name: &str,
+            function_id: i64,
+        ) -> Result<Vec<CfgBlock>> {
+            // STUB: Return empty vector for now
+            // Full implementation requires:
+            // 1. Compile to IR: clang -S -emit-llvm input.c -o input.ll
+            // 2. Parse IR: inkwell::module::Module::parse_ir_string()
+            // 3. Walk functions: module.get_function(function_name)
+            // 4. Iterate basic blocks: func.get_basic_blocks()
+            // 5. Extract terminators: block.get_terminator()
+
+            tracing::warn!(
+                "LlvmCfgExtractor::extract_cfg_from_ir called for '{}' \
+                but is not yet implemented (stub only)",
+                function_name
+            );
+
+            Ok(vec![])
+        }
+
+        /// Generate LLVM IR from C/C++ source file
+        ///
+        /// Uses clang to compile source to .ll IR text format.
+        ///
+        /// # Arguments
+        /// * `source_file` - Path to .c or .cpp file
+        /// * `output_file` - Path for .ll output (optional, auto-generated if None)
+        ///
+        /// # Returns
+        /// Path to generated .ll file
+        pub fn compile_to_ir(
+            &self,
+            source_file: &std::path::Path,
+            output_file: Option<&std::path::Path>,
+        ) -> Result<std::path::PathBuf> {
+            let output = output_file.unwrap_or(source_file.with_extension("ll"));
+
+            // Run: clang -S -emit-llvm source.c -o source.ll
+            let status = std::process::Command::new(&self.clang_path)
+                .arg("-S")
+                .arg("-emit-llvm")
+                .arg(source_file)
+                .arg("-o")
+                .arg(&output)
+                .status()?;
+
+            if !status.success() {
+                return Err(anyhow::anyhow!(
+                    "clang failed to compile {:?} to LLVM IR",
+                    source_file
+                ));
+            }
+
+            Ok(output)
+        }
+
+        /// Find clang executable in PATH
+        fn find_clang() -> Result<std::path::PathBuf> {
+            // Try common clang names
+            for clang in &["clang", "clang-14", "clang-15", "clang-16", "clang-17"] {
+                if let Ok(path) = which::which(clang) {
+                    return Ok(path);
+                }
+            }
+
+            Err(anyhow::anyhow!(
+                "clang not found in PATH. Install clang to use llvm-cfg feature."
+            ))
+        }
+    }
+
+    impl Default for LlvmCfgExtractor {
+        fn default() -> Self {
+            Self::new().expect("Failed to create LlvmCfgExtractor")
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn test_llvm_extractor_creation() {
+            // This test only runs when llvm-cfg feature is enabled
+            // and clang is available
+            if let Ok(_extractor) = LlvmCfgExtractor::new() {
+                // Successfully created (clang was found)
+            }
+            // If creation fails, that's ok for optional feature
+        }
+
+        #[test]
+        fn test_stub_returns_empty() {
+            let extractor = LlvmCfgExtractor::new();
+            // Even if creation fails, we can test the stub behavior
+            if let Ok(ext) = extractor {
+                let blocks = ext
+                    .extract_cfg_from_ir(std::path::Path::new("test.c"), "test_function", 1)
+                    .unwrap();
+                assert!(blocks.is_empty(), "Stub should return empty vector");
+            }
+        }
+    }
+}
