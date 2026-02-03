@@ -10,9 +10,12 @@ mod migrate_cmd;
 mod files_cmd;
 mod find_cmd;
 mod get_cmd;
+mod path_enumeration_cmd;
 mod query_cmd;
 mod reachable_cmd;
 mod refs_cmd;
+mod condense_cmd;
+mod cycles_cmd;
 mod slice_cmd;
 mod verify_cmd;
 mod watch_cmd;
@@ -66,6 +69,8 @@ fn print_usage() {
     eprintln!("  magellan find-ast --db <FILE> --kind <KIND> [--output <FORMAT>]");
     eprintln!("  magellan reachable --db <FILE> --symbol <SYMBOL_ID> [--reverse] [--output <FORMAT>]");
     eprintln!("  magellan dead-code --db <FILE> --entry <SYMBOL_ID> [--output <FORMAT>]");
+    eprintln!("  magellan cycles --db <FILE> [--symbol <SYMBOL_ID>] [--output <FORMAT>]");
+    eprintln!("  magellan condense --db <FILE> [--members] [--output <FORMAT>]");
     eprintln!("  magellan slice --db <FILE> --target <SYMBOL_ID> [--direction <backward|forward>] [--verbose] [--output <FORMAT>]");
     eprintln!();
     eprintln!("Commands:");
@@ -89,6 +94,8 @@ fn print_usage() {
     eprintln!("  find-ast        Find AST nodes by kind");
     eprintln!("  reachable       Show symbols reachable from a given symbol");
     eprintln!("  dead-code       Find dead code unreachable from an entry point");
+    eprintln!("  cycles          Detect strongly connected components (cycles) in the call graph");
+    eprintln!("  condense        Show call graph condensation (SCCs collapsed into supernodes)");
     eprintln!("  slice           Program slicing (backward/forward) from a target symbol");
     eprintln!();
     eprintln!("Global arguments:");
@@ -361,9 +368,30 @@ enum Command {
         output_format: OutputFormat,
     },
     /// Dead code detection (Phase 40)
+    /// Cycles detection (Phase 40)
+    Cycles {
+        db_path: PathBuf,
+        symbol_id: Option<String>,
+        output_format: OutputFormat,
+    },
+    /// Condensation graph (Phase 40)
+    Condense {
+        db_path: PathBuf,
+        show_members: bool,
+        output_format: OutputFormat,
+    },
     DeadCode {
         db_path: PathBuf,
         entry_symbol_id: String,
+        output_format: OutputFormat,
+    },
+    /// Path enumeration (Phase 40)
+    Paths {
+        db_path: PathBuf,
+        start_symbol_id: String,
+        end_symbol_id: Option<String>,
+        max_depth: usize,
+        max_paths: usize,
         output_format: OutputFormat,
     },
     /// Program slicing (Phase 40)
@@ -1771,6 +1799,167 @@ fn parse_args() -> Result<Command> {
                 output_format,
             })
         }
+        "cycles" => {
+            let mut db_path: Option<PathBuf> = None;
+            let mut symbol_id: Option<String> = None;
+            let mut output_format = OutputFormat::Human;
+
+            let mut i = 2;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--db" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--db requires an argument"));
+                        }
+                        db_path = Some(PathBuf::from(&args[i + 1]));
+                        i += 2;
+                    }
+                    "--symbol" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--symbol requires an argument"));
+                        }
+                        symbol_id = Some(args[i + 1].clone());
+                        i += 2;
+                    }
+                    "--output" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--output requires an argument"));
+                        }
+                        output_format = OutputFormat::from_str(&args[i + 1]).ok_or_else(|| {
+                            anyhow::anyhow!("Invalid output format: {}", args[i + 1])
+                        })?;
+                        i += 2;
+                    }
+                    _ => {
+                        return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
+                    }
+                }
+            }
+
+            let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+
+            Ok(Command::Cycles {
+                db_path,
+                symbol_id,
+                output_format,
+            })
+        }
+        "condense" => {
+            let mut db_path: Option<PathBuf> = None;
+            let mut show_members = false;
+            let mut output_format = OutputFormat::Human;
+
+            let mut i = 2;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--db" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--db requires an argument"));
+                        }
+                        db_path = Some(PathBuf::from(&args[i + 1]));
+                        i += 2;
+                    }
+                    "--members" => {
+                        show_members = true;
+                        i += 1;
+                    }
+                    "--output" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--output requires an argument"));
+                        }
+                        output_format = OutputFormat::from_str(&args[i + 1]).ok_or_else(|| {
+                            anyhow::anyhow!("Invalid output format: {}", args[i + 1])
+                        })?;
+                        i += 2;
+                    }
+                    _ => {
+                        return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
+                    }
+                }
+            }
+
+            let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+
+            Ok(Command::Condense {
+                db_path,
+                show_members,
+                output_format,
+            })
+        }
+        "paths" => {
+            let mut db_path: Option<PathBuf> = None;
+            let mut start_symbol_id: Option<String> = None;
+            let mut end_symbol_id: Option<String> = None;
+            let mut max_depth = 100;
+            let mut max_paths = 1000;
+            let mut output_format = OutputFormat::Human;
+
+            let mut i = 2;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--db" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--db requires an argument"));
+                        }
+                        db_path = Some(PathBuf::from(&args[i + 1]));
+                        i += 2;
+                    }
+                    "--start" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--start requires an argument"));
+                        }
+                        start_symbol_id = Some(args[i + 1].clone());
+                        i += 2;
+                    }
+                    "--end" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--end requires an argument"));
+                        }
+                        end_symbol_id = Some(args[i + 1].clone());
+                        i += 2;
+                    }
+                    "--max-depth" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--max-depth requires an argument"));
+                        }
+                        max_depth = args[i + 1].parse()?;
+                        i += 2;
+                    }
+                    "--max-paths" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--max-paths requires an argument"));
+                        }
+                        max_paths = args[i + 1].parse()?;
+                        i += 2;
+                    }
+                    "--output" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--output requires an argument"));
+                        }
+                        output_format = OutputFormat::from_str(&args[i + 1]).ok_or_else(|| {
+                            anyhow::anyhow!("Invalid output format: {}", args[i + 1])
+                        })?;
+                        i += 2;
+                    }
+                    _ => {
+                        return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
+                    }
+                }
+            }
+
+            let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+            let start_symbol_id =
+                start_symbol_id.ok_or_else(|| anyhow::anyhow!("--start is required"))?;
+
+            Ok(Command::Paths {
+                db_path,
+                start_symbol_id,
+                end_symbol_id,
+                max_depth,
+                max_paths,
+                output_format,
+            })
+        }
         "slice" => {
             let mut db_path: Option<PathBuf> = None;
             let mut target: Option<String> = None;
@@ -2454,6 +2643,53 @@ fn main() -> ExitCode {
         }) => {
             if let Err(e) =
                 dead_code_cmd::run_dead_code(db_path, entry_symbol_id, output_format)
+            {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::Paths {
+            db_path,
+            start_symbol_id,
+            end_symbol_id,
+            max_depth,
+            max_paths,
+            output_format,
+        }) => {
+            if let Err(e) = path_enumeration_cmd::run_paths(
+                db_path,
+                start_symbol_id,
+                end_symbol_id,
+                max_depth,
+                max_paths,
+                output_format,
+            ) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::Cycles {
+            db_path,
+            symbol_id,
+            output_format,
+        }) => {
+            if let Err(e) =
+                cycles_cmd::run_cycles(db_path, symbol_id, output_format)
+            {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::Condense {
+            db_path,
+            show_members,
+            output_format,
+        }) => {
+            if let Err(e) =
+                condense_cmd::run_condense(db_path, show_members, output_format)
             {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
