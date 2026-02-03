@@ -498,6 +498,7 @@ fn parse_args() -> Result<Command> {
             let config = WatcherConfig {
                 root_path: root_path.clone(),
                 debounce_ms,
+                gitignore_aware: true, // TODO: add --gitignore-aware/--no-gitignore flags
             };
 
             // Precedence: --watch-only forces scan_initial to false

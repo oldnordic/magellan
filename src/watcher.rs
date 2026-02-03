@@ -40,6 +40,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
+use crate::graph::filter::FileFilter;
+
 /// Deterministic batch of dirty file paths.
 ///
 /// Contains ONLY paths (no timestamps, no event types) to ensure deterministic
@@ -76,6 +78,8 @@ pub struct WatcherConfig {
     pub root_path: PathBuf,
     /// Debounce delay in milliseconds
     pub debounce_ms: u64,
+    /// Enable .gitignore filtering (default: true)
+    pub gitignore_aware: bool,
 }
 
 impl Default for WatcherConfig {
@@ -83,6 +87,7 @@ impl Default for WatcherConfig {
         Self {
             root_path: PathBuf::from("."),
             debounce_ms: 500,
+            gitignore_aware: true,
         }
     }
 }
@@ -317,6 +322,20 @@ fn run_watcher(
     // Get the root path for validation
     let root_path = config.root_path.clone();
 
+    // Create gitignore filter if enabled (created ONCE before debouncer)
+    // This avoids re-parsing .gitignore on every event
+    let filter = if config.gitignore_aware {
+        match FileFilter::new(&root_path, &[], &[]) {
+            Ok(f) => Some(f),
+            Err(e) => {
+                eprintln!("Warning: Failed to create gitignore filter: {}", e);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     // Create debouncer with notify 8.x API
     // The debouncer calls our closure on each batch of events
     let mut debouncer = new_debouncer(
@@ -325,7 +344,8 @@ fn run_watcher(
             match result {
                 Ok(events) => {
                     // Collect all dirty paths from this batch
-                    let dirty_paths = extract_dirty_paths(&events, &root_path);
+                    // Pass filter reference (moved into closure)
+                    let dirty_paths = extract_dirty_paths(&events, &root_path, filter.as_ref());
 
                     if !dirty_paths.is_empty() {
                         let batch = WatcherBatch::from_set(dirty_paths);
@@ -356,6 +376,7 @@ fn run_watcher(
 /// Filtering rules:
 /// - Exclude directories (only process files)
 /// - Exclude database-related files (.db, .sqlite, etc.)
+/// - Apply gitignore filter if provided (skip ignored files)
 /// - Validate paths are within project root (security: prevent path traversal)
 /// - De-duplicate via BTreeSet
 ///
@@ -363,6 +384,7 @@ fn run_watcher(
 fn extract_dirty_paths(
     events: &[notify_debouncer_mini::DebouncedEvent],
     root: &Path,
+    filter: Option<&FileFilter>,
 ) -> BTreeSet<PathBuf> {
     let mut dirty_paths = BTreeSet::new();
 
@@ -378,6 +400,16 @@ fn extract_dirty_paths(
         let path_str = path.to_string_lossy();
         if is_database_file(&path_str) {
             continue;
+        }
+
+        // Apply gitignore filter if enabled
+        // This checks .gitignore patterns and internal ignores (target/, node_modules/, etc.)
+        if let Some(f) = filter {
+            if f.should_skip(path).is_some() {
+                // Path is ignored by gitignore, skip without logging
+                // (would be too noisy to log every ignored file)
+                continue;
+            }
         }
 
         // Validate path is within project root (security: prevent path traversal)
@@ -521,10 +553,21 @@ mod tests {
         let config = WatcherConfig {
             root_path: PathBuf::from("/test/root"),
             debounce_ms: 100,
+            gitignore_aware: true,
         };
 
         assert_eq!(config.root_path, PathBuf::from("/test/root"));
         assert_eq!(config.debounce_ms, 100);
+        assert!(config.gitignore_aware);
+    }
+
+    #[test]
+    fn test_watcher_config_default() {
+        let config = WatcherConfig::default();
+
+        assert_eq!(config.root_path, PathBuf::from("."));
+        assert_eq!(config.debounce_ms, 500);
+        assert!(config.gitignore_aware);
     }
 
     #[test]
