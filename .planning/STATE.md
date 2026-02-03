@@ -9,13 +9,13 @@ See: .planning/PROJECT.md (updated 2026-01-23)
 
 ## Current Position
 
-Phase: 39-ast-migration-fix (AST Migration Fix)
-Plan: 39-02 of 2 (Complete)
+Phase: 40-graph-algorithms (Graph Algorithms)
+Plan: 40-01 of 1 (Complete)
 Status: Phase complete
-Last activity: 2026-01-31 — Completed 39-02 (Verify New DB Creation)
+Last activity: 2026-02-03 — Completed 40-01 (Graph Algorithms)
 
-Progress: 100% (2/2 plans complete)
-Overall: 100% (149/149 plans complete)
+Progress: 100% (1/1 plans complete)
+Overall: 100% (150/150 plans complete)
 
 ## Performance Metrics
 
@@ -166,8 +166,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-01-31
-Stopped at: Completed 39-02 (Verify New DB Creation)
+Last session: 2026-02-03
+Stopped at: Completed 40-01 (Graph Algorithms)
 Resume file: None
 Blockers: None
 
@@ -380,3 +380,28 @@ Blockers: None
 - ✅ Opening a v4 database auto-upgrades to v5
 - ✅ All migration tests pass (4/4)
 - ✅ All unit and integration tests pass (450/450)
+
+## Phase 40 Summary
+
+**Milestone Goal:** Graph Algorithms - Add reachability analysis and dead code detection using sqlitegraph 1.3.0.
+
+**Plans Completed:** 1 plan (40-01)
+- 40-01: Graph algorithms module with CLI commands (reachable, dead-code)
+
+**Key Changes:**
+- Created src/graph/algorithms.rs with SymbolInfo and DeadSymbol structs
+- Implemented reachable_symbols() for forward reachability (callee discovery)
+- Implemented reverse_reachable_symbols() for reverse reachability (caller discovery)
+- Implemented dead_symbols() for dead code detection from entry points
+- resolve_symbol_entity() accepts FQN as fallback (user-friendly API)
+- Created src/reachable_cmd.rs with --reverse flag for caller queries
+- Created src/dead_code_cmd.rs with --entry flag for entry point specification
+- Both commands support --output json|pretty|human
+- Added 5 integration tests in tests/algorithm_tests.rs
+
+**Success Criteria (All Met):**
+- ✅ Algorithm functions implemented and tested
+- ✅ CLI commands for reachable and dead-code work
+- ✅ JSON/human output modes supported
+- ✅ FQN fallback lookup for user-friendly queries
+- ✅ All tests pass (5/5 integration tests)

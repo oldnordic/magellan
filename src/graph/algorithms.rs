@@ -29,6 +29,8 @@
 //! - [`CodeGraph::reachable_symbols()`]: Forward reachability from a symbol
 //! - [`CodeGraph::reverse_reachable_symbols()`]: Reverse reachability (callers)
 //! - [`CodeGraph::dead_symbols()`]: Dead code detection from entry point
+//! - [`CodeGraph::backward_slice()`]: Backward program slice (what affects this symbol)
+//! - [`CodeGraph::forward_slice()`]: Forward program slice (what this symbol affects)
 //!
 //! # Example
 //!
@@ -77,6 +79,54 @@ pub struct DeadSymbol {
     pub symbol: SymbolInfo,
     /// Reason why this symbol is unreachable/dead
     pub reason: String,
+}
+
+/// Direction of program slicing
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SliceDirection {
+    /// Backward slice: what affects this symbol (reverse reachability)
+    Backward,
+    /// Forward slice: what this symbol affects (forward reachability)
+    Forward,
+}
+
+/// Program slice result
+///
+/// Contains the slice results and statistics for a program slicing operation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProgramSlice {
+    /// Target symbol for the slice
+    pub target: SymbolInfo,
+    /// Direction of the slice
+    pub direction: SliceDirection,
+    /// Symbols included in the slice
+    pub included_symbols: Vec<SymbolInfo>,
+    /// Number of symbols in the slice
+    pub symbol_count: usize,
+}
+
+/// Program slice result with statistics
+///
+/// Wraps a [`ProgramSlice`] with additional statistics about the slice.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SliceResult {
+    /// The slice itself
+    pub slice: ProgramSlice,
+    /// Statistics about the slice
+    pub statistics: SliceStatistics,
+}
+
+/// Statistics for a program slice
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SliceStatistics {
+    /// Total number of symbols in the slice
+    pub total_symbols: usize,
+    /// Number of data dependencies
+    /// Note: Set to 0 for call-graph fallback (not computed without full CFG)
+    pub data_dependencies: usize,
+    /// Number of control dependencies
+    /// For call-graph fallback, this equals total_symbols (callers/callees)
+    pub control_dependencies: usize,
 }
 
 impl CodeGraph {
@@ -411,6 +461,184 @@ impl CodeGraph {
         });
 
         Ok(dead_symbols)
+    }
+
+    /// Compute a backward program slice (what affects this symbol)
+    ///
+    /// Returns all symbols that can affect the target symbol through the call graph.
+    /// This is useful for bug isolation - finding all code that could influence
+    /// a given symbol's behavior.
+    ///
+    /// # Graph View (Call-Graph Fallback)
+    ///
+    /// **Current implementation uses call-graph reachability as a fallback.**
+    /// Full CFG-based program slicing requires control dependence graph (CDG)
+    /// which needs post-dominators and AST CFG integration not yet available.
+    ///
+    /// The fallback implementation uses reverse reachability on the call graph,
+    /// finding all callers that directly or indirectly call this symbol.
+    ///
+    /// # Limitations
+    ///
+    /// - Uses call-graph reachability instead of full CFG-based slicing
+    /// - Does not include data flow dependencies within functions
+    /// - Does not include control flow from conditionals/loops
+    /// - Full slicing will be available when AST CFG edges are integrated
+    ///
+    /// # Arguments
+    /// * `symbol_id` - Stable symbol ID or FQN to slice from
+    ///
+    /// # Returns
+    /// [`SliceResult`] containing the slice and statistics
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use magellan::CodeGraph;
+    /// # let mut graph = CodeGraph::open("test.db").unwrap();
+    /// // Find what affects 'helper_function'
+    /// let slice_result = graph.backward_slice("helper_function")?;
+    /// println!("{} symbols affect this function", slice_result.slice.symbol_count);
+    /// for symbol in &slice_result.slice.included_symbols {
+    ///     println!("  - {}", symbol.fqn.as_deref().unwrap_or("?"));
+    /// }
+    /// ```
+    pub fn backward_slice(&self, symbol_id: &str) -> Result<SliceResult> {
+        let entity_id = self.resolve_symbol_entity(symbol_id)?;
+        let backend = &self.calls.backend;
+
+        // Get target symbol info
+        let target = self.symbol_by_entity_id(entity_id)?;
+
+        // Fallback: Use reverse reachable on call graph
+        // This finds all callers that directly or indirectly call this symbol
+        let caller_entity_ids = algo::reverse_reachable_from(backend.graph(), entity_id)?;
+
+        // Convert entity IDs to SymbolInfo
+        let mut included_symbols = Vec::new();
+        for id in caller_entity_ids {
+            // Skip the starting symbol itself
+            if id == entity_id {
+                continue;
+            }
+
+            if let Ok(info) = self.symbol_by_entity_id(id) {
+                included_symbols.push(info);
+            }
+        }
+
+        // Sort deterministically
+        included_symbols.sort_by(|a, b| {
+            a.file_path
+                .cmp(&b.file_path)
+                .then_with(|| a.fqn.as_ref().cmp(&b.fqn.as_ref()))
+                .then_with(|| a.kind.cmp(&b.kind))
+        });
+
+        let symbol_count = included_symbols.len();
+
+        Ok(SliceResult {
+            slice: ProgramSlice {
+                target,
+                direction: SliceDirection::Backward,
+                included_symbols,
+                symbol_count,
+            },
+            statistics: SliceStatistics {
+                total_symbols: symbol_count,
+                data_dependencies: 0, // Not available in call-graph fallback
+                control_dependencies: symbol_count,
+            },
+        })
+    }
+
+    /// Compute a forward program slice (what this symbol affects)
+    ///
+    /// Returns all symbols that the target symbol can affect through the call graph.
+    /// This is useful for refactoring safety - finding all code that could be
+    /// impacted by changes to this symbol.
+    ///
+    /// # Graph View (Call-Graph Fallback)
+    ///
+    /// **Current implementation uses call-graph reachability as a fallback.**
+    /// Full CFG-based program slicing requires control dependence graph (CDG)
+    /// which needs post-dominators and AST CFG integration not yet available.
+    ///
+    /// The fallback implementation uses forward reachability on the call graph,
+    /// finding all callees that this symbol directly or indirectly calls.
+    ///
+    /// # Limitations
+    ///
+    /// - Uses call-graph reachability instead of full CFG-based slicing
+    /// - Does not include data flow dependencies within functions
+    /// - Does not include control flow from conditionals/loops
+    /// - Full slicing will be available when AST CFG edges are integrated
+    ///
+    /// # Arguments
+    /// * `symbol_id` - Stable symbol ID or FQN to slice from
+    ///
+    /// # Returns
+    /// [`SliceResult`] containing the slice and statistics
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use magellan::CodeGraph;
+    /// # let mut graph = CodeGraph::open("test.db").unwrap();
+    /// // Find what 'main_function' affects
+    /// let slice_result = graph.forward_slice("main_function")?;
+    /// println!("{} symbols are affected by this function", slice_result.slice.symbol_count);
+    /// for symbol in &slice_result.slice.included_symbols {
+    ///     println!("  - {}", symbol.fqn.as_deref().unwrap_or("?"));
+    /// }
+    /// ```
+    pub fn forward_slice(&self, symbol_id: &str) -> Result<SliceResult> {
+        let entity_id = self.resolve_symbol_entity(symbol_id)?;
+        let backend = &self.calls.backend;
+
+        // Get target symbol info
+        let target = self.symbol_by_entity_id(entity_id)?;
+
+        // Fallback: Use forward reachable on call graph
+        // This finds all callees that this symbol directly or indirectly calls
+        let callee_entity_ids = algo::reachable_from(backend.graph(), entity_id)?;
+
+        // Convert entity IDs to SymbolInfo
+        let mut included_symbols = Vec::new();
+        for id in callee_entity_ids {
+            // Skip the starting symbol itself
+            if id == entity_id {
+                continue;
+            }
+
+            if let Ok(info) = self.symbol_by_entity_id(id) {
+                included_symbols.push(info);
+            }
+        }
+
+        // Sort deterministically
+        included_symbols.sort_by(|a, b| {
+            a.file_path
+                .cmp(&b.file_path)
+                .then_with(|| a.fqn.as_ref().cmp(&b.fqn.as_ref()))
+                .then_with(|| a.kind.cmp(&b.kind))
+        });
+
+        let symbol_count = included_symbols.len();
+
+        Ok(SliceResult {
+            slice: ProgramSlice {
+                target,
+                direction: SliceDirection::Forward,
+                included_symbols,
+                symbol_count,
+            },
+            statistics: SliceStatistics {
+                total_symbols: symbol_count,
+                data_dependencies: 0, // Not available in call-graph fallback
+                control_dependencies: symbol_count,
+            },
+        })
     }
 }
 
