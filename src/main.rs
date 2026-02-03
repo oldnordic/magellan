@@ -13,6 +13,7 @@ mod get_cmd;
 mod query_cmd;
 mod reachable_cmd;
 mod refs_cmd;
+mod slice_cmd;
 mod verify_cmd;
 mod watch_cmd;
 
@@ -65,6 +66,7 @@ fn print_usage() {
     eprintln!("  magellan find-ast --db <FILE> --kind <KIND> [--output <FORMAT>]");
     eprintln!("  magellan reachable --db <FILE> --symbol <SYMBOL_ID> [--reverse] [--output <FORMAT>]");
     eprintln!("  magellan dead-code --db <FILE> --entry <SYMBOL_ID> [--output <FORMAT>]");
+    eprintln!("  magellan slice --db <FILE> --target <SYMBOL_ID> [--direction <backward|forward>] [--verbose] [--output <FORMAT>]");
     eprintln!();
     eprintln!("Commands:");
     eprintln!("  watch           Watch directory and index changes");
@@ -87,6 +89,7 @@ fn print_usage() {
     eprintln!("  find-ast        Find AST nodes by kind");
     eprintln!("  reachable       Show symbols reachable from a given symbol");
     eprintln!("  dead-code       Find dead code unreachable from an entry point");
+    eprintln!("  slice           Program slicing (backward/forward) from a target symbol");
     eprintln!();
     eprintln!("Global arguments:");
     eprintln!("  --output <FORMAT>   Output format: human (default), json (compact), or pretty (formatted)");
@@ -196,6 +199,12 @@ fn print_usage() {
     eprintln!("Verify arguments:");
     eprintln!("  --root <DIR>        Directory to verify against");
     eprintln!("  --db <FILE>         Path to sqlitegraph database");
+    eprintln!();
+    eprintln!("Slice arguments:");
+    eprintln!("  --db <FILE>         Path to sqlitegraph database");
+    eprintln!("  --target <ID>       Target symbol ID to slice from");
+    eprintln!("  --direction <DIR>   Slice direction: backward (default) or forward");
+    eprintln!("  --verbose           Show detailed statistics");
 }
 
 enum Command {
@@ -355,6 +364,14 @@ enum Command {
     DeadCode {
         db_path: PathBuf,
         entry_symbol_id: String,
+        output_format: OutputFormat,
+    },
+    /// Program slicing (Phase 40)
+    Slice {
+        db_path: PathBuf,
+        target: String,
+        direction: String,
+        verbose: bool,
         output_format: OutputFormat,
     },
 }
@@ -1754,6 +1771,67 @@ fn parse_args() -> Result<Command> {
                 output_format,
             })
         }
+        "slice" => {
+            let mut db_path: Option<PathBuf> = None;
+            let mut target: Option<String> = None;
+            let mut direction = "backward".to_string();
+            let mut verbose = false;
+            let mut output_format = OutputFormat::Human;
+
+            let mut i = 2;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--db" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--db requires an argument"));
+                        }
+                        db_path = Some(PathBuf::from(&args[i + 1]));
+                        i += 2;
+                    }
+                    "--target" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--target requires an argument"));
+                        }
+                        target = Some(args[i + 1].clone());
+                        i += 2;
+                    }
+                    "--direction" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--direction requires an argument"));
+                        }
+                        direction = args[i + 1].clone();
+                        i += 2;
+                    }
+                    "--verbose" => {
+                        verbose = true;
+                        i += 1;
+                    }
+                    "--output" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--output requires an argument"));
+                        }
+                        output_format = OutputFormat::from_str(&args[i + 1]).ok_or_else(|| {
+                            anyhow::anyhow!("Invalid output format: {}", args[i + 1])
+                        })?;
+                        i += 2;
+                    }
+                    _ => {
+                        return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
+                    }
+                }
+            }
+
+            let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+            let target = target.ok_or_else(|| anyhow::anyhow!("--target is required"))?;
+
+            Ok(Command::Slice {
+                db_path,
+                target,
+                direction,
+                verbose,
+                output_format,
+            })
+        }
         _ => Err(anyhow::anyhow!("Unknown command: {}", command)),
     }
 }
@@ -2377,6 +2455,32 @@ fn main() -> ExitCode {
             if let Err(e) =
                 dead_code_cmd::run_dead_code(db_path, entry_symbol_id, output_format)
             {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::Slice {
+            db_path,
+            target,
+            direction,
+            verbose,
+            output_format,
+        }) => {
+            let cli_direction = match slice_cmd::CliSliceDirection::from_str(&direction) {
+                Some(d) => d,
+                None => {
+                    eprintln!("Error: Invalid direction: {}", direction);
+                    return ExitCode::from(1);
+                }
+            };
+            if let Err(e) = slice_cmd::run_slice(
+                db_path,
+                target,
+                cli_direction,
+                verbose,
+                output_format,
+            ) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
