@@ -24,6 +24,7 @@ mod ast_node;
 mod ast_extractor;
 mod ast_ops;
 mod cfg_extractor;
+mod cfg_ops;
 mod cache;
 mod call_ops;
 mod calls;
@@ -82,6 +83,7 @@ pub use ast_extractor::{extract_ast_nodes, language_from_path, normalize_node_ki
 pub use ast_node::{AstNode, AstNodeWithText, is_structural_kind};
 // Re-export CFG types for public API
 pub use cfg_extractor::{BlockKind, CfgExtractor, TerminatorKind};
+pub use cfg_ops::CfgOps;
 pub use cache::CacheStats;
 pub use db_compat::{ensure_ast_schema, ensure_cfg_schema, CFG_EDGE};
 pub use db_compat::MAGELLAN_SCHEMA_VERSION;
@@ -136,6 +138,9 @@ pub struct CodeGraph {
 
     /// File node cache for frequently accessed files
     file_node_cache: cache::FileNodeCache,
+
+    /// CFG block operations module
+    cfg_ops: cfg_ops::CfgOps,
 }
 
 impl CodeGraph {
@@ -300,6 +305,7 @@ impl CodeGraph {
             execution_log,
             metrics,
             file_node_cache,
+            cfg_ops: cfg_ops::CfgOps::new(ChunkStore::new(&db_path_buf)),
         };
 
         // Trigger backfill if we have existing symbols but no metrics

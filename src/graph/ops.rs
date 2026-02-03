@@ -38,6 +38,8 @@ pub struct DeleteResult {
     pub chunks_deleted: usize,
     /// Number of AST nodes deleted
     pub ast_nodes_deleted: usize,
+    /// Number of CFG blocks deleted
+    pub cfg_blocks_deleted: usize,
     /// Number of edges deleted (cleanup of orphaned edges)
     pub edges_deleted: usize,
 }
@@ -50,6 +52,7 @@ impl DeleteResult {
             + self.calls_deleted
             + self.chunks_deleted
             + self.ast_nodes_deleted
+            + self.cfg_blocks_deleted
             + self.edges_deleted
     }
 
@@ -151,9 +154,23 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
     };
 
     // Step 4: Insert new symbol nodes and DEFINES edges
+    // Track function symbol IDs for CFG extraction
+    let mut function_symbol_ids: Vec<(String, i64, i64, i64)> = Vec::new();
     for fact in &symbol_facts {
         let symbol_id = graph.symbols.insert_symbol_node(fact)?;
         graph.symbols.insert_defines_edge(file_id, symbol_id)?;
+
+        // Track function symbols for CFG extraction (Rust only)
+        if fact.kind_normalized.starts_with("Function") || fact.kind_normalized.starts_with("Method") {
+            if let Some(ref name) = fact.name {
+                function_symbol_ids.push((
+                    name.clone(),
+                    symbol_id.as_i64(),
+                    fact.byte_start as i64,
+                    fact.byte_end as i64,
+                ));
+            }
+        }
     }
 
     // Step 5: Extract and store code chunks for each symbol
@@ -198,6 +215,56 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
                 insert_ast_nodes(graph, file_id.as_i64(), ast_nodes)?;
             }
         }
+    }
+
+    // Step 5.6: Extract and store CFG blocks for Rust functions
+    // CFG extraction is only done for .rs files with function symbols
+    if path.ends_with(".rs") && !function_symbol_ids.is_empty() {
+        let _cfg_result = pool::with_parser(crate::ingest::detect::Language::Rust, |parser| {
+            // parser.parse returns Option, handle gracefully
+            let tree = match parser.parse(source, None) {
+                Some(t) => t,
+                None => return Ok(()), // Parse failed, skip CFG extraction
+            };
+            let root = tree.root_node();
+
+            // Find all function_item nodes
+            fn collect_function_items(node: tree_sitter::Node) -> Vec<tree_sitter::Node> {
+                let mut items = Vec::new();
+                if node.kind() == "function_item" {
+                    items.push(node);
+                }
+                let mut child_cursor = node.walk();
+                if child_cursor.goto_first_child() {
+                    loop {
+                        items.extend(collect_function_items(child_cursor.node()));
+                        if !child_cursor.goto_next_sibling() {
+                            break;
+                        }
+                    }
+                }
+                items
+            }
+
+            let function_nodes = collect_function_items(root);
+
+            // For each function_item, find matching symbol and extract CFG
+            for func_node in function_nodes {
+                let func_start = func_node.byte_range().start as i64;
+                let func_end = func_node.byte_range().end as i64;
+
+                // Find matching function symbol by byte range
+                if let Some((_, entity_id, _, _)) = function_symbol_ids.iter().find(|(_, _, start, end)| {
+                    func_start == *start && func_end == *end
+                }) {
+                    let _ = graph.cfg_ops.index_cfg_for_function(&func_node, source, *entity_id);
+                }
+            }
+
+            Ok::<(), anyhow::Error>(())
+        });
+
+        // CFG extraction failure doesn't block indexing
     }
 
     // Step 6: Index calls (all supported languages)
@@ -338,6 +405,9 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
     // Count AST nodes (v6: uses file_id for efficient per-file counting)
     let expected_ast_nodes = count_ast_nodes_for_file(graph, path);
 
+    // Count CFG blocks for this file
+    let _expected_cfg_blocks = count_cfg_blocks_for_file(graph, path);
+
     // === PHASE 2: Perform graph entity deletions ===
     //
     // ARCHITECTURAL LIMITATION: We cannot wrap all operations in a single ACID transaction
@@ -353,6 +423,7 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
     let references_deleted: usize;
     let calls_deleted: usize;
     let ast_nodes_deleted: usize;
+    let cfg_blocks_deleted: usize;
 
     if let Some(file_id) = graph.files.find_file_node(path)? {
         // Capture symbol IDs before deletion.
@@ -375,7 +446,7 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         }
 
         symbols_deleted = symbol_ids_sorted.len();
-        deleted_entity_ids.extend(symbol_ids_sorted);
+        deleted_entity_ids.extend(symbol_ids_sorted.iter().copied());
 
         // Assert symbol count matches expected
         assert_eq!(
@@ -449,6 +520,9 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
             path, expected_ast_nodes, ast_nodes_deleted
         );
 
+        // Delete CFG blocks for all functions in this file
+        cfg_blocks_deleted = graph.cfg_ops.delete_cfg_for_functions(&symbol_ids_sorted).unwrap_or(0);
+
         // Remove from in-memory index AFTER successful deletions.
         graph.files.file_index.remove(path);
 
@@ -461,6 +535,7 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
             calls_deleted,
             chunks_deleted,
             ast_nodes_deleted,
+            cfg_blocks_deleted,
             edges_deleted,
         })
     } else {
@@ -506,6 +581,10 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
             .execute("DELETE FROM ast_nodes", [])
             .map_err(|e| anyhow::anyhow!("Failed to delete AST nodes: {}", e))?;
 
+        // Delete all CFG blocks (orphan cleanup - no function IDs available)
+        cfg_blocks_deleted = chunk_conn.execute("DELETE FROM cfg_blocks", [])
+            .map_err(|e| anyhow::anyhow!("Failed to delete CFG blocks: {}", e))?;
+
         // Invalidate cache for this file (even if no file node existed)
         graph.invalidate_cache(path);
 
@@ -516,6 +595,7 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
             calls_deleted,
             chunks_deleted,
             ast_nodes_deleted,
+            cfg_blocks_deleted,
             edges_deleted: 0,
         })
     }
@@ -645,7 +725,7 @@ pub mod test_helpers {
             }
 
             symbols_deleted = symbol_ids_sorted.len();
-            deleted_entity_ids.extend(symbol_ids_sorted);
+            deleted_entity_ids.extend(symbol_ids_sorted.iter().copied());
 
             // Verification point after symbols deleted
             if verify_at == Some(FailPoint::AfterSymbolsDeleted) {
@@ -656,6 +736,7 @@ pub mod test_helpers {
                     calls_deleted: 0,
                     chunks_deleted: 0,
                     ast_nodes_deleted: 0,
+                    cfg_blocks_deleted: 0,
                     edges_deleted: 0,
                 });
             }
@@ -679,6 +760,7 @@ pub mod test_helpers {
                     calls_deleted: 0,
                     chunks_deleted: 0,
                     ast_nodes_deleted: 0,
+                    cfg_blocks_deleted: 0,
                     edges_deleted: 0,
                 });
             }
@@ -694,6 +776,7 @@ pub mod test_helpers {
                     calls_deleted,
                     chunks_deleted: 0,
                     ast_nodes_deleted: 0,
+                    cfg_blocks_deleted: 0,
                     edges_deleted: 0,
                 });
             }
@@ -706,6 +789,7 @@ pub mod test_helpers {
                     calls_deleted,
                     chunks_deleted: 0,
                     ast_nodes_deleted: 0,
+                    cfg_blocks_deleted: 0,
                     edges_deleted: 0,
                 });
             }
@@ -738,6 +822,7 @@ pub mod test_helpers {
                     calls_deleted,
                     chunks_deleted,
                     ast_nodes_deleted: 0,
+                    cfg_blocks_deleted: 0,
                     edges_deleted,
                 });
             }
@@ -748,6 +833,7 @@ pub mod test_helpers {
                 calls_deleted,
                 chunks_deleted,
                 ast_nodes_deleted: 0,
+                cfg_blocks_deleted: 0,
                 edges_deleted,
             })
         } else {
@@ -772,6 +858,7 @@ pub mod test_helpers {
                 calls_deleted,
                 chunks_deleted,
                 ast_nodes_deleted: 0,
+                cfg_blocks_deleted: 0,
                 edges_deleted: 0,
             })
         }
@@ -908,6 +995,28 @@ fn count_ast_nodes_for_file(graph: &CodeGraph, path: &str) -> usize {
             conn.query_row(
                 "SELECT COUNT(*) FROM ast_nodes WHERE file_id = ?1",
                 params![file_id],
+                |row| row.get(0),
+            )
+            .unwrap_or(0)
+        }
+        Err(_) => 0,
+    }
+}
+
+/// Count CFG blocks for a file path.
+///
+/// Used to verify deletion completeness.
+fn count_cfg_blocks_for_file(graph: &CodeGraph, path: &str) -> usize {
+    use rusqlite::params;
+
+    // Count CFG blocks by joining with graph_entities
+    match graph.chunks.connect() {
+        Ok(conn) => {
+            conn.query_row(
+                "SELECT COUNT(*) FROM cfg_blocks c
+                 JOIN graph_entities e ON c.function_id = e.id
+                 WHERE e.file_path = ?1",
+                params![path],
                 |row| row.get(0),
             )
             .unwrap_or(0)
