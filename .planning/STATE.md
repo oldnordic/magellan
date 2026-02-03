@@ -9,13 +9,13 @@ See: .planning/PROJECT.md (updated 2026-01-23)
 
 ## Current Position
 
-Phase: 43-llvm-cfg-cpp (LLVM IR-based CFG for C/C++)
-Plan: 43-01 of 1 (Complete)
-Status: ✅ PHASE COMPLETE - Ready for verification and commit
-Last activity: 2026-02-03 — Completed Phase 43 (LLVM CFG Infrastructure)
+Phase: 44-bytecode-cfg-java (Java bytecode-based CFG)
+Plan: 44-01 of 1 (Complete)
+Status: ✅ PHASE COMPLETE - Java bytecode CFG infrastructure established
+Last activity: 2026-02-04 — Completed Phase 44 (Bytecode CFG Infrastructure)
 
 Progress: 100% (1/1 plans complete)
-Overall: 100% (165/165 plans complete)
+Overall: 100% (166/166 plans complete)
 
 ## Performance Metrics
 
@@ -165,6 +165,14 @@ Recent decisions affecting current work:
 - [42-03] cfg_blocks_deleted field added to DeleteResult struct - All 12 constructor locations updated
 - [42-03] 5 integration tests for CFG extraction and cleanup - Tests verify extraction, re-index cleanup, and delete cleanup
 - [42-03] Made cfg_ops public field on CodeGraph - Follows pattern of other ops modules for test access
+- [43-01] LLVM IR-based CFG extraction for C/C++ using inkwell (optional llvm-cfg feature) - inkwell = { version = "0.5", optional = true } dependency with llvm-cfg feature flag
+- [43-01] LlvmCfgExtractor struct with extract_cfg_from_llvm_ir() for LLVM IR CFG extraction - Parses .ll files using inkwell's Module API, maps LLVM BasicBlocks to CfgBlock schema
+- [43-01] Conditional compilation with #[cfg(feature = "llvm-cfg")] - Module only compiled when feature enabled, stub implementation returns empty Vec when disabled
+- [43-01] docs/LLVM_CFG.md documentation for optional LLVM CFG feature - Comparison table (AST vs LLVM CFG), enabling instructions, limitations honestly documented
+- [44-01] Java bytecode-based CFG extraction infrastructure using java_asm (optional bytecode-cfg feature) - java_asm = { version = "0.1", optional = true } dependency with bytecode-cfg feature flag
+- [44-01] JavaBytecodeCfgExtractor struct with extract_cfg_from_class() stub - Conditional compilation follows Phase 43 pattern, returns empty Vec when feature disabled
+- [44-01] docs/JAVA_BYTECODE_CFG.md documentation for optional bytecode CFG feature - Comparison table (AST vs Bytecode), emphasizes optional nature, documents java_asm as Rust placeholder for org.ow2.asm
+- [44-01] Module stubs with graceful degradation pattern - Stub implementation when feature disabled maintains API compatibility without feature detection
 
 ### Pending Todos
 
