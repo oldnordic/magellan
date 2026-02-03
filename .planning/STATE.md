@@ -10,12 +10,12 @@ See: .planning/PROJECT.md (updated 2026-01-23)
 ## Current Position
 
 Phase: 42-ast-cfg-rust (AST-based CFG for Rust)
-Plan: 42-01 of 1 (Complete)
+Plan: 42-02 of 2 (Complete)
 Status: Plan complete
-Last activity: 2026-02-03 — Completed 42-01 (CFG Database Schema)
+Last activity: 2026-02-03 — Completed 42-02 (CFG Extractor Implementation)
 
-Progress: 100% (1/1 plans complete)
-Overall: 100% (156/156 plans complete)
+Progress: 100% (2/2 plans complete)
+Overall: 100% (158/158 plans complete)
 
 ## Performance Metrics
 
@@ -152,6 +152,13 @@ Recent decisions affecting current work:
 - [42-01] MAGELLAN_SCHEMA_VERSION bumped to 7 with v6->v7 migration - Automatic upgrade on database open, follows existing migration pattern
 - [42-01] CfgBlock and CfgEdge types defined in schema.rs - Rust types for CFG data with serde serialization support
 - [42-01] ensure_cfg_schema() called in CodeGraph::open - CFG tables created automatically during database initialization
+- [42-02] CfgExtractor struct with extract_cfg_from_function() for AST-based CFG extraction - Walks tree-sitter AST to identify basic blocks and control flow
+- [42-02] BlockKind enum (Entry, If, Else, Loop, While, For, MatchArm, MatchMerge, Return, Break, Continue, Block) - Classifies block context for database storage
+- [42-02] TerminatorKind enum (Fallthrough, Conditional, Goto, Return, Break, Continue, Call, Panic) - Identifies how control exits each block
+- [42-02] Visitor methods for all Rust control flow constructs (visit_if, visit_loop, visit_match) - Handles nested structures like else_clause and match_block
+- [42-02] find_function_body() helper function for tree-sitter navigation - Extracts function body block from function_item node
+- [42-02] detect_block_terminator() for identifying block ending types - Analyzes last statement in block to determine terminator
+- [42-02] 13 comprehensive unit tests covering all control flow constructs - Tests for if/else, loop/while/for, match, return, break, continue
 
 ### Pending Todos
 
@@ -190,7 +197,7 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-03
-Stopped at: Completed 42-01 (CFG Database Schema)
+Stopped at: Completed 42-02 (CFG Extractor Implementation)
 Resume file: None
 Blockers: None
 
@@ -464,10 +471,11 @@ Blockers: None
 
 ## Phase 42 Summary
 
-**Milestone Goal:** AST-based CFG for Rust - Design and implement database schema for storing Control Flow Graph (CFG) data extracted from AST to enable intra-procedural analysis.
+**Milestone Goal:** AST-based CFG for Rust - Design and implement database schema and AST-based extraction for Control Flow Graph (CFG) data to enable intra-procedural analysis.
 
-**Plans Completed:** 1 plan (42-01)
+**Plans Completed:** 2 plans (42-01, 42-02)
 - 42-01: CFG database schema with cfg_blocks table and v6->v7 migration
+- 42-02: CFG extractor module with CfgExtractor for AST-based control flow extraction
 
 **Key Changes:**
 - Added cfg_blocks table with function_id, kind, terminator, and span fields
@@ -478,6 +486,11 @@ Blockers: None
 - Defined CfgBlock and CfgEdge types in schema.rs
 - Called ensure_cfg_schema() in CodeGraph::open for automatic table creation
 - Re-exported ensure_cfg_schema, CFG_EDGE, CfgBlock, CfgEdge from graph module
+- Created CfgExtractor struct with extract_cfg_from_function() for AST-based CFG extraction
+- Implemented BlockKind enum covering all Rust control flow contexts
+- Implemented TerminatorKind enum for block exit types
+- Created visitor methods for all Rust control flow constructs (visit_if, visit_loop, visit_match)
+- Added comprehensive unit tests (13 tests covering all constructs)
 
 **Success Criteria (All Met):**
 - ✅ CfgBlock type defined in schema.rs with all required fields
@@ -487,4 +500,9 @@ Blockers: None
 - ✅ v6 -> v7 migration path defined
 - ✅ ensure_cfg_schema() called in CodeGraph::open
 - ✅ All indexes created (function_id, span, terminator)
-- ✅ cargo check passes (457/457 library tests pass)
+- ✅ cfg_extractor.rs module exists with CfgExtractor struct
+- ✅ BlockKind and TerminatorKind enums with as_str() display methods
+- ✅ Methods for if/else, loop/while/for, match, return/break/continue
+- ✅ Module exported from graph/mod.rs
+- ✅ cargo test cfg_extractor passes (13/13 tests)
+- ✅ cargo check passes (470/470 library tests pass)
