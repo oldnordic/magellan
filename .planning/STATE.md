@@ -9,13 +9,13 @@ See: .planning/PROJECT.md (updated 2026-01-23)
 
 ## Current Position
 
-Phase: 42-ast-cfg-rust (AST-based CFG for Rust)
-Plan: 42-04 of 4 (Complete)
+Phase: 43-llvm-cfg-cpp (LLVM IR-based CFG for C/C++)
+Plan: 43-01 of 1 (Complete)
 Status: Phase complete
-Last activity: 2026-02-03 — Completed 42-04 (Documentation Update)
+Last activity: 2026-02-03 — Completed 43-01 (LLVM CFG Infrastructure)
 
-Progress: 100% (4/4 plans complete)
-Overall: 100% (163/163 plans complete)
+Progress: 100% (1/1 plans complete)
+Overall: 100% (164/164 plans complete)
 
 ## Performance Metrics
 
@@ -203,9 +203,45 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-03
-Stopped at: Completed 42-04 (Documentation Update)
+Stopped at: Completed 43-01 (LLVM CFG Infrastructure)
 Resume file: None
 Blockers: None
+
+## Phase 43 Summary
+
+**Milestone Goal:** LLVM IR-based CFG for C/C++ - Add optional infrastructure for LLVM IR-based CFG extraction as an enhancement over AST-based CFG.
+
+**Plans Completed:** 1 plan (43-01)
+- 43-01: Optional llvm-cfg feature flag with LlvmCfgExtractor stub
+
+**Key Changes:**
+- Added llvm-cfg feature flag to Cargo.toml (disabled by default)
+- Added inkwell 0.5 dependency (optional) for LLVM C API bindings
+- Added which 6.0 dependency (optional) for finding clang in PATH
+- Created LlvmCfgExtractor stub module in cfg_extractor.rs
+- Module is cfg(feature = "llvm-cfg") gated - compiles with and without feature
+- LlvmCfgExtractor::new() finds clang in PATH (tries clang, clang-14..17)
+- LlvmCfgExtractor::extract_cfg_from_ir() stub returns empty vec and logs warning
+- LlvmCfgExtractor::compile_to_ir() for clang invocation (-S -emit-llvm)
+- Unit tests only run when llvm-cfg feature enabled, handle optional feature gracefully
+- Created README.md explaining phase scope, status, and future work
+- Documentation clearly states this is OPTIONAL - AST CFG works as fallback
+
+**Success Criteria (All Met):**
+- ✅ llvm-cfg feature defined in Cargo.toml (optional, not in default)
+- ✅ inkwell dependency added (optional, version 0.5)
+- ✅ LlvmCfgExtractor stub module exists
+- ✅ Module is cfg(feature = "llvm-cfg") gated
+- ✅ Documentation clearly states this is OPTIONAL
+- ✅ AST CFG fallback is documented
+- ✅ cargo check passes (with and without feature)
+
+**Decisions Made:**
+- [43-01] Feature-gated llvm-cfg as optional - not required for Magellan to function
+- [43-01] AST-based CFG from Phase 42 works for C/C++ as fallback
+- [43-01] Stub implementation with clear documentation for future work
+
+**Deviations:** None - plan executed exactly as written.
 
 ## Phase 42 Summary
 
