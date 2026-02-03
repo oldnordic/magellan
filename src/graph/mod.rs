@@ -73,7 +73,9 @@ use crate::references::{CallFact, ReferenceFact};
 
 // Re-export public types
 pub use algorithms::{
-    DeadSymbol, ProgramSlice, SliceDirection, SliceResult, SliceStatistics, SymbolInfo,
+    CondensationGraph, CondensationResult, Cycle, CycleKind, CycleReport, DeadSymbol,
+    ExecutionPath, PathEnumerationResult, PathStatistics, ProgramSlice, SliceDirection,
+    SliceResult, SliceStatistics, Supernode, SymbolInfo,
 };
 pub use ast_extractor::{extract_ast_nodes, language_from_path, normalize_node_kind};
 pub use ast_node::{AstNode, AstNodeWithText, is_structural_kind};
