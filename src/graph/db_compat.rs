@@ -271,6 +271,63 @@ pub fn ensure_metrics_schema(conn: &rusqlite::Connection) -> Result<(), DbCompat
     Ok(())
 }
 
+/// Edge type constant for CFG edges in graph_edges table
+///
+/// Used to identify edges that represent control flow between basic blocks.
+pub const CFG_EDGE: &str = "CFG_BLOCK";
+
+/// Ensure CFG tables exist for Phase 42
+///
+/// Creates cfg_blocks table with indexes for efficient CFG queries.
+/// Basic blocks are stored as separate entities with CFG_EDGE edges
+/// representing control flow between blocks.
+pub fn ensure_cfg_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
+    // Main cfg_blocks table
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS cfg_blocks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            function_id INTEGER NOT NULL,
+            kind TEXT NOT NULL,
+            terminator TEXT NOT NULL,
+            byte_start INTEGER NOT NULL,
+            byte_end INTEGER NOT NULL,
+            start_line INTEGER NOT NULL,
+            start_col INTEGER NOT NULL,
+            end_line INTEGER NOT NULL,
+            end_col INTEGER NOT NULL,
+            FOREIGN KEY (function_id) REFERENCES graph_entities(id) ON DELETE CASCADE
+        )",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    // Index for function-based queries (get all blocks for a function)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_cfg_blocks_function
+         ON cfg_blocks(function_id)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    // Index for span-based position queries
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_cfg_blocks_span
+         ON cfg_blocks(byte_start, byte_end)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    // Index for terminator kind queries (find all return blocks, etc.)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_cfg_blocks_terminator
+         ON cfg_blocks(terminator)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    Ok(())
+}
+
 /// Result of a successful preflight.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PreflightOk {
