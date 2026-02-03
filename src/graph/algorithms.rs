@@ -80,19 +80,23 @@ pub struct DeadSymbol {
 }
 
 impl CodeGraph {
-    /// Resolve a stable symbol ID to its entity ID
+    /// Resolve a stable symbol ID or FQN to its entity ID
+    ///
+    /// First tries to lookup by symbol_id (32-char BLAKE3 hash).
+    /// If not found, falls back to FQN lookup for convenience.
     ///
     /// # Arguments
-    /// * `symbol_id` - Stable symbol ID (32-char BLAKE3 hash)
+    /// * `symbol_id_or_fqn` - Stable symbol ID (32-char BLAKE3 hash) or FQN
     ///
     /// # Returns
     /// The entity ID (i64 database row ID) for the symbol
     ///
     /// # Errors
-    /// Returns an error if the symbol ID is not found in the database
-    fn resolve_symbol_entity(&self, symbol_id: &str) -> Result<i64> {
+    /// Returns an error if the symbol is not found in the database
+    fn resolve_symbol_entity(&self, symbol_id_or_fqn: &str) -> Result<i64> {
         let conn = self.chunks.connect()?;
 
+        // First try: lookup by symbol_id
         let mut stmt = conn
             .prepare_cached(
                 "SELECT id FROM graph_entities
@@ -101,16 +105,39 @@ impl CodeGraph {
             )
             .map_err(|e| anyhow::anyhow!("Failed to prepare symbol ID query: {}", e))?;
 
-        let entity_id: i64 = stmt
-            .query_row(params![symbol_id], |row| row.get(0))
+        let result = stmt.query_row(params![symbol_id_or_fqn], |row| row.get::<_, i64>(0));
+
+        match result {
+            Ok(entity_id) => return Ok(entity_id),
+            Err(rusqlite::Error::QueryReturnedNoRows) => {
+                // Fallback: try FQN lookup
+            }
+            Err(e) => {
+                return Err(anyhow::anyhow!("Failed to query symbol ID: {}", e));
+            }
+        }
+
+        // Fallback: lookup by FQN or display_fqn
+        let mut stmt = conn
+            .prepare_cached(
+                "SELECT id FROM graph_entities
+                 WHERE kind = 'Symbol'
+                 AND (json_extract(data, '$.fqn') = ?1
+                      OR json_extract(data, '$.display_fqn') = ?1
+                      OR json_extract(data, '$.canonical_fqn') = ?1)",
+            )
+            .map_err(|e| anyhow::anyhow!("Failed to prepare FQN query: {}", e))?;
+
+        stmt.query_row(params![symbol_id_or_fqn], |row| row.get::<_, i64>(0))
             .map_err(|e| match e {
                 rusqlite::Error::QueryReturnedNoRows => {
-                    anyhow::anyhow!("Symbol ID '{}' not found in database", symbol_id)
+                    anyhow::anyhow!(
+                        "Symbol '{}' not found in database (tried symbol_id, fqn, display_fqn, canonical_fqn)",
+                        symbol_id_or_fqn
+                    )
                 }
-                _ => anyhow::anyhow!("Failed to query symbol ID: {}", e),
-            })?;
-
-        Ok(entity_id)
+                _ => anyhow::anyhow!("Failed to query symbol by FQN: {}", e),
+            })
     }
 
     /// Get symbol information by entity ID
@@ -190,7 +217,7 @@ impl CodeGraph {
     /// The starting symbol itself is NOT included in the results.
     ///
     /// # Arguments
-    /// * `symbol_id` - Stable symbol ID to start from
+    /// * `symbol_id` - Stable symbol ID to start from (or FQN as fallback)
     /// * `max_depth` - Optional maximum depth limit (None = unlimited)
     ///
     /// # Returns
@@ -202,7 +229,7 @@ impl CodeGraph {
     /// # use magellan::CodeGraph;
     /// # let mut graph = CodeGraph::open("test.db").unwrap();
     /// // Find all functions called from main (directly or indirectly)
-    /// let reachable = graph.reachable_symbols("main_symbol_id", None)?;
+    /// let reachable = graph.reachable_symbols("main", None)?;
     /// ```
     pub fn reachable_symbols(
         &self,
