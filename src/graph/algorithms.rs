@@ -1,8 +1,8 @@
 //! Graph algorithms for code analysis
 //!
 //! This module provides wrapper functions for sqlitegraph's algorithm library,
-//! exposing reachability analysis, dead code detection, and impact analysis
-//! through Magellan's CodeGraph API.
+//! exposing reachability analysis, dead code detection, cycle detection, call
+//! graph condensation, and impact analysis through Magellan's CodeGraph API.
 //!
 //! # Graph Views
 //!
@@ -12,7 +12,7 @@
 //! - **CALLS**: Call node → Symbol (call graph edges)
 //! - **CALLER**: Symbol → Call node (reverse call graph edges)
 //!
-//! For call graph algorithms (reachability, dead code detection), we filter
+//! For call graph algorithms (reachability, dead code detection, SCC), we filter
 //! to **CALLS** edges only to traverse the call graph structure.
 //!
 //! # Entity IDs vs Symbol IDs
@@ -29,12 +29,15 @@
 //! - [`CodeGraph::reachable_symbols()`]: Forward reachability from a symbol
 //! - [`CodeGraph::reverse_reachable_symbols()`]: Reverse reachability (callers)
 //! - [`CodeGraph::dead_symbols()`]: Dead code detection from entry point
+//! - [`CodeGraph::detect_cycles()`]: Find cycles using SCC decomposition
+//! - [`CodeGraph::find_cycles_containing()`]: Find cycles containing a specific symbol
+//! - [`CodeGraph::condense_call_graph()`]: Collapse SCCs to create condensation DAG
 //! - [`CodeGraph::backward_slice()`]: Backward program slice (what affects this symbol)
 //! - [`CodeGraph::forward_slice()`]: Forward program slice (what this symbol affects)
 //!
 //! # Example
 //!
-//! ```no_run
+//! \`\`\`no_run
 //! use magellan::CodeGraph;
 //!
 //! let mut graph = CodeGraph::open("codegraph.db")?;
@@ -44,12 +47,18 @@
 //!
 //! // Find dead code unreachable from main
 //! let dead = graph.dead_symbols("main_symbol_id")?;
-//! ```
+//!
+//! // Find cycles (mutual recursion)
+//! let cycles = graph.detect_cycles()?;
+//!
+//! // Condense call graph for DAG analysis
+//! let condensed = graph.condense_call_graph()?;
+//! \`\`\`
 
 use anyhow::Result;
 use rusqlite::params;
 use sqlitegraph::{algo, GraphBackend, SnapshotId};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::graph::schema::SymbolNode;
 
@@ -79,6 +88,74 @@ pub struct DeadSymbol {
     pub symbol: SymbolInfo,
     /// Reason why this symbol is unreachable/dead
     pub reason: String,
+}
+
+/// Cycle kind classification
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CycleKind {
+    /// Multiple symbols calling each other (SCC with >1 member)
+    MutualRecursion,
+    /// Single symbol that calls itself (direct self-loop)
+    SelfLoop,
+}
+
+/// Cycle information for detected cycles
+///
+/// Represents a strongly connected component (SCC) with more than one member,
+/// indicating mutual recursion or a cycle in the call graph.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Cycle {
+    /// All symbols that participate in this cycle
+    pub members: Vec<SymbolInfo>,
+    /// Classification of the cycle type
+    pub kind: CycleKind,
+}
+
+/// Cycle detection report
+///
+/// Result of running [`CodeGraph::detect_cycles()`], containing all cycles
+/// found in the call graph.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CycleReport {
+    /// All detected cycles
+    pub cycles: Vec<Cycle>,
+    /// Total number of cycles found
+    pub total_count: usize,
+}
+
+/// Supernode in a condensation graph
+///
+/// Represents an SCC collapsed into a single node for DAG analysis.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Supernode {
+    /// Supernode ID (stable identifier for this SCC)
+    pub id: i64,
+    /// All symbols that are members of this SCC/supernode
+    pub members: Vec<SymbolInfo>,
+}
+
+/// Condensation graph (DAG after SCC collapse)
+///
+/// Represents the call graph after collapsing all SCCs into supernodes.
+/// The condensation graph is always a DAG (no cycles).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CondensationGraph {
+    /// All supernodes in the condensed graph
+    pub supernodes: Vec<Supernode>,
+    /// Edges between supernodes (from_supernode_id, to_supernode_id)
+    pub edges: Vec<(i64, i64)>,
+}
+
+/// Condensation result with symbol-to-supernode mapping
+///
+/// Result of running [`CodeGraph::condense_call_graph()`], providing
+/// both the condensed DAG and the mapping from original symbols to supernodes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CondensationResult {
+    /// The condensed DAG
+    pub graph: CondensationGraph,
+    /// Maps symbol_id to the supernode ID containing that symbol
+    pub original_to_supernode: HashMap<String, i64>,
 }
 
 /// Direction of program slicing
@@ -275,12 +352,12 @@ impl CodeGraph {
     ///
     /// # Example
     ///
-    /// ```no_run
+    /// \`\`\`no_run
     /// # use magellan::CodeGraph;
     /// # let mut graph = CodeGraph::open("test.db").unwrap();
     /// // Find all functions called from main (directly or indirectly)
     /// let reachable = graph.reachable_symbols("main", None)?;
-    /// ```
+    /// \`\`\`
     pub fn reachable_symbols(
         &self,
         symbol_id: &str,
@@ -337,12 +414,12 @@ impl CodeGraph {
     ///
     /// # Example
     ///
-    /// ```no_run
+    /// \`\`\`no_run
     /// # use magellan::CodeGraph;
     /// # let mut graph = CodeGraph::open("test.db").unwrap();
     /// // Find all functions that directly or indirectly call 'helper_function'
     /// let callers = graph.reverse_reachable_symbols("helper_symbol_id", None)?;
-    /// ```
+    /// \`\`\`
     pub fn reverse_reachable_symbols(
         &self,
         symbol_id: &str,
@@ -406,7 +483,7 @@ impl CodeGraph {
     ///
     /// # Example
     ///
-    /// ```no_run
+    /// \`\`\`no_run
     /// # use magellan::CodeGraph;
     /// # let mut graph = CodeGraph::open("test.db").unwrap();
     /// // Find all functions unreachable from main
@@ -417,7 +494,7 @@ impl CodeGraph {
     ///         dead_symbol.symbol.file_path,
     ///         dead_symbol.reason);
     /// }
-    /// ```
+    /// \`\`\`
     pub fn dead_symbols(&self, entry_symbol_id: &str) -> Result<Vec<DeadSymbol>> {
         let entry_entity = self.resolve_symbol_entity(entry_symbol_id)?;
         let backend = &self.calls.backend;
@@ -463,6 +540,225 @@ impl CodeGraph {
         Ok(dead_symbols)
     }
 
+    /// Detect cycles in the call graph using SCC decomposition
+    ///
+    /// Finds all strongly connected components (SCCs) with more than one member,
+    /// which indicate cycles or mutual recursion in the call graph.
+    ///
+    /// # Graph View
+    ///
+    /// This operates on the **call graph** (CALLS edges only).
+    ///
+    /// # Cycle Detection
+    ///
+    /// Uses Tarjan's SCC algorithm to find strongly connected components.
+    /// Only SCCs with more than one member are reported as cycles (MutualRecursion).
+    /// Single-node SCCs are not cycles (unless they have self-loops).
+    ///
+    /// # Returns
+    /// [`CycleReport`] containing all detected cycles
+    ///
+    /// # Example
+    ///
+    /// \`\`\`no_run
+    /// # use magellan::CodeGraph;
+    /// # let mut graph = CodeGraph::open("test.db").unwrap();
+    /// let report = graph.detect_cycles()?;
+    /// println!("Found {} cycles", report.total_count);
+    /// for cycle in &report.cycles {
+    ///     println!("Cycle with {} members:", cycle.members.len());
+    ///     for member in &cycle.members {
+    ///         println!("  - {}", member.fqn.as_deref().unwrap_or("?"));
+    ///     }
+    /// }
+    /// \`\`\`
+    pub fn detect_cycles(&self) -> Result<CycleReport> {
+        let backend = &self.calls.backend;
+
+        // Use sqlitegraph's strongly_connected_components algorithm
+        let scc_result = algo::strongly_connected_components(backend.graph())?;
+
+        // Filter to SCCs with >1 member (mutual recursion)
+        let cycles: Vec<_> = scc_result
+            .components
+            .into_iter()
+            .filter(|scc| scc.len() > 1)
+            .map(|members| {
+                // Convert entity IDs to SymbolInfo
+                let symbol_infos: Vec<_> = members
+                    .into_iter()
+                    .filter_map(|id| self.symbol_by_entity_id(id).ok())
+                    .collect();
+
+                Cycle {
+                    members: symbol_infos,
+                    kind: CycleKind::MutualRecursion,
+                }
+            })
+            .filter(|cycle| !cycle.members.is_empty())
+            .collect();
+
+        let total_count = cycles.len();
+
+        // Sort cycles deterministically
+        let mut cycles = cycles;
+        cycles.sort_by(|a, b| {
+            match (a.members.first(), b.members.first()) {
+                (Some(am), Some(bm)) => {
+                    match (am.fqn.as_ref(), bm.fqn.as_ref()) {
+                        (Some(af), Some(bf)) => af.cmp(bf),
+                        (Some(_), None) => std::cmp::Ordering::Less,
+                        (None, Some(_)) => std::cmp::Ordering::Greater,
+                        (None, None) => std::cmp::Ordering::Equal,
+                    }
+                }
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => std::cmp::Ordering::Equal,
+            }
+        });
+
+        Ok(CycleReport {
+            cycles,
+            total_count,
+        })
+    }
+
+    /// Find cycles containing a specific symbol
+    ///
+    /// Returns only the cycles that include the specified symbol in their member set.
+    ///
+    /// # Arguments
+    /// * `symbol_id` - Stable symbol ID or FQN to search for
+    ///
+    /// # Returns
+    /// Vector of [`Cycle`] containing the specified symbol
+    ///
+    /// # Example
+    ///
+    /// \`\`\`no_run
+    /// # use magellan::CodeGraph;
+    /// # let mut graph = CodeGraph::open("test.db").unwrap();
+    /// let cycles = graph.find_cycles_containing("problematic_function")?;
+    /// if cycles.is_empty() {
+    ///     println!("No cycles found containing this symbol");
+    /// } else {
+    ///     println!("Found {} cycles containing this symbol", cycles.len());
+    /// }
+    /// \`\`\`
+    pub fn find_cycles_containing(&self, symbol_id: &str) -> Result<Vec<Cycle>> {
+        let entity_id = self.resolve_symbol_entity(symbol_id)?;
+        let backend = &self.calls.backend;
+
+        // Use sqlitegraph's strongly_connected_components algorithm
+        let scc_result = algo::strongly_connected_components(backend.graph())?;
+
+        // Find which SCC contains this entity
+        let target_component_idx = scc_result.node_to_component.get(&entity_id);
+
+        let target_idx = match target_component_idx {
+            Some(&idx) => idx,
+            None => return Ok(Vec::new()), // Symbol not in any SCC (shouldn't happen)
+        };
+
+        // Check if this SCC is a cycle (has >1 member)
+        let target_component = &scc_result.components[target_idx];
+        if target_component.len() <= 1 {
+            // Single node SCC - not a cycle (unless self-loop, but that's rare)
+            return Ok(Vec::new());
+        }
+
+        // Convert this SCC to a Cycle
+        let symbol_infos: Vec<_> = target_component
+            .iter()
+            .filter_map(|&id| self.symbol_by_entity_id(id).ok())
+            .collect();
+
+        let cycle = Cycle {
+            members: symbol_infos,
+            kind: CycleKind::MutualRecursion,
+        };
+
+        Ok(vec![cycle])
+    }
+
+    /// Condense the call graph by collapsing SCCs into supernodes
+    ///
+    /// Creates a condensation DAG by collapsing each strongly connected component
+    /// into a single "supernode". The resulting graph is always acyclic, making it
+    /// suitable for topological analysis and safe refactoring.
+    ///
+    /// # Graph View
+    ///
+    /// This operates on the **call graph** (CALLS edges only).
+    ///
+    /// # Use Cases
+    ///
+    /// - **Topological Sorting**: Condensation graph is a DAG, enabling topo sort
+    /// - **Mutual Recursion Detection**: Large supernodes indicate tight coupling
+    /// - **Impact Analysis**: Changing one symbol affects its entire SCC
+    ///
+    /// # Returns
+    /// [`CondensationResult`] with the condensed DAG and symbol-to-supernode mapping
+    ///
+    /// # Example
+    ///
+    /// \`\`\`no_run
+    /// # use magellan::CodeGraph;
+    /// # let mut graph = CodeGraph::open("test.db").unwrap();
+    /// let condensed = graph.condense_call_graph()?;
+    ///
+    /// println!("Condensed to {} supernodes", condensed.graph.supernodes.len());
+    /// println!("Condensed graph has {} edges", condensed.graph.edges.len());
+    ///
+    /// // Check which SCC a symbol belongs to
+    /// if let Some(supernode_id) = condensed.original_to_supernode.get("some_symbol_id") {
+    ///     println!("Symbol is in SCC {}", supernode_id);
+    /// }
+    /// \`\`\`
+    pub fn condense_call_graph(&self) -> Result<CondensationResult> {
+        let backend = &self.calls.backend;
+
+        // Use sqlitegraph's collapse_sccs algorithm
+        let collapse_result = algo::collapse_sccs(backend.graph())?;
+
+        // Build supernodes with SymbolInfo members
+        let mut supernodes = Vec::new();
+        let mut original_to_supernode = HashMap::new();
+
+        for (&supernode_id, member_ids) in &collapse_result.supernode_members {
+            let symbol_infos: Vec<_> = member_ids
+                .iter()
+                .filter_map(|&id| self.symbol_by_entity_id(id).ok())
+                .collect();
+
+            // Build mapping from symbol_id to supernode
+            for symbol_info in &symbol_infos {
+                if let Some(ref sym_id) = symbol_info.symbol_id {
+                    original_to_supernode.insert(sym_id.clone(), supernode_id);
+                }
+            }
+
+            supernodes.push(Supernode {
+                id: supernode_id,
+                members: symbol_infos,
+            });
+        }
+
+        // Sort supernodes deterministically
+        supernodes.sort_by(|a, b| a.id.cmp(&b.id));
+
+        let graph = CondensationGraph {
+            supernodes,
+            edges: collapse_result.supernode_edges,
+        };
+
+        Ok(CondensationResult {
+            graph,
+            original_to_supernode,
+        })
+    }
+
     /// Compute a backward program slice (what affects this symbol)
     ///
     /// Returns all symbols that can affect the target symbol through the call graph.
@@ -493,7 +789,7 @@ impl CodeGraph {
     ///
     /// # Example
     ///
-    /// ```no_run
+    /// \`\`\`no_run
     /// # use magellan::CodeGraph;
     /// # let mut graph = CodeGraph::open("test.db").unwrap();
     /// // Find what affects 'helper_function'
@@ -502,7 +798,7 @@ impl CodeGraph {
     /// for symbol in &slice_result.slice.included_symbols {
     ///     println!("  - {}", symbol.fqn.as_deref().unwrap_or("?"));
     /// }
-    /// ```
+    /// \`\`\`
     pub fn backward_slice(&self, symbol_id: &str) -> Result<SliceResult> {
         let entity_id = self.resolve_symbol_entity(symbol_id)?;
         let backend = &self.calls.backend;
@@ -582,7 +878,7 @@ impl CodeGraph {
     ///
     /// # Example
     ///
-    /// ```no_run
+    /// \`\`\`no_run
     /// # use magellan::CodeGraph;
     /// # let mut graph = CodeGraph::open("test.db").unwrap();
     /// // Find what 'main_function' affects
@@ -591,7 +887,7 @@ impl CodeGraph {
     /// for symbol in &slice_result.slice.included_symbols {
     ///     println!("  - {}", symbol.fqn.as_deref().unwrap_or("?"));
     /// }
-    /// ```
+    /// \`\`\`
     pub fn forward_slice(&self, symbol_id: &str) -> Result<SliceResult> {
         let entity_id = self.resolve_symbol_entity(symbol_id)?;
         let backend = &self.calls.backend;
