@@ -23,6 +23,10 @@ pub mod ambiguity;
 mod ast_node;
 mod ast_extractor;
 mod ast_ops;
+
+#[cfg(feature = "bytecode-cfg")]
+mod bytecode_cfg;
+
 mod cfg_extractor;
 mod cfg_ops;
 mod cache;
@@ -84,6 +88,9 @@ pub use ast_node::{AstNode, AstNodeWithText, is_structural_kind};
 // Re-export CFG types for public API
 pub use cfg_extractor::{BlockKind, CfgExtractor, TerminatorKind};
 pub use cfg_ops::CfgOps;
+
+#[cfg(feature = "bytecode-cfg")]
+pub use bytecode_cfg::JavaBytecodeCfgExtractor;
 pub use cache::CacheStats;
 pub use db_compat::{ensure_ast_schema, ensure_cfg_schema, CFG_EDGE};
 pub use db_compat::MAGELLAN_SCHEMA_VERSION;
