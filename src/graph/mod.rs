@@ -140,7 +140,7 @@ pub struct CodeGraph {
     file_node_cache: cache::FileNodeCache,
 
     /// CFG block operations module
-    cfg_ops: cfg_ops::CfgOps,
+    pub cfg_ops: cfg_ops::CfgOps,
 }
 
 impl CodeGraph {

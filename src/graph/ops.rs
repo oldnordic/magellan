@@ -161,7 +161,8 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
         graph.symbols.insert_defines_edge(file_id, symbol_id)?;
 
         // Track function symbols for CFG extraction (Rust only)
-        if fact.kind_normalized.starts_with("Function") || fact.kind_normalized.starts_with("Method") {
+        // kind_normalized uses normalized_key: "fn" for Function, "method" for Method
+        if fact.kind_normalized == "fn" || fact.kind_normalized == "method" {
             if let Some(ref name) = fact.name {
                 function_symbol_ids.push((
                     name.clone(),
@@ -703,6 +704,7 @@ pub mod test_helpers {
         let references_deleted: usize;
         let calls_deleted: usize;
         let _ast_nodes_deleted: usize = 0; // Test helper doesn't implement AST node deletion
+        let _cfg_blocks_deleted: usize = 0; // Test helper doesn't implement CFG block deletion
 
         if let Some(file_id) = graph.files.find_file_node(path)? {
             // Capture symbol IDs before deletion.
