@@ -1233,3 +1233,320 @@ fn b() {}
         "At least one symbol should be in the mapping"
     );
 }
+
+// ============================================================================
+// Regression Tests for Identified Pitfalls (from RESEARCH.md)
+// ============================================================================
+
+#[test]
+fn test_fqn_fallback_lookup() {
+    // Verifies FQN fallback works for symbol resolution
+    // Users can query by simple names like "main" instead of symbol_id
+    use magellan::CodeGraph;
+
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+    let file_path = temp_dir.path().join("test.rs");
+
+    let source = r#"
+fn main() {
+    helper();
+}
+
+fn helper() {}
+"#;
+
+    let mut graph = CodeGraph::open(&db_path).unwrap();
+    let path_str = file_path.to_string_lossy().to_string();
+
+    graph.index_file(&path_str, source.as_bytes())
+        .unwrap();
+    graph.index_calls(&path_str, source.as_bytes())
+        .unwrap();
+
+    // Test FQN fallback - should work with just "main" instead of full symbol_id
+    let reachable = graph.reachable_symbols("main", None).unwrap();
+
+    // Should find helper when starting from FQN "main"
+    assert!(
+        !reachable.is_empty(),
+        "FQN fallback should resolve 'main' to the correct symbol"
+    );
+}
+
+// ============================================================================
+// Edge Case Tests
+// ============================================================================
+
+#[test]
+fn test_single_symbol_graph() {
+    // Test algorithms handle graph with a single symbol
+    use magellan::CodeGraph;
+
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+    let file_path = temp_dir.path().join("test.rs");
+
+    let source = "fn main() {}\n";
+
+    let mut graph = CodeGraph::open(&db_path).unwrap();
+    let path_str = file_path.to_string_lossy().to_string();
+
+    graph.index_file(&path_str, source.as_bytes())
+        .unwrap();
+    graph.index_calls(&path_str, source.as_bytes())
+        .unwrap();
+
+    // Single symbol should have no reachable symbols
+    let reachable = graph.reachable_symbols("main", None).unwrap();
+    // main itself is not included in results, so empty is expected
+    assert!(
+        reachable.is_empty(),
+        "Single symbol should have no reachable callees"
+    );
+
+    // Cycle detection should work (single symbol is not a cycle)
+    let cycles = graph.detect_cycles().unwrap();
+    assert!(
+        cycles.cycles.is_empty(),
+        "Single symbol with no self-loop should have no cycles"
+    );
+
+    // Condensation should work (single supernode)
+    let condensed = graph.condense_call_graph().unwrap();
+    assert!(
+        !condensed.graph.supernodes.is_empty(),
+        "Even single symbol should create a supernode"
+    );
+}
+
+#[test]
+fn test_disconnected_components() {
+    // Test algorithms handle graph with multiple disjoint call graphs
+    use magellan::CodeGraph;
+
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+    let file_path = temp_dir.path().join("test.rs");
+
+    let source = r#"
+fn main() {
+    helper_a();
+}
+
+fn helper_a() {}
+
+fn standalone_function() {
+    helper_b();
+}
+
+fn helper_b() {}
+"#;
+
+    let mut graph = CodeGraph::open(&db_path).unwrap();
+    let path_str = file_path.to_string_lossy().to_string();
+
+    graph.index_file(&path_str, source.as_bytes())
+        .unwrap();
+    graph.index_calls(&path_str, source.as_bytes())
+        .unwrap();
+
+    // Reachability from main should not reach standalone_function
+    let reachable_from_main = graph.reachable_symbols("main", None).unwrap();
+    let standalone_found = reachable_from_main
+        .iter()
+        .any(|s| {
+            s.fqn.as_deref()
+                .map(|f| f.contains("standalone_function"))
+                .unwrap_or(false)
+        });
+
+    assert!(
+        !standalone_found,
+        "Reachability should not cross disconnected components"
+    );
+
+    // Verify standalone_function has its own reachable callees
+    let reachable_from_standalone = graph.reachable_symbols("standalone_function", None).unwrap();
+    let helper_b_found = reachable_from_standalone
+        .iter()
+        .any(|s| {
+            s.fqn.as_deref()
+                .map(|f| f.contains("helper_b"))
+                .unwrap_or(false)
+        });
+
+    assert!(
+        helper_b_found,
+        "Standalone component should have its own reachable callees"
+    );
+}
+
+// ============================================================================
+// Integration Tests for Combined Algorithms
+// ============================================================================
+
+#[test]
+fn test_slice_after_condense() {
+    // Test that slicing works correctly after condensation
+    // This verifies that condensation doesn't break symbol resolution
+    use magellan::CodeGraph;
+
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+    let file_path = temp_dir.path().join("test.rs");
+
+    let source = r#"
+fn main() {
+    helper_a();
+}
+
+fn helper_a() {
+    shared();
+}
+
+fn shared() {}
+"#;
+
+    let mut graph = CodeGraph::open(&db_path).unwrap();
+    let path_str = file_path.to_string_lossy().to_string();
+
+    graph.index_file(&path_str, source.as_bytes())
+        .unwrap();
+    graph.index_calls(&path_str, source.as_bytes())
+        .unwrap();
+
+    // First condense the graph
+    let _condensed = graph.condense_call_graph().unwrap();
+
+    // Then slice - should still work (use backward_slice)
+    let slice_result = graph.backward_slice("helper_a").unwrap();
+
+    assert!(
+        !slice_result.slice.included_symbols.is_empty(),
+        "Slicing should work after condensation"
+    );
+
+    // The slice should include main (caller of helper_a)
+    let main_found = slice_result.slice.included_symbols
+        .iter()
+        .any(|s: &magellan::graph::algorithms::SymbolInfo| {
+            s.fqn.as_deref()
+                .map(|f: &str| f.contains("main"))
+                .unwrap_or(false)
+        });
+
+    assert!(
+        main_found,
+        "Backward slice from helper_a should include main"
+    );
+}
+
+#[test]
+fn test_dead_code_with_cycles() {
+    // Test dead code detection when there are cycles in the graph
+    use magellan::CodeGraph;
+
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+    let file_path = temp_dir.path().join("test.rs");
+
+    let source = r#"
+fn main() {
+    helper_a();
+}
+
+fn helper_a() {
+    helper_b();
+}
+
+fn helper_b() {
+    helper_a(); // Cycle with helper_a
+}
+
+fn unused_cycle_start() {
+    unused_cycle_end();
+}
+
+fn unused_cycle_end() {
+    unused_cycle_start(); // Disconnected cycle
+}
+"#;
+
+    let mut graph = CodeGraph::open(&db_path).unwrap();
+    let path_str = file_path.to_string_lossy().to_string();
+
+    graph.index_file(&path_str, source.as_bytes())
+        .unwrap();
+    graph.index_calls(&path_str, source.as_bytes())
+        .unwrap();
+
+    // Dead code detection should find the unused cycle
+    let dead = graph.dead_symbols("main").unwrap();
+
+    // dead_symbols returns Vec<DeadSymbol> directly
+    let unused_found = dead
+        .iter()
+        .any(|s| {
+            s.symbol.fqn.as_deref()
+                .map(|f| f.contains("unused_cycle"))
+                .unwrap_or(false)
+        });
+
+    assert!(
+        unused_found,
+        "Dead code detection should find disconnected cycles"
+    );
+}
+
+#[test]
+fn test_cycle_then_slice() {
+    // Test slicing within a cycle
+    use magellan::CodeGraph;
+
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.rs");
+    let file_path = temp_dir.path().join("test.rs");
+
+    let source = r#"
+fn main() {
+    cycle_start();
+}
+
+fn cycle_start() {
+    cycle_middle();
+}
+
+fn cycle_middle() {
+    cycle_end();
+}
+
+fn cycle_end() {
+    cycle_start(); // Back edge creates cycle
+}
+"#;
+
+    let mut graph = CodeGraph::open(&db_path).unwrap();
+    let path_str = file_path.to_string_lossy().to_string();
+
+    graph.index_file(&path_str, source.as_bytes())
+        .unwrap();
+    graph.index_calls(&path_str, source.as_bytes())
+        .unwrap();
+
+    // First verify we have a cycle
+    let cycles = graph.detect_cycles().unwrap();
+    assert!(
+        !cycles.cycles.is_empty(),
+        "Should detect the cycle"
+    );
+
+    // Slice should still work within the cycle (use backward_slice)
+    let slice_result = graph.backward_slice("cycle_middle").unwrap();
+
+    // Backward slice from cycle_middle should include cycle_start and main
+    assert!(
+        !slice_result.slice.included_symbols.is_empty(),
+        "Slice within cycle should return results"
+    );
+}

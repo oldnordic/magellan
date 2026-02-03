@@ -71,6 +71,7 @@ fn print_usage() {
     eprintln!("  magellan dead-code --db <FILE> --entry <SYMBOL_ID> [--output <FORMAT>]");
     eprintln!("  magellan cycles --db <FILE> [--symbol <SYMBOL_ID>] [--output <FORMAT>]");
     eprintln!("  magellan condense --db <FILE> [--members] [--output <FORMAT>]");
+    eprintln!("  magellan paths --db <FILE> --start <SYMBOL_ID> [--end <SYMBOL_ID>] [--max-depth <N>] [--max-paths <N>] [--output <FORMAT>]");
     eprintln!("  magellan slice --db <FILE> --target <SYMBOL_ID> [--direction <backward|forward>] [--verbose] [--output <FORMAT>]");
     eprintln!();
     eprintln!("Commands:");
@@ -96,6 +97,7 @@ fn print_usage() {
     eprintln!("  dead-code       Find dead code unreachable from an entry point");
     eprintln!("  cycles          Detect strongly connected components (cycles) in the call graph");
     eprintln!("  condense        Show call graph condensation (SCCs collapsed into supernodes)");
+    eprintln!("  paths           Enumerate execution paths between symbols");
     eprintln!("  slice           Program slicing (backward/forward) from a target symbol");
     eprintln!();
     eprintln!("Global arguments:");

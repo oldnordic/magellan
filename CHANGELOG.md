@@ -3,6 +3,41 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-02-03
+
+### Added
+- **Graph Algorithms**: Integrated sqlitegraph 1.3.0's powerful graph algorithms for advanced codebase analysis
+  - `reachable` - Forward/backward reachability analysis from any symbol
+  - `dead-code` - Find unreachable code from an entry point
+  - `cycles` - Detect strongly connected components (SCCs) and mutual recursion
+  - `condense` - Create condensation DAG from SCCs for topological analysis
+  - `paths` - Enumerate execution paths with configurable bounds
+  - `slice` - Program slicing (backward/forward) for impact analysis
+- **Algorithm Library**: `src/graph/algorithms.rs` with 6 algorithm functions and response types
+- **FQN Fallback Lookup**: Query symbols by simple names like "main" without requiring 32-char BLAKE3 hash IDs
+- **26 Integration Tests**: Comprehensive test coverage for all algorithms in `tests/algorithm_tests.rs`
+- **10 Performance Benchmarks**: Benchmark suite in `tests/algo_benchmarks.rs` for algorithm performance validation
+
+### Changed
+- Upgraded `sqlitegraph` dependency from 1.2.7 to 1.3.0
+- **Schema v6**: Added `file_id` column to `ast_nodes` table for proper per-file AST tracking
+  - AST deletion now only deletes nodes for the specific file (not all nodes)
+  - Added `idx_ast_nodes_file_id` index for efficient per-file queries
+  - Migration from v5 to v6 is automatic on database open
+- All algorithm commands support JSON output via `--output json` for automation
+- `src/main.rs` - Added algorithm command parsing and help text
+- `src/output/command.rs` - Added response types for all algorithm commands
+- `MANUAL.md` - Added Section 5 "Graph Algorithms" with comprehensive documentation
+- **27 compiler warnings eliminated** - All unused code/reserved constants now properly handled
+
+### Technical
+- **Algorithm Complexity**:
+  - Reachability, Dead Code, SCC, Condensation, Slice: O(V + E) - fast even on large graphs
+  - Path Enumeration: Potentially exponential - bounded with defaults (max_depth=100, max_paths=1000)
+- **Call Graph Filtering**: Algorithms operate only on CALLS/CALLER edges for callable symbols
+- **Deterministic Output**: All results sorted by (file_path, fqn, kind) for stable ordering
+- **AST Node Validation**: Added byte range validation during AST extraction to catch corrupted tree-sitter output
+
 ## [1.9.0] - 2026-01-31
 
 ### Added

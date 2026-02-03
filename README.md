@@ -9,6 +9,7 @@ A deterministic codebase mapping tool. Watches source files, extracts AST-level 
 - Tracks symbol references: function calls and type references (7 languages)
 - Builds call graphs: caller → callee relationships across indexed files (7 languages)
 - Stores AST nodes for hierarchical code structure analysis (v1.9.0)
+- Graph algorithms: reachability, dead code detection, cycles, paths, slicing (v2.0.0)
 - Stores code chunks for token-efficient LLM context (v1.8.0)
 - Computes metrics: fan-in, fan-out, LOC, complexity per file/symbol (v1.8.0)
 - Safely extracts UTF-8 content from byte offsets without panicking on multi-byte characters (v1.8.0)
@@ -585,6 +586,107 @@ Found 16 AST nodes with kind 'if_expression':
   ...
 ```
 
+### Graph Algorithm Commands (v2.0.0)
+
+Magellan 2.0.0 integrates sqlitegraph 1.3.0's graph algorithms for advanced codebase analysis. All algorithm commands accept either a stable 32-character BLAKE3 SymbolId or a simple Fully Qualified Name (FQN) like `main`.
+
+#### reachable
+
+```bash
+magellan reachable --db <FILE> --symbol <SYMBOL_ID> [--reverse] [--output FORMAT]
+```
+
+Find all symbols reachable from (or that can reach) a starting symbol through the call graph.
+
+```
+$ magellan reachable --db ./magellan.db --symbol main
+Reachable from main (127 symbols):
+  parse_args (fn) at src/main.rs:64
+  process_request (fn) at src/handler.rs:12
+  ...
+```
+
+#### dead-code
+
+```bash
+magellan dead-code --db <FILE> --entry <SYMBOL_ID> [--output FORMAT]
+```
+
+Find code unreachable from an entry point using call graph reachability analysis.
+
+```
+$ magellan dead-code --db ./magellan.db --entry main
+Dead symbols (45 unreachable from main):
+  unused_helper (fn) at src/utils.rs:100
+  legacy_feature (fn) at src/legacy.rs:25
+  ...
+```
+
+#### cycles
+
+```bash
+magellan cycles --db <FILE> [--symbol <SYMBOL_ID>] [--output FORMAT]
+```
+
+Detect strongly connected components (SCCs) to identify mutual recursion and other cycles.
+
+```
+$ magellan cycles --db ./magellan.db
+Found 3 cycles:
+  Cycle [1]: 2 symbols
+    process_a (fn) at src/a.rs:10
+    process_b (fn) at src/b.rs:20
+  ...
+```
+
+#### condense
+
+```bash
+magellan condense --db <FILE> [--members] [--output FORMAT]
+```
+
+Create a condensation DAG by collapsing SCCs into supernodes for topological analysis.
+
+```
+$ magellan condense --db ./magellan.db
+Condensation graph: 45 supernodes, 87 edges
+  Supernode [1]: 127 symbols (no cycles)
+  Supernode [2]: 2 symbols (cycle)
+  ...
+```
+
+#### paths
+
+```bash
+magellan paths --db <FILE> --start <SYMBOL_ID> [--end <SYMBOL_ID>] [--max-depth N] [--max-paths N] [--output FORMAT]
+```
+
+Enumerate execution paths between symbols in the call graph.
+
+```
+$ magellan paths --db ./magellan.db --start main --max-depth 5 --max-paths 10
+Found 10 paths from main:
+  [1] main -> parse_args -> init -> run
+  [2] main -> parse_args -> init -> load_config -> run
+  ...
+```
+
+#### slice
+
+```bash
+magellan slice --db <FILE> --target <SYMBOL_ID> [--direction backward|forward] [--verbose] [--output FORMAT]
+```
+
+Program slicing finds all code that affects (backward) or is affected by (forward) a target symbol.
+
+```
+$ magellan slice --db ./magellan.db --target bug_location
+Backward slice (15 symbols affect target):
+  main (fn) at src/main.rs:1
+  parse_input (fn) at src/parse.rs:10
+  ...
+```
+
 ## Supported Languages
 
 | Language | Extensions | Parser |
@@ -611,7 +713,7 @@ Found 16 AST nodes with kind 'if_expression':
 - `CALLER` - Symbol -> Call
 - `CALLS` - Call -> Symbol
 
-**Tables (v1.9.0):**
+**Tables (v2.0.0):**
 - `code_chunks` - Stored source code snippets by byte span with SHA-256 deduplication
 - `file_metrics` - Fan-in, fan-out, LOC, complexity per file
 - `symbol_metrics` - Fan-in, fan-out, LOC, cyclomatic complexity per symbol
@@ -746,7 +848,7 @@ GPL-3.0-or-later
 
 - notify - Filesystem watching
 - tree-sitter - AST parsing
-- [sqlitegraph](https://crates.io/crates/sqlitegraph) - Graph persistence ([repository](https://github.com/oldnordic/sqlitegraph))
+- [sqlitegraph 1.3.0](https://crates.io/crates/sqlitegraph) - Graph persistence and algorithms ([repository](https://github.com/oldnordic/sqlitegraph))
 - signal-hook - Signal handling
 - walkdir - Directory scanning
 - rayon - Parallel processing

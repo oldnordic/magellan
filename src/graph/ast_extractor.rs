@@ -6,7 +6,7 @@
 
 use tree_sitter::{Node, Tree};
 
-use crate::graph::ast_node::{is_structural_kind, AstNode};
+use crate::graph::ast_node::{is_structural_kind, AstNode, kinds};
 
 /// Extract AST nodes from a tree-sitter tree
 ///
@@ -23,45 +23,46 @@ pub fn extract_ast_nodes(tree: &Tree, source: &[u8]) -> Vec<AstNode> {
 /// This maps language-specific node kinds (e.g., "if_expression")
 /// to normalized kinds (e.g., "If") for cross-language queries.
 pub fn normalize_node_kind<'a>(kind: &'a str, _language: &str) -> &'a str {
+    // Use constants where defined, return original kind otherwise
     match kind {
         // Control flow
-        "if_expression" | "if_statement" => "If",
-        "match_expression" | "match_statement" => "Match",
-        "while_expression" | "while_statement" => "While",
-        "for_expression" | "for_statement" => "For",
-        "loop_expression" => "Loop",
-        "return_expression" | "return_statement" => "Return",
-        "break_expression" | "break_statement" => "Break",
-        "continue_expression" | "continue_statement" => "Continue",
+        "if_expression" | "if_statement" => kinds::IF,
+        "match_expression" | "match_statement" => kinds::MATCH,
+        "while_expression" | "while_statement" => kinds::WHILE,
+        "for_expression" | "for_statement" => kinds::FOR,
+        "loop_expression" => kinds::LOOP,
+        "return_expression" | "return_statement" => kinds::RETURN,
+        "break_expression" | "break_statement" => kinds::BREAK,
+        "continue_expression" | "continue_statement" => kinds::CONTINUE,
 
         // Definitions
-        "function_item" | "function_definition" => "Function",
-        "method_definition" => "Function",
-        "struct_item" | "struct_definition" => "Struct",
-        "enum_item" | "enum_definition" => "Enum",
-        "trait_item" | "trait_definition" => "Trait",
-        "impl_item" => "Impl",
-        "mod_item" => "Module",
-        "class_definition" => "Class",
-        "interface_definition" => "Interface",
+        "function_item" | "function_definition" => kinds::FUNCTION,
+        "method_definition" => kinds::FUNCTION,
+        "struct_item" | "struct_definition" => kinds::STRUCT,
+        "enum_item" | "enum_definition" => kinds::ENUM,
+        "trait_item" | "trait_definition" => kinds::TRAIT,
+        "impl_item" => kinds::IMPL,
+        "mod_item" => kinds::MODULE,
+        "class_definition" => kinds::CLASS,
+        "interface_definition" => kinds::INTERFACE,
 
         // Blocks
-        "block" | "block_expression" | "statement_block" => "Block",
+        "block" | "block_expression" | "statement_block" => kinds::BLOCK,
 
         // Statements
-        "let_statement" => "Let",
-        "expression_statement" => "Expression",
-        "assignment_expression" => "Assign",
+        "let_statement" => kinds::LET,
+        "expression_statement" => "Expression", // No constant for this one
+        "assignment_expression" => kinds::ASSIGN,
 
         // Calls
-        "call_expression" => "Call",
+        "call_expression" => kinds::CALL,
 
         // Attributes
-        "attribute_item" | "decorated_definition" => "Attribute",
+        "attribute_item" | "decorated_definition" => kinds::ATTRIBUTE,
 
         // Constants
-        "const_item" => "Const",
-        "static_item" => "Static",
+        "const_item" => kinds::CONST,
+        "static_item" => kinds::STATIC,
 
         // Default: return original kind
         _ => kind,
@@ -119,13 +120,22 @@ impl<'a> AstExtractor<'a> {
 
         // Check if this is a structural node we want to store
         if is_structural_kind(kind) {
+            let byte_start = node.start_byte();
+            let byte_end = node.end_byte();
+
+            // Validate byte ranges against source length
+            if byte_end > self.source.len() || byte_start > byte_end {
+                // Skip nodes with invalid byte ranges
+                return;
+            }
+
             // Create the AST node
             let ast_node = AstNode {
                 id: None,  // Will be assigned by database
                 parent_id: None,  // Will be updated after insertion
                 kind: kind.to_string(),
-                byte_start: node.start_byte(),
-                byte_end: node.end_byte(),
+                byte_start,
+                byte_end,
             };
 
             // Add to nodes and track parent index

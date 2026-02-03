@@ -1,9 +1,10 @@
 //! Database migration command implementation
 //!
-//! Handles migrations from schema v1-v4 to v5:
+//! Handles migrations from schema v1-v5 to v6:
 //! - v2: magellan_meta table
 //! - v4: BLAKE3-based SymbolId (additive fields)
 //! - v5: AST nodes table for hierarchy storage
+//! - v6: AST nodes file_id column for per-file tracking
 
 use anyhow::Result;
 use rusqlite::{params, Transaction, OptionalExtension};
@@ -13,7 +14,8 @@ use std::path::{Path, PathBuf};
 /// Current Magellan schema version
 /// v4: BLAKE3-based SymbolId, canonical_fqn, display_fqn
 /// v5: AST nodes table for hierarchy storage
-pub const MAGELLAN_SCHEMA_VERSION: i64 = 5;
+/// v6: AST nodes file_id column for per-file tracking
+pub const MAGELLAN_SCHEMA_VERSION: i64 = 6;
 
 /// Migration result summary
 #[derive(Debug, Clone)]
@@ -217,6 +219,22 @@ fn migrate_from_version(tx: &Transaction, old_version: i64) -> Result<()> {
         tx.execute(
             "CREATE INDEX IF NOT EXISTS idx_ast_nodes_span
              ON ast_nodes(byte_start, byte_end)",
+            [],
+        )?;
+    }
+
+    if old_version < 6 {
+        // v5 -> v6: Add file_id to ast_nodes table
+        // Add file_id column for per-file AST node tracking
+        tx.execute(
+            "ALTER TABLE ast_nodes ADD COLUMN file_id INTEGER",
+            [],
+        )?;
+
+        // Create index for efficient per-file queries
+        tx.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ast_nodes_file_id
+             ON ast_nodes(file_id)",
             [],
         )?;
     }

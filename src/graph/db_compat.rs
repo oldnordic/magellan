@@ -34,7 +34,8 @@ pub fn expected_sqlitegraph_schema_version() -> i64 {
 /// Phase 11: FQN-based symbol_id generation (breaking change).
 /// Phase 20: Added canonical_fqn/display_fqn fields, switched to BLAKE3 (breaking change).
 /// Phase 36: Added ast_nodes table for AST hierarchy storage.
-pub const MAGELLAN_SCHEMA_VERSION: i64 = 5;
+/// Phase 40: Added file_id column to ast_nodes for per-file tracking.
+pub const MAGELLAN_SCHEMA_VERSION: i64 = 6;
 
 /// Ensure Magellan-owned metadata exists and matches expected versions.
 ///
@@ -109,6 +110,16 @@ pub fn ensure_magellan_meta(db_path: &Path) -> Result<(), DbCompatError> {
                         params![MAGELLAN_SCHEMA_VERSION],
                     )
                     .map_err(|e| map_sqlite_query_err(db_path, e))?;
+                } else if found_magellan == 5 && MAGELLAN_SCHEMA_VERSION == 6 {
+                    // For v5 -> v6, add file_id column to ast_nodes
+                    ensure_ast_schema(&conn)?;
+
+                    // Update version
+                    conn.execute(
+                        "UPDATE magellan_meta SET magellan_schema_version = ?1 WHERE id = 1",
+                        params![MAGELLAN_SCHEMA_VERSION],
+                    )
+                    .map_err(|e| map_sqlite_query_err(db_path, e))?;
                 } else {
                     return Err(DbCompatError::MagellanSchemaMismatch {
                         path: db_path.to_path_buf(),
@@ -136,7 +147,7 @@ pub fn ensure_magellan_meta(db_path: &Path) -> Result<(), DbCompatError> {
 /// Creates ast_nodes table with parent_id for tree structure and indexes
 /// for efficient parent-child and span queries.
 pub fn ensure_ast_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
-    // Main ast_nodes table
+    // Main ast_nodes table (v5 schema without file_id)
     conn.execute(
         "CREATE TABLE IF NOT EXISTS ast_nodes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -164,6 +175,34 @@ pub fn ensure_ast_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatErro
         [],
     )
     .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    // Add file_id column if not exists (v6 upgrade)
+    // SQLite doesn't support IF NOT EXISTS for ALTER TABLE, so we check first
+    let has_file_id: bool = conn
+        .query_row(
+            "SELECT 1 FROM pragma_table_info('ast_nodes') WHERE name='file_id' LIMIT 1",
+            [],
+            |_| Ok(true),
+        )
+        .optional()
+        .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?
+        .unwrap_or(false);
+
+    if !has_file_id {
+        conn.execute(
+            "ALTER TABLE ast_nodes ADD COLUMN file_id INTEGER",
+            [],
+        )
+        .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+        // Create index for efficient per-file queries
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ast_nodes_file_id
+             ON ast_nodes(file_id)",
+            [],
+        )
+        .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    }
 
     Ok(())
 }

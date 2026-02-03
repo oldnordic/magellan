@@ -1,6 +1,6 @@
 # Magellan Operator Manual
 
-**Version 1.9.0** | *Last Updated: 2026-01-31*
+**Version 2.0.0** | *Last Updated: 2026-02-03*
 
 Comprehensive instructions for operating Magellan.
 
@@ -12,14 +12,15 @@ Comprehensive instructions for operating Magellan.
 2. [Quick Start](#2-quick-start)
 3. [Position Conventions](#3-position-conventions)
 4. [Command Reference](#4-command-reference)
-5. [Known Limitations](#5-known-limitations)
-6. [Supported Languages](#6-supported-languages)
-7. [Database Schema](#7-database-schema)
-8. [Error Handling](#8-error-handling)
-9. [Troubleshooting](#9-troubleshooting)
-10. [Security Best Practices](#10-security-best-practices)
-11. [Architecture](#architecture)
-12. [Exit Codes](#exit-codes)
+5. [Graph Algorithms](#5-graph-algorithms)
+6. [Known Limitations](#6-known-limitations)
+7. [Supported Languages](#7-supported-languages)
+8. [Database Schema](#8-database-schema)
+9. [Error Handling](#9-error-handling)
+10. [Troubleshooting](#10-troubleshooting)
+11. [Security Best Practices](#11-security-best-practices)
+12. [Architecture](#architecture)
+13. [Exit Codes](#exit-codes)
 
 ---
 
@@ -1017,9 +1018,310 @@ magellan slice --db ./magellan.db --target main --verbose
 
 ---
 
-## 5. Known Limitations
+## 5. Graph Algorithms
 
-### 5.1 In-Memory Databases
+Magellan integrates sqlitegraph 1.3.0's powerful graph algorithms for advanced codebase analysis. These algorithms operate on the call graph to identify reachability, cycles, dead code, execution paths, and program slices.
+
+### 5.1 Overview
+
+All graph algorithm commands:
+
+| Command | Purpose | Use Case |
+|---------|---------|----------|
+| `reachable` | Find callees/callers | Impact analysis, API exploration |
+| `dead-code` | Find unreachable code | Cleanup, coverage gaps |
+| `cycles` | Detect SCCs | Refactoring mutual recursion |
+| `condense` | Create condensation DAG | Topological ordering |
+| `paths` | Enumerate execution paths | Test coverage analysis |
+| `slice` | Program slicing | Bug isolation, refactoring safety |
+
+**Symbol ID Resolution:**
+
+All algorithm commands accept either:
+- **Stable Symbol ID**: 32-character BLAKE3 hash (e.g., `a1b2c3d4e5f678901234567890123ab`)
+- **FQN**: Fully qualified name (e.g., `my_crate::main`, `process_request`)
+
+The FQN fallback allows querying by simple function names without requiring the exact hash ID.
+
+### 5.2 Reachability Analysis
+
+#### reachable
+
+```bash
+magellan reachable --db <FILE> --symbol <SYMBOL_ID> [--reverse] [--output <FORMAT>]
+```
+
+Finds all symbols reachable from (or that can reach) a starting symbol through the call graph.
+
+| Argument | Type | Default | Description |
+|----------|------|---------|-------------|
+| `--db <FILE>` | Path | - | Database path (required) |
+| `--symbol <SYMBOL_ID>` | String | - | Stable symbol ID or FQN (required) |
+| `--reverse` | Flag | false | Show callers instead of callees |
+| `--output <FORMAT>` | Format | human | Output: human, json, or pretty |
+
+**Examples:**
+
+```bash
+# Find all functions called from main
+magellan reachable --db ./magellan.db --symbol main
+
+# Find all callers of a specific function (reverse reachability)
+magellan reachable --db ./magellan.db --symbol process_request --reverse
+
+# Output as JSON
+magellan reachable --db ./magellan.db --symbol main --output json
+```
+
+**Use Cases:**
+- **Impact Analysis**: Before changing a function, see what calls it
+- **API Exploration**: Discover all downstream effects of an entry point
+- **Test Coverage**: Verify all code paths from main are tested
+
+#### dead-code
+
+```bash
+magellan dead-code --db <FILE> --entry <SYMBOL_ID> [--output <FORMAT>]
+```
+
+Finds code unreachable from an entry point using call graph reachability analysis.
+
+| Argument | Type | Default | Description |
+|----------|------|---------|-------------|
+| `--db <FILE>` | Path | - | Database path (required) |
+| `--entry <SYMBOL_ID>` | String | - | Entry point symbol ID (required) |
+| `--output <FORMAT>` | Format | human | Output: human, json, or pretty |
+
+**Examples:**
+
+```bash
+# Find dead code unreachable from main
+magellan dead-code --db ./magellan.db --entry main
+
+# Output as JSON
+magellan dead-code --db ./magellan.db --entry main --output json
+```
+
+**Use Cases:**
+- **Code Cleanup**: Identify unused functions before refactoring
+- **Coverage Gaps**: Find code that tests never reach
+- **Dead Code Elimination**: Safe removal of unreachable code
+
+### 5.3 Cycle Detection
+
+#### cycles
+
+```bash
+magellan cycles --db <FILE> [--symbol <SYMBOL_ID>] [--output <FORMAT>]
+```
+
+Detects strongly connected components (SCCs) in the call graph to identify mutual recursion and other cycles.
+
+| Argument | Type | Default | Description |
+|----------|------|---------|-------------|
+| `--db <FILE>` | Path | - | Database path (required) |
+| `--symbol <SYMBOL_ID>` | String | - | Find cycles containing this symbol (optional) |
+| `--output <FORMAT>` | Format | human | Output: human, json, or pretty |
+
+**Cycle Types:**
+
+- **Mutual Recursion**: Two or more functions calling each other in a cycle
+- **Self Loop**: A function that calls itself directly
+
+**Examples:**
+
+```bash
+# Find all cycles in the call graph
+magellan cycles --db ./magellan.db
+
+# Find cycles containing a specific function
+magellan cycles --db ./magellan.db --symbol problem_function
+
+# Output as JSON
+magellan cycles --db ./magellan.db --output json
+```
+
+**Use Cases:**
+- **Refactoring Safety**: Identify tightly coupled code before changes
+- **Mutual Recursion Detection**: Find indirect recursion that may cause stack overflow
+- **Code Smell Detection**: Cycles often indicate architectural issues
+
+#### condense
+
+```bash
+magellan condense --db <FILE> [--members] [--output <FORMAT>]
+```
+
+Creates a condensation graph by collapsing strongly connected components (SCCs) into "supernodes". The resulting graph is a DAG suitable for topological analysis.
+
+| Argument | Type | Default | Description |
+|----------|------|---------|-------------|
+| `--db <FILE>` | Path | - | Database path (required) |
+| `--members` | Flag | false | Show all members of each supernode |
+| `--output <FORMAT>` | Format | human | Output: human, json, or pretty |
+
+**What is a Condensation Graph?**
+
+When you collapse SCCs (cycles) into single nodes, you get a condensation graph which is guaranteed to be a Directed Acyclic Graph (DAG). This is useful for:
+
+- Topological sorting of the call graph
+- Identifying layers of interdependence
+- Safe refactoring order determination
+
+**Examples:**
+
+```bash
+# Show condensation graph summary
+magellan condense --db ./magellan.db
+
+# Show all members of each supernode (useful for understanding cycles)
+magellan condense --db ./magellan.db --members
+
+# Output as JSON for programmatic analysis
+magellan condense --db ./magellan.db --output json
+```
+
+**Use Cases:**
+- **Layered Architecture**: Identify natural layers in your codebase
+- **Refactoring Order**: Determine safe sequence for breaking cycles
+- **Dependency Analysis**: Understand high-level code structure
+
+### 5.4 Path Enumeration
+
+#### paths
+
+```bash
+magellan paths --db <FILE> --start <SYMBOL_ID> [--end <SYMBOL_ID>] [--max-depth <N>] [--max-paths <N>] [--output <FORMAT>]
+```
+
+Enumerates execution paths between symbols in the call graph. Useful for understanding all possible ways code can execute.
+
+| Argument | Type | Default | Description |
+|----------|------|---------|-------------|
+| `--db <FILE>` | Path | - | Database path (required) |
+| `--start <SYMBOL_ID>` | String | - | Start symbol (required) |
+| `--end <SYMBOL_ID>` | String | - | End symbol (optional) |
+| `--max-depth <N>` | Integer | 100 | Maximum path length |
+| `--max-paths <N>` | Integer | 1000 | Maximum paths to return |
+| `--output <FORMAT>` | Format | human | Output: human, json, or pretty |
+
+**Warning:** Path enumeration can be expensive on large codebases. Use `--max-depth` and `--max-paths` to limit computation.
+
+**Examples:**
+
+```bash
+# Enumerate paths from main (up to 1000 paths, depth 100)
+magellan paths --db ./magellan.db --start main
+
+# Find paths from main to a specific function
+magellan paths --db ./magellan.db --start main --end handle_request
+
+# Limit search to depth 5, max 100 paths
+magellan paths --db ./magellan.db --start main --max-depth 5 --max-paths 100
+
+# Output as JSON
+magellan paths --db ./magellan.db --start main --output json
+```
+
+**Use Cases:**
+- **Test Coverage**: Identify untested execution paths
+- **Security Analysis**: Find all paths to sensitive operations
+- **Debugging**: Understand all ways a bug can manifest
+
+### 5.5 Program Slicing
+
+#### slice
+
+```bash
+magellan slice --db <FILE> --target <SYMBOL_ID> [--direction <backward|forward>] [--verbose] [--output <FORMAT>]
+```
+
+Program slicing finds all code that affects (backward slice) or is affected by (forward slice) a target symbol.
+
+| Argument | Type | Default | Description |
+|----------|------|---------|-------------|
+| `--db <FILE>` | Path | - | Database path (required) |
+| `--target <SYMBOL_ID>` | String | - | Target symbol (required) |
+| `--direction <DIR>` | String | backward | Slice direction: backward or forward |
+| `--verbose` | Flag | false | Show detailed statistics |
+| `--output <FORMAT>` | Format | human | Output: human, json, or pretty |
+
+**Slice Types:**
+
+- **Backward Slice (default)**: Find all code that affects the target (upward in call graph)
+- **Forward Slice**: Find all code affected by the target (downward in call graph)
+
+**Examples:**
+
+```bash
+# Find all code that affects the target (backward slice)
+magellan slice --db ./magellan.db --target bug_location
+
+# Find all code affected by the target (forward slice)
+magellan slice --db ./magellan.db --target config_loader --direction forward
+
+# Show detailed statistics
+magellan slice --db ./magellan.db --target main --verbose
+```
+
+**Use Cases:**
+- **Bug Isolation**: Find the source of a bug by tracing dependencies
+- **Refactoring Safety**: Verify what changes when modifying a function
+- **Impact Analysis**: Understand the blast radius of code changes
+
+### 5.6 Common Patterns
+
+#### Combining Algorithms
+
+```bash
+# Find dead code after condensing the call graph
+magellan condense --db ./magellan.db
+magellan dead-code --db ./magellan.db --entry main
+
+# Find cycles, then analyze paths within a cycle
+magellan cycles --db ./magellan.db --symbol problem_function
+magellan paths --db ./magellan.db --start problem_function --max-depth 10
+
+# Impact analysis: who calls this, and what do they call?
+magellan reachable --db ./magellan.db --symbol target_function --reverse
+magellan slice --db ./magellan.db --target target_function --direction forward
+```
+
+#### JSON Output for Automation
+
+```bash
+# Get dead code as JSON for CI/CD integration
+magellan dead-code --db ./magellan.db --entry main --output json | \
+  jq '.data.dead_symbols | length'
+
+# Fail CI if dead code exceeds threshold
+DEAD_COUNT=$(magellan dead-code --db ./magellan.db --entry main --output json | \
+  jq '.data.dead_symbols | length')
+if [ "$DEAD_COUNT" -gt 10 ]; then
+  echo "Too much dead code: $DEAD_COUNT"
+  exit 1
+fi
+```
+
+#### Performance Considerations
+
+- **Reachability**: O(V + E) - fast even on large graphs
+- **Dead Code**: O(V + E) - same as reachability
+- **Cycle Detection**: O(V + E) - Tarjan's algorithm
+- **Condensation**: O(V + E) - built on cycle detection
+- **Path Enumeration**: **Potentially exponential** - always use bounds
+- **Program Slice**: O(V + E) - uses reachability internally
+
+On a codebase with 10,000 symbols:
+- Reachability, SCC, slice: <1 second
+- Path enumeration with bounds: <5 seconds
+- Path enumeration without bounds: **may hang** (exponential complexity)
+
+---
+
+## 6. Known Limitations
+
+### 6.1 In-Memory Databases
 
 Magellan uses SQLite Shared connections for concurrent access (via `sqlitegraph` and
 `ChunkStore`), which don't work with `:memory:` databases. Each thread would get its
@@ -1033,7 +1335,7 @@ access or path retrieval.
 
 ---
 
-## 6. Supported Languages
+## 7. Supported Languages
 
 | Language | Extensions | Symbol Extraction | Reference Extraction | Call Graph |
 |----------|------------|-------------------|---------------------|------------|
@@ -1047,9 +1349,9 @@ access or path retrieval.
 
 ---
 
-## 7. Database Schema
+## 8. Database Schema
 
-### 7.1 Node Types
+### 8.1 Node Types
 
 **File Node:**
 ```json
@@ -1111,9 +1413,9 @@ access or path retrieval.
 
 ---
 
-## 8. Error Handling
+## 9. Error Handling
 
-### 8.1 Error Messages
+### 9.1 Error Messages
 
 **Permission Denied:**
 ```
@@ -1130,7 +1432,7 @@ ERROR /path/to/file.rs Permission denied (os error 13)
 - Only one process may access database at a time
 - Magellan exits cleanly
 
-### 8.2 Recovery
+### 9.2 Recovery
 
 ```bash
 # Check database integrity
@@ -1143,7 +1445,7 @@ magellan watch --root . --db magellan.db --scan-initial
 
 ---
 
-## 9. Troubleshooting
+## 10. Troubleshooting
 
 ### Files not being indexed
 
@@ -1172,9 +1474,9 @@ pkill -f "magellan watch"
 
 ---
 
-## 10. Security Best Practices
+## 11. Security Best Practices
 
-### 10.1 Database Placement
+### 11.1 Database Placement
 
 Magellan stores all indexed data in the file specified by `--db <FILE>`.
 The location of this file affects both security and performance.
@@ -1225,7 +1527,7 @@ magellan watch --root . --db ./magellan.db
 magellan watch --root ~/src/project --db ~/src/project/.magellan.db
 ```
 
-### 10.2 Path Traversal Protection
+### 11.2 Path Traversal Protection
 
 Magellan includes protection against directory traversal attacks that attempt
 to access files outside the watched directory.
@@ -1269,7 +1571,7 @@ cargo test path_validation
 grep -r "validate_path" src/
 ```
 
-### 10.3 File Permission Recommendations
+### 11.3 File Permission Recommendations
 
 **Database File Permissions**
 
@@ -1306,7 +1608,7 @@ sudo chmod 770 /var/cache/magellan
 magellan watch --root ~/project --db /var/cache/magellan/$USER-project.db
 ```
 
-### 10.4 Secure Operation Patterns
+### 11.4 Secure Operation Patterns
 
 **Production Monitoring**
 

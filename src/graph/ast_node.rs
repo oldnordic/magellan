@@ -13,6 +13,9 @@ use serde::{Deserialize, Serialize};
 pub mod kinds {
     /// Control flow nodes
     pub const IF: &str = "If";
+    /// Reserved: tree-sitter includes else as part of if_expression, not a separate node
+    /// Kept for potential future use with other parsers or language-specific extensions
+    #[allow(dead_code)]
     pub const ELSE: &str = "Else";
     pub const MATCH: &str = "Match";
     pub const LOOP: &str = "Loop";
@@ -42,6 +45,8 @@ pub mod kinds {
 
     /// Other
     pub const ATTRIBUTE: &str = "Attribute";
+    /// Reserved: for future comment tracking (documentation generation, TODO extraction, etc.)
+    #[allow(dead_code)]
     pub const COMMENT: &str = "Comment";
 }
 

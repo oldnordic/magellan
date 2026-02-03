@@ -195,7 +195,7 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
         });
         if let Ok(ast_nodes) = ast_nodes_result {
             if !ast_nodes.is_empty() {
-                insert_ast_nodes(graph, ast_nodes)?;
+                insert_ast_nodes(graph, file_id.as_i64(), ast_nodes)?;
             }
         }
     }
@@ -335,6 +335,9 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
     // Count code chunks (query directly from code_chunks table)
     let expected_chunks = count_chunks_for_file(graph, path);
 
+    // Count AST nodes (v6: uses file_id for efficient per-file counting)
+    let expected_ast_nodes = count_ast_nodes_for_file(graph, path);
+
     // === PHASE 2: Perform graph entity deletions ===
     //
     // ARCHITECTURAL LIMITATION: We cannot wrap all operations in a single ACID transaction
@@ -431,11 +434,20 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         );
 
         // Delete AST nodes for this file
-        // Note: AST nodes don't have file_id yet, so we delete all nodes
-        // TODO: Add file_id to ast_nodes table for efficient per-file deletion
+        // v6: Use file_id for per-file deletion
         ast_nodes_deleted = conn
-            .execute("DELETE FROM ast_nodes", [])
+            .execute(
+                "DELETE FROM ast_nodes WHERE file_id = ?1",
+                rusqlite::params![file_id.as_i64()],
+            )
             .map_err(|e| anyhow::anyhow!("Failed to delete AST nodes: {}", e))?;
+
+        // Assert AST node count matches expected
+        assert_eq!(
+            ast_nodes_deleted, expected_ast_nodes,
+            "AST node deletion count mismatch for '{}': expected {}, got {}",
+            path, expected_ast_nodes, ast_nodes_deleted
+        );
 
         // Remove from in-memory index AFTER successful deletions.
         graph.files.file_index.remove(path);
@@ -486,7 +498,9 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         );
 
         // Delete AST nodes
-        // Note: AST nodes don't have file_id yet, so we delete all nodes
+        // No file node exists, so we can't do per-file deletion via file_id.
+        // This is a cleanup for orphaned data - delete all nodes (v5 behavior).
+        // After reindex with v6, new nodes will have file_id and this won't happen.
         let chunk_conn = graph.chunks.connect()?;
         ast_nodes_deleted = chunk_conn
             .execute("DELETE FROM ast_nodes", [])
@@ -784,7 +798,7 @@ fn count_chunks_for_file(graph: &CodeGraph, path: &str) -> usize {
 /// This function handles parent-child ID resolution. Nodes are inserted
 /// with placeholder parent IDs (negative values) which are then resolved
 /// to actual database IDs after insertion.
-pub fn insert_ast_nodes(graph: &mut CodeGraph, nodes: Vec<crate::graph::AstNode>) -> Result<usize> {
+pub fn insert_ast_nodes(graph: &mut CodeGraph, file_id: i64, nodes: Vec<crate::graph::AstNode>) -> Result<usize> {
     if nodes.is_empty() {
         return Ok(0);
     }
@@ -804,13 +818,14 @@ pub fn insert_ast_nodes(graph: &mut CodeGraph, nodes: Vec<crate::graph::AstNode>
         };
 
         tx.execute(
-            "INSERT INTO ast_nodes (parent_id, kind, byte_start, byte_end)
-             VALUES (?1, ?2, ?3, ?4)",
+            "INSERT INTO ast_nodes (parent_id, kind, byte_start, byte_end, file_id)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
             params![
                 parent_id_to_store,
                 node.kind,
                 node.byte_start as i64,
                 node.byte_end as i64,
+                file_id,
             ],
         )?;
         inserted_ids.push(tx.last_insert_rowid());
@@ -841,8 +856,6 @@ pub fn insert_ast_nodes(graph: &mut CodeGraph, nodes: Vec<crate::graph::AstNode>
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_ast_nodes_indexed_with_file() {
         use tempfile::tempdir;
@@ -878,12 +891,29 @@ mod tests {
 /// Count AST nodes for a file path.
 ///
 /// Used to verify deletion completeness.
-/// Note: AST nodes don't currently have file_id, so this is a placeholder
-/// that returns 0. Future implementation will add file_id to ast_nodes table.
-fn count_ast_nodes_for_file(_graph: &CodeGraph, _path: &str) -> usize {
-    // TODO: Add file_id to ast_nodes table for efficient per-file queries
-    // For now, AST nodes are stored globally without file association
-    0
+/// v6: Uses file_id to efficiently count AST nodes per file.
+fn count_ast_nodes_for_file(graph: &CodeGraph, path: &str) -> usize {
+    use rusqlite::params;
+
+    // First, get the file_id by looking up in the file_index
+    // We need to access file_index directly since we only have &CodeGraph
+    let file_id = match graph.files.file_index.get(path) {
+        Some(id) => id.as_i64(),
+        None => return 0, // No file node, no AST nodes to count
+    };
+
+    // Count AST nodes with this file_id
+    match graph.chunks.connect() {
+        Ok(conn) => {
+            conn.query_row(
+                "SELECT COUNT(*) FROM ast_nodes WHERE file_id = ?1",
+                params![file_id],
+                |row| row.get(0),
+            )
+            .unwrap_or(0)
+        }
+        Err(_) => 0,
+    }
 }
 
 /// Reconcile a file path against filesystem + content hash.
