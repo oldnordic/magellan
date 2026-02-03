@@ -80,11 +80,11 @@ pub use algorithms::{
 pub use ast_extractor::{extract_ast_nodes, language_from_path, normalize_node_kind};
 pub use ast_node::{AstNode, AstNodeWithText, is_structural_kind};
 pub use cache::CacheStats;
-pub use db_compat::ensure_ast_schema;
+pub use db_compat::{ensure_ast_schema, ensure_cfg_schema, CFG_EDGE};
 pub use db_compat::MAGELLAN_SCHEMA_VERSION;
 pub use export::{ExportConfig, ExportFormat};
 pub use freshness::{check_freshness, FreshnessStatus, STALE_THRESHOLD_SECS};
-pub use schema::{CallNode, FileNode, ReferenceNode, SymbolNode};
+pub use schema::{CallNode, CfgBlock, CfgEdge, FileNode, ReferenceNode, SymbolNode};
 
 /// Progress callback for scan_directory
 ///
@@ -244,6 +244,15 @@ impl CodeGraph {
                 anyhow::anyhow!("Failed to open connection for AST schema: {}", e)
             })?;
             db_compat::ensure_ast_schema(&ast_conn)
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        }
+
+        // Ensure CFG schema exists
+        {
+            let cfg_conn = rusqlite::Connection::open(&db_path_buf).map_err(|e| {
+                anyhow::anyhow!("Failed to open connection for CFG schema: {}", e)
+            })?;
+            db_compat::ensure_cfg_schema(&cfg_conn)
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?;
         }
 
