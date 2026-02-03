@@ -35,7 +35,8 @@ pub fn expected_sqlitegraph_schema_version() -> i64 {
 /// Phase 20: Added canonical_fqn/display_fqn fields, switched to BLAKE3 (breaking change).
 /// Phase 36: Added ast_nodes table for AST hierarchy storage.
 /// Phase 40: Added file_id column to ast_nodes for per-file tracking.
-pub const MAGELLAN_SCHEMA_VERSION: i64 = 6;
+/// Phase 42: Added cfg_blocks table for Control Flow Graph storage.
+pub const MAGELLAN_SCHEMA_VERSION: i64 = 7;
 
 /// Ensure Magellan-owned metadata exists and matches expected versions.
 ///
@@ -113,6 +114,16 @@ pub fn ensure_magellan_meta(db_path: &Path) -> Result<(), DbCompatError> {
                 } else if found_magellan == 5 && MAGELLAN_SCHEMA_VERSION == 6 {
                     // For v5 -> v6, add file_id column to ast_nodes
                     ensure_ast_schema(&conn)?;
+
+                    // Update version
+                    conn.execute(
+                        "UPDATE magellan_meta SET magellan_schema_version = ?1 WHERE id = 1",
+                        params![MAGELLAN_SCHEMA_VERSION],
+                    )
+                    .map_err(|e| map_sqlite_query_err(db_path, e))?;
+                } else if found_magellan == 6 && MAGELLAN_SCHEMA_VERSION == 7 {
+                    // For v6 -> v7, add cfg_blocks table
+                    ensure_cfg_schema(&conn)?;
 
                     // Update version
                     conn.execute(
