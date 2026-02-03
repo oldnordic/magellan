@@ -396,19 +396,19 @@ Plans:
 </details>
 
 <details>
-<summary>Phase 42: AST-Based CFG for Rust - PLANNED</summary>
+<summary>✅ Phase 42: AST-Based CFG for Rust - COMPLETE 2026-02-03</summary>
 
 **Milestone Goal:** Implement AST-based Control Flow Graph extraction for Rust using tree-sitter.
 
 **Plans (4/4):**
-- [ ] 42-01 — CFG schema design (cfg_blocks table, schema v7, migration)
-- [ ] 42-02 — AST-based CFG extraction (if/else, loop/while/for, match, terminators)
-- [ ] 42-03 — Indexing pipeline integration (automatic CFG extraction during indexing)
-- [ ] 42-04 — Documentation update (ROADMAP, STATE, limitations)
+- [x] 42-01 — CFG schema design (cfg_blocks table, schema v7, migration)
+- [x] 42-02 — AST-based CFG extraction (if/else, loop/while/for, match, terminators)
+- [x] 42-03 — Indexing pipeline integration (automatic CFG extraction during indexing)
+- [x] 42-04 — Documentation update (ROADMAP, STATE, limitations)
 
 **Decision:** AST-based CFG extraction as interim solution pending stable_mir publication.
 
-**Delivering (when complete):**
+**Delivered:**
 - src/graph/db_compat.rs with ensure_cfg_schema() and v7 migration
 - src/graph/schema.rs with CfgBlock and CfgEdge types
 - src/graph/cfg_extractor.rs with CfgExtractor for Rust AST traversal
@@ -434,7 +434,7 @@ Plans:
 - AST-based approach is viable interim solution
 
 **See:**
-- `.planning/phases/42-ast-cfg-rust/42-RESEARCH.md` — Original research findings
+- `.planning/phases/42-ast-cfg-rust/42-RESEARCH.md` — Original research findings (archived)
 - `src/graph/cfg_extractor.rs` — CFG extraction implementation
 - `docs/CFG_LIMITATIONS.md` — Detailed limitations documentation
 
@@ -559,6 +559,6 @@ Phases execute in numeric order: 27 → 28 → 29 → 30 → 31 → 32 → 33
 | 39. AST Migration Fix | v1.9 | 2/2 | Complete | 2026-01-31 |
 | 40. Graph Algorithms | TBD | 0/5 | Not started | - |
 | 41. Gitignore-Aware Indexing | TBD | 1/1 | Complete | 2026-02-03 |
-| 42. AST-Based CFG for Rust | TBD | 0/4 | Not started | - |
+| 42. AST-Based CFG for Rust | TBD | 4/4 | Complete | 2026-02-03 |
 | 43. LLVM IR CFG for C/C++ | TBD | 0/1 | Not started | - |
 | 44. JVM Bytecode CFG (Java) | TBD | 0/1 | Not started | - |

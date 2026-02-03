@@ -10,12 +10,12 @@ See: .planning/PROJECT.md (updated 2026-01-23)
 ## Current Position
 
 Phase: 42-ast-cfg-rust (AST-based CFG for Rust)
-Plan: 42-02 of 2 (Complete)
+Plan: 42-03 of 3 (Complete)
 Status: Plan complete
-Last activity: 2026-02-03 — Completed 42-02 (CFG Extractor Implementation)
+Last activity: 2026-02-03 — Completed 42-03 (CFG Integration)
 
-Progress: 100% (2/2 plans complete)
-Overall: 100% (158/158 plans complete)
+Progress: 100% (3/3 plans complete)
+Overall: 100% (159/159 plans complete)
 
 ## Performance Metrics
 
@@ -159,6 +159,12 @@ Recent decisions affecting current work:
 - [42-02] find_function_body() helper function for tree-sitter navigation - Extracts function body block from function_item node
 - [42-02] detect_block_terminator() for identifying block ending types - Analyzes last statement in block to determine terminator
 - [42-02] 13 comprehensive unit tests covering all control flow constructs - Tests for if/else, loop/while/for, match, return, break, continue
+- [42-03] CfgOps module with insert_cfg_blocks(), delete_cfg_for_functions(), get_cfg_for_function() - CFG storage and retrieval operations using ChunkStore connection
+- [42-03] CFG extraction integrated into index_file() for .rs files - Tracks function symbol IDs during insertion, matches tree-sitter function_items by byte range
+- [42-03] CFG cleanup integrated into delete_file_facts() - Uses delete_cfg_for_functions() with tracked function IDs
+- [42-03] cfg_blocks_deleted field added to DeleteResult struct - All 12 constructor locations updated
+- [42-03] 5 integration tests for CFG extraction and cleanup - Tests verify extraction, re-index cleanup, and delete cleanup
+- [42-03] Made cfg_ops public field on CodeGraph - Follows pattern of other ops modules for test access
 
 ### Pending Todos
 
@@ -197,11 +203,11 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-03
-Stopped at: Completed 42-02 (CFG Extractor Implementation)
+Stopped at: Completed 42-03 (CFG Integration)
 Resume file: None
 Blockers: None
 
-## Phase 39 Summary
+## Phase 42 Summary
 
 **Milestone Goal:** AST Migration Fix - Fix database migration from v4 to v5 and verify new database creation.
 
@@ -473,9 +479,10 @@ Blockers: None
 
 **Milestone Goal:** AST-based CFG for Rust - Design and implement database schema and AST-based extraction for Control Flow Graph (CFG) data to enable intra-procedural analysis.
 
-**Plans Completed:** 2 plans (42-01, 42-02)
+**Plans Completed:** 3 plans (42-01, 42-02, 42-03)
 - 42-01: CFG database schema with cfg_blocks table and v6->v7 migration
 - 42-02: CFG extractor module with CfgExtractor for AST-based control flow extraction
+- 42-03: CFG integration into indexing pipeline with CfgOps module
 
 **Key Changes:**
 - Added cfg_blocks table with function_id, kind, terminator, and span fields
@@ -491,6 +498,12 @@ Blockers: None
 - Implemented TerminatorKind enum for block exit types
 - Created visitor methods for all Rust control flow constructs (visit_if, visit_loop, visit_match)
 - Added comprehensive unit tests (13 tests covering all constructs)
+- Created CfgOps module with insert_cfg_blocks(), delete_cfg_for_functions(), get_cfg_for_function(), get_cfg_for_file()
+- Added cfg_ops field to CodeGraph struct and initialized in CodeGraph::open
+- Integrated CFG extraction into index_file() for .rs files using function symbol tracking
+- Added CFG cleanup to delete_file_facts() using delete_cfg_for_functions()
+- Added cfg_blocks_deleted field to DeleteResult struct
+- Created 5 integration tests for CFG extraction and cleanup
 
 **Success Criteria (All Met):**
 - ✅ CfgBlock type defined in schema.rs with all required fields
@@ -505,4 +518,10 @@ Blockers: None
 - ✅ Methods for if/else, loop/while/for, match, return/break/continue
 - ✅ Module exported from graph/mod.rs
 - ✅ cargo test cfg_extractor passes (13/13 tests)
-- ✅ cargo check passes (470/470 library tests pass)
+- ✅ cargo check passes (471/471 library tests pass)
+- ✅ CfgOps module created with all CRUD operations
+- ✅ CfgOps added to CodeGraph struct
+- ✅ CFG extraction integrated into index_file()
+- ✅ CFG cleanup integrated into delete_file_facts()
+- ✅ Integration tests pass (5/5 tests)
+
