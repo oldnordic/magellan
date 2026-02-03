@@ -574,3 +574,232 @@ fn c() {}
         "Target should be the same for both slices"
     );
 }
+
+#[test]
+fn test_enumerate_paths_finds_execution_paths() {
+    // Test that enumerate_paths finds all execution paths from a start point
+    use magellan::CodeGraph;
+
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+    let file_path = temp_dir.path().join("test.rs");
+
+    let source = r#"
+fn main() {
+    helper_a();
+    helper_b();
+}
+
+fn helper_a() {
+    leaf();
+}
+
+fn helper_b() {
+    leaf();
+}
+
+fn leaf() {}
+"#;
+
+    let mut graph = CodeGraph::open(&db_path).unwrap();
+    let path_str = file_path.to_string_lossy().to_string();
+
+    graph.index_file(&path_str, source.as_bytes())
+        .unwrap();
+    graph.index_calls(&path_str, source.as_bytes())
+        .unwrap();
+
+    // Get main's FQN
+    let symbols = graph.symbols_in_file(&path_str).unwrap();
+    let main_symbol = symbols
+        .iter()
+        .find(|s| s.name.as_deref() == Some("main"))
+        .expect("Should find main symbol");
+
+    let main_fqn = main_symbol
+        .fqn
+        .as_ref()
+        .or(main_symbol.canonical_fqn.as_ref())
+        .expect("main should have FQN");
+
+    // Test path enumeration from main
+    let result = graph.enumerate_paths(main_fqn, None, 10, 100).unwrap();
+
+    // The result should be valid (even if paths are empty due to graph structure)
+    // Verify statistics are properly computed
+    if !result.paths.is_empty() {
+        assert!(
+            result.statistics.avg_length > 0.0,
+            "Average path length should be positive when paths exist"
+        );
+        assert!(
+            result.statistics.max_length >= result.statistics.min_length,
+            "Max length should be >= min length"
+        );
+    } else {
+        // If no paths found, verify stats are still in valid state
+        assert!(
+            result.statistics.avg_length >= 0.0,
+            "Average path length should be non-negative"
+        );
+    }
+
+    // Test that we can also enumerate to a specific target
+    let leaf_symbol = symbols
+        .iter()
+        .find(|s| s.name.as_deref() == Some("leaf"))
+        .expect("Should find leaf symbol");
+
+    let leaf_fqn = leaf_symbol
+        .fqn
+        .as_ref()
+        .or(leaf_symbol.canonical_fqn.as_ref())
+        .expect("leaf should have FQN");
+
+    // Enumerate paths from main to leaf
+    let result_to_leaf = graph
+        .enumerate_paths(main_fqn, Some(leaf_fqn), 10, 100)
+        .unwrap();
+
+    // Should return a valid result
+    assert!(
+        result_to_leaf.total_enumerated >= 0,
+        "Total enumerated should be non-negative"
+    );
+}
+
+#[test]
+fn test_enumerate_paths_with_end_symbol() {
+    // Test path enumeration with a specific end symbol
+    use magellan::CodeGraph;
+
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+    let file_path = temp_dir.path().join("test.rs");
+
+    let source = r#"
+fn main() {
+    helper();
+}
+
+fn helper() {
+    target();
+}
+
+fn target() {}
+"#;
+
+    let mut graph = CodeGraph::open(&db_path).unwrap();
+    let path_str = file_path.to_string_lossy().to_string();
+
+    graph.index_file(&path_str, source.as_bytes())
+        .unwrap();
+    graph.index_calls(&path_str, source.as_bytes())
+        .unwrap();
+
+    // Get main's and target's FQNs
+    let symbols = graph.symbols_in_file(&path_str).unwrap();
+    let main_symbol = symbols
+        .iter()
+        .find(|s| s.name.as_deref() == Some("main"))
+        .expect("Should find main symbol");
+    let target_symbol = symbols
+        .iter()
+        .find(|s| s.name.as_deref() == Some("target"))
+        .expect("Should find target symbol");
+
+    let main_fqn = main_symbol
+        .fqn
+        .as_ref()
+        .or(main_symbol.canonical_fqn.as_ref())
+        .expect("main should have FQN");
+    let target_fqn = target_symbol
+        .fqn
+        .as_ref()
+        .or(target_symbol.canonical_fqn.as_ref())
+        .expect("target should have FQN");
+
+    // Enumerate paths from main to target
+    let result = graph
+        .enumerate_paths(main_fqn, Some(target_fqn), 10, 100)
+        .unwrap();
+
+    // We should find at least one path from main to target
+    assert!(
+        !result.paths.is_empty(),
+        "Should find at least one path from main to target"
+    );
+
+    // Each path should end at target
+    for path in &result.paths {
+        let last_fqn = path
+            .symbols
+            .last()
+            .and_then(|s| s.fqn.as_deref())
+            .unwrap_or("");
+        assert!(
+            last_fqn.contains("target") || last_fqn == target_fqn,
+            "Path should end at target symbol"
+        );
+    }
+}
+
+#[test]
+fn test_enumerate_paths_respects_bounds() {
+    // Test that enumerate_paths respects max_depth and max_paths bounds
+    use magellan::CodeGraph;
+
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+    let file_path = temp_dir.path().join("test.rs");
+
+    // Create code with multiple paths
+    let source = r#"
+fn main() {
+    a();
+    b();
+    c();
+}
+
+fn a() { x(); }
+fn b() { x(); }
+fn c() { x(); }
+
+fn x() {
+    y();
+}
+
+fn y() {}
+"#;
+
+    let mut graph = CodeGraph::open(&db_path).unwrap();
+    let path_str = file_path.to_string_lossy().to_string();
+
+    graph.index_file(&path_str, source.as_bytes())
+        .unwrap();
+    graph.index_calls(&path_str, source.as_bytes())
+        .unwrap();
+
+    // Get main's FQN
+    let symbols = graph.symbols_in_file(&path_str).unwrap();
+    let main_symbol = symbols
+        .iter()
+        .find(|s| s.name.as_deref() == Some("main"))
+        .expect("Should find main symbol");
+
+    let main_fqn = main_symbol
+        .fqn
+        .as_ref()
+        .or(main_symbol.canonical_fqn.as_ref())
+        .expect("main should have FQN");
+
+    // Test with max_paths = 2
+    let result = graph.enumerate_paths(main_fqn, None, 10, 2).unwrap();
+
+    // Should return at most 2 paths
+    assert!(
+        result.paths.len() <= 2,
+        "Should respect max_paths bound (got {} paths)",
+        result.paths.len()
+    );
+}

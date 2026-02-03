@@ -10,12 +10,12 @@ See: .planning/PROJECT.md (updated 2026-01-23)
 ## Current Position
 
 Phase: 40-graph-algorithms (Graph Algorithms)
-Plan: 40-01 of 1 (Complete)
+Plan: 40-04 of 4 (Complete)
 Status: Phase complete
-Last activity: 2026-02-03 — Completed 40-01 (Graph Algorithms)
+Last activity: 2026-02-03 — Completed 40-04 (Program Slicing)
 
-Progress: 100% (1/1 plans complete)
-Overall: 100% (150/150 plans complete)
+Progress: 100% (4/4 plans complete)
+Overall: 100% (154/154 plans complete)
 
 ## Performance Metrics
 
@@ -129,6 +129,13 @@ Recent decisions affecting current work:
 - [27-06] Fixed test_scoped_identifier_reference assertion - Expected 3 symbols but parser only extracts 2 from nested modules (pre-existing bug in v1.7.0). Updated assertion to match actual behavior and documented known limitation with TODO comment. Use #[allow(dead_code)] for functions only used in release builds (#[cfg(not(debug_assertions))]). Prefix intentionally unused variables with underscore.
 - [27-08] Use #[allow(dead_code)] for public API methods and conditionally used code - #[expect(dead_code)] means "I expect this to be unused" and causes warnings when code IS used (in tests or by library consumers). Changed to #[allow(dead_code)] for: generate_symbol_id_v2 (used in tests), len/is_empty/hit_rate (public API). This correctly expresses intent: "Yes, this is currently unused, and that's intentional."
 - [27-08] CSV export includes version header comment - Added "# Magellan Export Version: 2.0.0" as first line in CSV output. Tests updated to skip comment lines when parsing CSV to find actual header row. All CSV export tests pass.
+- [40-02] SCC detection and condensation using sqlitegraph's strongly_connected_components() - Detects mutual recursion cycles, collapses SCCs into supernodes for DAG analysis
+- [40-02] Cycle report with CycleKind (SelfLoop, TwoNode, Complex) - Categorizes cycles by size for user-friendly reporting
+- [40-03] Path enumeration between symbols using sqlitegraph's enumerate_paths() - Finds execution paths with configurable depth limit
+- [40-03] PathStatistics tracks count, max depth, cycles found - Provides metrics for path query results
+- [40-04] Program slicing using call-graph reachability as fallback - Full CFG-based slicing requires AST Control Dependence Graph integration
+- [40-04] SliceDirection enum: Backward (what affects), Forward (what is affected) - Clear semantic distinction for slice direction
+- [40-04] SliceStatistics: total_symbols, data_dependencies (0 in fallback), control_dependencies - Documents call-graph limitation
 
 ### Pending Todos
 
@@ -167,7 +174,7 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-03
-Stopped at: Completed 40-01 (Graph Algorithms)
+Stopped at: Completed 40-04 (Program Slicing)
 Resume file: None
 Blockers: None
 
@@ -383,25 +390,35 @@ Blockers: None
 
 ## Phase 40 Summary
 
-**Milestone Goal:** Graph Algorithms - Add reachability analysis and dead code detection using sqlitegraph 1.3.0.
+**Milestone Goal:** Graph Algorithms - Add reachability analysis, dead code detection, cycle detection, SCC condensation, path enumeration, and program slicing using sqlitegraph 1.3.0.
 
-**Plans Completed:** 1 plan (40-01)
+**Plans Completed:** 4 plans (40-01, 40-02, 40-03, 40-04)
 - 40-01: Graph algorithms module with CLI commands (reachable, dead-code)
+- 40-02: SCC detection and call graph condensation
+- 40-03: Path enumeration between symbols
+- 40-04: Program slicing (backward/forward)
 
 **Key Changes:**
-- Created src/graph/algorithms.rs with SymbolInfo and DeadSymbol structs
+- Created src/graph/algorithms.rs with SymbolInfo, DeadSymbol, Cycle, CycleKind, CycleReport structs
 - Implemented reachable_symbols() for forward reachability (callee discovery)
 - Implemented reverse_reachable_symbols() for reverse reachability (caller discovery)
 - Implemented dead_symbols() for dead code detection from entry points
-- resolve_symbol_entity() accepts FQN as fallback (user-friendly API)
+- Implemented detect_cycles() for finding strongly connected components (mutual recursion)
+- Implemented find_cycles_containing() for finding cycles containing a specific symbol
+- Implemented condense_call_graph() for collapsing SCCs into condensation DAG
+- Implemented enumerate_paths() for finding execution paths between symbols
+- Implemented backward_slice() for backward program slicing (what affects a symbol)
+- Implemented forward_slice() for forward program slicing (what a symbol affects)
 - Created src/reachable_cmd.rs with --reverse flag for caller queries
 - Created src/dead_code_cmd.rs with --entry flag for entry point specification
-- Both commands support --output json|pretty|human
-- Added 5 integration tests in tests/algorithm_tests.rs
+- Created src/slice_cmd.rs with --direction and --verbose flags
+- All commands support --output json|pretty|human
+- Added 10 integration tests in tests/algorithm_tests.rs
 
 **Success Criteria (All Met):**
 - ✅ Algorithm functions implemented and tested
-- ✅ CLI commands for reachable and dead-code work
+- ✅ CLI commands for reachable, dead-code, and slice work
 - ✅ JSON/human output modes supported
 - ✅ FQN fallback lookup for user-friendly queries
-- ✅ All tests pass (5/5 integration tests)
+- ✅ All tests pass (10/10 integration tests)
+- ✅ Call-graph fallback documented for program slicing (full CFG requires AST integration)
