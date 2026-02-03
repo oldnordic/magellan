@@ -395,6 +395,131 @@ Plans:
 
 </details>
 
+<details>
+<summary>Phase 42: AST-Based CFG for Rust - PLANNED</summary>
+
+**Milestone Goal:** Implement AST-based Control Flow Graph extraction for Rust using tree-sitter.
+
+**Plans (4/4):**
+- [ ] 42-01 — CFG schema design (cfg_blocks table, schema v7, migration)
+- [ ] 42-02 — AST-based CFG extraction (if/else, loop/while/for, match, terminators)
+- [ ] 42-03 — Indexing pipeline integration (automatic CFG extraction during indexing)
+- [ ] 42-04 — Documentation update (ROADMAP, STATE, limitations)
+
+**Decision:** AST-based CFG extraction as interim solution pending stable_mir publication.
+
+**Delivering (when complete):**
+- src/graph/db_compat.rs with ensure_cfg_schema() and v7 migration
+- src/graph/schema.rs with CfgBlock and CfgEdge types
+- src/graph/cfg_extractor.rs with CfgExtractor for Rust AST traversal
+- src/graph/cfg_ops.rs with persistence and query operations
+- Integration into index_file() for automatic CFG extraction
+- docs/CFG_LIMITATIONS.md with honest documentation of limitations
+
+**Key Features:**
+- **Supported:** if/else, loop/while/for, match, return/break/continue, ? operator
+- **Not Supported:** macro expansion, generic monomorphization, async/await desugaring
+- **Precision:** AST-level (not full MIR precision)
+
+**Technical Notes:**
+- Uses tree-sitter AST traversal (no compiler dependency)
+- Stores basic blocks in cfg_blocks table
+- Enables: cyclomatic complexity, path enumeration (limited), dominance analysis
+- Schema version 7 for cfg_blocks table
+
+**Background:**
+- Original MIR extraction research (42-RESEARCH.md) concluded stable_mir is not yet available
+- rustc_driver is unstable (requires nightly, breaks frequently)
+- Charon violates single-binary philosophy (external binary dependency)
+- AST-based approach is viable interim solution
+
+**See:**
+- `.planning/phases/42-ast-cfg-rust/42-RESEARCH.md` — Original research findings
+- `src/graph/cfg_extractor.rs` — CFG extraction implementation
+- `docs/CFG_LIMITATIONS.md` — Detailed limitations documentation
+
+</details>
+
+<details>
+<summary>Phase 43: LLVM IR CFG for C/C++ - PLANNED (INFRASTRUCTURE ONLY)</summary>
+
+**Milestone Goal:** Add infrastructure for optional LLVM IR-based CFG extraction for C/C++.
+
+**Plans (1/1):**
+- [ ] 43-01 — Optional llvm-cfg feature flag, LlvmCfgExtractor stub, clang integration pattern
+
+**Decision:** LLVM IR-based CFG is OPTIONAL enhancement. AST-based CFG (Phase 42) works for C/C++ as fallback.
+
+**Delivering (when complete):**
+- Cargo.toml with optional inkwell dependency (llvm-sys wrappers)
+- llvm-cfg feature flag (disabled by default)
+- src/graph/cfg_extractor.rs with LlvmCfgExtractor stub (feature-gated)
+- clang invocation pattern for compiling C/C++ to LLVM IR
+- Documentation that AST CFG is sufficient for most use cases
+
+**Key Features:**
+- **Optional:** Feature-gated, not required for Magellan to work
+- **Disabled by default:** No LLVM dependency unless explicitly enabled
+- **Fallback:** AST-based CFG (Phase 42) works for C/C++
+- **Infrastructure only:** Full LLVM IR implementation deferred to future work
+
+**NOT in scope (deferred):**
+- Full LLVM IR parsing and basic block extraction
+- Integration into indexing pipeline
+- CLI flags for runtime LLVM CFG enablement
+- Performance benchmarks (AST CFG vs LLVM CFG)
+
+**See:** `.planning/phases/43-llvm-cfg-cpp/README.md` for details
+
+</details>
+
+<details>
+<summary>Phase 44: JVM Bytecode CFG (Java) - PLANNED</summary>
+
+**Milestone Goal:** Implement optional Java bytecode-based CFG extraction using ASM library.
+
+**Plans (1/1):**
+- [ ] 44-01 — Optional ASM dependency, feature flag, module stubs
+
+**Decision:** Bytecode-based CFG is OPTIONAL enhancement. AST-based CFG (Phase 42) works for Java as fallback.
+
+**Delivering (when complete):**
+- Cargo.toml with optional ASM dependency (asm = { version = "9.7", optional = true })
+- bytecode-cfg feature flag
+- src/graph/bytecode_cfg.rs with conditional compilation
+- Graceful degradation when feature disabled
+
+**Key Features:**
+- **Supported:** if/else, loops, switch, try/catch/finally, exceptions
+- **More precise than AST:** Compiler-generated control flow visible
+- **Requires javac:** Source must be compiled to .class files first
+- **Optional:** Feature-gated, not required for Magellan to work
+
+**Technical Notes:**
+- Uses ASM library (org.ow2.asm) for bytecode analysis
+- Reuses cfg_blocks/cfg_edges schema from Phase 42
+- Stores CFG with same schema as AST-based extraction
+- Feature flag: --features bytecode-cfg
+
+**Limitations:**
+- Requires compiled .class files (javac step)
+- Java-only (Kotlin/Scala not supported without adaptation)
+- Binary size increase (~100KB) when feature enabled
+- Optional enhancement - Magellan works without it
+
+**Background:**
+- Bytecode CFG is more precise than AST for Java
+- Handles exception edges, synthetic bridges, lambda desugaring
+- ASM library is stable and actively maintained
+- This is OPTIONAL - AST CFG from Phase 42 is fallback
+
+**See:**
+- `.planning/phases/44-bytecode-cfg-java/44-01-PLAN.md` — Implementation plan
+- `docs/JAVA_BYTECODE_CFG.md` — User-facing documentation
+- Phase 42 for AST-based CFG schema
+
+</details>
+
 ---
 
 <details>
@@ -434,3 +559,6 @@ Phases execute in numeric order: 27 → 28 → 29 → 30 → 31 → 32 → 33
 | 39. AST Migration Fix | v1.9 | 2/2 | Complete | 2026-01-31 |
 | 40. Graph Algorithms | TBD | 0/5 | Not started | - |
 | 41. Gitignore-Aware Indexing | TBD | 1/1 | Complete | 2026-02-03 |
+| 42. AST-Based CFG for Rust | TBD | 0/4 | Not started | - |
+| 43. LLVM IR CFG for C/C++ | TBD | 0/1 | Not started | - |
+| 44. JVM Bytecode CFG (Java) | TBD | 0/1 | Not started | - |

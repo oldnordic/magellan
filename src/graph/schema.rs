@@ -98,6 +98,57 @@ pub struct EdgeEndpoints {
     pub to_id: i64,
 }
 
+/// Control Flow Basic Block node payload stored in database
+///
+/// Represents a single basic block in a function's control flow graph.
+/// Basic blocks are sequences of statements with a single entry point
+/// and single exit point (via terminator).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CfgBlock {
+    /// Function symbol ID this block belongs to
+    pub function_id: i64,
+
+    /// Block kind (entry, conditional, loop, match, return, etc.)
+    pub kind: String,
+
+    /// Terminator kind (how control exits this block)
+    pub terminator: String,
+
+    /// Byte offset where block starts
+    pub byte_start: u64,
+
+    /// Byte offset where block ends
+    pub byte_end: u64,
+
+    /// Line where block starts (1-indexed)
+    pub start_line: u64,
+
+    /// Column where block starts (0-indexed)
+    pub start_col: u64,
+
+    /// Line where block ends (1-indexed)
+    pub end_line: u64,
+
+    /// Column where block ends (0-indexed)
+    pub end_col: u64,
+}
+
+/// Control Flow Edge payload stored in graph_edges table
+///
+/// Represents edges between basic blocks in a function's CFG.
+/// Uses edge_type = "CFG_BLOCK" for graph_edges entries.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CfgEdge {
+    /// Source block ID
+    pub from_block_id: i64,
+
+    /// Target block ID
+    pub to_block_id: i64,
+
+    /// Edge kind (unconditional, conditional_true, conditional_false, etc.)
+    pub kind: String,
+}
+
 /// Delete edges whose from_id OR to_id is in the provided set of entity IDs.
 ///
 /// Determinism: IDs must be pre-sorted by caller.
