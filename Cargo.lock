@@ -541,6 +541,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ee5b5339afb4c41626dde77b7a611bd4f2c202b897852b4bcf5d03eddc61010"
 
 [[package]]
+name = "java_asm"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3b6f8445015e68cab5dfb97993f1397e0cf22c63b7f811124333ca275ddb03f0"
+dependencies = [
+ "java_asm_macro",
+]
+
+[[package]]
+name = "java_asm_macro"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "65f2ee13fbbdfab5f00ad9dd3d3ba83230c4830c40299e009de89f739aead70c"
+dependencies = [
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
 name = "js-sys"
 version = "0.3.85"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -629,6 +648,7 @@ dependencies = [
  "hex",
  "ignore",
  "inkwell",
+ "java_asm",
  "notify",
  "notify-debouncer-mini",
  "protobuf",
