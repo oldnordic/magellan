@@ -28,6 +28,9 @@ path = "src/main.rs"
 [features]
 default = []
 native-v2 = ["sqlitegraph/native-v2"]
+# Optional LLVM IR-based CFG extraction for C/C++ (requires clang)
+# This is an OPTIONAL enhancement - AST-based CFG works without it
+llvm-cfg = ["dep:inkwell", "dep:which"]
 
 [dependencies]
 ahash = "0.8"
@@ -62,6 +65,25 @@ base64 = "0.22"
 blake3 = "1.5"
 camino = "1.2"
 rayon = "1.11"
+
+# LLVM C API bindings (optional, for llvm-cfg feature)
+[dependencies.inkwell]
+version = "0.5"
+optional = true
+# Use the same LLVM version as your clang installation
+# Common versions: 12, 13, 14, 15, 16, 17, 18
+features = ["target-all"]
+
+# which crate for finding clang in PATH (optional, for llvm-cfg)
+[dependencies.which]
+version = "6"
+optional = true
+
+# Note: llvm-cfg feature requires:
+# - LLVM/Clang installed (matching version to inkwell)
+# - libclang.so/libLLVM.so in library path
+# - This is OPTIONAL - Magellan works fine without it
+# AST-based CFG extraction (Phase 42) works for all languages
 
 [dev-dependencies]
 tempfile = "3.10"
