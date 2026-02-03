@@ -4,12 +4,14 @@
 
 mod ast_cmd;
 mod collisions_cmd;
+mod dead_code_cmd;
 mod export_cmd;
 mod migrate_cmd;
 mod files_cmd;
 mod find_cmd;
 mod get_cmd;
 mod query_cmd;
+mod reachable_cmd;
 mod refs_cmd;
 mod verify_cmd;
 mod watch_cmd;
@@ -61,6 +63,8 @@ fn print_usage() {
     eprintln!("  magellan verify --root <DIR> --db <FILE>");
     eprintln!("  magellan ast --db <FILE> --file <PATH> [--position <OFFSET>] [--output <FORMAT>]");
     eprintln!("  magellan find-ast --db <FILE> --kind <KIND> [--output <FORMAT>]");
+    eprintln!("  magellan reachable --db <FILE> --symbol <SYMBOL_ID> [--reverse] [--output <FORMAT>]");
+    eprintln!("  magellan dead-code --db <FILE> --entry <SYMBOL_ID> [--output <FORMAT>]");
     eprintln!();
     eprintln!("Commands:");
     eprintln!("  watch           Watch directory and index changes");
@@ -81,6 +85,8 @@ fn print_usage() {
     eprintln!("  verify          Verify database vs filesystem");
     eprintln!("  ast             Query AST nodes for a file");
     eprintln!("  find-ast        Find AST nodes by kind");
+    eprintln!("  reachable       Show symbols reachable from a given symbol");
+    eprintln!("  dead-code       Find dead code unreachable from an entry point");
     eprintln!();
     eprintln!("Global arguments:");
     eprintln!("  --output <FORMAT>   Output format: human (default), json (compact), or pretty (formatted)");
@@ -336,6 +342,19 @@ enum Command {
     FindAst {
         db_path: PathBuf,
         kind: String,
+        output_format: OutputFormat,
+    },
+    /// Reachability analysis (Phase 40)
+    Reachable {
+        db_path: PathBuf,
+        symbol_id: String,
+        reverse: bool,
+        output_format: OutputFormat,
+    },
+    /// Dead code detection (Phase 40)
+    DeadCode {
+        db_path: PathBuf,
+        entry_symbol_id: String,
         output_format: OutputFormat,
     },
 }
@@ -1635,6 +1654,106 @@ fn parse_args() -> Result<Command> {
                 output_format,
             })
         }
+        "reachable" => {
+            let mut db_path: Option<PathBuf> = None;
+            let mut symbol_id: Option<String> = None;
+            let mut reverse = false;
+            let mut output_format = OutputFormat::Human;
+
+            let mut i = 2;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--db" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--db requires an argument"));
+                        }
+                        db_path = Some(PathBuf::from(&args[i + 1]));
+                        i += 2;
+                    }
+                    "--symbol" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--symbol requires an argument"));
+                        }
+                        symbol_id = Some(args[i + 1].clone());
+                        i += 2;
+                    }
+                    "--reverse" => {
+                        reverse = true;
+                        i += 1;
+                    }
+                    "--output" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--output requires an argument"));
+                        }
+                        output_format = OutputFormat::from_str(&args[i + 1]).ok_or_else(|| {
+                            anyhow::anyhow!("Invalid output format: {}", args[i + 1])
+                        })?;
+                        i += 2;
+                    }
+                    _ => {
+                        return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
+                    }
+                }
+            }
+
+            let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+            let symbol_id =
+                symbol_id.ok_or_else(|| anyhow::anyhow!("--symbol is required"))?;
+
+            Ok(Command::Reachable {
+                db_path,
+                symbol_id,
+                reverse,
+                output_format,
+            })
+        }
+        "dead-code" => {
+            let mut db_path: Option<PathBuf> = None;
+            let mut entry_symbol_id: Option<String> = None;
+            let mut output_format = OutputFormat::Human;
+
+            let mut i = 2;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--db" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--db requires an argument"));
+                        }
+                        db_path = Some(PathBuf::from(&args[i + 1]));
+                        i += 2;
+                    }
+                    "--entry" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--entry requires an argument"));
+                        }
+                        entry_symbol_id = Some(args[i + 1].clone());
+                        i += 2;
+                    }
+                    "--output" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--output requires an argument"));
+                        }
+                        output_format = OutputFormat::from_str(&args[i + 1]).ok_or_else(|| {
+                            anyhow::anyhow!("Invalid output format: {}", args[i + 1])
+                        })?;
+                        i += 2;
+                    }
+                    _ => {
+                        return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
+                    }
+                }
+            }
+
+            let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+            let entry_symbol_id = entry_symbol_id
+                .ok_or_else(|| anyhow::anyhow!("--entry is required"))?;
+
+            Ok(Command::DeadCode {
+                db_path,
+                entry_symbol_id,
+                output_format,
+            })
+        }
         _ => Err(anyhow::anyhow!("Unknown command: {}", command)),
     }
 }
@@ -2231,6 +2350,33 @@ fn main() -> ExitCode {
             output_format,
         }) => {
             if let Err(e) = ast_cmd::run_find_ast_command(db_path, kind, output_format) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::Reachable {
+            db_path,
+            symbol_id,
+            reverse,
+            output_format,
+        }) => {
+            if let Err(e) =
+                reachable_cmd::run_reachable(db_path, symbol_id, reverse, output_format)
+            {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::DeadCode {
+            db_path,
+            entry_symbol_id,
+            output_format,
+        }) => {
+            if let Err(e) =
+                dead_code_cmd::run_dead_code(db_path, entry_symbol_id, output_format)
+            {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
