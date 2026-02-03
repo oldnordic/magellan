@@ -441,21 +441,23 @@ Plans:
 </details>
 
 <details>
-<summary>Phase 43: LLVM IR CFG for C/C++ - PLANNED (INFRASTRUCTURE ONLY)</summary>
+<summary>✅ Phase 43: LLVM IR CFG for C/C++ - COMPLETE 2026-02-03</summary>
 
 **Milestone Goal:** Add infrastructure for optional LLVM IR-based CFG extraction for C/C++.
 
 **Plans (1/1):**
-- [ ] 43-01 — Optional llvm-cfg feature flag, LlvmCfgExtractor stub, clang integration pattern
+- [x] 43-01 — Optional llvm-cfg feature flag, LlvmCfgExtractor stub, clang integration pattern
 
 **Decision:** LLVM IR-based CFG is OPTIONAL enhancement. AST-based CFG (Phase 42) works for C/C++ as fallback.
 
-**Delivering (when complete):**
-- Cargo.toml with optional inkwell dependency (llvm-sys wrappers)
+**Delivered:**
+- Cargo.toml with optional inkwell 0.5 dependency (llvm-sys wrappers)
 - llvm-cfg feature flag (disabled by default)
-- src/graph/cfg_extractor.rs with LlvmCfgExtractor stub (feature-gated)
-- clang invocation pattern for compiling C/C++ to LLVM IR
+- which 6.0 optional dependency for finding clang in PATH
+- src/graph/cfg_extractor.rs with LlvmCfgExtractor stub (feature-gated, 178 lines)
+- clang invocation pattern for compiling C/C++ to LLVM IR (compile_to_ir)
 - Documentation that AST CFG is sufficient for most use cases
+- README.md at .planning/phases/43-llvm-cfg-cpp/README.md
 
 **Key Features:**
 - **Optional:** Feature-gated, not required for Magellan to work
@@ -469,7 +471,10 @@ Plans:
 - CLI flags for runtime LLVM CFG enablement
 - Performance benchmarks (AST CFG vs LLVM CFG)
 
-**See:** `.planning/phases/43-llvm-cfg-cpp/README.md` for details
+**See:**
+- `.planning/phases/43-llvm-cfg-cpp/README.md` — Phase documentation
+- `.planning/phases/43-llvm-cfg-cpp/43-VERIFICATION.md` — Verification report
+- `src/graph/cfg_extractor.rs:710-887` — LlvmCfgExtractor implementation
 
 </details>
 
@@ -560,5 +565,5 @@ Phases execute in numeric order: 27 → 28 → 29 → 30 → 31 → 32 → 33
 | 40. Graph Algorithms | TBD | 0/5 | Not started | - |
 | 41. Gitignore-Aware Indexing | TBD | 1/1 | Complete | 2026-02-03 |
 | 42. AST-Based CFG for Rust | TBD | 4/4 | Complete | 2026-02-03 |
-| 43. LLVM IR CFG for C/C++ | TBD | 0/1 | Not started | - |
+| 43. LLVM IR CFG for C/C++ | TBD | 1/1 | Complete | 2026-02-03 |
 | 44. JVM Bytecode CFG (Java) | TBD | 0/1 | Not started | - |

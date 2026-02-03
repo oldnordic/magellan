@@ -31,6 +31,9 @@ native-v2 = ["sqlitegraph/native-v2"]
 # Optional LLVM IR-based CFG extraction for C/C++ (requires clang)
 # This is an OPTIONAL enhancement - AST-based CFG works without it
 llvm-cfg = ["dep:inkwell", "dep:which"]
+# Optional Java bytecode-based CFG extraction (requires Java bytecode library)
+# This is an OPTIONAL enhancement - AST-based CFG works without it
+bytecode-cfg = ["dep:java_asm"]
 
 [dependencies]
 ahash = "0.8"
@@ -80,6 +83,19 @@ version = "6"
 optional = true
 
 # Note: llvm-cfg feature requires:
+# - LLVM/Clang installed (matching version to inkwell)
+# - libclang.so/libLLVM.so in library path
+# - This is OPTIONAL - Magellan works fine without it
+# AST-based CFG extraction (Phase 42) works for all languages
+
+# Java bytecode library for CFG extraction (optional, for bytecode-cfg)
+# Note: This is a placeholder for future ASM integration.
+# The org.ow2.asm library is Java-based; Rust equivalents are being evaluated.
+# Phase 44-02 will implement the actual bytecode CFG extraction.
+# See docs/JAVA_BYTECODE_CFG.md for details.
+[dependencies.java_asm]
+version = "0.1"
+optional = true
 # - LLVM/Clang installed (matching version to inkwell)
 # - libclang.so/libLLVM.so in library path
 # - This is OPTIONAL - Magellan works fine without it
