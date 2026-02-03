@@ -867,6 +867,154 @@ magellan find-ast --db ./magellan.db --kind function_item --output json
 | `call_expression` | Function calls |
 | `return_expression` | Return statements |
 
+### 4.17 reachable
+
+```bash
+magellan reachable --db <FILE> --symbol <SYMBOL_ID> [--reverse] [--output <FORMAT>]
+```
+
+Shows symbols reachable from a starting symbol through the call graph. With `--reverse`, shows all symbols that can reach the specified symbol (callers).
+
+| Argument | Type | Default | Description |
+|----------|------|---------|-------------|
+| `--db <FILE>` | Path | - | Database path (required) |
+| `--symbol <SYMBOL_ID>` | String | - | Stable symbol ID or FQN (required) |
+| `--reverse` | Flag | false | Show callers instead of callees |
+| `--output <FORMAT>` | Format | human | Output: human, json, or pretty |
+
+**Examples:**
+
+```bash
+# Find all functions called from main
+magellan reachable --db ./magellan.db --symbol main
+
+# Find all callers of a specific function (reverse reachability)
+magellan reachable --db ./magellan.db --symbol process_request --reverse
+
+# Output as JSON
+magellan reachable --db ./magellan.db --symbol main --output json
+```
+
+### 4.18 dead-code
+
+```bash
+magellan dead-code --db <FILE> --entry <SYMBOL_ID> [--output <FORMAT>]
+```
+
+Finds code unreachable from an entry point using call graph reachability analysis.
+
+| Argument | Type | Default | Description |
+|----------|------|---------|-------------|
+| `--db <FILE>` | Path | - | Database path (required) |
+| `--entry <SYMBOL_ID>` | String | - | Entry point symbol ID (required) |
+| `--output <FORMAT>` | Format | human | Output: human, json, or pretty |
+
+**Examples:**
+
+```bash
+# Find dead code unreachable from main
+magellan dead-code --db ./magellan.db --entry main
+
+# Output as JSON
+magellan dead-code --db ./magellan.db --entry main --output json
+```
+
+### 4.19 cycles
+
+```bash
+magellan cycles --db <FILE> [--symbol <SYMBOL_ID>] [--output <FORMAT>]
+```
+
+Detects strongly connected components (SCCs) in the call graph to identify mutual recursion and other cycles.
+
+| Argument | Type | Default | Description |
+|----------|------|---------|-------------|
+| `--db <FILE>` | Path | - | Database path (required) |
+| `--symbol <SYMBOL_ID>` | String | - | Find cycles containing this symbol (optional) |
+| `--output <FORMAT>` | Format | human | Output: human, json, or pretty |
+
+**Cycle Types:**
+
+- **Mutual Recursion**: Two or more functions calling each other in a cycle
+- **Self Loop**: A function that calls itself directly
+
+**Examples:**
+
+```bash
+# Find all cycles in the call graph
+magellan cycles --db ./magellan.db
+
+# Find cycles containing a specific function
+magellan cycles --db ./magellan.db --symbol problem_function
+
+# Output as JSON
+magellan cycles --db ./magellan.db --output json
+```
+
+### 4.20 condense
+
+```bash
+magellan condense --db <FILE> [--members] [--output <FORMAT>]
+```
+
+Creates a condensation graph by collapsing strongly connected components (SCCs) into "supernodes". The resulting graph is a DAG suitable for topological analysis.
+
+| Argument | Type | Default | Description |
+|----------|------|---------|-------------|
+| `--db <FILE>` | Path | - | Database path (required) |
+| `--members` | Flag | false | Show all members of each supernode |
+| `--output <FORMAT>` | Format | human | Output: human, json, or pretty |
+
+**What is a Condensation Graph?**
+
+When you collapse SCCs (cycles) into single nodes, you get a condensation graph which is guaranteed to be a Directed Acyclic Graph (DAG). This is useful for:
+
+- Topological sorting of the call graph
+- Identifying layers of interdependence
+- Safe refactoring order determination
+
+**Examples:**
+
+```bash
+# Show condensation graph summary
+magellan condense --db ./magellan.db
+
+# Show all members of each supernode (useful for understanding cycles)
+magellan condense --db ./magellan.db --members
+
+# Output as JSON for programmatic analysis
+magellan condense --db ./magellan.db --output json
+```
+
+### 4.21 slice
+
+```bash
+magellan slice --db <FILE> --target <SYMBOL_ID> [--direction <backward|forward>] [--verbose] [--output <FORMAT>]
+```
+
+Program slicing finds all code that affects (backward slice) or is affected by (forward slice) a target symbol.
+
+| Argument | Type | Default | Description |
+|----------|------|---------|-------------|
+| `--db <FILE>` | Path | - | Database path (required) |
+| `--target <SYMBOL_ID>` | String | - | Target symbol (required) |
+| `--direction <DIR>` | String | backward | Slice direction: backward or forward |
+| `--verbose` | Flag | false | Show detailed statistics |
+| `--output <FORMAT>` | Format | human | Output: human, json, or pretty |
+
+**Examples:**
+
+```bash
+# Find all code that affects the target (backward slice)
+magellan slice --db ./magellan.db --target bug_location
+
+# Find all code affected by the target (forward slice)
+magellan slice --db ./magellan.db --target config_loader --direction forward
+
+# Show detailed statistics
+magellan slice --db ./magellan.db --target main --verbose
+```
+
 ---
 
 ## 5. Known Limitations
