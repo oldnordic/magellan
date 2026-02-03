@@ -961,6 +961,30 @@ pub enum OutputFormat {
     Pretty,
 }
 
+/// Response for program slicing command
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SliceResponse {
+    /// Target symbol being sliced
+    pub target: SymbolMatch,
+    /// Slice direction: "backward" or "forward"
+    pub direction: String,
+    /// Symbols included in the slice
+    pub included_symbols: Vec<SymbolMatch>,
+    /// Statistics about the slice
+    pub statistics: SliceStats,
+}
+
+/// Statistics for program slice
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SliceStats {
+    /// Total number of symbols in the slice
+    pub total_symbols: usize,
+    /// Number of data dependencies (0 for call-graph fallback)
+    pub data_dependencies: usize,
+    /// Number of control dependencies
+    pub control_dependencies: usize,
+}
+
 impl OutputFormat {
     /// Parse from string
     pub fn from_str(s: &str) -> Option<Self> {

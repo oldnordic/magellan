@@ -36,7 +36,8 @@ pub use graph::query::SymbolQueryResult;
 pub use graph::scan::ScanResult;
 pub use graph::test_helpers::{delete_file_facts_with_injection, FailPoint};
 pub use graph::{
-    CodeGraph, DeleteResult, ExportConfig, ExportFormat, ReconcileOutcome, ScanProgress,
+    CodeGraph, DeadSymbol, DeleteResult, ExportConfig, ExportFormat, ProgramSlice, ReconcileOutcome,
+    ScanProgress, SliceDirection, SliceResult, SliceStatistics, SymbolInfo,
     MAGELLAN_SCHEMA_VERSION,
 };
 pub use indexer::{run_indexer, run_indexer_n, run_watch_pipeline, WatchPipelineConfig};

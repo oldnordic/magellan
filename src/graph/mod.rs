@@ -72,7 +72,9 @@ use crate::generation::{ChunkStore, CodeChunk};
 use crate::references::{CallFact, ReferenceFact};
 
 // Re-export public types
-pub use algorithms::{DeadSymbol, SymbolInfo};
+pub use algorithms::{
+    DeadSymbol, ProgramSlice, SliceDirection, SliceResult, SliceStatistics, SymbolInfo,
+};
 pub use ast_extractor::{extract_ast_nodes, language_from_path, normalize_node_kind};
 pub use ast_node::{AstNode, AstNodeWithText, is_structural_kind};
 pub use cache::CacheStats;
