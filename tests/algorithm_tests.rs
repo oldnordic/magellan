@@ -803,3 +803,410 @@ fn y() {}
         result.paths.len()
     );
 }
+
+// SCC and condensation tests (Phase 40-02)
+
+#[test]
+fn test_detect_cycles_finds_mutual_recursion() {
+    // Test that detect_cycles finds mutually recursive functions
+    use magellan::CodeGraph;
+
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+    let file_path = temp_dir.path().join("test.rs");
+
+    let source = r#"
+fn main() {
+    a();
+}
+
+fn a() {
+    b();
+}
+
+fn b() {
+    a();
+}
+"#;
+
+    let mut graph = CodeGraph::open(&db_path).unwrap();
+    let path_str = file_path.to_string_lossy().to_string();
+
+    graph.index_file(&path_str, source.as_bytes())
+        .unwrap();
+    graph.index_calls(&path_str, source.as_bytes())
+        .unwrap();
+
+    // Detect cycles
+    let report = graph.detect_cycles().unwrap();
+
+    // Should find one cycle (mutual recursion between a and b)
+    assert!(
+        report.total_count > 0,
+        "Should detect cycles in mutually recursive code"
+    );
+
+    // Find the cycle with mutual recursion
+    let mutual_cycle = report.cycles.iter()
+        .find(|c| matches!(c.kind, magellan::graph::CycleKind::MutualRecursion));
+
+    assert!(
+        mutual_cycle.is_some(),
+        "Should find mutual recursion cycle"
+    );
+
+    let cycle = mutual_cycle.unwrap();
+    let cycle_fqns: Vec<_> = cycle.members.iter()
+        .filter_map(|s| s.fqn.as_deref())
+        .collect();
+
+    assert!(
+        cycle_fqns.iter().any(|f| f.contains("a")),
+        "Cycle should contain function 'a'"
+    );
+    assert!(
+        cycle_fqns.iter().any(|f| f.contains("b")),
+        "Cycle should contain function 'b'"
+    );
+}
+
+#[test]
+fn test_detect_cycles_no_cycles_in_dag() {
+    // Test that detect_cycles returns no cycles for DAG code
+    use magellan::CodeGraph;
+
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+    let file_path = temp_dir.path().join("test.rs");
+
+    let source = r#"
+fn main() {
+    a();
+}
+
+fn a() {
+    b();
+}
+
+fn b() {
+    c();
+}
+
+fn c() {}
+"#;
+
+    let mut graph = CodeGraph::open(&db_path).unwrap();
+    let path_str = file_path.to_string_lossy().to_string();
+
+    graph.index_file(&path_str, source.as_bytes())
+        .unwrap();
+    graph.index_calls(&path_str, source.as_bytes())
+        .unwrap();
+
+    // Detect cycles
+    let report = graph.detect_cycles().unwrap();
+
+    // Should find no cycles (code is a DAG)
+    assert!(
+        report.total_count == 0,
+        "Should detect no cycles in DAG code (found {})",
+        report.total_count
+    );
+    assert!(
+        report.cycles.is_empty(),
+        "Cycle list should be empty"
+    );
+}
+
+#[test]
+fn test_find_cycles_containing_specific_symbol() {
+    // Test that find_cycles_containing finds cycles with a specific symbol
+    use magellan::CodeGraph;
+
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+    let file_path = temp_dir.path().join("test.rs");
+
+    let source = r#"
+fn main() {
+    a();
+    x();
+}
+
+fn a() {
+    b();
+}
+
+fn b() {
+    a();
+}
+
+fn x() {
+    y();
+}
+
+fn y() {
+    x();
+}
+"#;
+
+    let mut graph = CodeGraph::open(&db_path).unwrap();
+    let path_str = file_path.to_string_lossy().to_string();
+
+    graph.index_file(&path_str, source.as_bytes())
+        .unwrap();
+    graph.index_calls(&path_str, source.as_bytes())
+        .unwrap();
+
+    // Get symbol_id for function 'a'
+    let symbols = graph.symbols_in_file(&path_str).unwrap();
+    let a_symbol = symbols
+        .iter()
+        .find(|s| s.name.as_deref() == Some("a"))
+        .expect("Should find 'a' symbol");
+
+    let a_symbol_id = a_symbol
+        .symbol_id
+        .as_ref()
+        .expect("Symbol should have symbol_id");
+
+    // Find cycles containing 'a'
+    let cycles = graph.find_cycles_containing(a_symbol_id).unwrap();
+
+    // Should find one cycle containing 'a'
+    assert!(
+        !cycles.is_empty(),
+        "Should find cycles containing 'a'"
+    );
+
+    // Verify the cycle contains 'a'
+    let cycle_fqns: Vec<_> = cycles[0].members.iter()
+        .filter_map(|s| s.fqn.as_deref())
+        .collect();
+
+    assert!(
+        cycle_fqns.iter().any(|f| f.contains("a")),
+        "Cycle should contain 'a'"
+    );
+    assert!(
+        cycle_fqns.iter().any(|f| f.contains("b")),
+        "Cycle should contain 'b' (a's cycle partner)"
+    );
+}
+
+#[test]
+fn test_find_cycles_containing_non_cyclic_symbol() {
+    // Test that find_cycles_containing returns empty for non-cyclic symbols
+    use magellan::CodeGraph;
+
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+    let file_path = temp_dir.path().join("test.rs");
+
+    let source = r#"
+fn main() {
+    a();
+}
+
+fn a() {
+    b();
+}
+
+fn b() {
+    c();
+}
+
+fn c() {}
+"#;
+
+    let mut graph = CodeGraph::open(&db_path).unwrap();
+    let path_str = file_path.to_string_lossy().to_string();
+
+    graph.index_file(&path_str, source.as_bytes())
+        .unwrap();
+    graph.index_calls(&path_str, source.as_bytes())
+        .unwrap();
+
+    // Get symbol_id for function 'a' (not in a cycle)
+    let symbols = graph.symbols_in_file(&path_str).unwrap();
+    let a_symbol = symbols
+        .iter()
+        .find(|s| s.name.as_deref() == Some("a"))
+        .expect("Should find 'a' symbol");
+
+    let a_symbol_id = a_symbol
+        .symbol_id
+        .as_ref()
+        .expect("Symbol should have symbol_id");
+
+    // Find cycles containing 'a'
+    let cycles = graph.find_cycles_containing(a_symbol_id).unwrap();
+
+    // Should find no cycles
+    assert!(
+        cycles.is_empty(),
+        "Should find no cycles for non-cyclic symbol 'a'"
+    );
+}
+
+#[test]
+fn test_condense_call_graph_creates_dag() {
+    // Test that condense_call_graph collapses SCCs into supernodes
+    use magellan::CodeGraph;
+
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+    let file_path = temp_dir.path().join("test.rs");
+
+    let source = r#"
+fn main() {
+    a();
+}
+
+fn a() {
+    b();
+}
+
+fn b() {
+    a();
+    c();
+}
+
+fn c() {}
+"#;
+
+    let mut graph = CodeGraph::open(&db_path).unwrap();
+    let path_str = file_path.to_string_lossy().to_string();
+
+    graph.index_file(&path_str, source.as_bytes())
+        .unwrap();
+    graph.index_calls(&path_str, source.as_bytes())
+        .unwrap();
+
+    // Condense the call graph
+    let result = graph.condense_call_graph().unwrap();
+
+    // Should have supernodes
+    assert!(
+        !result.graph.supernodes.is_empty(),
+        "Should create supernodes"
+    );
+
+    // One supernode should contain the cycle {a, b}
+    let cycle_supernode = result.graph.supernodes.iter()
+        .find(|s| {
+            let fqns: Vec<_> = s.members.iter()
+                .filter_map(|m| m.fqn.as_deref())
+                .collect();
+            fqns.iter().any(|f| f.contains("a")) && fqns.iter().any(|f| f.contains("b"))
+        });
+
+    assert!(
+        cycle_supernode.is_some(),
+        "Should have a supernode containing the cycle {a, b}"
+    );
+
+    // condensation graph should be a DAG (no cycles between supernodes)
+    // Verify we have a reasonable structure
+    assert!(
+        result.graph.supernodes.len() <= 4, // main, {a,b}, c at most
+        "Should have at most 4 supernodes"
+    );
+}
+
+#[test]
+fn test_condense_call_graph_single_symbol_supernodes() {
+    // Test that single symbols (not in cycles) get their own supernodes
+    use magellan::CodeGraph;
+
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+    let file_path = temp_dir.path().join("test.rs");
+
+    let source = r#"
+fn main() {
+    a();
+}
+
+fn a() {
+    b();
+}
+
+fn b() {}
+fn c() {}
+"#;
+
+    let mut graph = CodeGraph::open(&db_path).unwrap();
+    let path_str = file_path.to_string_lossy().to_string();
+
+    graph.index_file(&path_str, source.as_bytes())
+        .unwrap();
+    graph.index_calls(&path_str, source.as_bytes())
+        .unwrap();
+
+    // Condense the call graph
+    let result = graph.condense_call_graph().unwrap();
+
+    // Each non-cyclic function should be its own supernode
+    let single_member_supernodes: Vec<_> = result.graph.supernodes.iter()
+        .filter(|s| s.members.len() == 1)
+        .collect();
+
+    assert!(
+        single_member_supernodes.len() >= 3,
+        "Should have at least 3 single-member supernodes (main, b, c)"
+    );
+}
+
+#[test]
+fn test_condense_call_graph_symbol_to_supernode_mapping() {
+    // Test that symbol_to_supernode mapping is correct
+    use magellan::CodeGraph;
+
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+    let file_path = temp_dir.path().join("test.rs");
+
+    let source = r#"
+fn main() {
+    a();
+}
+
+fn a() {
+    b();
+}
+
+fn b() {}
+"#;
+
+    let mut graph = CodeGraph::open(&db_path).unwrap();
+    let path_str = file_path.to_string_lossy().to_string();
+
+    graph.index_file(&path_str, source.as_bytes())
+        .unwrap();
+    graph.index_calls(&path_str, source.as_bytes())
+        .unwrap();
+
+    // Get symbol IDs
+    let symbols = graph.symbols_in_file(&path_str).unwrap();
+    let main_id = symbols
+        .iter()
+        .find(|s| s.name.as_deref() == Some("main"))
+        .and_then(|s| s.stable_symbol_id.as_ref())
+        .expect("Should find main symbol_id");
+
+    // Condense the call graph
+    let result = graph.condense_call_graph().unwrap();
+
+    // main should be mapped to a supernode
+    assert!(
+        result.original_to_supernode.contains_key(main_id),
+        "main should be in symbol_to_supernode mapping"
+    );
+
+    let supernode_id = result.original_to_supernode.get(main_id).unwrap();
+    assert!(
+        result.graph.supernodes.iter().any(|s| s.id == *supernode_id),
+        "Supernode ID in mapping should exist"
+    );
+}
