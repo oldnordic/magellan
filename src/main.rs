@@ -109,6 +109,8 @@ fn print_usage() {
     eprintln!("  --debounce-ms <N>   Debounce delay in milliseconds (default: 500)");
     eprintln!("  --watch-only        Watch for changes only; skip initial directory scan baseline");
     eprintln!("  --scan-initial      Scan directory for source files on startup (default: true; disabled by --watch-only)");
+    eprintln!("  --gitignore-aware   Enable .gitignore filtering (default: true)");
+    eprintln!("  --no-gitignore      Disable .gitignore filtering (index all files)");
     eprintln!("  --validate          Enable pre-run and post-run validation checks");
     eprintln!(
         "  --validate-only     Run validation without indexing (pre + post validation, no watch)"
@@ -434,6 +436,7 @@ fn parse_args() -> Result<Command> {
             let mut debounce_ms: u64 = 500;
             let mut watch_only = false;
             let mut scan_initial = true; // Default: true (scan on startup)
+            let mut gitignore_aware = true; // Default: true (respect .gitignore)
             let mut validate = false;
             let mut validate_only = false;
             let mut output_format = OutputFormat::Human;
@@ -470,6 +473,14 @@ fn parse_args() -> Result<Command> {
                         scan_initial = true;
                         i += 1;
                     }
+                    "--gitignore-aware" => {
+                        gitignore_aware = true;
+                        i += 1;
+                    }
+                    "--no-gitignore" => {
+                        gitignore_aware = false;
+                        i += 1;
+                    }
                     "--validate" => {
                         validate = true;
                         i += 1;
@@ -498,7 +509,7 @@ fn parse_args() -> Result<Command> {
             let config = WatcherConfig {
                 root_path: root_path.clone(),
                 debounce_ms,
-                gitignore_aware: true, // TODO: add --gitignore-aware/--no-gitignore flags
+                gitignore_aware,
             };
 
             // Precedence: --watch-only forces scan_initial to false
