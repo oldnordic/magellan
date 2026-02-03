@@ -32,6 +32,7 @@
 //! - [`CodeGraph::detect_cycles()`]: Find cycles using SCC decomposition
 //! - [`CodeGraph::find_cycles_containing()`]: Find cycles containing a specific symbol
 //! - [`CodeGraph::condense_call_graph()`]: Collapse SCCs to create condensation DAG
+//! - [`CodeGraph::enumerate_paths()`]: Path enumeration between symbols
 //! - [`CodeGraph::backward_slice()`]: Backward program slice (what affects this symbol)
 //! - [`CodeGraph::forward_slice()`]: Forward program slice (what this symbol affects)
 //!
@@ -56,6 +57,7 @@
 //! \`\`\`
 
 use anyhow::Result;
+use ahash::AHashSet;
 use rusqlite::params;
 use sqlitegraph::{algo, GraphBackend, SnapshotId};
 use std::collections::{HashMap, HashSet};
@@ -204,6 +206,46 @@ pub struct SliceStatistics {
     /// Number of control dependencies
     /// For call-graph fallback, this equals total_symbols (callers/callees)
     pub control_dependencies: usize,
+}
+
+/// Execution path in the call graph
+///
+/// Represents a single path through the call graph from a starting symbol
+/// to an ending symbol, with metadata about the path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExecutionPath {
+    /// Symbols along the path in order from start to end
+    pub symbols: Vec<SymbolInfo>,
+    /// Number of symbols in the path
+    pub length: usize,
+}
+
+/// Path enumeration result
+///
+/// Contains all discovered execution paths and statistics about the enumeration.
+#[derive(Debug, Clone)]
+pub struct PathEnumerationResult {
+    /// All discovered paths
+    pub paths: Vec<ExecutionPath>,
+    /// Total number of paths enumerated
+    pub total_enumerated: usize,
+    /// Whether enumeration was cut off due to bounds
+    pub bounded_hit: bool,
+    /// Statistics about the discovered paths
+    pub statistics: PathStatistics,
+}
+
+/// Statistics for path enumeration
+#[derive(Debug, Clone)]
+pub struct PathStatistics {
+    /// Average path length
+    pub avg_length: f64,
+    /// Minimum path length
+    pub min_length: usize,
+    /// Maximum path length
+    pub max_length: usize,
+    /// Number of unique symbols across all paths
+    pub unique_symbols: usize,
 }
 
 impl CodeGraph {
@@ -933,6 +975,153 @@ impl CodeGraph {
                 total_symbols: symbol_count,
                 data_dependencies: 0, // Not available in call-graph fallback
                 control_dependencies: symbol_count,
+            },
+        })
+    }
+
+    /// Enumerate execution paths from a starting symbol
+    ///
+    /// Finds all execution paths from `start_symbol_id` to `end_symbol_id` (if provided)
+    /// or all paths starting from `start_symbol_id` (if end_symbol_id is None).
+    ///
+    /// Path enumeration uses bounded DFS to prevent infinite traversal in cyclic graphs:
+    /// - `max_depth`: Maximum path length (number of edges)
+    /// - `max_paths`: Maximum number of paths to return
+    /// - `revisit_cap`: Maximum number of times a single node can be revisited (prevents infinite loops)
+    ///
+    /// # Arguments
+    ///
+    /// * `start_symbol_id` - Starting symbol ID or FQN
+    /// * `end_symbol_id` - Optional ending symbol ID or FQN (if None, enumerates all paths from start)
+    /// * `max_depth` - Maximum path depth (default: 100)
+    /// * `max_paths` - Maximum number of paths to return (default: 1000)
+    ///
+    /// # Returns
+    ///
+    /// Returns a [`PathEnumerationResult`] containing:
+    /// - All discovered paths
+    /// - Whether enumeration hit bounds
+    /// - Statistics about path lengths and unique symbols
+    ///
+    /// # Example
+    ///
+    /// \`\`\`no_run
+    /// # use magellan::CodeGraph;
+    /// # fn main() -> anyhow::Result<()> {
+    /// let mut graph = CodeGraph::open("codegraph.db")?;
+    ///
+    /// // Find all paths from main to any leaf function
+    /// let result = graph.enumerate_paths("main", None, 50, 100)?;
+    ///
+    /// println!("Found {} paths", result.total_enumerated);
+    /// println!("Average length: {:.2}", result.statistics.avg_length);
+    /// for (i, path) in result.paths.iter().enumerate() {
+    ///     println!("Path {}: {:?}", path.symbols.iter().map(|s| s.fqn.as_deref().unwrap_or("?")).collect::<Vec<_>>());
+    /// }
+    /// # Ok(())
+    /// # }
+    /// \`\`\`
+    pub fn enumerate_paths(
+        &self,
+        start_symbol_id: &str,
+        end_symbol_id: Option<&str>,
+        max_depth: usize,
+        max_paths: usize,
+    ) -> Result<PathEnumerationResult> {
+        let start_entity_id = self.resolve_symbol_entity(start_symbol_id)?;
+        let backend = &self.calls.backend;
+        let graph = backend.graph();
+
+        // Build exit_nodes set for target symbol
+        let exit_nodes: Option<AHashSet<i64>> = if let Some(end_id) = end_symbol_id {
+            let end_entity_id = self.resolve_symbol_entity(end_id)?;
+            let mut set = AHashSet::new();
+            set.insert(end_entity_id);
+            Some(set)
+        } else {
+            None
+        };
+
+        // Use sqlitegraph's path enumeration with bounds
+        let config = algo::PathEnumerationConfig {
+            max_depth,
+            max_paths,
+            revisit_cap: 100, // Prevent infinite loops in cyclic graphs
+            exit_nodes,
+            error_nodes: None,
+        };
+
+        let sqlite_result = algo::enumerate_paths(graph, start_entity_id, &config)?;
+
+        // Convert sqlitegraph's path result to our format
+        let mut paths = Vec::new();
+        let mut all_symbols = HashSet::new();
+        let mut min_length = usize::MAX;
+        let mut max_length = 0;
+        let mut total_length = 0;
+
+        for path in sqlite_result.paths {
+            let mut symbols = Vec::new();
+
+            for entity_id in &path.nodes {
+                if let Ok(info) = self.symbol_by_entity_id(*entity_id) {
+                    all_symbols.insert(info.symbol_id.clone().unwrap_or_default());
+                    symbols.push(info);
+                }
+            }
+
+            let length = symbols.len();
+            if length > 0 {
+                min_length = min_length.min(length);
+                max_length = max_length.max(length);
+                total_length += length;
+
+                paths.push(ExecutionPath {
+                    symbols,
+                    length,
+                });
+            }
+        }
+
+        // Sort paths: first by starting symbol FQN, then by length
+        paths.sort_by(|a, b| {
+            match (
+                a.symbols.first().and_then(|s| s.fqn.as_ref()),
+                b.symbols.first().and_then(|s| s.fqn.as_ref()),
+            ) {
+                (Some(a_fqn), Some(b_fqn)) => {
+                    a_fqn
+                        .cmp(b_fqn)
+                        .then_with(|| a.length.cmp(&b.length))
+                }
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => a.length.cmp(&b.length),
+            }
+        });
+
+        let avg_length = if paths.is_empty() {
+            0.0
+        } else {
+            total_length as f64 / paths.len() as f64
+        };
+
+        // Determine if we hit bounds
+        let bounded_hit = sqlite_result.paths_pruned_by_bounds > 0;
+
+        Ok(PathEnumerationResult {
+            paths,
+            total_enumerated: sqlite_result.total_paths_found,
+            bounded_hit,
+            statistics: PathStatistics {
+                avg_length,
+                min_length: if min_length == usize::MAX {
+                    0
+                } else {
+                    min_length
+                },
+                max_length,
+                unique_symbols: all_symbols.len(),
             },
         })
     }
