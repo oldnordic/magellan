@@ -158,11 +158,43 @@ impl FileFilter {
 
         // 3. Gitignore-style rules
         if let Some(ref gitignore) = self.gitignore {
-            // The ignore crate needs to check if the path is ignored
-            // It checks both the file itself and parent directories
-            let is_ignored = gitignore.matched(path, path.is_dir());
+            // The ignore crate needs paths relative to the root for matching
+            // Try to make the path relative, fall back to absolute if it fails
+            let check_path = if let Ok(rel) = path.strip_prefix(&self.root) {
+                rel
+            } else {
+                // Try with canonicalized root
+                if let Ok(canonical_root) = std::fs::canonicalize(&self.root) {
+                    if let Ok(rel) = path.strip_prefix(&canonical_root) {
+                        rel
+                    } else {
+                        path
+                    }
+                } else {
+                    path
+                }
+            };
+
+            // First check if the file itself is ignored
+            let is_ignored = gitignore.matched(check_path, path.is_dir());
             if is_ignored.is_ignore() {
                 return Some(SkipReason::IgnoredByGitignore);
+            }
+
+            // Also check if any parent directory is ignored
+            // This handles patterns like "build/" which should match files under build/
+            // We need to check all ancestor paths to catch directory ignores
+            let mut current = check_path.parent();
+            while let Some(ancestor) = current {
+                let ancestor_ignored = gitignore.matched(ancestor, true);
+                if ancestor_ignored.is_ignore() {
+                    return Some(SkipReason::IgnoredByGitignore);
+                }
+                current = ancestor.parent();
+                // Break if we've reached the root (empty path)
+                if ancestor.as_os_str().is_empty() {
+                    break;
+                }
             }
         }
 
@@ -388,6 +420,13 @@ mod tests {
             filter.should_skip(&root.join("included.rs")),
             None,
             "included.rs should not be ignored"
+        );
+
+        // build/output.rs should be skipped by build/ pattern
+        assert_eq!(
+            filter.should_skip(&root.join("build/output.rs")),
+            Some(SkipReason::IgnoredByGitignore),
+            "build/output.rs should be ignored by build/ pattern"
         );
     }
 
