@@ -10,12 +10,12 @@ See: .planning/PROJECT.md (updated 2026-01-23)
 ## Current Position
 
 Phase: 28-test-coverage-docs (Test Coverage & Documentation)
-Plan: 28-02 of 8 (Complete)
-Status: In progress - CSV export test coverage for Reference-only records
-Last activity: 2026-02-04 — Completed 28-02 (Reference-only CSV Export Test)
+Plan: 28-01 of 8 (Complete)
+Status: In progress - CSV export test coverage for Symbol-only records
+Last activity: 2026-02-04 — Completed 28-01 (Symbol-only CSV Export Test)
 
-Progress: 25% (2/8 plans complete)
-Overall: 46% (169/366 plans complete)
+Progress: 12.5% (1/8 plans complete)
+Overall: 46% (168/366 plans complete)
 
 ## Performance Metrics
 
@@ -218,7 +218,7 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-04
-Stopped at: Completed 28-02 (Reference-only CSV export test)
+Stopped at: Completed 28-01 (Symbol-only CSV export test)
 Resume file: None
 Blockers: None
 
