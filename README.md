@@ -1,5 +1,7 @@
 # Magellan
 
+**Version:** 2.1.0
+
 A deterministic codebase mapping tool. Watches source files, extracts AST-level facts, and builds a searchable graph database of symbols and references.
 
 ## What Magellan Does
@@ -51,6 +53,29 @@ cargo build --release
 
 - **Help**: Use `--help` or `-h` with any command to see usage information
 - **Native-v2 Backend**: Build with `--features native-v2` for improved performance
+- **LLVM IR CFG (optional)**: Build with `--features llvm-cfg` for C/C++ (requires Clang)
+- **Bytecode CFG (optional)**: Build with `--features bytecode-cfg` for Java (requires JVM bytecode)
+
+**Optional Feature Flags (v2.1.0):**
+
+Magellan includes optional CFG extraction enhancements:
+
+| Feature | Description | Requires |
+|---------|-------------|----------|
+| `llvm-cfg` | LLVM IR-based CFG for C/C++ | Clang installation |
+| `bytecode-cfg` | JVM bytecode CFG for Java | javac compilation |
+
+These are **optional enhancements** — Magellan works fine without them. AST-based CFG (included by default) works for all languages.
+
+```bash
+# Build with LLVM IR CFG support (requires Clang)
+cargo build --release --features llvm-cfg
+
+# Build with bytecode CFG support (Java)
+cargo build --release --features bytecode-cfg
+```
+
+**Note:** The optional features add infrastructure only. Full LLVM IR and bytecode CFG implementation is planned for future releases. See `docs/CFG_LIMITATIONS.md` for details.
 
 ### Quick Start
 
@@ -114,7 +139,7 @@ magellan migrate --db /path/to/magellan.db
 ### watch
 
 ```bash
-magellan watch --root <DIR> --db <FILE> [--debounce-ms <N>] [--scan-initial]
+magellan watch --root <DIR> --db <FILE> [--debounce-ms <N>] [--scan-initial] [--gitignore-aware] [--no-gitignore]
 ```
 
 Watch a directory for source file changes and index them into the database.
@@ -125,6 +150,20 @@ Watch a directory for source file changes and index them into the database.
 | `--db <FILE>` | Path to sqlitegraph database (required) |
 | `--debounce-ms <N>` | Debounce delay in milliseconds (default: 500) |
 | `--scan-initial` | Scan directory for source files on startup |
+| `--gitignore-aware` | Enable .gitignore filtering (default: enabled) |
+| `--no-gitignore` | Disable .gitignore filtering (index all files) |
+
+**Gitignore Support (v2.1.0):**
+
+By default, Magellan respects `.gitignore` files when watching directories. This means:
+- Files and directories matching `.gitignore` patterns are not indexed
+- Common build artifacts are automatically skipped (`target/`, `node_modules/`, `__pycache__/`, etc.)
+- You can run `magellan watch --root .` without manually excluding dependencies
+
+To disable gitignore filtering and index all files:
+```bash
+magellan watch --root . --db ./magellan.db --no-gitignore
+```
 
 ### status
 
@@ -307,6 +346,20 @@ magellan export --db ./magellan.db --format dot | dot -Tpng -o graph.png
 
 # Include collision information in JSON
 magellan export --db ./magellan.db --include-collisions > codegraph.json
+```
+
+**CSV Export Notes (v2.1.0):**
+- CSV format uses a `record_type` column to distinguish Symbol, Reference, and Call records
+- All rows have consistent column counts (empty strings for non-applicable fields)
+- Version header: `# Magellan Export Version: 2.0.0`
+- Collision groups are not included in CSV export (use JSON with `--include-collisions`)
+
+```bash
+# Export only symbols (no references, no calls)
+magellan export --db ./magellan.db --format csv --no-references --no-calls > symbols.csv
+
+# Export only calls
+magellan export --db ./magellan.db --format csv --no-symbols --no-references > calls.csv
 ```
 
 ### collisions

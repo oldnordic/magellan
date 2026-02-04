@@ -1,6 +1,6 @@
 # Magellan Operator Manual
 
-**Version 2.0.0** | *Last Updated: 2026-02-03*
+**Version 2.1.0** | *Last Updated: 2026-02-04*
 
 Comprehensive instructions for operating Magellan.
 
@@ -48,6 +48,36 @@ cargo build --release
 sudo cp target/release/magellan /usr/local/bin/
 sudo chmod +x /usr/local/bin/magellan
 ```
+
+### 1.3 Optional Feature Flags (v2.1.0)
+
+Magellan includes optional CFG extraction enhancements:
+
+| Feature | Description | Requires | Status |
+|---------|-------------|----------|--------|
+| `llvm-cfg` | LLVM IR-based CFG for C/C++ | Clang 12-18 | Infrastructure |
+| `bytecode-cfg` | JVM bytecode CFG for Java | javac | Infrastructure |
+
+**Note:** These are **optional enhancements** — Magellan works fine without them. AST-based CFG (included by default) works for all supported languages.
+
+```bash
+# Build with LLVM IR CFG support (requires Clang installation)
+cargo build --release --features llvm-cfg
+
+# Build with bytecode CFG support (Java)
+cargo build --release --features bytecode-cfg
+
+# Build with both optional features
+cargo build --release --features llvm-cfg,bytecode-cfg
+```
+
+**Current Status:** The optional features add infrastructure only. Full LLVM IR and bytecode CFG implementation is planned for future releases. See `docs/CFG_LIMITATIONS.md` for details on AST-based CFG capabilities and limitations.
+
+**Why AST-based CFG?**
+- Works on stable toolchains (no nightly compiler required)
+- No external binary dependencies (single binary distribution)
+- Multi-language support via tree-sitter grammars
+- Sufficient for most use cases (cyclomatic complexity, path enumeration, dominance analysis)
 
 ---
 
@@ -219,7 +249,7 @@ Magellan uses tree-sitter parsers for all supported languages. Tree-sitter's pos
 ### 4.1 watch
 
 ```bash
-magellan watch --root <DIR> --db <FILE> [--debounce-ms <N>] [--scan-initial]
+magellan watch --root <DIR> --db <FILE> [--debounce-ms <N>] [--scan-initial] [--gitignore-aware] [--no-gitignore]
 ```
 
 | Argument | Type | Default | Description |
@@ -228,6 +258,34 @@ magellan watch --root <DIR> --db <FILE> [--debounce-ms <N>] [--scan-initial]
 | `--db <FILE>` | Path | - | Database path (required) |
 | `--debounce-ms <N>` | Integer | 500 | Debounce delay in milliseconds |
 | `--scan-initial` | Flag | - | Scan directory on startup |
+| `--gitignore-aware` | Flag | true | Enable .gitignore filtering (v2.1.0) |
+| `--no-gitignore` | Flag | - | Disable .gitignore filtering (v2.1.0) |
+
+#### Gitignore Support (v2.1.0)
+
+Magellan respects `.gitignore` files by default when watching directories. This prevents indexing of:
+- Build artifacts (`target/`, `node_modules/`, `__pycache__/`, etc.)
+- Dependencies listed in `.gitignore`
+- Generated code and temporary files
+
+**Default behavior (gitignore-aware):**
+```bash
+# Automatically respects .gitignore patterns
+magellan watch --root . --db ./magellan.db
+```
+
+**Disable gitignore filtering:**
+```bash
+# Index all files, ignore .gitignore
+magellan watch --root . --db ./magellan.db --no-gitignore
+```
+
+**Internal ignore patterns** (always applied, regardless of gitignore setting):
+- `target/` (Rust build artifacts)
+- `node_modules/` (Node.js dependencies)
+- `__pycache__/` (Python cache)
+- `.git/` (Git metadata)
+- `.magellan.db` (Magellan database itself)
 
 ### 4.2 status
 
