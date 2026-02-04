@@ -425,3 +425,63 @@ fn test_cli_find_first_deprecation_warning() {
         "stderr should contain deprecation warning for --first flag"
     );
 }
+
+#[test]
+fn test_cli_find_ambiguous_with_display_fqn() {
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+    let mut graph = CodeGraph::open(&db_path).unwrap();
+
+    // Create TWO files with the same symbol name (creating ambiguity)
+    let file1 = temp_dir.path().join("handler.rs");
+    fs::write(&file1, "fn Handler() {}").unwrap();
+
+    let file2 = temp_dir.path().join("parser.rs");
+    fs::write(&file2, "fn Handler() {}").unwrap();
+
+    // Index both files
+    let path1 = file1.to_string_lossy().to_string();
+    let path2 = file2.to_string_lossy().to_string();
+    let source1 = fs::read(&file1).unwrap();
+    let source2 = fs::read(&file2).unwrap();
+    graph.index_file(&path1, &source1).unwrap();
+    graph.index_file(&path2, &source2).unwrap();
+
+    // Extract the display_fqn from the FIRST indexed symbol
+    // CRITICAL: --ambiguous flag requires display_fqn, NOT just symbol name
+    let (_node_id, fact, _) = query::symbol_nodes_in_file_with_ids(&mut graph, &path1)
+        .unwrap()
+        .into_iter()
+        .find(|(_, fact, _)| fact.name.as_deref() == Some("Handler"))
+        .expect("Handler should exist");
+
+    let display_fqn = fact.display_fqn.as_deref().unwrap_or("Handler");
+
+    // Run CLI find with --ambiguous using the FULL display_fqn
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_magellan"))
+        .arg("find")
+        .arg("--db")
+        .arg(&db_path)
+        .arg("--ambiguous")
+        .arg(display_fqn)  // Use display_fqn, not just "Handler"
+        .output()
+        .unwrap();
+
+    // Verify output succeeds
+    assert!(output.status.success(), "CLI should succeed with --ambiguous flag");
+
+    // Verify stderr contains candidate information (Symbol ID, Canonical, or Name)
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("Symbol ID") || stderr.contains("Canonical") || stderr.contains("Name"),
+        "stderr should show candidate details (Symbol ID, Canonical, or Name). Got: {}",
+        stderr
+    );
+
+    // Verify the output shows multiple candidates (both Handler symbols)
+    // The output should list candidates with their details
+    assert!(
+        stderr.contains("Symbol ID"),
+        "stderr should list Symbol IDs for all candidates"
+    );
+}

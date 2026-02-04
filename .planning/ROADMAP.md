@@ -479,29 +479,30 @@ Plans:
 </details>
 
 <details>
-<summary>Phase 44: JVM Bytecode CFG (Java) - PLANNED</summary>
+<summary>✅ Phase 44: JVM Bytecode CFG (Java) - COMPLETE 2026-02-04</summary>
 
 **Milestone Goal:** Implement optional Java bytecode-based CFG extraction using ASM library.
 
 **Plans (1/1):**
-- [ ] 44-01 — Optional ASM dependency, feature flag, module stubs
+- [x] 44-01 — Optional ASM dependency, feature flag, module stubs
 
 **Decision:** Bytecode-based CFG is OPTIONAL enhancement. AST-based CFG (Phase 42) works for Java as fallback.
 
-**Delivering (when complete):**
-- Cargo.toml with optional ASM dependency (asm = { version = "9.7", optional = true })
-- bytecode-cfg feature flag
-- src/graph/bytecode_cfg.rs with conditional compilation
-- Graceful degradation when feature disabled
+**Delivered:**
+- Cargo.toml with optional java_asm dependency (java_asm = { version = "0.1", optional = true })
+- bytecode-cfg feature flag (disabled by default)
+- src/graph/bytecode_cfg.rs with conditional compilation (94 lines)
+- Graceful degradation when feature disabled (stub returns empty Vec)
+- docs/JAVA_BYTECODE_CFG.md with comprehensive documentation
 
 **Key Features:**
-- **Supported:** if/else, loops, switch, try/catch/finally, exceptions
-- **More precise than AST:** Compiler-generated control flow visible
-- **Requires javac:** Source must be compiled to .class files first
 - **Optional:** Feature-gated, not required for Magellan to work
+- **Disabled by default:** No ASM dependency unless explicitly enabled
+- **Graceful degradation:** Stub implementation returns empty Vec when feature disabled
+- **Infrastructure only:** Full bytecode CFG implementation deferred to future work
 
 **Technical Notes:**
-- Uses ASM library (org.ow2.asm) for bytecode analysis
+- Uses java_asm crate (placeholder for org.ow2.asm Rust bindings)
 - Reuses cfg_blocks/cfg_edges schema from Phase 42
 - Stores CFG with same schema as AST-based extraction
 - Feature flag: --features bytecode-cfg
@@ -509,17 +510,11 @@ Plans:
 **Limitations:**
 - Requires compiled .class files (javac step)
 - Java-only (Kotlin/Scala not supported without adaptation)
-- Binary size increase (~100KB) when feature enabled
 - Optional enhancement - Magellan works without it
-
-**Background:**
-- Bytecode CFG is more precise than AST for Java
-- Handles exception edges, synthetic bridges, lambda desugaring
-- ASM library is stable and actively maintained
-- This is OPTIONAL - AST CFG from Phase 42 is fallback
 
 **See:**
 - `.planning/phases/44-bytecode-cfg-java/44-01-PLAN.md` — Implementation plan
+- `.planning/phases/44-bytecode-cfg-java/44-VERIFICATION.md` — Verification report
 - `docs/JAVA_BYTECODE_CFG.md` — User-facing documentation
 - Phase 42 for AST-based CFG schema
 
@@ -566,4 +561,4 @@ Phases execute in numeric order: 27 → 28 → 29 → 30 → 31 → 32 → 33
 | 41. Gitignore-Aware Indexing | TBD | 1/1 | Complete | 2026-02-03 |
 | 42. AST-Based CFG for Rust | TBD | 4/4 | Complete | 2026-02-03 |
 | 43. LLVM IR CFG for C/C++ | TBD | 1/1 | Complete | 2026-02-03 |
-| 44. JVM Bytecode CFG (Java) | TBD | 0/1 | Not started | - |
+| 44. JVM Bytecode CFG (Java) | TBD | 1/1 | Complete | 2026-02-04 |
