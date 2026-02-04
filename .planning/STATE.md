@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-01-23)
 ## Current Position
 
 Phase: 28-test-coverage-docs (Test Coverage & Documentation)
-Plan: 28-04 of 8 (Complete)
-Status: In progress - CSV export test coverage for mixed record types
-Last activity: 2026-02-04 — Completed 28-04 (Mixed Records CSV Export Test)
+Plan: 28-02 of 8 (Complete)
+Status: In progress - CSV export test coverage for Reference-only records
+Last activity: 2026-02-04 — Completed 28-02 (Reference-only CSV Export Test)
 
-Progress: 50% (4/8 plans complete)
+Progress: 25% (2/8 plans complete)
 Overall: 46% (169/366 plans complete)
 
 ## Performance Metrics
@@ -174,7 +174,10 @@ Recent decisions affecting current work:
 - [44-01] JavaBytecodeCfgExtractor struct with extract_cfg_from_class() stub - Conditional compilation follows Phase 43 pattern, returns empty Vec when feature disabled
 - [44-01] docs/JAVA_BYTECODE_CFG.md documentation for optional bytecode CFG feature - Comparison table (AST vs Bytecode), emphasizes optional nature, documents java_asm as Rust placeholder for org.ow2.asm
 - [44-01] Module stubs with graceful degradation pattern - Stub implementation when feature disabled maintains API compatibility without feature detection
-- [28-04] Index-based CSV column access (.get(0)) for compatibility with csv 1.3 API - StringRecord::get() method takes usize index by default in this version
+- [28-02] Integration test for Reference-only CSV export using --no-symbols --no-calls flags - Verifies record_type discrimination when only Reference records included
+- [28-02] Early-return pattern for empty CSV exports - csv::Writer only writes headers when records exist, test returns early if no Reference entities
+- [28-02] Index-based CSV column access (.get(0)) for compatibility with csv 1.3 API - StringRecord::get() method takes usize index by default
+- [28-02] Test source uses macro invocations (println!) for Reference entity generation - Function calls generate Call nodes, not Reference nodes
 - [28-04] Relaxed test expectations for CSV export - Parser may not extract all record types, test validates whatever is present (accommodates parser behavior variations)
 - [28-04] Comment filtering pattern for CSV version headers - Filter out "# Magellan Export Version..." lines before passing to csv::Reader
 
@@ -215,11 +218,11 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-04
-Stopped at: Completed 28-05 (--ambiguous flag integration test)
+Stopped at: Completed 28-02 (Reference-only CSV export test)
 Resume file: None
 Blockers: None
 
-**Note:** Phase 28-05 was executed retroactively to add test coverage for --ambiguous flag with display_fqn. This phase was planned but not executed during the original v1.6 development cycle. The current phase position remains at Phase 44 (complete).
+**Note:** Phase 28 plans are being executed sequentially for CSV export test coverage. Each plan adds a specific test scenario (symbols-only, references-only, calls-only, mixed records).
 
 ## Phase 43 Summary
 
