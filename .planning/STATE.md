@@ -98,6 +98,7 @@ Recent decisions affecting current work:
 - [34-03] Error collection pattern: collect errors in Vec<(String, String)>, continue processing
 - [34-03] Detect backfill need: empty metrics tables + existing symbols = upgrade scenario
 - [34-03] Backfill uses separate rusqlite connections (SqliteGraphBackend doesn't expose conn())
+- [28-05] Integration test clarifies --ambiguous flag requires display_fqn (not just symbol name)
 - [34-06] Documented chunk storage commands (chunks, chunk-by-span, chunk-by-symbol) in MANUAL.md
 - [34-06] Added conceptual "Chunk Storage" section explaining SHA-256 deduplication and use cases
 - [34-06] Updated CLI help text with chunk commands and argument sections
@@ -214,11 +215,20 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-04
-Stopped at: Completed 28-04 (Mixed Records CSV Export Test)
+Stopped at: Completed 28-05 (--ambiguous flag integration test)
 Resume file: None
 Blockers: None
 
-**Note:** Currently executing Phase 28 (Test Coverage & Documentation) retroactively. This phase was planned but not fully executed during the original v1.6 development cycle. Plans 28-01 through 28-04 have been completed.
+**Note:** Phase 28-05 was executed retroactively to add test coverage for --ambiguous flag with display_fqn. This phase was planned but not executed during the original v1.6 development cycle. The current phase position remains at Phase 44 (complete).
+
+## Phase 43 Summary
+
+**Milestone Goal:** LLVM IR-based CFG for C/C++ - Add optional infrastructure for LLVM IR-based CFG extraction as an enhancement over AST-based CFG.
+
+**Plans Completed:** 1 plan (43-01)
+- 43-01: Optional llvm-cfg feature flag with LlvmCfgExtractor stub
+
+**Key Changes:**
 - Added llvm-cfg feature flag to Cargo.toml (disabled by default)
 - Added inkwell 0.5 dependency (optional) for LLVM C API bindings
 - Added which 6.0 dependency (optional) for finding clang in PATH
