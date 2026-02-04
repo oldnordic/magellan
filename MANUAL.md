@@ -300,7 +300,7 @@ Finds a symbol by name or previews all symbols that match a glob expression. Out
 | `--db <FILE>` | Database path (required) |
 | `--name <NAME>` | Symbol name to find |
 | `--symbol-id <ID>` | Stable SymbolId for precise lookup (v1.5) |
-| `--ambiguous <NAME>` | Show all candidates for an ambiguous name (v1.5) |
+| `--ambiguous <NAME>` | Show all candidates for an ambiguous display_fqn (v1.5) - requires full display_fqn, not just symbol name |
 | `--path <PATH>` | Limit to specific file (optional) |
 | `--list-glob <PATTERN>` | Emit every symbol matching the glob (mutually exclusive with `--name`) |
 | `--first` | Use first match when ambiguous (deprecated; use --symbol-id) |
@@ -311,12 +311,42 @@ Found "main":
   File:     /path/to/src/main.rs
   Kind:     Function
   Location: Line 229, Column 0
+```
 
-$ magellan find --db ./magellan.db --ambiguous main
-Ambiguous name "main" has 3 candidates:
-  [1] a1b2c3d4e5f67890123456789012ab - src/bin/main.rs::Function main
-  [2] b2c3d4e5f678901234567890123cd - src/lib.rs::Function main
-  [3] c3d4e5f6789012345678901234de - tests/integration_test.rs::Function main
+### Ambiguous Symbol Resolution
+
+The `--ambiguous` flag shows all candidates when a `display_fqn` matches multiple symbols.
+
+**Important:** `--ambiguous` requires the full `display_fqn`, not just the symbol name.
+
+**WRONG - This will not work:**
+```bash
+magellan find --db ./magellan.db --ambiguous Handler
+# Error: No symbols found (simple name doesn't match display_fqn)
+```
+
+**RIGHT - Use the full display_fqn:**
+```bash
+magellan find --db ./magellan.db --ambiguous "my_crate::Handler"
+Ambiguous name "my_crate::Handler" has 2 candidates:
+  [1] a1b2c3d4e5f67890123456789012ab - src/handler.rs::Function Handler
+  [2] b2c3d4e5f678901234567890123cd - src/parser.rs::Function Handler
+```
+
+**Finding display_fqn:**
+
+To get the `display_fqn` for a symbol, use the `query` command:
+
+```bash
+magellan query --db ./magellan.db --file src/lib.rs
+```
+
+The output shows the `display_fqn` for each symbol:
+
+```
+/path/to/src/lib.rs:
+  Line   13: Function     Handler  [display_fqn: my_crate::Handler]
+  Line   42: Function     process  [display_fqn: my_crate::process]
 ```
 
 **Note:** For bulk discovery of all collision groups in the database, use `magellan collisions` (see section 3.13.1).
@@ -470,6 +500,9 @@ Call,/path/to/file.rs,,main,helper,...
 ```
 
 **Note:** Non-applicable fields are empty (e.g., Call records don't have `symbol_id` or `kind`).
+
+**Limitations:**
+- **Collision groups:** CSV export does not include collision group data. Use JSON export with `--include-collisions` for collision information.
 
 ### 3.9 label
 
