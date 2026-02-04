@@ -14,11 +14,15 @@ exclude = [
     "AGENTS.md",
     "CLAUDE.md",
     "codemcp",
-    "docs/DEVELOPMENT_WORKFLOW.md",
-    "docs/SQLITEGRAPH_ARCHITECTURE.md",
-    "docs/codemcp_manual.md",
-    "docs/codemcp-rename-bug.md",
     ".planning/",
+    ".github/",
+    "get-shit-done/",
+    "commands/",
+    "scripts/",
+    "docs/*",
+    "CONTEXT_*.md",
+    "MAGELLAN_CONTEXT.md",
+    "opencode.json",
 ]
 
 [[bin]]
