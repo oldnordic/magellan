@@ -3,6 +3,37 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-02-04
+
+### Added
+- **Gitignore-Aware Indexing**: Magellan now respects `.gitignore` files when watching directories
+  - `--gitignore-aware` flag (default: enabled) - filter out ignored files during indexing
+  - `--no-gitignore` flag - disable gitignore filtering to index all files
+  - Internal ignore patterns for common build artifacts (target/, node_modules/, __pycache__/)
+  - Run `magellan watch --root .` without manually excluding dependencies
+- **Optional CFG Feature Flags**: Infrastructure for IR-based CFG extraction (optional enhancements)
+  - `llvm-cfg` feature flag for C/C++ LLVM IR CFG (requires Clang)
+  - `bytecode-cfg` feature flag for Java bytecode CFG (requires JVM bytecode)
+  - Both are optional - AST-based CFG works fine without them
+- **CSV Export Documentation**: Comprehensive CSV format documentation with limitations
+  - record_type column for Symbol/Reference/Call discrimination
+  - Version header comment format
+  - Collision groups not included in CSV export (use JSON)
+
+### Changed
+- **Documentation Updates**: Comprehensive documentation refresh
+  - README.md: Added gitignore support, feature flags, CSV export notes
+  - MANUAL.md: Added optional features section, gitignore documentation
+  - All limitations honestly documented (AST CFG limits, optional feature status)
+- **Repository Cleanup**: Removed internal development files from tracking
+  - .planning/, get-shit-done/, commands/, scripts/ now gitignored
+  - Internal docs moved to local-only storage
+  - Published crate is clean and minimal
+
+### Fixed
+- CSV export format consistency across all record types
+- Documentation clarifications for --ambiguous flag and collisions command
+
 ## [2.0.0] - 2026-02-03
 
 ### Added
