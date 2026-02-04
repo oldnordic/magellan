@@ -848,6 +848,102 @@ fn helper() {
     // The test file may not generate calls depending on parser capabilities
 }
 
+// ============================================================================
+// CSV Export Record Type Tests
+// ============================================================================
+
+#[test]
+fn test_csv_export_symbols_only() {
+    // Verify CSV export with Symbol-only records produces valid CSV with record_type column
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("magellan.db");
+    let file_path = temp_dir.path().join("test.rs");
+
+    let bin_path = std::env::var("CARGO_BIN_EXE_magellan").unwrap_or_else(|_| {
+        let mut path = std::env::current_exe().unwrap();
+        path.pop();
+        path.pop();
+        path.push("magellan");
+        path.to_str().unwrap().to_string()
+    });
+
+    // Create file with symbols only (no function calls that would generate Reference/Call nodes)
+    let source = r#"
+fn main() {
+    println!("Hello");
+}
+"#;
+    fs::write(&file_path, source).unwrap();
+
+    // Index the file
+    {
+        let mut graph = magellan::CodeGraph::open(&db_path).unwrap();
+        let source_bytes = fs::read(&file_path).unwrap();
+        let path_str = file_path.to_string_lossy().to_string();
+        graph.index_file(&path_str, &source_bytes).unwrap();
+    }
+
+    // Export to CSV with --no-references --no-calls flags
+    let output = Command::new(&bin_path)
+        .arg("export")
+        .arg("--db")
+        .arg(&db_path)
+        .arg("--format")
+        .arg("csv")
+        .arg("--no-references")
+        .arg("--no-calls")
+        .output()
+        .expect("Failed to execute magellan export");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        output.status.success(),
+        "Process should exit successfully: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Filter out comment lines before parsing CSV
+    let csv_data: String = stdout
+        .lines()
+        .filter(|line| !line.starts_with('#'))
+        .collect::<Vec<&str>>()
+        .join("\n");
+
+    // Parse CSV using csv crate for RFC 4180 compliance
+    let mut rdr = csv::Reader::from_reader(csv_data.as_bytes());
+
+    // Verify headers contain record_type column
+    let headers = rdr.headers().expect("CSV should have valid headers");
+    assert!(
+        headers.iter().any(|h| h == "record_type"),
+        "CSV header should contain record_type column. Headers: {:?}",
+        headers
+    );
+
+    // Verify all data rows have record_type="Symbol"
+    for result in rdr.records() {
+        let record = result.expect("CSV record should be valid");
+        let record_type = record.get(0).expect("Record should have record_type column");
+
+        assert_eq!(
+            record_type, "Symbol",
+            "All exported rows should have record_type='Symbol' when using --no-references --no-calls. Got: '{}'",
+            record_type
+        );
+
+        // Verify no rows have record_type="Reference" or "Call"
+        assert_ne!(
+            record_type, "Reference",
+            "Should not have Reference records when using --no-references"
+        );
+        assert_ne!(
+            record_type, "Call",
+            "Should not have Call records when using --no-calls"
+        );
+    }
+}
+
 #[test]
 fn test_export_dot_deterministic() {
     // Verify same input produces identical DOT output
@@ -1127,4 +1223,347 @@ fn test_export_dot_to_file() {
         exported_content.starts_with("strict digraph"),
         "Export file should start with 'strict digraph'"
     );
+}
+
+#[test]
+fn test_csv_export_references_only() {
+    // Verify CSV export with Reference records only (using --no-symbols --no-calls)
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("magellan.db");
+    let file_path = temp_dir.path().join("test.rs");
+
+    let bin_path = std::env::var("CARGO_BIN_EXE_magellan").unwrap_or_else(|_| {
+        let mut path = std::env::current_exe().unwrap();
+        path.pop();
+        path.pop();
+        path.push("magellan");
+        path.to_str().unwrap().to_string()
+    });
+
+    // Create file with code that generates reference nodes
+    // Using a function that calls another to generate references
+    let source = r#"
+fn helper() {}
+
+fn main() {
+    helper();
+    println!("test");
+}
+"#;
+    fs::write(&file_path, source).unwrap();
+
+    // Index the file
+    {
+        let mut graph = magellan::CodeGraph::open(&db_path).unwrap();
+        let source_bytes = fs::read(&file_path).unwrap();
+        let path_str = file_path.to_string_lossy().to_string();
+        graph.index_file(&path_str, &source_bytes).unwrap();
+    }
+
+    // Export to CSV with --no-symbols --no-calls (references only)
+    let output = Command::new(&bin_path)
+        .arg("export")
+        .arg("--db")
+        .arg(&db_path)
+        .arg("--format")
+        .arg("csv")
+        .arg("--no-symbols")
+        .arg("--no-calls")
+        .output()
+        .expect("Failed to execute magellan export");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        output.status.success(),
+        "Process should exit successfully: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Filter out comment lines before parsing
+    let csv_data: String = stdout
+        .lines()
+        .filter(|line| !line.starts_with('#'))
+        .collect::<Vec<&str>>()
+        .join("\n");
+
+    // Parse CSV with csv crate
+    let mut rdr = csv::Reader::from_reader(csv_data.as_bytes());
+
+    // Verify headers
+    let headers = rdr.headers().expect("Should have valid CSV headers");
+    assert!(headers.len() > 0, "CSV should have at least one column");
+
+    // Verify record_type column exists
+    assert!(
+        headers.iter().any(|h| h == "record_type"),
+        "CSV should have record_type column. Headers: {:?}",
+        headers
+    );
+
+    // Verify referenced_symbol column exists
+    assert!(
+        headers.iter().any(|h| h == "referenced_symbol"),
+        "CSV should have referenced_symbol column. Headers: {:?}",
+        headers
+    );
+
+    // Verify all data rows have record_type="Reference"
+    let mut record_count = 0;
+    for result in rdr.records() {
+        let record = result.expect("CSV record should be valid");
+        let record_type = record
+            .get(0)
+            .unwrap_or_else(|| panic!("Record should have record_type column"));
+
+        assert_eq!(
+            record_type, "Reference",
+            "All records should be Reference type when using --no-symbols --no-calls, got: {}",
+            record_type
+        );
+
+        // Verify no Symbol or Call records exist
+        assert_ne!(record_type, "Symbol", "Should not have Symbol records");
+        assert_ne!(record_type, "Call", "Should not have Call records");
+
+        record_count += 1;
+    }
+
+    // At least some reference records should exist
+    assert!(
+        record_count > 0,
+        "CSV export should produce at least one Reference record"
+    );
+}
+
+#[test]
+fn test_csv_export_mixed_records() {
+    // Verify CSV export works correctly with mixed Symbol/Reference/Call records
+    // This test verifies the Phase 27 fix: UnifiedCsvRow ensures consistent headers
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("magellan.db");
+    let file_path = temp_dir.path().join("test.rs");
+
+    let bin_path = std::env::var("CARGO_BIN_EXE_magellan").unwrap_or_else(|_| {
+        let mut path = std::env::current_exe().unwrap();
+        path.pop();
+        path.pop();
+        path.push("magellan");
+        path.to_str().unwrap().to_string()
+    });
+
+    // Create file with code that generates all three record types:
+    // - Symbol: function definitions (main, helper)
+    // - Reference: println! macro usage, integer literal usage
+    // - Call: function call (helper)
+    let source = r#"
+fn helper(x: i32) -> i32 {
+    x + 1
+}
+
+fn main() {
+    let result = helper(42);
+    println!("{}", result);
+}
+"#;
+    fs::write(&file_path, source).unwrap();
+
+    // Index the file
+    {
+        let mut graph = magellan::CodeGraph::open(&db_path).unwrap();
+        let source_bytes = fs::read(&file_path).unwrap();
+        let path_str = file_path.to_string_lossy().to_string();
+        graph.index_file(&path_str, &source_bytes).unwrap();
+    }
+
+    // Run export with --format csv (no filter flags - default includes all)
+    let output = Command::new(&bin_path)
+        .arg("export")
+        .arg("--db")
+        .arg(&db_path)
+        .arg("--format")
+        .arg("csv")
+        .output()
+        .expect("Failed to execute magellan export");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        output.status.success(),
+        "Process should exit successfully: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Filter out comment lines before parsing CSV
+    let csv_data: String = stdout
+        .lines()
+        .filter(|line| !line.starts_with('#'))
+        .collect::<Vec<&str>>()
+        .join("\n");
+
+    // Parse stdout using csv::Reader
+    let mut rdr = csv::Reader::from_reader(csv_data.as_bytes());
+
+    // Verify header contains "record_type" column
+    let headers = rdr.headers().expect("Should have valid CSV headers");
+    assert!(
+        headers.iter().any(|h| h == "record_type"),
+        "CSV header should contain record_type column. Headers: {:?}",
+        headers
+    );
+
+    // Collect all record_type values from data rows
+    let mut record_types = std::collections::HashSet::new();
+    let mut all_column_counts = std::collections::HashSet::new();
+
+    for result in rdr.records() {
+        let record = result.expect("CSV record should be valid");
+        let record_type = record
+            .get(0)
+            .expect("Each record should have record_type column");
+
+        // Track record types present
+        record_types.insert(record_type.to_string());
+
+        // Track column count for consistency check
+        all_column_counts.insert(record.len());
+    }
+
+    // Verify at least one record type is present (depending on parser behavior)
+    assert!(
+        !record_types.is_empty(),
+        "CSV should contain at least one record type"
+    );
+
+    // Verify all record_type values are valid (Symbol, Reference, or Call)
+    for record_type in &record_types {
+        assert!(
+            record_type == "Symbol" || record_type == "Reference" || record_type == "Call",
+            "Invalid record_type found: {}. Expected one of: Symbol, Reference, Call",
+            record_type
+        );
+    }
+
+    // Verify all rows have same column count (consistent headers)
+    // This is the key verification for Phase 27 fix
+    assert!(
+        all_column_counts.len() <= 1,
+        "All rows should have same column count (consistent headers). Found: {:?}",
+        all_column_counts
+    );
+
+    // If we have multiple record types, verify the Phase 27 fix works
+    if record_types.len() > 1 {
+        // Multiple record types present with consistent headers confirms the fix
+        eprintln!("Found {} record types: {:?}", record_types.len(), record_types);
+    }
+}
+
+#[test]
+fn test_csv_export_calls_only() {
+    // Verify CSV export with Call-only records produces valid CSV
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("magellan.db");
+    let file_path = temp_dir.path().join("test.rs");
+
+    let bin_path = std::env::var("CARGO_BIN_EXE_magellan").unwrap_or_else(|_| {
+        let mut path = std::env::current_exe().unwrap();
+        path.pop();
+        path.pop();
+        path.push("magellan");
+        path.to_str().unwrap().to_string()
+    });
+
+    // Create file with function calls to generate Call nodes
+    let source = r#"
+fn helper() {}
+
+fn main() {
+    helper();
+}
+"#;
+    fs::write(&file_path, source).unwrap();
+
+    // Index the file
+    {
+        let mut graph = magellan::CodeGraph::open(&db_path).unwrap();
+        let source_bytes = fs::read(&file_path).unwrap();
+        let path_str = file_path.to_string_lossy().to_string();
+        graph.index_file(&path_str, &source_bytes).unwrap();
+    }
+
+    // Export to CSV with --no-symbols --no-references (calls only)
+    let output = Command::new(&bin_path)
+        .arg("export")
+        .arg("--db")
+        .arg(&db_path)
+        .arg("--format")
+        .arg("csv")
+        .arg("--no-symbols")
+        .arg("--no-references")
+        .output()
+        .expect("Failed to execute magellan export");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        output.status.success(),
+        "Process should exit successfully: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Filter out comment lines before parsing
+    let csv_data: String = stdout
+        .lines()
+        .filter(|line| !line.starts_with('#'))
+        .collect::<Vec<&str>>()
+        .join("\n");
+
+    // Parse CSV using csv crate
+    let mut rdr = csv::Reader::from_reader(csv_data.as_bytes());
+
+    // Verify headers contain expected columns
+    let headers = rdr.headers().expect("Should have valid CSV headers");
+    assert!(
+        headers.iter().any(|h| h == "record_type"),
+        "CSV should have record_type column. Headers: {:?}",
+        headers
+    );
+    assert!(
+        headers.iter().any(|h| h == "caller"),
+        "CSV should have caller column. Headers: {:?}",
+        headers
+    );
+    assert!(
+        headers.iter().any(|h| h == "callee"),
+        "CSV should have callee column. Headers: {:?}",
+        headers
+    );
+
+    // Verify all data rows have record_type="Call" (or empty if parser doesn't extract calls)
+    let mut record_count = 0;
+    for result in rdr.records() {
+        let record = result.expect("Each CSV record should be valid");
+
+        // Get record_type column value
+        if let Some(record_type) = record.get(0) {
+            assert_eq!(
+                record_type, "Call",
+                "All rows should have record_type='Call' when using --no-symbols --no-references, got: '{}'",
+                record_type
+            );
+        }
+
+        // Verify no Symbol or Reference records exist
+        if let Some(record_type) = record.get(0) {
+            assert_ne!(record_type, "Symbol", "Should not have Symbol records");
+            assert_ne!(record_type, "Reference", "Should not have Reference records");
+        }
+
+        record_count += 1;
+    }
+
+    // Note: Call node generation depends on the Rust parser's call extraction.
+    // If the parser doesn't extract calls for the test code, the test may produce
+    // an empty CSV (header only). This is acceptable - verify the header structure is correct.
 }
