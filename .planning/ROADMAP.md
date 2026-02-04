@@ -8,7 +8,7 @@
 - ✅ **v1.3 Performance** - Phase 15 (shipped 2026-01-22)
 - ✅ **v1.4 Bug Fixes & Correctness** - Phases 16-19 (shipped 2026-01-22)
 - ✅ **v1.5 Symbol Identity** - Phases 20-26 (shipped 2026-01-23)
-- 🚧 **v1.6 Quality & Bugfix** - Phases 27-28 (partially complete)
+- ✅ **v1.6 Quality & Bugfix** - Phases 27-28 (shipped 2026-02-04)
 - ✅ **v1.7 Concurrency & Thread Safety** - Phases 29-33 (shipped 2026-01-24) — *See: [milestones/v1.7-ROADMAP.md](.planning/milestones/v1.7-ROADMAP.md)*
 
 ## Phases
@@ -163,7 +163,7 @@ v1.0 delivered deterministic codebase mapping with tree-sitter AST extraction, S
 </details>
 
 <details>
-<summary>🚧 v1.6 Quality & Bugfix (Phases 27-28) - IN PROGRESS</summary>
+<summary>✅ v1.6 Quality & Bugfix (Phases 27-28) - SHIPPED 2026-02-04</summary>
 
 **Milestone Goal:** Fix CSV export bug, clean compiler warnings, improve test coverage, and document CLI edge cases discovered during v1.5 live testing.
 
@@ -192,26 +192,27 @@ Plans:
 
 #### Phase 28: Test Coverage & Documentation
 **Goal**: Verify fixes with tests and document CLI behavior for discovered edge cases
+**Status**: ✅ COMPLETE 2026-02-04
 **Depends on**: Phase 27
 **Requirements**: TEST-01, TEST-02, TEST-03, TEST-04, TEST-05, DOC-01, DOC-02, DOC-03, DOC-04
 **Success Criteria**:
-  1. CSV export tests verify Symbol-only, Reference-only, Call-only, and mixed exports
-  2. Integration test verifies --ambiguous flag behavior with full display_fqn
-  3. Documentation explains --ambiguous flag requires full display_fqn, not just symbol name
-  4. CSV export format and behavior is documented
-  5. Collisions command vs find --ambiguous distinction is clarified
-**Plans**: 9 plans
+  1. CSV export tests verify Symbol-only, Reference-only, Call-only, and mixed exports ✅
+  2. Integration test verifies --ambiguous flag behavior with full display_fqn ✅
+  3. Documentation explains --ambiguous flag requires full display_fqn, not just symbol name ✅
+  4. CSV export format and behavior is documented ✅
+  5. Collisions command vs find --ambiguous distinction is clarified ✅
+**Plans**: 9/9 complete
 
 Plans:
-- [ ] 28-01: Add CSV export test for Symbol records only (TEST-01)
-- [ ] 28-02: Add CSV export test for Reference records only (TEST-02)
-- [ ] 28-03: Add CSV export test for Call records only (TEST-03)
-- [ ] 28-04: Add CSV export test for mixed Symbol/Reference/Call records (TEST-04)
-- [ ] 28-05: Add integration test for --ambiguous flag with full display_fqn (TEST-05)
-- [ ] 28-06: Document --ambiguous flag usage requirements (DOC-01)
-- [ ] 28-07: Document CSV export behavior and format (DOC-02)
-- [ ] 28-08: Clarify collisions command vs find --ambiguous distinction (DOC-03)
-- [ ] 28-09: Document any remaining CSV export limitations (DOC-04)
+- [x] 28-01 — Add CSV export test for Symbol records only (TEST-01)
+- [x] 28-02 — Add CSV export test for Reference records only (TEST-02)
+- [x] 28-03 — Add CSV export test for Call records only (TEST-03)
+- [x] 28-04 — Add CSV export test for mixed Symbol/Reference/Call records (TEST-04)
+- [x] 28-05 — Add integration test for --ambiguous flag with full display_fqn (TEST-05)
+- [x] 28-06 — Document --ambiguous flag usage requirements (DOC-01)
+- [x] 28-07 — Document CSV export behavior and format (DOC-02)
+- [x] 28-08 — Clarify collisions command vs find --ambiguous distinction (DOC-03)
+- [x] 28-09 — Document any remaining CSV export limitations (DOC-04)
 
 </details>
 
@@ -269,18 +270,18 @@ Plans:
 </details>
 
 <details>
-<summary>Phase 40: Graph Algorithms - PLANNED</summary>
+<summary>✅ Phase 40: Graph Algorithms - COMPLETE 2026-02-03</summary>
 
 **Milestone Goal:** Integrate sqlitegraph 1.3.0's comprehensive graph algorithms library to enable advanced code analysis features (dead code detection, impact analysis, cycle detection, path enumeration, program slicing).
 
 **Plans (5/5):**
-- [ ] 40-01 — Algorithm infrastructure + reachability analysis (reachable_from, dead_symbols, reverse_reachable)
-- [ ] 40-02 — SCC detection + call graph condensation (strongly_connected_components, collapse_sccs)
-- [ ] 40-03 — Path enumeration with bounds (enumerate_paths, PathEnumerationConfig)
-- [ ] 40-04 — Program slicing (backward_slice, forward_slice or call-graph fallback)
-- [ ] 40-05 — Documentation, expanded test coverage, performance benchmarks
+- [x] 40-01 — Algorithm infrastructure + reachability analysis (reachable_from, dead_symbols, reverse_reachable)
+- [x] 40-02 — SCC detection + call graph condensation (strongly_connected_components, collapse_sccs)
+- [x] 40-03 — Path enumeration with bounds (enumerate_paths, PathEnumerationConfig)
+- [x] 40-04 — Program slicing (backward_slice, forward_slice or call-graph fallback)
+- [x] 40-05 — Documentation, expanded test coverage, performance benchmarks
 
-**Delivering:**
+**Delivered:**
 - Algorithm wrapper module (src/graph/algorithms.rs) with helper types and methods
 - CLI command (magellan algo) with subcommands: reachable, dead-code, cycles, condense, paths, slice
 - JSON/human output formats for all algorithm results
@@ -557,7 +558,7 @@ Phases execute in numeric order: 27 → 28 → 29 → 30 → 31 → 32 → 33
 | 37. AST Extraction | v1.9 | 2/2 | Complete | 2026-01-31 |
 | 38. AST CLI & Testing | v1.9 | 2/2 | Complete | 2026-01-31 |
 | 39. AST Migration Fix | v1.9 | 2/2 | Complete | 2026-01-31 |
-| 40. Graph Algorithms | TBD | 0/5 | Not started | - |
+| 40. Graph Algorithms | TBD | 5/5 | Complete | 2026-02-03 |
 | 41. Gitignore-Aware Indexing | TBD | 1/1 | Complete | 2026-02-03 |
 | 42. AST-Based CFG for Rust | TBD | 4/4 | Complete | 2026-02-03 |
 | 43. LLVM IR CFG for C/C++ | TBD | 1/1 | Complete | 2026-02-03 |
