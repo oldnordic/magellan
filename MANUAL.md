@@ -319,6 +319,8 @@ Ambiguous name "main" has 3 candidates:
   [3] c3d4e5f6789012345678901234de - tests/integration_test.rs::Function main
 ```
 
+**Note:** For bulk discovery of all collision groups in the database, use `magellan collisions` (see section 3.13.1).
+
 ### 3.6 refs
 
 ```bash
@@ -420,6 +422,54 @@ magellan export --db ./magellan.db --format scip --output codegraph.scip
 # Minified JSON
 magellan export --db ./magellan.db --minify > codegraph.json
 ```
+
+### CSV Format
+
+CSV export uses a unified format for all record types (Symbols, References, Calls) with a `record_type` column for discrimination.
+
+**Structure:**
+- First line: Version header comment (`# Magellan Export Version: 2.0.0`)
+- Second line: CSV header with all columns
+- Data rows: One row per record
+
+**Columns:**
+- Universal columns (all records): `record_type`, `file`, `byte_start`, `byte_end`, `start_line`, `start_col`, `end_line`, `end_col`
+- Symbol-specific: `symbol_id`, `name`, `kind`, `kind_normalized`
+- Reference-specific: `referenced_symbol`, `target_symbol_id`
+- Call-specific: `caller`, `callee`, `caller_symbol_id`, `callee_symbol_id`
+
+**Record Types:**
+- `Symbol` - Function, struct, enum, or other symbol definitions
+- `Reference` - References to symbols (variables, types, etc.)
+- `Call` - Function call relationships
+
+**RFC 4180 Compliance:**
+- Fields containing commas, quotes, or newlines are automatically quoted
+- Quotes within fields are escaped by doubling
+- Line endings are CRLF
+
+**Examples:**
+
+```bash
+# Export all data to CSV
+magellan export --db ./magellan.db --format csv > codegraph.csv
+
+# Export only symbols
+magellan export --db ./magellan.db --format csv --no-references --no-calls > symbols.csv
+
+# Export only calls
+magellan export --db ./magellan.db --format csv --no-symbols --no-references > calls.csv
+```
+
+**Output Sample:**
+```csv
+# Magellan Export Version: 2.0.0
+record_type,file,symbol_id,name,kind,...
+Symbol,/path/to/file.rs,a1b2c3...,main,Function,...
+Call,/path/to/file.rs,,main,helper,...
+```
+
+**Note:** Non-applicable fields are empty (e.g., Call records don't have `symbol_id` or `kind`).
 
 ### 3.9 label
 
@@ -570,7 +620,7 @@ magellan chunks --db ./magellan.db --kind fn
 magellan collisions --db <FILE> [--field <FIELD>] [--limit <N>]
 ```
 
-List ambiguous symbols that share the same FQN or display FQN (v1.5).
+List ambiguous symbols that share the same FQN or display FQN (v1.5). For a comparison with `find --ambiguous`, see section 3.13.1.
 
 | Argument | Type | Default | Description |
 |----------|------|---------|-------------|
@@ -611,7 +661,40 @@ main (3)
        my_crate::tests/integration_test.rs::Function main
 ```
 
-### 3.13 chunks
+### 3.13.1 Collisions vs find --ambiguous
+
+Both commands deal with ambiguous symbols but serve different purposes:
+
+**collisions command:**
+- Bulk operation: Lists ALL collision groups in the database
+- Use case: Discover all ambiguity problems in your codebase
+- Output: All collision groups with 2+ symbols
+- Example:
+  ```bash
+  magellan collisions --db ./magellan.db
+  ```
+
+**find --ambiguous:**
+- Specific lookup: Shows candidates for ONE display_fqn
+- Use case: Resolve ambiguity when you know the display_fqn
+- Output: All symbols matching the specified display_fqn
+- Example:
+  ```bash
+  magellan find --db ./magellan.db --ambiguous "my_crate::Handler"
+  ```
+
+**When to use which:**
+
+| Scenario | Command |
+|----------|---------|
+| Find all collision groups in database | `magellan collisions` |
+| Investigate a specific ambiguous symbol | `magellan find --ambiguous <display_fqn>` |
+| Check if a name has collisions | `magellan collisions --field display_fqn --limit 50 \| grep "name"` |
+| Get SymbolId for specific candidate | Use `--symbol-id` with exact SymbolId |
+
+**Key difference:** `collisions` is for discovery (find all problems), `find --ambiguous` is for resolution (pick the right symbol).
+
+### 3.14 chunks
 
 ```bash
 magellan chunks --db <FILE> [--limit N] [--file PATTERN] [--kind KIND] [--output FORMAT]
