@@ -29,6 +29,11 @@ exclude = [
 name = "magellan"
 path = "src/main.rs"
 
+[[bench]]
+name = "perf_suite"
+harness = false
+path = "benches/perf_suite.rs"
+
 [features]
 default = []
 native-v2 = ["sqlitegraph/native-v2"]

@@ -738,4 +738,17 @@ impl CodeGraph {
     pub fn clear_cache(&mut self) {
         self.file_node_cache.clear();
     }
+
+    /// Get backend for testing/benchmarking
+    ///
+    /// This method provides access to the underlying graph backend for
+    /// performance testing and internal operations.
+    ///
+    /// # WARNING
+    /// This is for benchmarking only. Direct backend access bypasses CodeGraph's
+    /// transactional and caching layers.
+    #[doc(hidden)]
+    pub fn __backend_for_benchmarks(&self) -> &std::rc::Rc<dyn sqlitegraph::GraphBackend> {
+        &self.files.backend
+    }
 }
