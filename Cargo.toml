@@ -32,6 +32,7 @@ path = "src/main.rs"
 [features]
 default = []
 native-v2 = ["sqlitegraph/native-v2"]
+native-v2-perf = ["sqlitegraph/v2_experimental", "native-v2"]
 # Optional LLVM IR-based CFG extraction for C/C++ (requires clang)
 # This is an OPTIONAL enhancement - AST-based CFG works without it
 llvm-cfg = ["dep:inkwell", "dep:which"]
