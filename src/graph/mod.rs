@@ -183,16 +183,18 @@ impl CodeGraph {
         };
 
         // Phase 2b: Configure SQLite performance PRAGMAs
-        // Note: sqlitegraph 1.0.0 already configures these in from_connection(),
-        // but we set them explicitly here to ensure they're applied even if
-        // sqlitegraph changes its defaults in future versions.
-        //
-        // These PRAGMA settings are configured on a separate connection but affect
-        // the entire database file (PRAGMA is file-level, not connection-level).
-        //
-        // Scoped block ensures connection closes even if PRAGMA operations fail.
-        // Without this scope, early returns via ? would leak the connection.
+        // SQLite-only configuration (Native V2 backend doesn't use SQLite PRAGMAs)
+        #[cfg(not(feature = "native-v2"))]
         {
+            // Note: sqlitegraph 1.0.0 already configures these in from_connection(),
+            // but we set them explicitly here to ensure they're applied even if
+            // sqlitegraph changes its defaults in future versions.
+            //
+            // These PRAGMA settings are configured on a separate connection but affect
+            // the entire database file (PRAGMA is file-level, not connection-level).
+            //
+            // Scoped block ensures connection closes even if PRAGMA operations fail.
+            // Without this scope, early returns via ? would leak the connection.
             let pragma_conn = rusqlite::Connection::open(&db_path_buf).map_err(|e| {
                 anyhow::anyhow!("Failed to open connection for PRAGMA config: {}", e)
             })?;
