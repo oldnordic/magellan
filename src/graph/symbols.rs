@@ -30,7 +30,6 @@ use blake3::Hasher;
 use sha2::{Digest, Sha256};
 use sqlitegraph::{
     add_label, BackendDirection, EdgeSpec, GraphBackend, NeighborQuery, NodeId, NodeSpec, SnapshotId,
-    SqliteGraphBackend,
 };
 use std::rc::Rc;
 
@@ -199,7 +198,7 @@ fn generate_span_id(file_path: &str, byte_start: usize, byte_end: usize) -> Stri
 
 /// Symbol operations for CodeGraph
 pub struct SymbolOps {
-    pub backend: Rc<SqliteGraphBackend>,
+    pub backend: Rc<dyn GraphBackend>,
 }
 
 impl SymbolOps {
