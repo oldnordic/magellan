@@ -167,9 +167,20 @@ impl CodeGraph {
         let _preflight = db_compat::preflight_sqlitegraph_compat(&db_path_buf)
             .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
-        // Phase 2: mutating open (sqlitegraph ensure_schema/migrations).
-        let sqlite_graph = sqlitegraph::SqliteGraph::open(&db_path_buf)?;
-        let backend: Rc<dyn GraphBackend> = Rc::new(SqliteGraphBackend::from_graph(sqlite_graph));
+        // Phase 2: Backend opening (conditional compilation)
+        #[cfg(feature = "native-v2")]
+        let backend: Rc<dyn GraphBackend> = {
+            use sqlitegraph::{open_graph, GraphConfig};
+            let config = GraphConfig::native();
+            Rc::new(open_graph(&db_path_buf, &config)?)
+        };
+
+        #[cfg(not(feature = "native-v2"))]
+        let backend: Rc<dyn GraphBackend> = {
+            use sqlitegraph::{SqliteGraph, SqliteGraphBackend};
+            let sqlite_graph = SqliteGraph::open(&db_path_buf)?;
+            Rc::new(SqliteGraphBackend::from_graph(sqlite_graph))
+        };
 
         // Phase 2b: Configure SQLite performance PRAGMAs
         // Note: sqlitegraph 1.0.0 already configures these in from_connection(),
