@@ -5,7 +5,6 @@
 use anyhow::Result;
 use sqlitegraph::{
     BackendDirection, EdgeSpec, GraphBackend, NeighborQuery, NodeId, NodeSpec, SnapshotId,
-    SqliteGraphBackend,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -23,7 +22,7 @@ use crate::references::ReferenceFact;
 
 /// Reference operations for CodeGraph
 pub struct ReferenceOps {
-    pub backend: Rc<SqliteGraphBackend>,
+    pub backend: Rc<dyn GraphBackend>,
 }
 
 impl ReferenceOps {
@@ -58,7 +57,7 @@ impl ReferenceOps {
         to_delete.sort_unstable();
 
         for id in &to_delete {
-            self.backend.graph().delete_entity(*id)?;
+            self.backend.delete_entity(*id)?;
         }
 
         Ok(to_delete.len())
