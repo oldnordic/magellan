@@ -443,7 +443,7 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
 
         // Delete each symbol node (sqlitegraph deletes edges touching entity).
         for symbol_id in &symbol_ids_sorted {
-            graph.files.backend.graph().delete_entity(*symbol_id)?;
+            graph.files.backend.delete_entity(*symbol_id)?;
         }
 
         symbols_deleted = symbol_ids_sorted.len();
@@ -723,7 +723,7 @@ pub mod test_helpers {
 
             // Delete each symbol node (sqlitegraph deletes edges touching entity).
             for symbol_id in &symbol_ids_sorted {
-                graph.files.backend.graph().delete_entity(*symbol_id)?;
+                graph.files.backend.delete_entity(*symbol_id)?;
             }
 
             symbols_deleted = symbol_ids_sorted.len();

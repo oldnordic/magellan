@@ -100,7 +100,7 @@ impl FileOps {
             };
 
             // Delete old node and insert new one (sqlitegraph doesn't support update)
-            self.backend.graph().delete_entity(id.as_i64())?;
+            self.backend.delete_entity(id.as_i64())?;
             let new_id = self.backend.insert_node(node_spec)?;
             let new_node_id = NodeId::from(new_id);
 

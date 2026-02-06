@@ -29,7 +29,7 @@ use anyhow::Result;
 use blake3::Hasher;
 use sha2::{Digest, Sha256};
 use sqlitegraph::{
-    add_label, BackendDirection, EdgeSpec, GraphBackend, NeighborQuery, NodeId, NodeSpec, SnapshotId,
+    BackendDirection, EdgeSpec, GraphBackend, NeighborQuery, NodeId, NodeSpec, SnapshotId,
 };
 use std::rc::Rc;
 
@@ -253,16 +253,10 @@ impl SymbolOps {
         let id = self.backend.insert_node(node_spec)?;
         let node_id = NodeId::from(id);
 
-        // Add labels for efficient querying
-        let graph = self.backend.graph();
-
+        // TODO: Labels are SQLite-specific and not available on GraphBackend trait
+        // Re-enable when native backend has label support or trait is extended
         // Language label (e.g., "rust", "python", "javascript")
-        if let Some(detected_lang) = detect_language(&fact.file_path) {
-            add_label(graph, node_id.as_i64(), detected_lang.as_str())?;
-        }
-
         // Symbol kind label (e.g., "fn", "struct", "enum", "method")
-        add_label(graph, node_id.as_i64(), &fact.kind_normalized)?;
 
         Ok(node_id)
     }
@@ -295,7 +289,7 @@ impl SymbolOps {
 
         // Delete each symbol node (edges are cascade deleted)
         for symbol_node_id in neighbor_ids {
-            self.backend.graph().delete_entity(symbol_node_id)?;
+            self.backend.delete_entity(symbol_node_id)?;
         }
 
         Ok(())
