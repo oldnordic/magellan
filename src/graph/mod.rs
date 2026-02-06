@@ -169,7 +169,7 @@ impl CodeGraph {
 
         // Phase 2: mutating open (sqlitegraph ensure_schema/migrations).
         let sqlite_graph = sqlitegraph::SqliteGraph::open(&db_path_buf)?;
-        let backend = Rc::new(SqliteGraphBackend::from_graph(sqlite_graph));
+        let backend: Rc<dyn GraphBackend> = Rc::new(SqliteGraphBackend::from_graph(sqlite_graph));
 
         // Phase 2b: Configure SQLite performance PRAGMAs
         // Note: sqlitegraph 1.0.0 already configures these in from_connection(),
