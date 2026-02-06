@@ -22,7 +22,7 @@
 
 use anyhow::Result;
 use sha2::{Digest, Sha256};
-use sqlitegraph::{GraphBackend, NodeId, NodeSpec, SnapshotId, SqliteGraphBackend};
+use sqlitegraph::{GraphBackend, NodeId, NodeSpec, SnapshotId};
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -32,7 +32,7 @@ use crate::ingest::{SymbolFact, SymbolKind};
 
 /// File operations for CodeGraph
 pub struct FileOps {
-    pub backend: Rc<SqliteGraphBackend>,
+    pub backend: Rc<dyn GraphBackend>,
     pub file_index: HashMap<String, NodeId>,
 }
 
@@ -138,7 +138,7 @@ impl FileOps {
     pub fn rebuild_file_index(&mut self) -> Result<()> {
         self.file_index.clear();
 
-        // Use SqliteGraphBackend's entity_ids method
+        // Get all entity IDs from the backend
         let ids = self.backend.entity_ids()?;
         let snapshot = SnapshotId::current();
 
