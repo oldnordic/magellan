@@ -156,6 +156,8 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
     // Step 4: Insert new symbol nodes and DEFINES edges
     // Track function symbol IDs for CFG extraction
     let mut function_symbol_ids: Vec<(String, i64, i64, i64)> = Vec::new();
+    let mut indexed_symbols: Vec<(crate::ingest::SymbolFact, i64)> = Vec::new();
+
     for fact in &symbol_facts {
         let symbol_id = graph.symbols.insert_symbol_node(fact)?;
         graph.symbols.insert_defines_edge(file_id, symbol_id)?;
@@ -172,6 +174,21 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
                 ));
             }
         }
+
+        // Track symbol with its node ID for KV index population
+        indexed_symbols.push((fact.clone(), symbol_id.as_i64()));
+    }
+
+    // Step 4.5: Populate KV indexes for O(1) symbol lookups
+    // Only available with native-v2 backend (KV store is native-only)
+    #[cfg(feature = "native-v2")]
+    {
+        let backend: &dyn GraphBackend = &*graph.files.backend;
+        crate::kv::populate_symbol_index(
+            backend,
+            file_id.as_i64() as u64,
+            &indexed_symbols,
+        )?;
     }
 
     // Step 5: Extract and store code chunks for each symbol
@@ -440,6 +457,18 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
 
         let mut symbol_ids_sorted = symbol_ids;
         symbol_ids_sorted.sort_unstable();
+
+        // Invalidate KV indexes before deleting symbols
+        // Only available with native-v2 backend (KV store is native-only)
+        #[cfg(feature = "native-v2")]
+        {
+            let backend: &dyn GraphBackend = &*graph.files.backend;
+            crate::kv::invalidate_file_index(
+                backend,
+                file_id.as_i64() as u64,
+                &symbol_ids_sorted,
+            )?;
+        }
 
         // Delete each symbol node (sqlitegraph deletes edges touching entity).
         for symbol_id in &symbol_ids_sorted {
