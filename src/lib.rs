@@ -10,6 +10,41 @@
 //! - **Byte offsets**: 0-indexed from file start
 //!
 //! See [MANUAL.md](../MANUAL.md#3-position-conventions) for detailed documentation.
+//!
+//! # Feature Flags
+//!
+//! ## Native V2 Backend
+//!
+//! - **`native-v2`**: Enable Native V2 backend with KV store and WAL transactions
+//!   - Uses sqlitegraph's native file-based backend (no SQLite dependency)
+//!   - Provides in-memory KV store for O(1) symbol lookups
+//!   - Includes WAL (Write-Ahead Log) for crash recovery and transaction isolation
+//!   - Production-ready and fully tested
+//!
+//! - **`native-v2-perf`**: Enable clustered adjacency for 10x traversal performance
+//!   - Implies `native-v2`
+//!   - Uses `sqlitegraph/v2_experimental` feature for clustered adjacency storage
+//!   - Provides ~10x performance improvement for graph traversal algorithms
+//!   - **Experimental**: Benchmark before making default (Phase 48)
+//!   - Enables A/B performance testing in Phase 48-04 benchmarks
+//!
+//! ### Feature Selection
+//!
+//! ```toml
+//! # Default: SQLite backend
+//! magellan = "2.1.0"
+//!
+//! # Native V2 backend (production-ready)
+//! magellan = { version = "2.1.0", features = ["native-v2"] }
+//!
+//! # Native V2 + clustered adjacency (experimental)
+//! magellan = { version = "2.1.0", features = ["native-v2-perf"] }
+//! ```
+//!
+//! ## Optional Features
+//!
+//! - **`llvm-cfg`**: LLVM IR-based CFG extraction for C/C++ (requires clang)
+//! - **`bytecode-cfg`**: Java bytecode-based CFG extraction (requires Java bytecode library)
 
 pub mod common;
 pub mod diagnostics;
