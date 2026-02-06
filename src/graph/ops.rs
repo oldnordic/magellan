@@ -460,7 +460,6 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         graph
             .files
             .backend
-            .graph()
             .delete_entity(file_id.as_i64())?;
         deleted_entity_ids.push(file_id.as_i64());
 
@@ -747,7 +746,6 @@ pub mod test_helpers {
             graph
                 .files
                 .backend
-                .graph()
                 .delete_entity(file_id.as_i64())?;
             deleted_entity_ids.push(file_id.as_i64());
 

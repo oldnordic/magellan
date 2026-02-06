@@ -59,12 +59,31 @@
 use anyhow::Result;
 use ahash::AHashSet;
 use rusqlite::params;
-use sqlitegraph::{algo, GraphBackend, SnapshotId};
+use sqlitegraph::{algo, GraphBackend, SnapshotId, SqliteGraphBackend};
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 use crate::graph::schema::SymbolNode;
 
 use super::CodeGraph;
+
+/// Helper to get the underlying SqliteGraph from a trait object
+///
+/// This is a temporary workaround until algorithm methods are added to GraphBackend trait.
+/// For SQLite backend, this extracts the concrete SqliteGraphBackend and calls .graph().
+/// For Native V2 backend, this returns an error.
+fn get_sqlite_graph(backend: &Rc<dyn GraphBackend>) -> Result<&sqlitegraph::graph::SqliteGraph, anyhow::Error> {
+    // Use unsafe downcasting as temporary workaround
+    // This is safe because we know the backend is SqliteGraphBackend when not using native-v2 feature
+    unsafe {
+        // Get the raw pointer from the Rc
+        let ptr = Rc::as_ptr(backend);
+        // Reinterpret as SqliteGraphBackend pointer
+        let concrete = (ptr as *const SqliteGraphBackend).as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Null backend pointer"))?;
+        Ok(concrete.graph())
+    }
+}
 
 /// Symbol information for algorithm results
 ///
@@ -411,7 +430,7 @@ impl CodeGraph {
         // Use sqlitegraph's reachable_from algorithm
         // This traverses outgoing edges from the start node
         // Note: sqlitegraph 1.3.0 API takes (graph, start), not (backend, snapshot, start, depth)
-        let reachable_entity_ids = algo::reachable_from(backend.graph(), entity_id)?;
+        let reachable_entity_ids = algo::reachable_from(get_sqlite_graph(backend)?, entity_id)?;
 
         // Convert entity IDs to SymbolInfo
         let mut symbols = Vec::new();
@@ -473,7 +492,7 @@ impl CodeGraph {
         // Use sqlitegraph's reverse_reachable_from algorithm
         // This traverses incoming edges to the target node
         // Note: sqlitegraph 1.3.0 API takes (graph, target)
-        let reachable_entity_ids = algo::reverse_reachable_from(backend.graph(), entity_id)?;
+        let reachable_entity_ids = algo::reverse_reachable_from(get_sqlite_graph(backend)?, entity_id)?;
 
         // Convert entity IDs to SymbolInfo
         let mut symbols = Vec::new();
@@ -547,7 +566,7 @@ impl CodeGraph {
         // Find all entities reachable from the entry point
         // Note: sqlitegraph 1.3.0 API takes (graph, start)
         let reachable_ids =
-            algo::reachable_from(backend.graph(), entry_entity)?;
+            algo::reachable_from(get_sqlite_graph(backend)?, entry_entity)?;
 
         // Dead symbols = all entities - reachable entities
         let reachable_set: HashSet<i64> = reachable_ids.into_iter().collect();
@@ -618,7 +637,7 @@ impl CodeGraph {
         let backend = &self.calls.backend;
 
         // Use sqlitegraph's strongly_connected_components algorithm
-        let scc_result = algo::strongly_connected_components(backend.graph())?;
+        let scc_result = algo::strongly_connected_components(get_sqlite_graph(backend)?)?;
 
         // Filter to SCCs with >1 member (mutual recursion)
         let cycles: Vec<_> = scc_result
@@ -693,7 +712,7 @@ impl CodeGraph {
         let backend = &self.calls.backend;
 
         // Use sqlitegraph's strongly_connected_components algorithm
-        let scc_result = algo::strongly_connected_components(backend.graph())?;
+        let scc_result = algo::strongly_connected_components(get_sqlite_graph(backend)?)?;
 
         // Find which SCC contains this entity
         let target_component_idx = scc_result.node_to_component.get(&entity_id);
@@ -762,7 +781,7 @@ impl CodeGraph {
         let backend = &self.calls.backend;
 
         // Use sqlitegraph's collapse_sccs algorithm
-        let collapse_result = algo::collapse_sccs(backend.graph())?;
+        let collapse_result = algo::collapse_sccs(get_sqlite_graph(backend)?)?;
 
         // Build supernodes with SymbolInfo members
         let mut supernodes = Vec::new();
@@ -850,7 +869,7 @@ impl CodeGraph {
 
         // Fallback: Use reverse reachable on call graph
         // This finds all callers that directly or indirectly call this symbol
-        let caller_entity_ids = algo::reverse_reachable_from(backend.graph(), entity_id)?;
+        let caller_entity_ids = algo::reverse_reachable_from(get_sqlite_graph(backend)?, entity_id)?;
 
         // Convert entity IDs to SymbolInfo
         let mut included_symbols = Vec::new();
@@ -939,7 +958,7 @@ impl CodeGraph {
 
         // Fallback: Use forward reachable on call graph
         // This finds all callees that this symbol directly or indirectly calls
-        let callee_entity_ids = algo::reachable_from(backend.graph(), entity_id)?;
+        let callee_entity_ids = algo::reachable_from(get_sqlite_graph(backend)?, entity_id)?;
 
         // Convert entity IDs to SymbolInfo
         let mut included_symbols = Vec::new();
@@ -1030,7 +1049,7 @@ impl CodeGraph {
     ) -> Result<PathEnumerationResult> {
         let start_entity_id = self.resolve_symbol_entity(start_symbol_id)?;
         let backend = &self.calls.backend;
-        let graph = backend.graph();
+        let graph = get_sqlite_graph(backend)?;
 
         // Build exit_nodes set for target symbol
         let exit_nodes: Option<AHashSet<i64>> = if let Some(end_id) = end_symbol_id {
