@@ -18,12 +18,17 @@ pub mod generation;
 pub mod graph;
 pub mod indexer;
 pub mod ingest;
+pub mod migrate_backend_cmd;
 pub mod migrate_cmd;
 pub mod output;
 pub mod references;
 pub mod validation;
 pub mod verify;
 pub mod watcher;
+
+// KV index module (only available with native-v2 feature)
+#[cfg(feature = "native-v2")]
+pub mod kv;
 
 pub use common::{
     detect_language_from_path, extract_context_safe, extract_symbol_content_safe, format_symbol_kind,
