@@ -127,6 +127,30 @@ pub fn sym_rev_key(symbol_id: i64) -> Vec<u8> {
     format!("sym:rev:{}", symbol_id).into_bytes()
 }
 
+/// Construct a KV store key for reverse FQN lookup by symbol ID.
+///
+/// The key format is: b"sym:fqn_of:{symbol_id}"
+///
+/// This enables O(1) lookup of a symbol's FQN when you have the SymbolId.
+/// Used during cache invalidation to delete sym:fqn:* entries without
+/// querying the graph.
+///
+/// # Arguments
+/// * `symbol_id` - SymbolId (i64) to look up
+///
+/// # Returns
+/// Vec<u8> containing the formatted key
+///
+/// # Example
+/// ```ignore
+/// let key = sym_fqn_of_key(12345);
+/// // Returns: b"sym:fqn_of:12345"
+/// // Value would be the FQN string (e.g., "my_crate::module::function")
+/// ```
+pub fn sym_fqn_of_key(symbol_id: i64) -> Vec<u8> {
+    format!("sym:fqn_of:{}", symbol_id).into_bytes()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -174,6 +198,13 @@ mod tests {
     }
 
     #[test]
+    fn test_sym_fqn_of_key_format() {
+        let key = sym_fqn_of_key(12345);
+        let key_str = String::from_utf8(key).unwrap();
+        assert_eq!(key_str, "sym:fqn_of:12345");
+    }
+
+    #[test]
     fn test_keys_are_vec_u8() {
         // All key functions should return Vec<u8> for KvStore API compatibility
         let _: Vec<u8> = sym_fqn_key("test");
@@ -181,6 +212,7 @@ mod tests {
         let _: Vec<u8> = file_path_key("test.rs");
         let _: Vec<u8> = file_sym_key(1);
         let _: Vec<u8> = sym_rev_key(1);
+        let _: Vec<u8> = sym_fqn_of_key(1);
     }
 
     #[test]

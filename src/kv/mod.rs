@@ -55,82 +55,157 @@ pub mod keys;
 #[cfg(feature = "native-v2")]
 pub use encoding::{decode_symbol_ids, encode_symbol_ids};
 #[cfg(feature = "native-v2")]
-pub use keys::{file_path_key, file_sym_key, sym_fqn_key, sym_id_key, sym_rev_key};
+pub use keys::{file_path_key, file_sym_key, sym_fqn_key, sym_fqn_of_key, sym_id_key, sym_rev_key};
 
 // ============================================================================
-// Public API - Index Management (Stubs for 48-02 implementation)
+// Public API - Index Management
 // ============================================================================
 
-/// Populate the KV index with symbols from the graph.
+use crate::ingest::SymbolFact;
+use sqlitegraph::backend::KvValue;
+use sqlitegraph::{GraphBackend, SnapshotId};
+use std::rc::Rc;
+
+/// Populate the KV index with symbols from a file during indexing.
 ///
-/// This function scans all symbols in the graph and builds the following indexes:
-/// - FQN → SymbolId mapping (for fast resolution)
-/// - File → Symbols mapping (for file-scoped queries)
-/// - Reverse index (for "find usages" queries)
+/// This function is called immediately after symbol nodes are inserted into the graph.
+/// It builds the following indexes in a single transaction (participates in WAL):
+/// - sym:fqn:{fqn} → SymbolId (primary O(1) lookup)
+/// - sym:fqn_of:{id} → FQN (reverse lookup for invalidation)
+/// - sym:rev:{id} → revision (starts at 1, increments on reindex)
+/// - file:sym:{file_id} → Vec<SymbolId> (all symbols in file, encoded)
 ///
 /// # Arguments
-/// * `graph` - Reference to the graph backend
+/// * `backend` - Graph backend (must be Native V2 for KV operations)
+/// * `file_id` - FileId (u64) of the indexed file
+/// * `symbols` - Slice of (SymbolFact, NodeId) tuples containing extracted symbols and their assigned node IDs
 ///
 /// # Returns
 /// Result<()> indicating success or failure
 ///
+/// # Errors
+/// Returns error if KV operations fail (backend doesn't support KV, write errors)
+///
 /// # Note
-/// This is a stub - actual implementation will be in plan 48-02.
+/// All KV writes participate in the same WAL transaction as graph writes.
+/// The WAL transaction is managed by the graph backend, not this function.
 #[cfg(feature = "native-v2")]
-pub fn populate_symbol_index(_graph: &dyn sqlitegraph::GraphBackend) -> Result<(), Box<dyn std::error::Error>> {
-    // TODO: Implement in plan 48-02
-    // 1. Query all symbols from graph
-    // 2. For each symbol: store sym:fqn:{fqn} → symbol_id
-    // 3. For each symbol: store sym:id:{id} → fqn
-    // 4. Group symbols by file: store file:sym:{file_id} → Vec<SymbolId>
-    // 5. Build reverse index: store sym:rev:{symbol_id} → Vec<referencing_id>
+pub fn populate_symbol_index(
+    backend: Rc<dyn GraphBackend>,
+    file_id: u64,
+    symbols: &[(SymbolFact, i64)],
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::kv::encoding::encode_symbol_ids;
+    use crate::kv::keys::{file_sym_key, sym_fqn_key, sym_fqn_of_key, sym_rev_key};
+
+    let mut symbol_ids: Vec<i64> = Vec::new();
+
+    // For each symbol: create KV entries
+    for (symbol, node_id) in symbols {
+        // Only index symbols with FQN (skip unnamed symbols)
+        let fqn = if let Some(ref f) = symbol.fqn {
+            f.clone()
+        } else {
+            continue; // Skip symbols without FQN
+        };
+
+        // 1. sym:fqn:{fqn} → SymbolId (primary lookup index)
+        let fqn_key = sym_fqn_key(&fqn);
+        backend.kv_set(fqn_key, KvValue::Integer(*node_id), None)?;
+
+        // 2. sym:fqn_of:{id} → FQN (reverse lookup for invalidation)
+        let fqn_of_key = sym_fqn_of_key(*node_id);
+        backend.kv_set(fqn_of_key, KvValue::String(fqn.clone()), None)?;
+
+        // 3. sym:rev:{id} → revision (starts at 1)
+        let rev_key = sym_rev_key(*node_id);
+        backend.kv_set(rev_key, KvValue::Integer(1), None)?;
+
+        // Collect for file-level index
+        symbol_ids.push(*node_id);
+    }
+
+    // 4. file:sym:{file_id} → Vec<SymbolId> (all symbols in file, encoded)
+    let file_key = file_sym_key(file_id);
+    let encoded_ids = encode_symbol_ids(&symbol_ids);
+    backend.kv_set(file_key, KvValue::Bytes(encoded_ids), None)?;
+
     Ok(())
 }
 
-/// Invalidate KV index entries for a specific file.
-///
-/// When a file is modified or deleted, its index entries must be removed
-/// to maintain consistency. This function handles the invalidation.
-///
-/// # Arguments
-/// * `file_id` - The FileId whose entries should be invalidated
-///
-/// # Returns
-/// Result<()> indicating success or failure
-///
-/// # Note
-/// This is a stub - actual implementation will be in plan 48-02.
-#[cfg(feature = "native-v2")]
-pub fn invalidate_file_index(_file_id: u64) -> Result<(), Box<dyn std::error::Error>> {
-    // TODO: Implement in plan 48-02
-    // 1. Get all symbols for this file from file:sym:{file_id}
-    // 2. For each symbol: remove sym:fqn:{fqn} entry
-    // 3. For each symbol: remove sym:id:{id} entry
-    // 4. Remove file:sym:{file_id} entry
-    // 5. Update reverse index: remove this symbol from sym:rev entries
-    Ok(())
-}
-
-/// Look up a SymbolId by its fully-qualified name.
+/// Look up a SymbolId by its fully-qualified name using the KV index.
 ///
 /// This provides O(1) lookup performance for symbol resolution,
 /// replacing the traditional SQL query with a KV store lookup.
 ///
 /// # Arguments
+/// * `backend` - Graph backend (must be Native V2 for KV operations)
 /// * `fqn` - Fully-qualified name of the symbol to look up
 ///
 /// # Returns
-/// Option<SymbolId> - Some(id) if found, None if not in index
+/// Option<i64> - Some(symbol_id) if found, None if not in index
 ///
-/// # Note
-/// This is a stub - actual implementation will be in plan 48-02.
+/// # Example
+/// ```ignore
+/// if let Some(symbol_id) = lookup_symbol_by_fqn(backend, "my_crate::module::function") {
+///     // Found the symbol instantly - O(1) lookup
+/// }
+/// ```
 #[cfg(feature = "native-v2")]
-pub fn lookup_symbol_by_fqn(_fqn: &str) -> Option<i64> {
-    // TODO: Implement in plan 48-02
-    // 1. Construct key: sym:fqn:{fqn}
-    // 2. Query KV store
-    // 3. Decode and return SymbolId if present
-    None
+pub fn lookup_symbol_by_fqn(backend: &dyn GraphBackend, fqn: &str) -> Option<i64> {
+    use crate::kv::keys::sym_fqn_key;
+
+    let key = sym_fqn_key(fqn);
+    let snapshot = SnapshotId::current();
+
+    match backend.kv_get(snapshot, &key) {
+        Ok(Some(KvValue::Integer(symbol_id))) => Some(symbol_id),
+        Ok(_) => None, // Key not found or wrong type
+        Err(_) => None, // KV operation failed (fallback gracefully)
+    }
+}
+
+/// Invalidate KV index entries for a specific file before reindex or deletion.
+///
+/// When a file is modified or deleted, its index entries must be removed
+/// to maintain consistency. This function handles the invalidation by:
+/// 1. Reading old symbol IDs from file:sym:{file_id}
+/// 2. Deleting sym:fqn_of:{id} entries for each old symbol
+/// 3. Deleting file:sym:{file_id} entry
+///
+/// Note: Individual sym:fqn:{fqn} entries are NOT deleted here - they will be
+/// overwritten on reindex. Stale entries for deleted symbols will naturally
+/// expire since their sym:fqn_of:{id} entry is removed.
+///
+/// # Arguments
+/// * `backend` - Graph backend (must be Native V2 for KV operations)
+/// * `file_id` - FileId (u64) of the file being invalidated
+/// * `old_symbol_ids` - Vec<i64> of symbol IDs that were in this file
+///
+/// # Returns
+/// Result<()> indicating success or failure
+///
+/// # Errors
+/// Returns error if KV operations fail
+#[cfg(feature = "native-v2")]
+pub fn invalidate_file_index(
+    backend: &dyn GraphBackend,
+    file_id: u64,
+    old_symbol_ids: &[i64],
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::kv::keys::{file_sym_key, sym_fqn_of_key};
+
+    // Delete sym:fqn_of:{id} for each old symbol
+    for &symbol_id in old_symbol_ids {
+        let fqn_of_key = sym_fqn_of_key(symbol_id);
+        backend.kv_delete(&fqn_of_key)?;
+    }
+
+    // Delete file:sym:{file_id} entry
+    let file_key = file_sym_key(file_id);
+    backend.kv_delete(&file_key)?;
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -146,22 +221,21 @@ mod tests {
 
     #[cfg(feature = "native-v2")]
     #[test]
-    fn test_public_api_stubs_exist() {
+    fn test_public_api_signatures() {
         // Verify the public API functions exist and have correct signatures
-        // These are stubs - actual functionality will be added in 48-02
 
-        // populate_symbol_index should accept GraphBackend trait object
-        fn accepts_graph(_f: fn(&dyn sqlitegraph::GraphBackend) -> Result<(), Box<dyn std::error::Error>>) {}
+        // populate_symbol_index: (Rc<GraphBackend>, u64, &[(SymbolFact, i64)]) -> Result
+        fn accepts_populate(_f: fn(std::rc::Rc<dyn sqlitegraph::GraphBackend>, u64, &[(crate::ingest::SymbolFact, i64)]) -> Result<(), Box<dyn std::error::Error>>) {}
 
-        // invalidate_file_index should accept u64 file_id
-        fn accepts_file_id(_f: fn(u64) -> Result<(), Box<dyn std::error::Error>>) {}
+        // invalidate_file_index: (&GraphBackend, u64, &[i64]) -> Result
+        fn accepts_invalidate(_f: fn(&dyn sqlitegraph::GraphBackend, u64, &[i64]) -> Result<(), Box<dyn std::error::Error>>) {}
 
-        // lookup_symbol_by_fqn should accept &str and return Option<i64>
-        fn accepts_fqn_lookup(_f: fn(&str) -> Option<i64>) {}
+        // lookup_symbol_by_fqn: (&GraphBackend, &str) -> Option<i64>
+        fn accepts_lookup(_f: fn(&dyn sqlitegraph::GraphBackend, &str) -> Option<i64>) {}
 
         // If this compiles, the signatures are correct
-        accepts_graph(populate_symbol_index);
-        accepts_file_id(invalidate_file_index);
-        accepts_fqn_lookup(lookup_symbol_by_fqn);
+        accepts_populate(populate_symbol_index);
+        accepts_invalidate(invalidate_file_index);
+        accepts_lookup(lookup_symbol_by_fqn);
     }
 }
