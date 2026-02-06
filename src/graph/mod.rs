@@ -69,7 +69,7 @@ mod ast_tests;
 mod tests;
 
 use anyhow::Result;
-use sqlitegraph::{GraphBackend, SqliteGraphBackend};
+use sqlitegraph::GraphBackend;
 use std::collections::HashMap;
 use std::path::Path;
 use std::rc::Rc;
