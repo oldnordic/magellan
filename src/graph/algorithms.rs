@@ -15,6 +15,18 @@
 //! For call graph algorithms (reachability, dead code detection, SCC), we filter
 //! to **CALLS** edges only to traverse the call graph structure.
 //!
+//! # Clustered Adjacency (native-v2-perf feature)
+//!
+//! When the `native-v2-perf` feature is enabled, Magellan uses sqlitegraph's
+//! clustered adjacency storage for ~10x graph traversal performance improvement.
+//! The clustering is automatically enabled by the `v2_experimental` feature in
+//! sqlitegraph and requires no code changes in this module.
+//!
+//! **Note:** This module currently uses `SqliteGraphBackend` directly for algorithm
+//! functions (reachability, SCC, path enumeration). Full Native V2 backend support
+//! for algorithms requires trait extension or conditional compilation (future work).
+//! Benchmarks in Phase 48-04 will validate clustered adjacency performance.
+//!
 //! # Entity IDs vs Symbol IDs
 //!
 //! sqlitegraph algorithms work with **entity IDs** (i64 database row IDs),
