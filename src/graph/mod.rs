@@ -170,9 +170,14 @@ impl CodeGraph {
         // Phase 2: Backend opening (conditional compilation)
         #[cfg(feature = "native-v2")]
         let backend: Rc<dyn GraphBackend> = {
-            use sqlitegraph::{open_graph, GraphConfig};
-            let config = GraphConfig::native();
-            Rc::new(open_graph(&db_path_buf, &config)?)
+            use sqlitegraph::NativeGraphBackend;
+            // Native backend: open if exists, create if not (mirrors SqliteGraph::open behavior)
+            let native_graph = if db_path_buf.exists() {
+                NativeGraphBackend::open(&db_path_buf)?
+            } else {
+                NativeGraphBackend::new(&db_path_buf)?
+            };
+            Rc::new(native_graph)
         };
 
         #[cfg(not(feature = "native-v2"))]
