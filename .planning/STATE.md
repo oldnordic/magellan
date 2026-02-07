@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-06)
 ## Current Position
 
 Phase: 47 of 51 (Data Migration & Compatibility)
-Plan: 3 of 5 in current phase
-Status: In progress
-Last activity: 2026-02-07 — Completed 47-03-PLAN.md (Backend format detection)
+Plan: 5 of 5 in current phase
+Status: Phase complete
+Last activity: 2026-02-07 — Completed 47-05-PLAN.md (Round-trip migration test)
 
-Progress: [███████████████████] 91.4% (192/210 total plans)
+Progress: [███████████████████] 92.4% (194/210 total plans)
 
 ## Performance Metrics
 
@@ -216,6 +216,15 @@ Blockers:
 - Binary produced: target/debug/magellan (125MB, working)
 - Commits: 18a0cce (ExecutionLog::disabled), 5ac70ca (MetricsOps::disabled)
 
+**From Phase 47-04 (Backend Migration CLI Command):**
+- Implemented run_migrate_backend() orchestrator with full migration pipeline (detect → export → import → verify → migrate side tables)
+- Used ATTACH DATABASE approach for side table migration (efficient cross-database copy)
+- Defined side table schemas inline in migrate_backend_cmd.rs for self-contained migration
+- Added migrate-backend CLI command with --input, --output, --export-dir, --dry-run flags
+- Native V2 is always the target format (one-way migration from SQLite)
+- Dry-run mode detects format without any data copy operations
+- Commits: 386ccbf (migration orchestrator), d9d92df (CLI command)
+
 **From Phase 47-01 (Snapshot Export Wrapper):**
 - Created src/migrate_backend_cmd.rs with snapshot export functionality
 - Delegates entirely to sqlitegraph's GraphBackend::snapshot_export() - no custom serialization
@@ -305,17 +314,24 @@ Blockers:
 
 ## Session Continuity
 
-Last session: 2026-02-06
-Stopped at: Completed 48-04-PLAN.md (Performance benchmark suite)
+Last session: 2026-02-07
+Stopped at: Completed 47-05-PLAN.md (Round-trip migration test)
 Resume file: None
 Blockers:
 - algorithms.rs module uses concrete SqliteGraph type - requires conditional compilation to work with Native backend
 - 305 tests fail with native-v2 feature due to algorithms.rs limitation (verified in 46-05)
 - Pre-existing test failures: migration_tests expects schema v5 (actual is v7), parser_tests trait parsing issues
 
-**From Phase 48-04 (Performance Benchmark Suite):**
-- Created benchmark harness with setup_test_graph(), setup_large_graph(), setup_high_fanout_graph()
-- Implemented B1 (neighbor expansion), B2 (reachability), B3 (symbol lookup) benchmarks
-- Added __backend_for_benchmarks() to CodeGraph for direct backend access
-- Baseline metrics: B1 (3.4µs), B2 (26µs), B3 (71ns per lookup)
-- Commits: 32fa712 (harness), 9f2bc7a (benchmarks)
+**From Phase 47-05 (Round-Trip Migration Test):**
+- Created tests/backend_migration_tests.rs with 3 test functions (455 lines)
+- Fixed migration schema mismatches: execution_log (14 cols), ast_nodes (file_id), code_chunks (symbol_kind)
+- Fixed database lock issues by dropping backend connections before side table migration
+- Rewrote migrate_side_tables() to avoid ATTACH DATABASE locks, use direct row copy with rusqlite::Value
+- All 3 tests pass, demonstrating MIGRATE-04 and MIGRATE-05 requirements are met
+- Commits: faf5510 (test and fixes)
+
+**From Phase 47-04 (Backend Migration CLI Command):**
+- Implemented run_migrate_backend() orchestrator with full migration pipeline
+- Used ATTACH DATABASE approach for side table migration
+- Added migrate-backend CLI command with --input, --output, --export-dir, --dry-run flags
+- Commits: 386ccbf (migration orchestrator), d9d92df (CLI command)
