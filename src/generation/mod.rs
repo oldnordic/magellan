@@ -48,6 +48,9 @@ enum ChunkStoreConnection {
 pub struct ChunkStore {
     /// Connection source - either owned path or shared connection
     conn_source: ChunkStoreConnection,
+    /// Holds the temporary file alive (only used for native-v2 in_memory mode)
+    #[cfg(feature = "native-v2")]
+    _temp_file: Option<NamedTempFile>,
 }
 
 impl ChunkStore {
@@ -57,6 +60,8 @@ impl ChunkStore {
     pub fn new(db_path: &Path) -> Self {
         Self {
             conn_source: ChunkStoreConnection::Owned(db_path.to_path_buf()),
+            #[cfg(feature = "native-v2")]
+            _temp_file: None,
         }
     }
 
@@ -70,6 +75,8 @@ impl ChunkStore {
     pub fn with_connection(conn: rusqlite::Connection) -> Self {
         Self {
             conn_source: ChunkStoreConnection::Shared(Arc::new(Mutex::new(conn))),
+            #[cfg(feature = "native-v2")]
+            _temp_file: None,
         }
     }
 
@@ -78,19 +85,18 @@ impl ChunkStore {
     /// This is a compatibility shim for native-v2 mode where ChunkStore
     /// is not actually used (KV store handles chunks instead).
     ///
-    /// Uses a temporary file so that new connections can access the same data.
+    /// Uses a unique temporary file (via tempfile crate) so that parallel tests
+    /// don't conflict. The file is automatically cleaned up when ChunkStore is dropped.
     #[cfg(feature = "native-v2")]
     pub fn in_memory() -> Self {
-        // Create a temporary file for the stub database
-        // This allows new connections to access the same data
-        let temp_dir = std::env::temp_dir();
-        let db_path = temp_dir.join(format!("magellan_chunkstore_stub_{}.db", std::process::id()));
+        // Create a truly unique temp file (deleted on drop)
+        let temp_file = NamedTempFile::new()
+            .expect("Failed to create temporary database for ChunkStore stub");
 
-        // Remove existing file if it exists
-        let _ = std::fs::remove_file(&db_path);
+        let db_path = temp_file.path().to_path_buf();
 
         let mut conn = rusqlite::Connection::open(&db_path)
-            .expect("Failed to create temporary database for ChunkStore stub");
+            .expect("Failed to open temporary database for ChunkStore stub");
 
         // Create the code_chunks table with full schema for compatibility
         conn.execute(
@@ -182,6 +188,7 @@ impl ChunkStore {
 
         Self {
             conn_source: ChunkStoreConnection::Owned(db_path),
+            _temp_file: Some(temp_file),
         }
     }
 
