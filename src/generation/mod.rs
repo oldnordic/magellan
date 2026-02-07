@@ -24,6 +24,9 @@ use rusqlite::{params, OptionalExtension};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+#[cfg(feature = "native-v2")]
+use tempfile::NamedTempFile;
+
 pub use schema::CodeChunk;
 
 /// Connection source for ChunkStore.
@@ -67,6 +70,118 @@ impl ChunkStore {
     pub fn with_connection(conn: rusqlite::Connection) -> Self {
         Self {
             conn_source: ChunkStoreConnection::Shared(Arc::new(Mutex::new(conn))),
+        }
+    }
+
+    /// Create a stub ChunkStore using a temporary file (for native-v2 mode).
+    ///
+    /// This is a compatibility shim for native-v2 mode where ChunkStore
+    /// is not actually used (KV store handles chunks instead).
+    ///
+    /// Uses a temporary file so that new connections can access the same data.
+    #[cfg(feature = "native-v2")]
+    pub fn in_memory() -> Self {
+        // Create a temporary file for the stub database
+        // This allows new connections to access the same data
+        let temp_dir = std::env::temp_dir();
+        let db_path = temp_dir.join(format!("magellan_chunkstore_stub_{}.db", std::process::id()));
+
+        // Remove existing file if it exists
+        let _ = std::fs::remove_file(&db_path);
+
+        let mut conn = rusqlite::Connection::open(&db_path)
+            .expect("Failed to create temporary database for ChunkStore stub");
+
+        // Create the code_chunks table with full schema for compatibility
+        conn.execute(
+            "CREATE TABLE code_chunks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                file_path TEXT NOT NULL,
+                byte_start INTEGER NOT NULL,
+                byte_end INTEGER NOT NULL,
+                content TEXT NOT NULL,
+                content_hash TEXT NOT NULL,
+                symbol_name TEXT,
+                symbol_kind TEXT,
+                created_at INTEGER NOT NULL,
+                UNIQUE(file_path, byte_start, byte_end)
+            )",
+            [],
+        ).expect("Failed to create code_chunks table in ChunkStore stub");
+
+        // Create the ast_nodes table for AST storage
+        conn.execute(
+            "CREATE TABLE ast_nodes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                parent_id INTEGER,
+                kind TEXT NOT NULL,
+                byte_start INTEGER NOT NULL,
+                byte_end INTEGER NOT NULL,
+                file_id INTEGER
+            )",
+            [],
+        ).expect("Failed to create ast_nodes table in ChunkStore stub");
+
+        // Create the cfg_blocks table for CFG storage
+        conn.execute(
+            "CREATE TABLE cfg_blocks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                function_id INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                terminator TEXT NOT NULL,
+                byte_start INTEGER NOT NULL,
+                byte_end INTEGER NOT NULL,
+                start_line INTEGER NOT NULL,
+                start_col INTEGER NOT NULL,
+                end_line INTEGER NOT NULL,
+                end_col INTEGER NOT NULL
+            )",
+            [],
+        ).expect("Failed to create cfg_blocks table in ChunkStore stub");
+
+        // Create indexes
+        conn.execute(
+            "CREATE INDEX idx_chunks_file_path ON code_chunks(file_path)",
+            [],
+        ).expect("Failed to create file_path index");
+
+        conn.execute(
+            "CREATE INDEX idx_chunks_symbol_name ON code_chunks(symbol_name)",
+            [],
+        ).expect("Failed to create symbol_name index");
+
+        conn.execute(
+            "CREATE INDEX idx_chunks_content_hash ON code_chunks(content_hash)",
+            [],
+        ).expect("Failed to create content_hash index");
+
+        conn.execute(
+            "CREATE INDEX idx_ast_nodes_parent ON ast_nodes(parent_id)",
+            [],
+        ).expect("Failed to create ast_nodes parent index");
+
+        conn.execute(
+            "CREATE INDEX idx_ast_nodes_span ON ast_nodes(byte_start, byte_end)",
+            [],
+        ).expect("Failed to create ast_nodes span index");
+
+        conn.execute(
+            "CREATE INDEX idx_ast_nodes_file_id ON ast_nodes(file_id)",
+            [],
+        ).expect("Failed to create ast_nodes file_id index");
+
+        conn.execute(
+            "CREATE INDEX idx_cfg_blocks_function ON cfg_blocks(function_id)",
+            [],
+        ).expect("Failed to create cfg_blocks function index");
+
+        conn.execute(
+            "CREATE INDEX idx_cfg_blocks_span ON cfg_blocks(byte_start, byte_end)",
+            [],
+        ).expect("Failed to create cfg_blocks span index");
+
+        Self {
+            conn_source: ChunkStoreConnection::Owned(db_path),
         }
     }
 
