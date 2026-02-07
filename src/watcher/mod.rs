@@ -151,11 +151,82 @@ impl FileSystemWatcher {
             }
         });
 
+        // Initialize fields differently based on feature flag
+        // This creates a dummy channel that's never used without native-v2
+        #[cfg(feature = "native-v2")]
+        let (_pubsub_receiver, pubsub_file_rx) = {
+            let (_, rx) = mpsc::channel();
+            (None, rx)
+        };
+
         Ok(Self {
             _watcher_thread: thread,
             batch_receiver: batch_rx,
             legacy_pending_batch: Arc::new(Mutex::new(None)),
             legacy_pending_index: Arc::new(Mutex::new(0)),
+            #[cfg(feature = "native-v2")]
+            _pubsub_receiver,
+            #[cfg(feature = "native-v2")]
+            pubsub_file_rx,
+        })
+    }
+
+    /// Create a new watcher with pub/sub support for Native V2 backend.
+    ///
+    /// # Arguments
+    /// * `path` - Directory to watch recursively
+    /// * `config` - Watcher configuration
+    /// * `shutdown` - AtomicBool for graceful shutdown
+    /// * `backend` - Thread-safe graph backend for pub/sub subscription (must be Native V2)
+    /// * `cache_sender` - Channel to send file paths for cache invalidation
+    ///
+    /// # Returns
+    /// A watcher that receives both filesystem and pub/sub events
+    ///
+    /// # Errors
+    /// Returns Ok even if pub/sub subscription fails (graceful degradation).
+    /// The watcher will continue with filesystem-only watching in that case.
+    #[cfg(feature = "native-v2")]
+    pub fn with_pubsub(
+        path: PathBuf,
+        config: WatcherConfig,
+        shutdown: Arc<AtomicBool>,
+        backend: Arc<dyn sqlitegraph::GraphBackend + Send + Sync>,
+        cache_sender: mpsc::Sender<String>,
+    ) -> Result<Self> {
+        let (batch_tx, batch_rx) = mpsc::channel();
+
+        // Ensure root_path is set to the watched directory for validation
+        let config = WatcherConfig {
+            root_path: path.clone(),
+            ..config
+        };
+
+        // Create channel for pub/sub file paths
+        let (pubsub_file_tx, pubsub_file_rx) = mpsc::channel();
+
+        // Create pub/sub event receiver with graceful degradation
+        let _pubsub_receiver = match PubSubEventReceiver::new(backend, cache_sender) {
+            Ok(receiver) => Some(Box::new(receiver)),
+            Err(e) => {
+                eprintln!("Warning: Failed to create pub/sub receiver: {:?}. Continuing with filesystem-only watching.", e);
+                None
+            }
+        };
+
+        let thread = thread::spawn(move || {
+            if let Err(e) = run_watcher(path, batch_tx, config, shutdown) {
+                eprintln!("Watcher error: {:?}", e);
+            }
+        });
+
+        Ok(Self {
+            _watcher_thread: thread,
+            batch_receiver: batch_rx,
+            legacy_pending_batch: Arc::new(Mutex::new(None)),
+            legacy_pending_index: Arc::new(Mutex::new(0)),
+            _pubsub_receiver,
+            pubsub_file_rx,
         })
     }
 
