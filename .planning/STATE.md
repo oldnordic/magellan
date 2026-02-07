@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-06)
 ## Current Position
 
 Phase: 47 of 51 (Data Migration & Compatibility)
-Plan: 1 of 5 in current phase
+Plan: 3 of 5 in current phase
 Status: In progress
-Last activity: 2026-02-07 — Completed 47-01-PLAN.md (Snapshot export wrapper)
+Last activity: 2026-02-07 — Completed 47-03-PLAN.md (Backend format detection)
 
-Progress: [███████████████████] 90.5% (190/210 total plans)
+Progress: [███████████████████] 91.4% (192/210 total plans)
 
 ## Performance Metrics
 
@@ -54,6 +54,13 @@ Progress: [███████████████████] 90.5% (190
 
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
+
+**From Phase 47-03 (Backend Format Detection):**
+- Implemented detect_backend_format() using magic byte inspection (b"MAG2" for Native V2)
+- Used rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY to prevent accidental database creation
+- Reject :memory: databases with InMemoryDatabaseNotSupported error
+- Check Native V2 magic bytes first before SQLite open attempt (faster path)
+- Created MigrationError enum for specific error reporting (DatabaseNotFound, CannotOpenDatabase, CannotReadHeader, UnknownFormat, InMemoryDatabaseNotSupported)
 
 **From Phase 48-02 (KV Index Population and Invalidation):**
 - Implemented populate_symbol_index() to create sym:fqn:{fqn} → SymbolId mappings during indexing
@@ -188,7 +195,7 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-07
-Stopped at: Completed 47-01-PLAN.md (Snapshot export wrapper)
+Stopped at: Completed 47-03-PLAN.md (Backend format detection)
 Resume file: None
 Blockers:
 - algorithms.rs module uses concrete SqliteGraph type - requires conditional compilation to work with Native backend
@@ -217,6 +224,15 @@ Blockers:
 - Actual entity/edge counts available from snapshot_export() return value
 - Uses Rc<dyn GraphBackend> parameter type to match CodeGraph internal storage
 - Commit: 5c8dce5 (snapshot export wrapper)
+
+**From Phase 47-02 (Snapshot Import Wrapper):**
+- Added SnapshotImportMetadata struct with entities_imported, edges_imported, source_dir, import_timestamp
+- Implemented import_snapshot() function that validates directory and delegates to backend.snapshot_import()
+- Added verify_import_counts() helper to compare export and import metadata for data integrity
+- Returns i64 counts instead of u64 to match SnapshotExportMetadata convention
+- Separate metadata types prevent accidental misuse (can't pass import metadata where export is expected)
+- All 7 unit tests pass
+- Commit: 2533b60 (snapshot import wrapper)
 
 **From Phase 49-02 (FileSystemWatcher Pub/Sub Integration):**
 - Integrated pub/sub components into FileSystemWatcher struct
