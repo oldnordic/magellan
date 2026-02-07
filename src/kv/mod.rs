@@ -94,7 +94,7 @@ pub fn populate_symbol_index(
     backend: Rc<dyn GraphBackend>,
     file_id: u64,
     symbols: &[(SymbolFact, i64)],
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<()> {
     use crate::kv::encoding::encode_symbol_ids;
     use crate::kv::keys::{file_sym_key, sym_fqn_key, sym_fqn_of_key, sym_rev_key};
 
@@ -192,7 +192,7 @@ pub fn invalidate_file_index(
     backend: &dyn GraphBackend,
     file_id: u64,
     old_symbol_ids: &[i64],
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<()> {
     use crate::kv::keys::{file_sym_key, sym_fqn_of_key};
 
     // Delete sym:fqn_of:{id} for each old symbol
@@ -225,10 +225,10 @@ mod tests {
         // Verify the public API functions exist and have correct signatures
 
         // populate_symbol_index: (Rc<GraphBackend>, u64, &[(SymbolFact, i64)]) -> Result
-        fn accepts_populate(_f: fn(std::rc::Rc<dyn sqlitegraph::GraphBackend>, u64, &[(crate::ingest::SymbolFact, i64)]) -> Result<(), Box<dyn std::error::Error>>) {}
+        fn accepts_populate(_f: fn(std::rc::Rc<dyn sqlitegraph::GraphBackend>, u64, &[(crate::ingest::SymbolFact, i64)]) -> anyhow::Result<()>) {}
 
         // invalidate_file_index: (&GraphBackend, u64, &[i64]) -> Result
-        fn accepts_invalidate(_f: fn(&dyn sqlitegraph::GraphBackend, u64, &[i64]) -> Result<(), Box<dyn std::error::Error>>) {}
+        fn accepts_invalidate(_f: fn(&dyn sqlitegraph::GraphBackend, u64, &[i64]) -> anyhow::Result<()>) {}
 
         // lookup_symbol_by_fqn: (&GraphBackend, &str) -> Option<i64>
         fn accepts_lookup(_f: fn(&dyn sqlitegraph::GraphBackend, &str) -> Option<i64>) {}
