@@ -45,6 +45,17 @@ impl MetricsOps {
         }
     }
 
+    /// Create a disabled MetricsOps for native-v2 mode.
+    ///
+    /// Native V2 doesn't use SQLite-based metrics.
+    /// Creates a stub with :memory: path (operations become no-ops).
+    #[cfg(feature = "native-v2")]
+    pub fn disabled() -> Self {
+        Self {
+            db_path: std::path::PathBuf::from(":memory:"),
+        }
+    }
+
     /// Ensure metrics tables exist (creates if new DB)
     pub fn ensure_schema(&self) -> Result<()> {
         let conn = self.connect()?;
