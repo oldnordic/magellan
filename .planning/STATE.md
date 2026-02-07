@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-02-06)
 
 **Core value:** Produce correct, deterministic symbol + reference + call graph data from real codebases, continuously, without stopping on bad files.
-**Current focus:** Phase 49 - Pub/Sub Integration (COMPLETE)
+**Current focus:** Phase 51 - Fix Native V2 Compilation Errors
 
 ## Current Position
 
-Phase: 49 of 50 (Pub/Sub Integration)
-Plan: 3 of 3 in current phase
-Status: Phase complete
-Last activity: 2026-02-07 — Completed 49-03-PLAN.md (Pub/sub shutdown and CLI integration)
+Phase: 51 of 51 (Fix Native V2 Compilation Errors)
+Plan: 0 of 3 in current phase
+Status: Planning complete, ready for execution
+Last activity: 2026-02-07 — Created 51-01/02/03-PLAN.md (Fix native-v2 compilation)
 
 Progress: [██████████████████░] 89.0% (186/209 total plans)
 
@@ -45,6 +45,10 @@ Progress: [██████████████████░] 89.0% (186
 *Updated after each plan completion*
 
 ## Accumulated Context
+
+### Roadmap Evolution
+
+- Phase 51 added: Fix native-v2 compilation errors and enable native backend (2026-02-07)
 
 ### Decisions
 
@@ -225,7 +229,7 @@ Blockers:
 
 **Milestone Goal:** Migrate from SQLiteGraph's SQLite backend to Native V2 backend for 10x traversal performance, O(1) symbol lookups, and pub/sub events.
 
-**Phases:** 46-50 (29 plans planned)
+**Phases:** 46-51 (29+ plans planned)
 - Phase 46: Backend Abstraction Foundation (4 plans) - Type signature changes, feature flag propagation
 - Phase 47: Data Migration & Compatibility (5 plans) - Snapshot export/import, backend detection, migration CLI
 - Phase 48: Native V2 Performance Features (5 plans) - KV store indexing, clustered adjacency, benchmarks

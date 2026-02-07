@@ -53,7 +53,6 @@ pub mod generation;
 pub mod graph;
 pub mod indexer;
 pub mod ingest;
-pub mod migrate_backend_cmd;
 pub mod migrate_cmd;
 pub mod output;
 pub mod references;
