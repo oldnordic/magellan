@@ -22,6 +22,13 @@ impl MetricsOps {
         source: &[u8],
         symbol_facts: &[crate::graph::schema::SymbolNode],
     ) -> Result<()> {
+        // Native V2: metrics are not supported (no SQLite tables)
+        // Return early if db_path is empty (indicates disabled state)
+        #[cfg(feature = "native-v2")]
+        if self.db_path.as_os_str().is_empty() {
+            return Ok(());
+        }
+
         // Count symbols in this file
         let symbol_count = symbol_facts.len() as i64;
 
@@ -70,6 +77,12 @@ impl MetricsOps {
 
     /// Compute file-level fan-in (incoming references/calls from other files)
     fn compute_file_fan_in(&self, file_path: &str) -> Result<i64> {
+        // Native V2: metrics tables don't exist
+        #[cfg(feature = "native-v2")]
+        if self.db_path.as_os_str().is_empty() {
+            return Ok(0);
+        }
+
         use rusqlite::params;
 
         let conn = self.connect()?;
@@ -107,6 +120,12 @@ impl MetricsOps {
 
     /// Compute file-level fan-out (outgoing references/calls to other files)
     fn compute_file_fan_out(&self, file_path: &str) -> Result<i64> {
+        // Native V2: metrics tables don't exist
+        #[cfg(feature = "native-v2")]
+        if self.db_path.as_os_str().is_empty() {
+            return Ok(0);
+        }
+
         use rusqlite::params;
 
         let conn = self.connect()?;
@@ -149,6 +168,12 @@ impl MetricsOps {
         symbol: &crate::graph::schema::SymbolNode,
         file_path: &str,
     ) -> Result<()> {
+        // Native V2: metrics tables don't exist
+        #[cfg(feature = "native-v2")]
+        if self.db_path.as_os_str().is_empty() {
+            return Ok(());
+        }
+
         // Get the FQN for lookup
         let fqn = symbol.fqn.as_deref().unwrap_or("");
         if fqn.is_empty() {
@@ -205,6 +230,12 @@ impl MetricsOps {
 
     /// Find symbol_id by FQN
     fn find_symbol_id(&self, fqn: &str) -> Result<Option<i64>> {
+        // Native V2: metrics tables don't exist
+        #[cfg(feature = "native-v2")]
+        if self.db_path.as_os_str().is_empty() {
+            return Ok(None);
+        }
+
         use rusqlite::params;
 
         let conn = self.connect()?;
@@ -222,6 +253,12 @@ impl MetricsOps {
 
     /// Compute symbol-level fan-in (incoming edges)
     fn compute_symbol_fan_in(&self, symbol_id: i64) -> Result<i64> {
+        // Native V2: metrics tables don't exist
+        #[cfg(feature = "native-v2")]
+        if self.db_path.as_os_str().is_empty() {
+            return Ok(0);
+        }
+
         use rusqlite::params;
 
         let conn = self.connect()?;
@@ -238,6 +275,12 @@ impl MetricsOps {
 
     /// Compute symbol-level fan-out (outgoing edges)
     fn compute_symbol_fan_out(&self, symbol_id: i64) -> Result<i64> {
+        // Native V2: metrics tables don't exist
+        #[cfg(feature = "native-v2")]
+        if self.db_path.as_os_str().is_empty() {
+            return Ok(0);
+        }
+
         use rusqlite::params;
 
         let conn = self.connect()?;

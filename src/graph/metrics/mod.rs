@@ -45,8 +45,22 @@ impl MetricsOps {
         }
     }
 
+    /// Create a disabled MetricsOps (no-op implementation for native-v2)
+    #[cfg(feature = "native-v2")]
+    pub fn disabled() -> Self {
+        Self {
+            db_path: std::path::PathBuf::new(),
+        }
+    }
+
     /// Ensure metrics tables exist (creates if new DB)
     pub fn ensure_schema(&self) -> Result<()> {
+        // Native V2: metrics tables don't exist in native format
+        #[cfg(feature = "native-v2")]
+        if self.db_path.as_os_str().is_empty() {
+            return Ok(());
+        }
+
         let conn = self.connect()?;
         // Delegate to db_compat module which has the schema definition
         crate::graph::db_compat::ensure_metrics_schema(&conn)
@@ -71,6 +85,12 @@ impl MetricsOps {
 
     /// Upsert file metrics (insert or replace)
     pub fn upsert_file_metrics(&self, metrics: &FileMetrics) -> Result<()> {
+        // Native V2: metrics tables don't exist
+        #[cfg(feature = "native-v2")]
+        if self.db_path.as_os_str().is_empty() {
+            return Ok(());
+        }
+
         let conn = self.connect()?;
         conn.execute(
             "INSERT OR REPLACE INTO file_metrics (
@@ -94,6 +114,12 @@ impl MetricsOps {
 
     /// Upsert symbol metrics (insert or replace)
     pub fn upsert_symbol_metrics(&self, metrics: &SymbolMetrics) -> Result<()> {
+        // Native V2: metrics tables don't exist
+        #[cfg(feature = "native-v2")]
+        if self.db_path.as_os_str().is_empty() {
+            return Ok(());
+        }
+
         let conn = self.connect()?;
         conn.execute(
             "INSERT OR REPLACE INTO symbol_metrics (
@@ -120,6 +146,12 @@ impl MetricsOps {
 
     /// Delete all metrics for a file (both file_metrics and symbol_metrics rows)
     pub fn delete_file_metrics(&self, file_path: &str) -> Result<usize> {
+        // Native V2: metrics tables don't exist
+        #[cfg(feature = "native-v2")]
+        if self.db_path.as_os_str().is_empty() {
+            return Ok(0);
+        }
+
         let conn = self.connect()?;
 
         // Delete symbol metrics for this file first (foreign key dependency)
@@ -143,6 +175,12 @@ impl MetricsOps {
 
     /// Get file metrics by path
     pub fn get_file_metrics(&self, file_path: &str) -> Result<Option<FileMetrics>> {
+        // Native V2: metrics tables don't exist
+        #[cfg(feature = "native-v2")]
+        if self.db_path.as_os_str().is_empty() {
+            return Ok(None);
+        }
+
         let conn = self.connect()?;
         let result = conn
             .query_row(
@@ -172,6 +210,12 @@ impl MetricsOps {
 
     /// Get symbol metrics by symbol_id
     pub fn get_symbol_metrics(&self, symbol_id: i64) -> Result<Option<SymbolMetrics>> {
+        // Native V2: metrics tables don't exist
+        #[cfg(feature = "native-v2")]
+        if self.db_path.as_os_str().is_empty() {
+            return Ok(None);
+        }
+
         let conn = self.connect()?;
         let result = conn
             .query_row(
@@ -212,6 +256,12 @@ impl MetricsOps {
         min_fan_in: Option<i64>,
         min_fan_out: Option<i64>,
     ) -> Result<Vec<FileMetrics>> {
+        // Native V2: metrics tables don't exist
+        #[cfg(feature = "native-v2")]
+        if self.db_path.as_os_str().is_empty() {
+            return Ok(Vec::new());
+        }
+
         let conn = self.connect()?;
 
         // Build query with optional filters

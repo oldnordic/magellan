@@ -75,7 +75,7 @@ mod tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "native-v2")))]
 mod pragma_tests {
     use tempfile::TempDir;
 

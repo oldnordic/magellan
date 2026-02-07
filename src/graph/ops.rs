@@ -183,12 +183,12 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
     // Only available with native-v2 backend (KV store is native-only)
     #[cfg(feature = "native-v2")]
     {
-        let backend: &dyn GraphBackend = &*graph.files.backend;
+        let backend = graph.files.backend.clone();
         crate::kv::populate_symbol_index(
             backend,
             file_id.as_i64() as u64,
             &indexed_symbols,
-        )?;
+        ).map_err(|e| anyhow::anyhow!("KV populate error: {}", e))?;
     }
 
     // Step 5: Extract and store code chunks for each symbol
@@ -462,12 +462,12 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         // Only available with native-v2 backend (KV store is native-only)
         #[cfg(feature = "native-v2")]
         {
-            let backend: &dyn GraphBackend = &*graph.files.backend;
+            let backend = graph.files.backend.clone();
             crate::kv::invalidate_file_index(
-                backend,
+                &*backend,
                 file_id.as_i64() as u64,
                 &symbol_ids_sorted,
-            )?;
+            ).map_err(|e| anyhow::anyhow!("KV invalidate error: {}", e))?;
         }
 
         // Delete each symbol node (sqlitegraph deletes edges touching entity).

@@ -41,6 +41,14 @@ impl ExecutionLog {
         }
     }
 
+    /// Create a disabled ExecutionLog (no-op implementation for native-v2)
+    #[cfg(feature = "native-v2")]
+    pub fn disabled() -> Self {
+        Self {
+            db_path: std::path::PathBuf::new(),
+        }
+    }
+
     pub fn connect(&self) -> Result<rusqlite::Connection, rusqlite::Error> {
         rusqlite::Connection::open(&self.db_path)
     }

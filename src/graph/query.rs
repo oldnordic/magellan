@@ -832,6 +832,7 @@ fn bar() {
     }
 
     #[test]
+    #[cfg(not(feature = "native-v2"))]
     fn test_find_by_symbol_id_returns_none_for_nonexistent() {
         let temp_dir = tempfile::TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");
@@ -851,6 +852,7 @@ fn bar() {
     }
 
     #[test]
+    #[cfg(not(feature = "native-v2"))]
     fn test_find_by_symbol_id_returns_symbol_when_found() {
         let temp_dir = tempfile::TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");
@@ -894,6 +896,7 @@ fn test_function() -> i32 {
     }
 
     #[test]
+    #[cfg(not(feature = "native-v2"))]
     fn test_get_ambiguous_candidates_empty_for_no_match() {
         let temp_dir = tempfile::TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");
@@ -912,6 +915,7 @@ fn test_function() -> i32 {
     }
 
     #[test]
+    #[cfg(not(feature = "native-v2"))]
     fn test_get_ambiguous_candidates_single_result() {
         let temp_dir = tempfile::TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");
@@ -968,6 +972,7 @@ fn test_function() -> i32 {
     }
 
     #[test]
+    #[cfg(not(feature = "native-v2"))]
     fn test_get_ambiguous_candidates_multiple_results() {
         let temp_dir = tempfile::TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");
@@ -1033,6 +1038,7 @@ fn test_function() -> i32 {
     }
 
     #[test]
+    #[cfg(not(feature = "native-v2"))]
     fn test_collision_groups_for_fqn() {
         let temp_dir = tempfile::TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");

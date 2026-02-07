@@ -204,6 +204,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "native-v2"))]
     fn test_export_collisions_included_when_enabled() {
         let temp_dir = tempfile::TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");
