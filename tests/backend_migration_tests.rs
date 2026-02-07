@@ -1,0 +1,442 @@
+//! Cross-backend migration integration tests
+//!
+//! Tests the migration pipeline from SQLite to Native V2 format:
+//! - Creating sample SQLite databases with graph data
+//! - Running migration via run_migrate_backend()
+//! - Verifying data preservation (entity/edge counts, side tables)
+//!
+//! This is a TDD test: initially fails because migration implementation
+//! is incomplete, then passes after plans 47-01 through 47-04 complete.
+
+use anyhow::Result;
+use magellan::migrate_backend_cmd::{run_migrate_backend, BackendFormat, BackendMigrationResult};
+use magellan::CodeGraph;
+use std::collections::HashMap;
+use std::path::Path;
+use tempfile::TempDir;
+
+/// Test helper: Get entity and edge counts from a database
+///
+/// Opens the database and queries graph_entities and graph_edges tables.
+/// Returns tuple of (entity_count, edge_count).
+fn get_graph_counts(db_path: &Path) -> Result<(i64, i64)> {
+    let conn = rusqlite::Connection::open(db_path)?;
+
+    let entity_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM graph_entities", [], |row| row.get(0))
+        .unwrap_or(0);
+
+    let edge_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM graph_edges", [], |row| row.get(0))
+        .unwrap_or(0);
+
+    Ok((entity_count, edge_count))
+}
+
+/// Test helper: Get row counts for all Magellan side tables
+///
+/// Returns HashMap with table name -> row count for:
+/// - code_chunks
+/// - file_metrics
+/// - symbol_metrics
+/// - execution_log
+/// - ast_nodes
+/// - cfg_blocks
+fn get_side_table_counts(db_path: &Path) -> Result<HashMap<String, i64>> {
+    let conn = rusqlite::Connection::open(db_path)?;
+    let mut counts = HashMap::new();
+
+    let side_tables = [
+        "code_chunks",
+        "file_metrics",
+        "symbol_metrics",
+        "execution_log",
+        "ast_nodes",
+        "cfg_blocks",
+    ];
+
+    for table in side_tables {
+        let count: i64 = conn
+            .query_row(
+                &format!("SELECT COUNT(*) FROM {}", table),
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        counts.insert(table.to_string(), count);
+    }
+
+    Ok(counts)
+}
+
+/// Test helper: Ensure metrics schema exists
+///
+/// Creates file_metrics and symbol_metrics tables if they don't exist.
+/// Mirrors magellan::graph::db_compat::ensure_metrics_schema.
+fn ensure_metrics_schema(conn: &rusqlite::Connection) -> Result<()> {
+    // File-level metrics table
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS file_metrics (
+            file_path TEXT PRIMARY KEY,
+            symbol_count INTEGER NOT NULL,
+            loc INTEGER NOT NULL,
+            estimated_loc REAL NOT NULL,
+            fan_in INTEGER NOT NULL DEFAULT 0,
+            fan_out INTEGER NOT NULL DEFAULT 0,
+            complexity_score REAL NOT NULL DEFAULT 0.0,
+            last_updated INTEGER NOT NULL
+        )",
+        [],
+    )?;
+
+    // Symbol-level metrics table
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS symbol_metrics (
+            symbol_id INTEGER PRIMARY KEY,
+            symbol_name TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            loc INTEGER NOT NULL,
+            estimated_loc REAL NOT NULL,
+            fan_in INTEGER NOT NULL DEFAULT 0,
+            fan_out INTEGER NOT NULL DEFAULT 0,
+            cyclomatic_complexity INTEGER NOT NULL DEFAULT 1,
+            last_updated INTEGER NOT NULL,
+            FOREIGN KEY (symbol_id) REFERENCES graph_entities(id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+
+    // Indexes
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_file_metrics_complexity ON file_metrics(complexity_score DESC)",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_symbol_metrics_fan_in ON symbol_metrics(fan_in DESC)",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_symbol_metrics_fan_out ON symbol_metrics(fan_out DESC)",
+        [],
+    )?;
+
+    Ok(())
+}
+
+/// Test helper: Ensure AST schema exists
+///
+/// Creates ast_nodes table if it doesn't exist.
+/// Mirrors magellan::graph::db_compat::ensure_ast_schema.
+fn ensure_ast_schema(conn: &rusqlite::Connection) -> Result<()> {
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS ast_nodes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            parent_id INTEGER,
+            kind TEXT NOT NULL,
+            byte_start INTEGER NOT NULL,
+            byte_end INTEGER NOT NULL
+        )",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ast_nodes_parent ON ast_nodes(parent_id)",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ast_nodes_span ON ast_nodes(byte_start, byte_end)",
+        [],
+    )?;
+
+    Ok(())
+}
+
+/// Test helper: Ensure CFG schema exists
+///
+/// Creates cfg_blocks table if it doesn't exist.
+/// Mirrors magellan::graph::db_compat::ensure_cfg_schema.
+fn ensure_cfg_schema(conn: &rusqlite::Connection) -> Result<()> {
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS cfg_blocks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            function_id INTEGER NOT NULL,
+            kind TEXT NOT NULL,
+            terminator TEXT NOT NULL,
+            byte_start INTEGER NOT NULL,
+            byte_end INTEGER NOT NULL,
+            start_line INTEGER NOT NULL,
+            start_col INTEGER NOT NULL,
+            end_line INTEGER NOT NULL,
+            end_col INTEGER NOT NULL,
+            FOREIGN KEY (function_id) REFERENCES graph_entities(id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_cfg_blocks_function ON cfg_blocks(function_id)",
+        [],
+    )?;
+
+    Ok(())
+}
+
+#[test]
+fn test_round_trip_migration_preserves_data() {
+    // Create temp directory for test databases
+    let temp_dir = TempDir::new().unwrap();
+    let source_db = temp_dir.path().join("source.db");
+    let target_db = temp_dir.path().join("target.db");
+
+    // Step 1: Create source SQLite database with sample data
+    let source_code_1 = r#"
+pub fn main() {
+    println!("Hello, world");
+    helper();
+}
+
+pub fn helper() {
+    println!("Helper function");
+}
+"#;
+
+    let source_code_2 = r#"
+pub struct MyStruct {
+    pub value: i32,
+}
+
+impl MyStruct {
+    pub fn new(value: i32) -> Self {
+        Self { value }
+    }
+}
+"#;
+
+    // Create source graph and index files
+    {
+        let mut graph = CodeGraph::open(&source_db).unwrap();
+
+        // Index two files to create File nodes, Symbol nodes, and DEFINES edges
+        let file1_path = "src/main.rs";
+        let file2_path = "src/lib.rs";
+
+        graph.index_file(file1_path, source_code_1.as_bytes()).unwrap();
+        graph.index_file(file2_path, source_code_2.as_bytes()).unwrap();
+
+        // Verify we indexed some symbols
+        let symbol_count = graph.count_symbols().unwrap();
+        assert!(symbol_count > 0, "Should have indexed at least one symbol");
+    }
+
+    // Step 2: Add side table data directly via rusqlite
+    {
+        let conn = rusqlite::Connection::open(&source_db).unwrap();
+
+        // Ensure schemas exist
+        ensure_metrics_schema(&conn).unwrap();
+        ensure_ast_schema(&conn).unwrap();
+        ensure_cfg_schema(&conn).unwrap();
+
+        // Note: code_chunks schema is automatically created by CodeGraph::open
+        // via ChunkStore. We don't need to create it here.
+
+        // Insert code_chunks (1 row) - using actual schema
+        conn.execute(
+            "INSERT INTO code_chunks (file_path, byte_start, byte_end, content, content_hash, symbol_name, symbol_kind, created_at)
+             VALUES ('src/main.rs', 0, 100, 'pub fn main() { ... }', 'abc123', 'main', 'Function', 1000)",
+            [],
+        ).unwrap();
+
+        // Insert file_metrics (2 rows) - use INSERT OR REPLACE in case backfill created entries
+        conn.execute(
+            "INSERT OR REPLACE INTO file_metrics (file_path, symbol_count, loc, estimated_loc, fan_in, fan_out, complexity_score, last_updated)
+             VALUES ('src/main.rs', 3, 20, 20.0, 0, 1, 1.0, 1000)",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO file_metrics (file_path, symbol_count, loc, estimated_loc, fan_in, fan_out, complexity_score, last_updated)
+             VALUES ('src/lib.rs', 2, 15, 15.0, 1, 0, 0.5, 1000)",
+            [],
+        ).unwrap();
+
+        // Insert symbol_metrics (3 rows) - need actual symbol IDs from graph
+        // First, get symbol IDs from the graph
+        let symbol_ids: Vec<i64> = conn
+            .query_row(
+                "SELECT GROUP_CONCAT(id) FROM graph_entities WHERE kind='Symbol'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .ok()
+            .and_then(|s| {
+                let ids: Vec<i64> = s.split(',').filter_map(|x| x.parse().ok()).collect();
+                if ids.len() >= 3 { Some(ids) } else { None }
+            })
+            .unwrap_or_else(|| vec![100, 101, 102]); // Fallback IDs
+
+        for (i, symbol_id) in symbol_ids.iter().take(3).enumerate() {
+            let name = match i {
+                0 => "main",
+                1 => "helper",
+                2 => "MyStruct",
+                _ => "unknown",
+            };
+            // Use &[&dyn ToSql] for dynamic parameter types
+            use rusqlite::params;
+            conn.execute(
+                "INSERT OR REPLACE INTO symbol_metrics (symbol_id, symbol_name, kind, file_path, loc, estimated_loc, fan_in, fan_out, cyclomatic_complexity, last_updated)
+                 VALUES (?1, ?2, 'Function', 'src/main.rs', 10, 10.0, 0, 1, 1, 1000)",
+                params![symbol_id, name],
+            ).unwrap();
+        }
+
+        // Insert execution_log (1 row) - using actual schema
+        conn.execute(
+            "INSERT INTO execution_log (execution_id, tool_version, args, db_path, started_at, finished_at, duration_ms, outcome, files_indexed, symbols_indexed, references_indexed)
+             VALUES ('test-exec-1', '2.1.0', '[\"scan\"]', '/test.db', 1000, 1100, 100, 'success', 2, 5, 8)",
+            [],
+        ).unwrap();
+
+        // Insert ast_nodes (4 rows)
+        conn.execute(
+            "INSERT INTO ast_nodes (parent_id, kind, byte_start, byte_end) VALUES (NULL, 'SourceFile', 0, 200)",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO ast_nodes (parent_id, kind, byte_start, byte_end) VALUES (1, 'FunctionDeclaration', 0, 50)",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO ast_nodes (parent_id, kind, byte_start, byte_end) VALUES (1, 'FunctionDeclaration', 52, 100)",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO ast_nodes (parent_id, kind, byte_start, byte_end) VALUES (2, 'BlockExpression', 12, 48)",
+            [],
+        ).unwrap();
+
+        // Insert cfg_blocks (2 rows) - need function IDs
+        let func_id = symbol_ids.first().copied().unwrap_or(100);
+        conn.execute(
+            "INSERT INTO cfg_blocks (function_id, kind, terminator, byte_start, byte_end, start_line, start_col, end_line, end_col)
+             VALUES (?1, 'Entry', 'None', 0, 10, 1, 0, 1, 10)",
+            [func_id],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO cfg_blocks (function_id, kind, terminator, byte_start, byte_end, start_line, start_col, end_line, end_col)
+             VALUES (?1, 'Return', 'Return', 11, 20, 2, 4, 2, 20)",
+            [func_id],
+        ).unwrap();
+    }
+
+    // Step 3: Get baseline counts from source database
+    let (source_entities, source_edges) = get_graph_counts(&source_db).unwrap();
+    let source_side_counts = get_side_table_counts(&source_db).unwrap();
+
+    println!("Source database:");
+    println!("  Entities: {}", source_entities);
+    println!("  Edges: {}", source_edges);
+    println!("  Side tables:");
+    for (table, count) in &source_side_counts {
+        println!("    {}: {}", table, count);
+    }
+
+    // Step 4: Run migration
+    let result: Result<BackendMigrationResult> =
+        run_migrate_backend(source_db.clone(), target_db.clone(), None, false);
+
+    // Step 5: Verify migration succeeded
+    // Note: This test is designed to fail initially (RED phase of TDD)
+    // It will pass after plans 47-01 through 47-04 complete
+    match result {
+        Ok(migration_result) => {
+            assert!(migration_result.success, "Migration should succeed");
+
+            // Step 6: Get migrated counts
+            let (target_entities, target_edges) = get_graph_counts(&target_db).unwrap();
+            let target_side_counts = get_side_table_counts(&target_db).unwrap();
+
+            println!("\nTarget database (migrated):");
+            println!("  Entities: {}", target_entities);
+            println!("  Edges: {}", target_edges);
+            println!("  Side tables:");
+            for (table, count) in &target_side_counts {
+                println!("    {}: {}", table, count);
+            }
+
+            // Verify entity/edge counts match
+            assert_eq!(
+                source_entities, target_entities,
+                "Entity count should match after migration"
+            );
+            assert_eq!(
+                source_edges, target_edges,
+                "Edge count should match after migration"
+            );
+
+            // Verify side table counts match
+            for table in ["code_chunks", "file_metrics", "symbol_metrics", "execution_log", "ast_nodes", "cfg_blocks"] {
+                let source_count = *source_side_counts.get(table).unwrap_or(&0);
+                let target_count = *target_side_counts.get(table).unwrap_or(&0);
+                assert_eq!(
+                    source_count, target_count,
+                    "{} count should match after migration (source={}, target={})",
+                    table, source_count, target_count
+                );
+            }
+
+            // Verify target format is Native V2
+            assert_eq!(
+                BackendFormat::NativeV2,
+                migration_result.target_format,
+                "Target format should be Native V2"
+            );
+
+            println!("\nMigration successful! All data preserved.");
+        }
+        Err(e) => {
+            // During RED phase (before 47-01 through 47-04 complete),
+            // we expect migration to fail
+            panic!("Migration failed (expected during RED phase): {}", e);
+        }
+    }
+}
+
+#[test]
+fn test_migration_detects_sqlite_format() {
+    use magellan::migrate_backend_cmd::detect_backend_format;
+
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+
+    // Create a SQLite database
+    {
+        let _graph = CodeGraph::open(&db_path).unwrap();
+    }
+
+    // Detect format
+    let format = detect_backend_format(&db_path).unwrap();
+    assert_eq!(format, BackendFormat::Sqlite);
+}
+
+#[test]
+fn test_migration_dry_run() {
+    let temp_dir = TempDir::new().unwrap();
+    let source_db = temp_dir.path().join("source.db");
+    let target_db = temp_dir.path().join("target.db");
+
+    // Create source database
+    {
+        let _graph = CodeGraph::open(&source_db).unwrap();
+    }
+
+    // Run dry-run migration (clone target_db since run_migrate_backend takes ownership)
+    let result = run_migrate_backend(source_db, target_db.clone(), None, true).unwrap();
+
+    assert!(result.success);
+    assert!(!target_db.exists(), "Target should not be created in dry-run mode");
+    assert_eq!(result.entities_migrated, 0);
+    assert_eq!(result.edges_migrated, 0);
+    assert!(!result.side_tables_migrated);
+}

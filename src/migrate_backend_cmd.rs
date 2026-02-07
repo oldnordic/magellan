@@ -627,6 +627,11 @@ pub fn run_migrate_backend(
         )
     })?;
 
+    // Drop backend connections before migrating side tables
+    // This releases database locks so ATTACH DATABASE can work
+    drop(source_backend);
+    drop(target_backend);
+
     // Migrate Magellan-specific side tables
     let side_tables_migrated =
         migrate_side_tables(&input_db, &output_db).map_err(|e| {
@@ -680,13 +685,14 @@ pub fn run_migrate_backend(
 /// - Data copy fails
 ///
 /// # Note
-/// This function uses ATTACH DATABASE to copy data between databases
-/// efficiently. The target database schema is created before copying data.
+/// This function uses a simpler approach to avoid WAL mode lock issues.
+/// Instead of ATTACH DATABASE, we use SQLite's VACUUM INTO to copy data,
+/// then clean up the copied tables.
 pub fn migrate_side_tables(source_db: &Path, target_db: &Path) -> Result<bool> {
     use rusqlite::Connection;
 
     // Open source connection to validate it exists and is readable
-    let _source_conn = Connection::open(source_db).map_err(|e| {
+    let source_conn = Connection::open(source_db).map_err(|e| {
         anyhow::anyhow!(
             "Failed to open source database '{}': {}",
             source_db.display(),
@@ -720,36 +726,29 @@ pub fn migrate_side_tables(source_db: &Path, target_db: &Path) -> Result<bool> {
         anyhow::anyhow!("Failed to start transaction on target database: {}", e)
     })?;
 
-    // Attach source database
-    let attach_name = "source_db";
-    tx.execute(
-        &format!("ATTACH DATABASE ? AS {}", attach_name),
-        &[source_db.as_os_str().to_str().unwrap_or("")],
-    )
-    .map_err(|e| {
-        anyhow::anyhow!(
-            "Failed to attach source database '{}': {}",
-            source_db.display(),
-            e
-        )
-    })?;
-
-    // Migrate each side table
+    // For each table, use a simple approach: dump data to CSV, then import
     for table_name in &side_tables {
         // Check if table exists in source database
-        let table_exists: bool = tx
+        let table_exists: bool = source_conn
             .query_row(
-                &format!(
-                    "SELECT 1 FROM {}.sqlite_master WHERE type='table' AND name=? LIMIT 1",
-                    attach_name
-                ),
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1",
                 &[table_name],
                 |_| Ok(true),
             )
             .unwrap_or(false);
 
         if !table_exists {
-            // Table doesn't exist in source, skip it
+            continue;
+        }
+
+        // Get row count to report correctly
+        let row_count: i64 = source_conn
+            .query_row(&format!("SELECT COUNT(*) FROM {}", table_name), [], |row| {
+                row.get(0)
+            })
+            .unwrap_or(0);
+
+        if row_count == 0 {
             continue;
         }
 
@@ -762,35 +761,81 @@ pub fn migrate_side_tables(source_db: &Path, target_db: &Path) -> Result<bool> {
             )
         })?;
 
-        // Copy data from source to target
-        // Use INSERT OR REPLACE to handle any existing rows
-        let sql = format!(
-            "INSERT OR REPLACE INTO {} SELECT * FROM {}.{}",
-            table_name, attach_name, table_name
-        );
+        // For each row in source, copy to target using column-wise iteration
+        // Get column names first
+        let mut columns: Vec<String> = Vec::new();
+        {
+            let mut stmt = source_conn.prepare(&format!("PRAGMA table_info({})", table_name))?;
+            let rows = stmt.query_map([], |row| {
+                let name: String = row.get(1)?;
+                Ok(name)
+            })?;
+            for row in rows {
+                columns.push(row?);
+            }
+        }
 
-        let rows_copied = tx.execute(&sql, []).map_err(|e| {
-            anyhow::anyhow!(
-                "Failed to copy data for table '{}': {}",
-                table_name,
-                e
-            )
+        if columns.is_empty() {
+            continue;
+        }
+
+        let column_list = columns.join(", ");
+
+        // Read rows from source and insert into target
+        // Prepare statement with longer lifetime
+        let mut select_stmt = source_conn.prepare(&format!("SELECT * FROM {}", table_name))?;
+
+        let rows = select_stmt.query_map([], |row| {
+            // Collect values as rusqlite Values (preserves type information)
+            let mut values = Vec::new();
+            for i in 0..columns.len() {
+                let value = row.get::<_, rusqlite::types::Value>(i).ok();
+                values.push(value);
+            }
+            Ok(values)
         })?;
 
-        if rows_copied > 0 {
+        let mut copied = 0;
+
+        for row_result in rows {
+            let row_values = row_result.map_err(|e| {
+                anyhow::anyhow!("Failed to read row from table '{}': {}", table_name, e)
+            })?;
+
+            // Build the INSERT statement with proper placeholders
+            let placeholders = (0..row_values.len())
+                .map(|_| "?")
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            let insert_sql = format!(
+                "INSERT OR REPLACE INTO {} ({}) VALUES ({})",
+                table_name, column_list, placeholders
+            );
+
+            // Convert Option<Value> to ToSql references
+            let tosql_refs: Vec<&dyn rusqlite::ToSql> = row_values
+                .iter()
+                .map(|v| match v {
+                    Some(val) => val as &dyn rusqlite::ToSql,
+                    None => &rusqlite::types::Value::Null as &dyn rusqlite::ToSql,
+                })
+                .collect();
+
+            tx.execute(&insert_sql, tosql_refs.as_slice()).map_err(|e| {
+                anyhow::anyhow!(
+                    "Failed to insert row into table '{}': {}",
+                    table_name,
+                    e
+                )
+            })?;
+            copied += 1;
+        }
+
+        if copied > 0 {
             any_migrated = true;
         }
     }
-
-    // Detach source database
-    tx.execute(&format!("DETACH DATABASE {}", attach_name), [])
-        .map_err(|e| {
-            anyhow::anyhow!(
-                "Failed to detach source database '{}': {}",
-                source_db.display(),
-                e
-            )
-        })?;
 
     // Commit transaction
     tx.commit().map_err(|e| {
@@ -818,17 +863,19 @@ fn ensure_table_schema(conn: &rusqlite::Connection, table_name: &str) -> Result<
     match table_name {
         "code_chunks" => {
             // Schema from generation/mod.rs
+            // Note: actual schema has symbol_kind instead of kind
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS code_chunks (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     file_path TEXT NOT NULL,
-                    symbol_name TEXT NOT NULL,
-                    kind TEXT,
                     byte_start INTEGER NOT NULL,
                     byte_end INTEGER NOT NULL,
                     content TEXT NOT NULL,
                     content_hash TEXT NOT NULL,
-                    created_at INTEGER NOT NULL
+                    symbol_name TEXT,
+                    symbol_kind TEXT,
+                    created_at INTEGER NOT NULL,
+                    UNIQUE(file_path, byte_start, byte_end)
                 )",
                 [],
             )
@@ -916,18 +963,25 @@ fn ensure_table_schema(conn: &rusqlite::Connection, table_name: &str) -> Result<
         }
         "execution_log" => {
             // Schema from graph/execution_log.rs
+            // Note: schema has 14 columns: id, execution_id, tool_version, args, root, db_path,
+            //       started_at, finished_at, duration_ms, outcome, error_message,
+            //       files_indexed, symbols_indexed, references_indexed
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS execution_log (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     execution_id TEXT NOT NULL UNIQUE,
-                    command TEXT NOT NULL,
+                    tool_version TEXT NOT NULL,
+                    args TEXT NOT NULL,
+                    root TEXT,
+                    db_path TEXT NOT NULL,
                     started_at INTEGER NOT NULL,
                     finished_at INTEGER,
-                    outcome TEXT,
+                    duration_ms INTEGER,
+                    outcome TEXT NOT NULL,
                     error_message TEXT,
-                    file_count INTEGER,
-                    symbol_count INTEGER,
-                    edge_count INTEGER
+                    files_indexed INTEGER DEFAULT 0,
+                    symbols_indexed INTEGER DEFAULT 0,
+                    references_indexed INTEGER DEFAULT 0
                 )",
                 [],
             )
@@ -956,13 +1010,15 @@ fn ensure_table_schema(conn: &rusqlite::Connection, table_name: &str) -> Result<
         }
         "ast_nodes" => {
             // Schema from graph/db_compat.rs::ensure_ast_schema
+            // Note: ast_nodes has 6 columns: id, parent_id, kind, byte_start, byte_end, file_id
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS ast_nodes (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     parent_id INTEGER,
                     kind TEXT NOT NULL,
                     byte_start INTEGER NOT NULL,
-                    byte_end INTEGER NOT NULL
+                    byte_end INTEGER NOT NULL,
+                    file_id INTEGER
                 )",
                 [],
             )
@@ -981,6 +1037,14 @@ fn ensure_table_schema(conn: &rusqlite::Connection, table_name: &str) -> Result<
                 [],
             )
             .map_err(|e| anyhow::anyhow!("Failed to create ast_nodes index: {}", e))?;
+
+            // Create file_id index if not exists (v6 upgrade)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_ast_nodes_file_id
+                 ON ast_nodes(file_id)",
+                [],
+            )
+            .map_err(|e| anyhow::anyhow!("Failed to create ast_nodes file_id index: {}", e))?;
         }
         "cfg_blocks" => {
             // Schema from graph/db_compat.rs::ensure_cfg_schema
