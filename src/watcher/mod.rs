@@ -104,6 +104,9 @@ impl Default for WatcherConfig {
 /// Uses notify-debouncer-mini for event coalescing. All paths within the
 /// debounce window are collected, de-duplicated, sorted, and emitted as a
 /// single WatcherBatch.
+///
+/// With native-v2 feature, can also receive graph mutation events via pub/sub
+/// for reactive cache invalidation.
 pub struct FileSystemWatcher {
     _watcher_thread: thread::JoinHandle<()>,
     batch_receiver: Receiver<WatcherBatch>,
@@ -113,6 +116,14 @@ pub struct FileSystemWatcher {
     /// Legacy compatibility: current index into pending batch
     /// Thread-safe: wrapped in Arc<Mutex<T>> for concurrent access
     legacy_pending_index: Arc<Mutex<usize>>,
+    /// Pub/sub event receiver (feature-gated to native-v2)
+    /// Uses Box for size erasure since PubSubEventReceiver contains JoinHandle
+    #[cfg(feature = "native-v2")]
+    _pubsub_receiver: Option<Box<PubSubEventReceiver>>,
+    /// Channel for receiving file paths from pub/sub events
+    /// The pub/sub receiver thread sends file paths here for cache invalidation
+    #[cfg(feature = "native-v2")]
+    pubsub_file_rx: Receiver<String>,
 }
 
 impl FileSystemWatcher {
