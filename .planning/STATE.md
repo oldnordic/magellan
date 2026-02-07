@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-06)
 
 **Core value:** Produce correct, deterministic symbol + reference + call graph data from real codebases, continuously, without stopping on bad files.
-**Current focus:** Phase 49 - Pub/Sub Integration
+**Current focus:** Phase 49 - Pub/Sub Integration (COMPLETE)
 
 ## Current Position
 
 Phase: 49 of 50 (Pub/Sub Integration)
-Plan: 2 of 3 in current phase
-Status: In progress
-Last activity: 2026-02-07 — Completed 49-02-PLAN.md (FileSystemWatcher pub/sub integration)
+Plan: 3 of 3 in current phase
+Status: Phase complete
+Last activity: 2026-02-07 — Completed 49-03-PLAN.md (Pub/sub shutdown and CLI integration)
 
-Progress: [█████████████████░░] 88.0% (185/209 total plans)
+Progress: [██████████████████░] 89.0% (186/209 total plans)
 
 ## Performance Metrics
 
@@ -98,6 +98,16 @@ Recent decisions affecting current work:
 - Use Box<PubSubEventReceiver> for size erasure in struct field
 - Thread-safe backend uses Arc<dyn GraphBackend + Send + Sync>
 
+**From Phase 49-03 (Pub/Sub Shutdown and CLI Integration):**
+- Implemented Drop for PubSubEventReceiver using ManuallyDrop pattern
+- Added shutdown() method to consume receiver and join thread cleanly
+- Implemented Drop for FileSystemWatcher to clean up pub/sub receiver
+- Added shutdown() method to FileSystemWatcher for explicit cleanup
+- Integrated pub/sub into watch pipeline (native-v2 feature only)
+- Created watcher_loop_with_native_backend for separate backend connection
+- Created integration tests for pub/sub lifecycle
+- Commits: 3fa5ae8, f843489, 668e0a8, 57d4680
+
 **From Phase 49-01 (PubSubEventReceiver Module):**
 - Created PubSubEventReceiver module for Native V2 backend event subscription
 - Subscribe to all graph mutation events via SubscriptionFilter::all()
@@ -158,7 +168,7 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-07
-Stopped at: Completed 49-02-PLAN.md (FileSystemWatcher pub/sub integration)
+Stopped at: Completed 49-03-PLAN.md (Pub/sub shutdown and CLI integration)
 Resume file: None
 Blockers:
 - algorithms.rs module uses concrete SqliteGraph type - requires conditional compilation to work with Native backend

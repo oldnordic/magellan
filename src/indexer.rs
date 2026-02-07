@@ -343,8 +343,6 @@ pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>
                 watcher_config,
                 shared_state,
                 shutdown_watch,
-                #[cfg(feature = "native-v2")]
-                None,
             );
 
             if let Err(e) = result {
