@@ -7,6 +7,7 @@ mod collisions_cmd;
 mod dead_code_cmd;
 mod export_cmd;
 mod migrate_cmd;
+mod migrate_backend_cmd;
 mod files_cmd;
 mod find_cmd;
 mod get_cmd;
@@ -24,6 +25,7 @@ use anyhow::Result;
 use magellan::graph::export::ExportFilters;
 use magellan::graph::query::CollisionField;
 use magellan::output::{generate_execution_id, output_json, JsonResponse, MigrateResponse, StatusResponse};
+use serde_json;
 use magellan::{CodeGraph, ExportFormat, OutputFormat, WatcherConfig};
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -64,6 +66,7 @@ fn print_usage() {
     eprintln!("  magellan label --db <FILE> [--label <LABEL>]... [--list] [--count] [--show-code]");
     eprintln!("  magellan collisions --db <FILE> [--field <fqn|display_fqn|canonical_fqn>] [--limit <N>] [--output <FORMAT>]");
     eprintln!("  magellan migrate --db <FILE> [--dry-run] [--no-backup] [--output <FORMAT>]");
+    eprintln!("  magellan migrate-backend --input <DB> --output <DB> [--export-dir <DIR>] [--dry-run] [--output <FORMAT>]");
     eprintln!("  magellan verify --root <DIR> --db <FILE>");
     eprintln!("  magellan ast --db <FILE> --file <PATH> [--position <OFFSET>] [--output <FORMAT>]");
     eprintln!("  magellan find-ast --db <FILE> --kind <KIND> [--output <FORMAT>]");
@@ -90,6 +93,7 @@ fn print_usage() {
     eprintln!("  label           Query symbols by label (language, kind, etc.)");
     eprintln!("  collisions      List ambiguous symbol groups for a chosen field");
     eprintln!("  migrate         Upgrade database to current schema version");
+    eprintln!("  migrate-backend Migrate database between backend formats (SQLite -> Native V2)");
     eprintln!("  verify          Verify database vs filesystem");
     eprintln!("  ast             Query AST nodes for a file");
     eprintln!("  find-ast        Find AST nodes by kind");
@@ -206,6 +210,12 @@ fn print_usage() {
     eprintln!("  --dry-run           Check version without migrating");
     eprintln!("  --no-backup         Skip backup creation");
     eprintln!("  --output <FORMAT>   Output format: human (default), json (compact), or pretty (formatted)");
+    eprintln!();
+    eprintln!("Backend migration arguments:");
+    eprintln!("  --input <DB>        Path to input database (SQLite or Native V2)");
+    eprintln!("  --output <DB>       Path to output database (will be Native V2 format)");
+    eprintln!("  --export-dir <DIR>  Directory for snapshot files (default: temp dir)");
+    eprintln!("  --dry-run           Show what would be migrated without doing it");
     eprintln!();
     eprintln!("Verify arguments:");
     eprintln!("  --root <DIR>        Directory to verify against");
@@ -331,6 +341,14 @@ enum Command {
         db_path: PathBuf,
         dry_run: bool,
         no_backup: bool,
+        output_format: OutputFormat,
+    },
+    /// Backend migration (Phase 47)
+    MigrateBackend {
+        input_db: PathBuf,
+        output_db: PathBuf,
+        export_dir: Option<PathBuf>,
+        dry_run: bool,
         output_format: OutputFormat,
     },
     Chunks {
@@ -1220,6 +1238,67 @@ fn parse_args() -> Result<Command> {
                 db_path,
                 dry_run,
                 no_backup,
+                output_format,
+            })
+        }
+        "migrate-backend" => {
+            let mut input_db: Option<PathBuf> = None;
+            let mut output_db: Option<PathBuf> = None;
+            let mut export_dir: Option<PathBuf> = None;
+            let mut dry_run = false;
+            let mut output_format = OutputFormat::Human;
+
+            let mut i = 2;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--input" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--input requires an argument"));
+                        }
+                        input_db = Some(PathBuf::from(&args[i + 1]));
+                        i += 2;
+                    }
+                    "--output" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--output requires an argument"));
+                        }
+                        output_db = Some(PathBuf::from(&args[i + 1]));
+                        i += 2;
+                    }
+                    "--export-dir" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--export-dir requires an argument"));
+                        }
+                        export_dir = Some(PathBuf::from(&args[i + 1]));
+                        i += 2;
+                    }
+                    "--dry-run" => {
+                        dry_run = true;
+                        i += 1;
+                    }
+                    "--format" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--format requires an argument"));
+                        }
+                        output_format = OutputFormat::from_str(&args[i + 1]).ok_or_else(|| {
+                            anyhow::anyhow!("Invalid output format: {}", args[i + 1])
+                        })?;
+                        i += 2;
+                    }
+                    _ => {
+                        return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
+                    }
+                }
+            }
+
+            let input_db = input_db.ok_or_else(|| anyhow::anyhow!("--input is required"))?;
+            let output_db = output_db.ok_or_else(|| anyhow::anyhow!("--output is required"))?;
+
+            Ok(Command::MigrateBackend {
+                input_db,
+                output_db,
+                export_dir,
+                dry_run,
                 output_format,
             })
         }
@@ -2483,6 +2562,57 @@ fn main() -> ExitCode {
                                 }
                                 if let Some(ref backup) = result.backup_path {
                                     println!("Backup: {}", backup.display());
+                                }
+                            } else {
+                                eprintln!("Migration failed: {}", result.message);
+                                return ExitCode::from(1);
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    return ExitCode::from(1);
+                }
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::MigrateBackend {
+            input_db,
+            output_db,
+            export_dir,
+            dry_run,
+            output_format,
+        }) => {
+            match migrate_backend_cmd::run_migrate_backend(input_db, output_db, export_dir, dry_run) {
+                Ok(result) => {
+                    match output_format {
+                        OutputFormat::Json | OutputFormat::Pretty => {
+                            let exec_id = generate_execution_id();
+                            // Create a JSON response similar to MigrateResponse
+                            let json_data = serde_json::json!({
+                                "success": result.success,
+                                "source_format": format!("{:?}", result.source_format),
+                                "target_format": format!("{:?}", result.target_format),
+                                "entities_migrated": result.entities_migrated,
+                                "edges_migrated": result.edges_migrated,
+                                "side_tables_migrated": result.side_tables_migrated,
+                                "message": result.message,
+                                "execution_id": exec_id,
+                            });
+                            if let Err(e) = output_json(&JsonResponse::new(json_data, &exec_id), output_format) {
+                                eprintln!("Error: {}", e);
+                                return ExitCode::from(1);
+                            }
+                        }
+                        OutputFormat::Human => {
+                            if result.success {
+                                println!("{}", result.message);
+                                println!("Format: {:?} -> {:?}", result.source_format, result.target_format);
+                                println!("Entities: {}", result.entities_migrated);
+                                println!("Edges: {}", result.edges_migrated);
+                                if result.side_tables_migrated {
+                                    println!("Side tables: migrated");
                                 }
                             } else {
                                 eprintln!("Migration failed: {}", result.message);

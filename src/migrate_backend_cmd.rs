@@ -395,7 +395,7 @@ pub fn verify_import_counts(
 /// This function provides counts independent of snapshot export for
 /// pre-flight validation. The counts from snapshot_export() are preferred
 /// for post-export verification since they reflect the actual snapshot.
-pub fn get_graph_counts(backend: &Rc<dyn GraphBackend>) -> Result<(i64, i64)> {
+pub fn get_graph_counts(_backend: &Rc<dyn GraphBackend>) -> Result<(i64, i64)> {
     // The GraphBackend trait doesn't provide a direct count method.
     // We need to use the underlying database connection.
     //
@@ -685,8 +685,8 @@ pub fn run_migrate_backend(
 pub fn migrate_side_tables(source_db: &Path, target_db: &Path) -> Result<bool> {
     use rusqlite::Connection;
 
-    // Open source connection
-    let source_conn = Connection::open(source_db).map_err(|e| {
+    // Open source connection to validate it exists and is readable
+    let _source_conn = Connection::open(source_db).map_err(|e| {
         anyhow::anyhow!(
             "Failed to open source database '{}': {}",
             source_db.display(),
