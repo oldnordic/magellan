@@ -164,8 +164,12 @@ impl CodeGraph {
 
         // Phase 1: read-only compatibility preflight for existing DB files.
         // This MUST run before any sqlitegraph or Magellan side-table writes occur.
-        let _preflight = db_compat::preflight_sqlitegraph_compat(&db_path_buf)
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        // Skip preflight for Native V2 backend (not a SQLite database).
+        #[cfg(not(feature = "native-v2"))]
+        {
+            db_compat::preflight_sqlitegraph_compat(&db_path_buf)
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        }
 
         // Phase 2: Backend opening (conditional compilation)
         #[cfg(feature = "native-v2")]
@@ -246,72 +250,92 @@ impl CodeGraph {
         // Populate file_index with existing File nodes from database
         files.rebuild_file_index()?;
 
-        // Phase 3: Magellan-owned DB compatibility metadata.
-        // MUST run after sqlitegraph open and before any other Magellan side-table writes.
-        db_compat::ensure_magellan_meta(&db_path_buf)
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-
-        // Open a shared connection for ChunkStore to enable transactional operations
-        // This allows chunk operations to participate in transactions with graph operations
-        let shared_conn = rusqlite::Connection::open(&db_path_buf).map_err(|e| {
-            anyhow::anyhow!("Failed to open shared connection for ChunkStore: {}", e)
-        })?;
-
-        // Initialize ChunkStore with shared connection and ensure schema exists
-        let chunks = ChunkStore::with_connection(shared_conn);
-        chunks.ensure_schema()?;
-
-        // Initialize ExecutionLog and ensure schema exists
-        let execution_log = execution_log::ExecutionLog::new(&db_path_buf);
-        execution_log.ensure_schema()?;
-
-        // Initialize MetricsOps
-        let metrics = metrics::MetricsOps::new(&db_path_buf);
-
-        // Ensure metrics tables exist
-        metrics.ensure_schema()?;
-
-        // Ensure AST nodes schema exists
-        {
-            let ast_conn = rusqlite::Connection::open(&db_path_buf).map_err(|e| {
-                anyhow::anyhow!("Failed to open connection for AST schema: {}", e)
-            })?;
-            db_compat::ensure_ast_schema(&ast_conn)
+        // Phase 3: SQLite-specific side-table initialization (ONLY for SQLite backend)
+        // Native V2 backend uses KV store instead of SQLite side-tables
+        #[cfg(not(feature = "native-v2"))]
+        let (chunks, execution_log, metrics, needs_backfill) = {
+            // Phase 3a: Magellan-owned DB compatibility metadata.
+            // MUST run after sqlitegraph open and before any other Magellan side-table writes.
+            db_compat::ensure_magellan_meta(&db_path_buf)
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-        }
 
-        // Ensure CFG schema exists
-        {
-            let cfg_conn = rusqlite::Connection::open(&db_path_buf).map_err(|e| {
-                anyhow::anyhow!("Failed to open connection for CFG schema: {}", e)
-            })?;
-            db_compat::ensure_cfg_schema(&cfg_conn)
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-        }
-
-        // Detect if this is an upgrade (metrics tables exist but are empty)
-        let needs_backfill = {
-            // Create a temporary connection to check the database state
-            let check_conn = rusqlite::Connection::open(&db_path_buf).map_err(|e| {
-                anyhow::anyhow!("Failed to open connection for backfill check: {}", e)
+            // Open a shared connection for ChunkStore to enable transactional operations
+            // This allows chunk operations to participate in transactions with graph operations
+            let shared_conn = rusqlite::Connection::open(&db_path_buf).map_err(|e| {
+                anyhow::anyhow!("Failed to open shared connection for ChunkStore: {}", e)
             })?;
 
-            // Check if metrics tables are empty
-            let metric_count: i64 = check_conn
-                .query_row("SELECT COUNT(*) FROM file_metrics", [], |row| row.get(0))
-                .unwrap_or(0);
+            // Initialize ChunkStore with shared connection and ensure schema exists
+            let chunks = ChunkStore::with_connection(shared_conn);
+            chunks.ensure_schema()?;
 
-            // Also check if we have symbols (indicating existing database)
-            let symbol_count: i64 = check_conn
-                .query_row(
-                    "SELECT COUNT(*) FROM graph_entities WHERE kind = 'Symbol'",
-                    [],
-                    |row| row.get(0),
-                )
-                .unwrap_or(0);
+            // Initialize ExecutionLog and ensure schema exists
+            let execution_log = execution_log::ExecutionLog::new(&db_path_buf);
+            execution_log.ensure_schema()?;
 
-            // Backfill needed if: no metrics but we have symbols
-            metric_count == 0 && symbol_count > 0
+            // Initialize MetricsOps
+            let metrics = metrics::MetricsOps::new(&db_path_buf);
+
+            // Ensure metrics tables exist
+            metrics.ensure_schema()?;
+
+            // Ensure AST nodes schema exists
+            {
+                let ast_conn = rusqlite::Connection::open(&db_path_buf).map_err(|e| {
+                    anyhow::anyhow!("Failed to open connection for AST schema: {}", e)
+                })?;
+                db_compat::ensure_ast_schema(&ast_conn)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            }
+
+            // Ensure CFG schema exists
+            {
+                let cfg_conn = rusqlite::Connection::open(&db_path_buf).map_err(|e| {
+                    anyhow::anyhow!("Failed to open connection for CFG schema: {}", e)
+                })?;
+                db_compat::ensure_cfg_schema(&cfg_conn)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            }
+
+            // Detect if this is an upgrade (metrics tables exist but are empty)
+            let needs_backfill = {
+                // Create a temporary connection to check the database state
+                let check_conn = rusqlite::Connection::open(&db_path_buf).map_err(|e| {
+                    anyhow::anyhow!("Failed to open connection for backfill check: {}", e)
+                })?;
+
+                // Check if metrics tables are empty
+                let metric_count: i64 = check_conn
+                    .query_row("SELECT COUNT(*) FROM file_metrics", [], |row| row.get(0))
+                    .unwrap_or(0);
+
+                // Also check if we have symbols (indicating existing database)
+                let symbol_count: i64 = check_conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM graph_entities WHERE kind = 'Symbol'",
+                        [],
+                        |row| row.get(0),
+                    )
+                    .unwrap_or(0);
+
+                // Backfill needed if: no metrics but we have symbols
+                metric_count == 0 && symbol_count > 0
+            };
+
+            (chunks, execution_log, metrics, needs_backfill)
+        };
+
+        // Native V2 backend: stub values for SQLite-specific components
+        #[cfg(feature = "native-v2")]
+        let (chunks, execution_log, metrics, needs_backfill) = {
+            // Native V2 uses KV store instead of SQLite side-tables
+            // These components are stubs for API compatibility
+            (
+                ChunkStore::in_memory(),
+                execution_log::ExecutionLog::disabled(),
+                metrics::MetricsOps::disabled(),
+                false, // No backfill needed for new V2 databases
+            )
         };
 
         // Initialize file node cache with capacity of 128 entries
@@ -749,6 +773,23 @@ impl CodeGraph {
     /// transactional and caching layers.
     #[doc(hidden)]
     pub fn __backend_for_benchmarks(&self) -> &std::rc::Rc<dyn sqlitegraph::GraphBackend> {
+        &self.files.backend
+    }
+
+    /// Get backend for pub/sub event subscription (Native V2 only).
+    ///
+    /// This method provides access to the underlying graph backend for
+    /// creating pub/sub event subscriptions in FileSystemWatcher.
+    ///
+    /// # WARNING
+    /// This is internal API for watcher integration only. Direct backend access
+    /// bypasses CodeGraph's transactional and caching layers.
+    ///
+    /// # Feature Availability
+    /// Only available with `native-v2` feature (pub/sub is Native V2 specific).
+    #[cfg(feature = "native-v2")]
+    #[doc(hidden)]
+    pub fn __backend_for_watcher(&self) -> &std::rc::Rc<dyn sqlitegraph::GraphBackend> {
         &self.files.backend
     }
 }
