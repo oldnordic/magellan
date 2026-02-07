@@ -203,7 +203,8 @@ impl FileSystemWatcher {
         };
 
         // Create channel for pub/sub file paths
-        let (pubsub_file_tx, pubsub_file_rx) = mpsc::channel();
+        // Note: sender is dropped immediately - pub/sub receiver sends directly to cache_sender
+        let (_pubsub_file_tx, pubsub_file_rx) = mpsc::channel();
 
         // Create pub/sub event receiver with graceful degradation
         let _pubsub_receiver = match PubSubEventReceiver::new(backend, cache_sender) {
