@@ -148,6 +148,7 @@ pub fn parse_symbol_kind(s: &str) -> Option<SymbolKind> {
 ///
 /// # Example
 /// ```rust
+/// use magellan::common::safe_slice;
 /// let source = b"hello world";
 /// let slice = safe_slice(source, 0, 5); // Some(b"hello")
 /// let invalid = safe_slice(source, 10, 20); // None (out of bounds)
@@ -205,6 +206,7 @@ pub fn safe_str_slice<'a>(source: &'a str, start: usize, end: usize) -> Option<&
 ///
 /// # Example
 /// ```rust
+/// use magellan::common::extract_symbol_content_safe;
 /// let source = "fn hello() { // Hi \u{1f44b} }"; // contains emoji
 /// let content = extract_symbol_content_safe(source.as_bytes(), 0, source.len());
 /// assert!(content.is_some());
@@ -250,6 +252,7 @@ pub fn extract_symbol_content_safe(source: &[u8], byte_start: usize, byte_end: u
 ///
 /// # Example
 /// ```rust
+/// use magellan::common::extract_context_safe;
 /// let source = "line1\nline2\nline3\nline4";
 /// let context = extract_context_safe(source.as_bytes(), 7, 13, 5);
 /// // Extracts around "line2" with 5 bytes of context

@@ -21,7 +21,7 @@ pub mod scip;
 use anyhow::Result;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
-use sqlitegraph::{BackendDirection, GraphBackend, NeighborQuery, SnapshotId};
+use sqlitegraph::{BackendDirection, NeighborQuery, SnapshotId};
 
 use super::{CallNode, CodeGraph, FileNode, ReferenceNode, SymbolNode};
 use crate::graph::query::{collision_groups, CollisionField};

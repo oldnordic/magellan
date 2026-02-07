@@ -119,17 +119,12 @@ pub fn generate_symbol_id(language: &str, fqn: &str, span_id: &str) -> String {
 ///
 /// # Examples
 ///
-/// ```
-/// use magellan::graph::generate_symbol_id_v2;
+/// Note: This is an alternative BLAKE3 implementation (not adopted in production).
+/// The `symbols` module is private.
 ///
-/// let id = generate_symbol_id_v2(
-///     "my_crate",
-///     "src/lib.rs",
-///     &["mod my_module".to_string(), "impl MyStruct".to_string()],
-///     "Function",
-///     "my_method"
-/// );
-/// assert_eq!(id.len(), 32);
+/// ```rust,no_run
+/// // Example usage (within magellan internal code):
+/// // let id = magellan::graph::symbols::generate_symbol_id_v2(...);
 /// ```
 #[allow(dead_code)] // Alternative BLAKE3 implementation (not adopted - production uses generate_symbol_id with SHA-256)
 pub fn generate_symbol_id_v2(

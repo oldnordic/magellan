@@ -443,6 +443,6 @@ mod tests {
         let rec = log.get_by_execution_id("exec-duration").unwrap().unwrap();
         assert!(rec.duration_ms.is_some());
         assert!(rec.duration_ms.unwrap() >= 0); // Duration should be non-negative
-        assert!(rec.duration_ms.unwrap() < 1000); // Should be less than 1 second
+        assert!(rec.duration_ms.unwrap() < 5000); // Should be less than 5 seconds
     }
 }

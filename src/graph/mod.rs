@@ -114,6 +114,7 @@ pub type ScanProgress = dyn Fn(usize, usize) + Send + Sync;
 /// # Note
 /// In-memory databases have no file path and cannot be used with operations
 /// that require file-based access (e.g., exports, some ChunkStore operations).
+#[allow(dead_code)] // Reserved for future use
 fn is_memory_db(path: &Path) -> bool {
     path.as_os_str() == ":memory:"
 }

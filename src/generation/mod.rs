@@ -95,7 +95,7 @@ impl ChunkStore {
 
         let db_path = temp_file.path().to_path_buf();
 
-        let mut conn = rusqlite::Connection::open(&db_path)
+        let conn = rusqlite::Connection::open(&db_path)
             .expect("Failed to open temporary database for ChunkStore stub");
 
         // Create the code_chunks table with full schema for compatibility

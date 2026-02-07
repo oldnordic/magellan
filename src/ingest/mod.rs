@@ -75,6 +75,7 @@ impl ScopeSeparator {
 ///
 /// # Example
 /// ```rust
+/// use magellan::ingest::{ScopeStack, ScopeSeparator};
 /// let mut stack = ScopeStack::new(ScopeSeparator::DoubleColon);
 /// stack.push("my_crate");
 /// stack.push("my_module");

@@ -57,6 +57,7 @@ pub mod kinds {
 ///
 /// # Example
 /// ```rust
+/// use magellan::graph::AstNode;
 /// let node = AstNode {
 ///     id: None,
 ///     parent_id: Some(1),

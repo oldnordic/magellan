@@ -4,7 +4,7 @@
 
 use anyhow::Result;
 use rusqlite::params;
-use sqlitegraph::{BackendDirection, GraphBackend, NeighborQuery, SnapshotId};
+use sqlitegraph::{BackendDirection, NeighborQuery, SnapshotId};
 use std::collections::HashMap;
 use std::path::PathBuf;
 

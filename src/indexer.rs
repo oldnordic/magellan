@@ -25,7 +25,7 @@ use std::time::{Duration, Instant};
 use crate::{CodeGraph, FileEvent, FileSystemWatcher, WatcherConfig};
 
 #[cfg(feature = "native-v2")]
-use std::sync::mpsc::{Sender, channel as mpsc_channel};
+use std::sync::mpsc::channel as mpsc_channel;
 
 #[cfg(feature = "native-v2")]
 use sqlitegraph::GraphBackend;

@@ -20,6 +20,7 @@ use rusqlite::{params, OpenFlags, OptionalExtension};
 /// Stable sqlitegraph schema version expected by this Magellan build.
 ///
 /// Hard requirement: sourced from sqlitegraph public API.
+#[allow(dead_code)] // Public API for external consumers
 pub fn expected_sqlitegraph_schema_version() -> i64 {
     // Preferred path: compile-time constant.
     // If this becomes unavailable due to upstream visibility changes, this function
@@ -46,6 +47,7 @@ pub const MAGELLAN_SCHEMA_VERSION: i64 = 7;
 /// 2) sqlitegraph::SqliteGraph::open succeeded
 ///
 /// This preserves the "no partial mutation" guarantee for incompatible DBs.
+#[allow(dead_code)] // Public API for external consumers
 pub fn ensure_magellan_meta(db_path: &Path) -> Result<(), DbCompatError> {
     if is_in_memory_path(db_path) {
         // No on-disk metadata for in-memory databases.
@@ -341,6 +343,7 @@ pub fn ensure_cfg_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatErro
 
 /// Result of a successful preflight.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)] // Public API for external consumers
 pub enum PreflightOk {
     /// `:memory:` or missing file path; safe for sqlitegraph to create schema later.
     NewDb,
@@ -401,6 +404,7 @@ pub enum DbCompatError {
 /// Read-only preflight for sqlitegraph compatibility.
 ///
 /// This function MUST NOT mutate the on-disk database.
+#[allow(dead_code)] // Public API for external consumers
 pub fn preflight_sqlitegraph_compat(db_path: &Path) -> Result<PreflightOk, DbCompatError> {
     if is_in_memory_path(db_path) {
         return Ok(PreflightOk::NewDb);
@@ -483,10 +487,12 @@ pub fn preflight_sqlitegraph_compat(db_path: &Path) -> Result<PreflightOk, DbCom
     })
 }
 
+#[allow(dead_code)] // Helper for public API functions
 fn is_in_memory_path(db_path: &Path) -> bool {
     db_path == Path::new(":memory:")
 }
 
+#[allow(dead_code)] // Helper for public API functions
 fn verify_can_query(conn: &rusqlite::Connection, db_path: &Path) -> Result<(), DbCompatError> {
     // Querying sqlite_master is sufficient to force sqlite to parse header.
     // Using `SELECT 1` is even simpler.
@@ -497,10 +503,12 @@ fn verify_can_query(conn: &rusqlite::Connection, db_path: &Path) -> Result<(), D
     }
 }
 
+#[allow(dead_code)] // Helper for public API functions
 fn map_sqlite_open_err(db_path: &Path, err: rusqlite::Error) -> DbCompatError {
     map_sqlite_err(db_path, err)
 }
 
+#[allow(dead_code)] // Helper for public API functions
 fn map_sqlite_query_err(db_path: &Path, err: rusqlite::Error) -> DbCompatError {
     map_sqlite_err(db_path, err)
 }

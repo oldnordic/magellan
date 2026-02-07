@@ -14,13 +14,15 @@
 //! # Usage
 //!
 //! ```rust
-//! use crate::ingest::pool::with_parser;
-//! use crate::ingest::detect::Language;
+//! use magellan::ingest::pool::with_parser;
+//! use magellan::ingest::detect::Language;
 //!
-//! let facts = with_parser(Language::Rust, |parser| {
-//!     let tree = parser.parse(source, None)?;
+//! let source = b"fn test() {}";
+//! let _facts = with_parser(Language::Rust, |parser| {
+//!     let _tree = parser.parse(source, None);
 //!     // ... extract symbols
-//! })?;
+//!     Ok::<Vec<String>, anyhow::Error>(Vec::new())
+//! });
 //! ```
 //!
 //! # Thread Safety Model
@@ -206,14 +208,15 @@ where
 /// # Example
 ///
 /// ```rust
-/// use crate::ingest::pool::with_parser;
-/// use crate::ingest::detect::Language;
+/// use magellan::ingest::pool::with_parser;
+/// use magellan::ingest::detect::Language;
 ///
-/// let symbols = with_parser(Language::Rust, |parser| {
-///     let tree = parser.parse(source, None)?;
+/// let source = b"fn test() {}";
+/// let _symbols = with_parser(Language::Rust, |parser| {
+///     let _tree = parser.parse(source, None);
 ///     // Extract symbols from tree
-///     Ok(vec![])
-/// })?;
+///     Ok::<Vec<String>, anyhow::Error>(vec![])
+/// });
 /// ```
 pub fn with_parser<F, R>(language: Language, f: F) -> Result<R>
 where
@@ -250,7 +253,7 @@ where
 /// # Example
 ///
 /// ```rust,no_run
-/// use crate::ingest::pool::warmup_parsers;
+/// use magellan::ingest::pool::warmup_parsers;
 ///
 /// // During application startup
 /// warmup_parsers().expect("Failed to warmup parsers");
@@ -292,7 +295,7 @@ pub fn warmup_parsers() -> Result<()> {
 /// # Example
 ///
 /// ```rust,no_run
-/// use crate::ingest::pool::cleanup_parsers;
+/// use magellan::ingest::pool::cleanup_parsers;
 ///
 /// // During graceful shutdown
 /// cleanup_parsers();

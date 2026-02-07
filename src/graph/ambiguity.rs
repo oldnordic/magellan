@@ -24,7 +24,7 @@
 use crate::graph::schema::SymbolNode;
 use anyhow::Result;
 use rusqlite::params;
-use sqlitegraph::{EdgeSpec, GraphBackend};
+use sqlitegraph::EdgeSpec;
 
 use super::CodeGraph;
 use crate::graph::query;
@@ -157,16 +157,21 @@ pub trait AmbiguityOps {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```rust,no_run
+    /// use magellan::graph::ambiguity::AmbiguityOps;
+    /// use tempfile::TempDir;
+    /// let db_path = TempDir::new().unwrap().path().join("test.db");
+    /// let mut graph = magellan::CodeGraph::open(&db_path).unwrap();
+    ///
+    /// // The trait is implemented on CodeGraph
     /// let symbol = graph.resolve_by_symbol_id(
     ///     "my_crate::Handler",
     ///     "abc123..."
-    /// )?;
+    /// );
     ///
-    /// if let Some(symbol) = symbol {
-    ///     println!("Found: {} at {}",
-    ///         symbol.display_fqn.as_deref().unwrap_or("<none>"),
-    ///         symbol.file_path.as_deref().unwrap_or("?")
+    /// if let Ok(Some(symbol)) = symbol {
+    ///     println!("Found: {}",
+    ///         symbol.canonical_fqn.as_deref().unwrap_or("<none>")
     ///     );
     /// }
     /// ```
@@ -224,17 +229,22 @@ pub trait AmbiguityOps {
     ///
     /// # Example
     ///
-    /// ```rust
-    /// let candidates = graph.get_candidates("my_crate::Handler")?;
+    /// ```rust,no_run
+    /// use magellan::graph::ambiguity::AmbiguityOps;
+    /// use tempfile::TempDir;
+    /// let db_path = TempDir::new().unwrap().path().join("test.db");
+    /// let mut graph = magellan::CodeGraph::open(&db_path).unwrap();
     ///
-    /// if candidates.is_empty() {
-    ///     println!("No symbols found with display name 'my_crate::Handler'");
-    /// } else if candidates.len() == 1 {
-    ///     println!("Found: {}", candidates[0].1.display_fqn.unwrap_or("<none>"));
-    /// } else {
-    ///     println!("Ambiguous: found {} candidates", candidates.len());
-    ///     for (idx, (_id, symbol)) in candidates.iter().enumerate() {
-    ///         println!("  [{}]: {}", idx + 1, symbol.display_fqn.unwrap_or("<none>"));
+    /// // The trait is implemented on CodeGraph
+    /// let candidates = graph.get_candidates("my_crate::Handler");
+    ///
+    /// if let Ok(ref candidates) = candidates {
+    ///     if candidates.is_empty() {
+    ///         println!("No symbols found with display name 'my_crate::Handler'");
+    ///     } else if candidates.len() == 1 {
+    ///         println!("Found: {}", candidates[0].1.display_fqn.as_deref().unwrap_or("<none>"));
+    ///     } else {
+    ///         println!("Ambiguous: found {} candidates", candidates.len());
     ///     }
     /// }
     /// ```

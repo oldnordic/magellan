@@ -16,12 +16,9 @@
 //!
 //! # Usage Pattern
 //!
-//! ```rust
-//! let mut index = SymbolIndex::new();
-//! index.build_index(&conn)?;
-//! if let Some(entity_id) = index.lookup("abc123...") {
-//!     // Symbol found, use entity_id
-//! }
+//! ```rust,no_run
+//! // Note: SymbolIndex is a future optimization not yet integrated
+//! // The module is private and not part of the public API
 //! ```
 
 #![allow(dead_code)] // Future optimization, not yet integrated
@@ -45,13 +42,9 @@ use crate::graph::schema::SymbolNode;
 ///
 /// # Usage Pattern
 ///
-/// ```rust
-/// let mut index = SymbolIndex::new();
-/// index.build_index(&conn)?;
-/// if let Some(entity_id) = index.lookup("abc123...") {
-///     // Symbol found, use entity_id
-/// }
-/// ```
+/// Note: This is a future optimization not yet integrated into production.
+/// The module is private and not part of the public API.
+///
 pub struct SymbolIndex {
     /// Map: SymbolId (32-char BLAKE3 hash) -> entity_id (i64)
     index: HashMap<String, i64>,

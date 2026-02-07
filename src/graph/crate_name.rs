@@ -176,7 +176,7 @@ fn parse_cargo_toml_name(content: &str) -> Option<String> {
 /// assert_eq!(extract_quoted_value(r#"version='1.0'"#), Some("1.0".to_string()));
 /// assert_eq!(extract_quoted_value(r#"name = my-crate"#), None);
 /// ```
-fn extract_quoted_value(line: &str) -> Option<String> {
+pub fn extract_quoted_value(line: &str) -> Option<String> {
     // Find the equals sign
     let eq_pos = line.find('=')?;
     let after_eq = &line[eq_pos + 1..];

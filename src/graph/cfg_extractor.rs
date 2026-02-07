@@ -136,6 +136,7 @@ fn find_function_body<'a>(func_node: &Node<'a>) -> Option<Node<'a>> {
 ///
 /// Walks a function's AST to identify basic blocks and control flow.
 pub struct CfgExtractor<'a> {
+    #[allow(dead_code)] // Reserved for future use
     source: &'a [u8],
     next_block_id: usize,
     blocks: Vec<CfgBlock>,

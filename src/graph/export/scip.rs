@@ -27,8 +27,7 @@ use crate::ingest::detect::detect_language;
 
 use super::CodeGraph;
 
-// Import the GraphBackend trait for backend methods
-use sqlitegraph::{BackendDirection, GraphBackend, NeighborQuery, SnapshotId};
+use sqlitegraph::{BackendDirection, NeighborQuery, SnapshotId};
 
 /// SCIP export configuration
 #[derive(Debug, Clone)]

@@ -5,7 +5,7 @@
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 
-use sqlitegraph::{GraphBackend, SnapshotId};
+use sqlitegraph::SnapshotId;
 
 use super::query;
 use super::CodeGraph;
