@@ -41,6 +41,17 @@ impl ExecutionLog {
         }
     }
 
+    /// Create a disabled ExecutionLog for native-v2 mode.
+    ///
+    /// Native V2 doesn't use SQLite-based execution logging.
+    /// Creates a stub with :memory: path (operations become no-ops).
+    #[cfg(feature = "native-v2")]
+    pub fn disabled() -> Self {
+        Self {
+            db_path: std::path::PathBuf::from(":memory:"),
+        }
+    }
+
     pub fn connect(&self) -> Result<rusqlite::Connection, rusqlite::Error> {
         rusqlite::Connection::open(&self.db_path)
     }

@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-06)
 ## Current Position
 
 Phase: 51 of 51 (Fix Native V2 Compilation Errors)
-Plan: 1 of 3 in current phase
+Plan: 2 of 3 in current phase
 Status: In progress
-Last activity: 2026-02-07 — Completed 51-01-PLAN.md (Module structure and dependency fixes)
+Last activity: 2026-02-07 — Completed 51-02-PLAN.md (Type mismatches and trait bounds for KV functions)
 
-Progress: [██████████████████░] 89.5% (187/209 total plans)
+Progress: [███████████████████] 89.5% (188/209 total plans)
 
 ## Performance Metrics
 
@@ -151,6 +151,14 @@ Recent decisions affecting current work:
 - Remaining errors after this plan: 7 type/trait bound issues (E0277, E0308, E0599)
 - Commits: b71eaba (module fixes), b7974f7 (tempfile dependency)
 
+**From Phase 51-02 (Type Mismatches and Trait Bounds for KV Functions):**
+- Changed KV function return types from Box<dyn std::error::Error> to anyhow::Result
+- Added use anyhow::Result; import to src/kv/mod.rs (was missing, caused E0107)
+- Fixed populate_symbol_index call site: use Rc::clone(&graph.files.backend) instead of &*graph.files.backend
+- Added use std::rc::Rc; import to src/graph/ops.rs
+- Remaining errors after this plan: 2 missing disabled() methods (ExecutionLog, MetricsOps)
+- Commits: f6e8484 (return types), 1ab64ee (backend type fix)
+
 **Key decisions from previous milestones:**
 - [v1.7] RefCell → Mutex migration in FileSystemWatcher for thread-safe concurrent access
 - [v1.7] Lock ordering hierarchy: dirty_paths → graph locks → wakeup channel
@@ -180,12 +188,18 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-07
-Stopped at: Completed 51-01-PLAN.md (Module structure and dependency fixes)
+Stopped at: Completed 51-02-PLAN.md (Type mismatches and trait bounds for KV functions)
 Resume file: None
 Blockers:
 - algorithms.rs module uses concrete SqliteGraph type - requires conditional compilation to work with Native backend
 - 305 tests fail with native-v2 feature due to algorithms.rs limitation (verified in 46-05)
 - Pre-existing test failures: migration_tests expects schema v5 (actual is v7), parser_tests trait parsing issues
+
+**From Phase 51-02 (Type Mismatches and Trait Bounds for KV Functions):**
+- Fixed KV function return types: Box<dyn Error> → anyhow::Result
+- Fixed populate_symbol_index call: use Rc::clone() instead of reference
+- Build progressed from 9 errors to 2 errors (only missing disabled() methods)
+- Commits: f6e8484 (return types), 1ab64ee (backend type fix)
 
 **From Phase 49-02 (FileSystemWatcher Pub/Sub Integration):**
 - Integrated pub/sub components into FileSystemWatcher struct
