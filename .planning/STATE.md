@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-06)
 
 **Core value:** Produce correct, deterministic symbol + reference + call graph data from real codebases, continuously, without stopping on bad files.
-**Current focus:** Phase 51 - Fix Native V2 Compilation Errors
+**Current focus:** Phase 46 - Backend Abstraction Foundation (COMPLETE) → Next: Phase 47
 
 ## Current Position
 
-Phase: 51 of 51 (Fix Native V2 Compilation Errors)
-Plan: 3 of 3 in current phase
-Status: Phase complete
-Last activity: 2026-02-07 — Completed 51-03-PLAN.md (Add missing disabled() constructors)
+Phase: 47 of 51 (Data Migration & Compatibility)
+Plan: 1 of 5 in current phase
+Status: In progress
+Last activity: 2026-02-07 — Completed 47-01-PLAN.md (Snapshot export wrapper)
 
-Progress: [███████████████████] 90.0% (189/210 total plans)
+Progress: [███████████████████] 90.5% (190/210 total plans)
 
 ## Performance Metrics
 
@@ -188,7 +188,7 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-07
-Stopped at: Completed 51-03-PLAN.md (Add missing disabled() constructors) - Phase 51 complete
+Stopped at: Completed 47-01-PLAN.md (Snapshot export wrapper)
 Resume file: None
 Blockers:
 - algorithms.rs module uses concrete SqliteGraph type - requires conditional compilation to work with Native backend
@@ -208,6 +208,15 @@ Blockers:
 - Native V2 backend compiles successfully with 0 errors (19 warnings remain)
 - Binary produced: target/debug/magellan (125MB, working)
 - Commits: 18a0cce (ExecutionLog::disabled), 5ac70ca (MetricsOps::disabled)
+
+**From Phase 47-01 (Snapshot Export Wrapper):**
+- Created src/migrate_backend_cmd.rs with snapshot export functionality
+- Delegates entirely to sqlitegraph's GraphBackend::snapshot_export() - no custom serialization
+- SnapshotExportMetadata wraps sqlitegraph's SnapshotMetadata with Magellan-specific fields
+- get_graph_counts() returns (0, 0) since GraphBackend trait doesn't provide count methods
+- Actual entity/edge counts available from snapshot_export() return value
+- Uses Rc<dyn GraphBackend> parameter type to match CodeGraph internal storage
+- Commit: 5c8dce5 (snapshot export wrapper)
 
 **From Phase 49-02 (FileSystemWatcher Pub/Sub Integration):**
 - Integrated pub/sub components into FileSystemWatcher struct
