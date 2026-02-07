@@ -40,6 +40,7 @@ use notify::RecursiveMode;
 use notify_debouncer_mini::new_debouncer;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
+use std::mem::ManuallyDrop;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -108,7 +109,8 @@ impl Default for WatcherConfig {
 /// With native-v2 feature, can also receive graph mutation events via pub/sub
 /// for reactive cache invalidation.
 pub struct FileSystemWatcher {
-    _watcher_thread: thread::JoinHandle<()>,
+    /// Watcher thread handle (wrapped in ManuallyDrop for custom Drop/shutdown logic)
+    _watcher_thread: ManuallyDrop<thread::JoinHandle<()>>,
     batch_receiver: Receiver<WatcherBatch>,
     /// Legacy compatibility: pending batch to emit one path at a time
     /// Thread-safe: wrapped in Arc<Mutex<T>> for concurrent access
@@ -160,7 +162,7 @@ impl FileSystemWatcher {
         };
 
         Ok(Self {
-            _watcher_thread: thread,
+            _watcher_thread: ManuallyDrop::new(thread),
             batch_receiver: batch_rx,
             legacy_pending_batch: Arc::new(Mutex::new(None)),
             legacy_pending_index: Arc::new(Mutex::new(0)),
@@ -222,7 +224,7 @@ impl FileSystemWatcher {
         });
 
         Ok(Self {
-            _watcher_thread: thread,
+            _watcher_thread: ManuallyDrop::new(thread),
             batch_receiver: batch_rx,
             legacy_pending_batch: Arc::new(Mutex::new(None)),
             legacy_pending_index: Arc::new(Mutex::new(0)),
@@ -435,6 +437,40 @@ impl FileSystemWatcher {
         } else {
             None
         }
+    }
+
+    /// Explicitly shut down the watcher and join all background threads.
+    ///
+    /// This method consumes the watcher, ensuring that:
+    /// 1. The pub/sub receiver is shut down cleanly (if present)
+    /// 2. The watcher thread is joined (waits for clean termination)
+    ///
+    /// # Note
+    ///
+    /// This method should be called during graceful shutdown to ensure
+    /// all threads have terminated before the program exits.
+    pub fn shutdown(mut self) {
+        // Take ownership of self (consume it)
+        // SAFETY: We're consuming self, so we can safely extract the JoinHandle
+        let thread = unsafe { ManuallyDrop::take(&mut self._watcher_thread) };
+        // Join the thread - this waits for the watcher to exit cleanly
+        let _ = thread.join();
+        // Note: pubsub_receiver is dropped here, triggering its Drop impl
+    }
+}
+
+impl Drop for FileSystemWatcher {
+    fn drop(&mut self) {
+        #[cfg(feature = "native-v2")]
+        if let Some(pubsub) = self._pubsub_receiver.take() {
+            // Call shutdown on the pub/sub receiver to join its thread
+            pubsub.shutdown();
+        }
+        // SAFETY: Drop is running, we can safely extract the JoinHandle
+        // and drop it without running its destructor (thread should be shutting down)
+        let _thread = unsafe { ManuallyDrop::take(&mut self._watcher_thread) };
+        drop(_thread);
+        // Note: The watcher thread will exit when shutdown flag is set
     }
 }
 
