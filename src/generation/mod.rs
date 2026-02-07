@@ -81,20 +81,18 @@ impl ChunkStore {
     /// Uses a temporary file so that new connections can access the same data.
     #[cfg(feature = "native-v2")]
     pub fn in_memory() -> Self {
-        // Create a temporary file for the stub database
-        // This allows new connections to access the same data
+        // Create a unique temporary file for each call
+        // This prevents conflicts when multiple tests run concurrently
         let temp_dir = std::env::temp_dir();
-        let db_path = temp_dir.join(format!("magellan_chunkstore_stub_{}.db", std::process::id()));
-
-        // Remove existing file if it exists
-        let _ = std::fs::remove_file(&db_path);
+        let unique_id = format!("{}_{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+        let db_path = temp_dir.join(format!("magellan_chunkstore_stub_{}.db", unique_id));
 
         let mut conn = rusqlite::Connection::open(&db_path)
             .expect("Failed to create temporary database for ChunkStore stub");
 
         // Create the code_chunks table with full schema for compatibility
         conn.execute(
-            "CREATE TABLE code_chunks (
+            "CREATE TABLE IF NOT EXISTS code_chunks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 file_path TEXT NOT NULL,
                 byte_start INTEGER NOT NULL,
@@ -111,7 +109,7 @@ impl ChunkStore {
 
         // Create the ast_nodes table for AST storage
         conn.execute(
-            "CREATE TABLE ast_nodes (
+            "CREATE TABLE IF NOT EXISTS ast_nodes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 parent_id INTEGER,
                 kind TEXT NOT NULL,
@@ -124,7 +122,7 @@ impl ChunkStore {
 
         // Create the cfg_blocks table for CFG storage
         conn.execute(
-            "CREATE TABLE cfg_blocks (
+            "CREATE TABLE IF NOT EXISTS cfg_blocks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 function_id INTEGER NOT NULL,
                 kind TEXT NOT NULL,
@@ -139,44 +137,44 @@ impl ChunkStore {
             [],
         ).expect("Failed to create cfg_blocks table in ChunkStore stub");
 
-        // Create indexes
+        // Create indexes (use IF NOT EXISTS to avoid conflicts on reconnect)
         conn.execute(
-            "CREATE INDEX idx_chunks_file_path ON code_chunks(file_path)",
+            "CREATE INDEX IF NOT EXISTS idx_chunks_file_path ON code_chunks(file_path)",
             [],
         ).expect("Failed to create file_path index");
 
         conn.execute(
-            "CREATE INDEX idx_chunks_symbol_name ON code_chunks(symbol_name)",
+            "CREATE INDEX IF NOT EXISTS idx_chunks_symbol_name ON code_chunks(symbol_name)",
             [],
         ).expect("Failed to create symbol_name index");
 
         conn.execute(
-            "CREATE INDEX idx_chunks_content_hash ON code_chunks(content_hash)",
+            "CREATE INDEX IF NOT EXISTS idx_chunks_content_hash ON code_chunks(content_hash)",
             [],
         ).expect("Failed to create content_hash index");
 
         conn.execute(
-            "CREATE INDEX idx_ast_nodes_parent ON ast_nodes(parent_id)",
+            "CREATE INDEX IF NOT EXISTS idx_ast_nodes_parent ON ast_nodes(parent_id)",
             [],
         ).expect("Failed to create ast_nodes parent index");
 
         conn.execute(
-            "CREATE INDEX idx_ast_nodes_span ON ast_nodes(byte_start, byte_end)",
+            "CREATE INDEX IF NOT EXISTS idx_ast_nodes_span ON ast_nodes(byte_start, byte_end)",
             [],
         ).expect("Failed to create ast_nodes span index");
 
         conn.execute(
-            "CREATE INDEX idx_ast_nodes_file_id ON ast_nodes(file_id)",
+            "CREATE INDEX IF NOT EXISTS idx_ast_nodes_file_id ON ast_nodes(file_id)",
             [],
         ).expect("Failed to create ast_nodes file_id index");
 
         conn.execute(
-            "CREATE INDEX idx_cfg_blocks_function ON cfg_blocks(function_id)",
+            "CREATE INDEX IF NOT EXISTS idx_cfg_blocks_function ON cfg_blocks(function_id)",
             [],
         ).expect("Failed to create cfg_blocks function index");
 
         conn.execute(
-            "CREATE INDEX idx_cfg_blocks_span ON cfg_blocks(byte_start, byte_end)",
+            "CREATE INDEX IF NOT EXISTS idx_cfg_blocks_span ON cfg_blocks(byte_start, byte_end)",
             [],
         ).expect("Failed to create cfg_blocks span index");
 
