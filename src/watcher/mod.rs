@@ -261,6 +261,49 @@ impl FileSystemWatcher {
         }
     }
 
+    /// Receive merged filesystem and pub/sub events with timeout.
+    ///
+    /// This method is only available with the native-v2 feature. It prioritizes
+    /// filesystem events over pub/sub events, falling back to pub/sub if no
+    /// filesystem batch is available within the timeout.
+    ///
+    /// # Returns
+    /// - `Ok(batch)` if a filesystem or pub/sub event is available
+    /// - `Err(())` if no events are available within the timeout
+    ///
+    /// # Arguments
+    /// * `timeout` - Maximum time to wait for events
+    ///
+    /// # Behavior
+    /// 1. First tries to receive a filesystem batch via `batch_receiver.recv_timeout(timeout)`
+    /// 2. If filesystem batch times out, tries pub/sub file path via `pubsub_file_rx.try_recv()`
+    /// 3. Returns empty batch on disconnect (caller can handle shutdown)
+    /// 4. Returns error only if neither source has events
+    #[cfg(feature = "native-v2")]
+    pub fn recv_batch_merging(&self, timeout: Duration) -> Result<WatcherBatch, ()> {
+        // Priority 1: Try to receive filesystem batch
+        match self.batch_receiver.recv_timeout(timeout) {
+            Ok(batch) => return Ok(batch),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return Ok(WatcherBatch::empty()),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                // Timeout is expected - fall through to pub/sub check
+            }
+        }
+
+        // Priority 2: Try to receive pub/sub file path (non-blocking)
+        match self.pubsub_file_rx.try_recv() {
+            Ok(path) => {
+                // Pub/sub events are single-path batches
+                // Caller will merge with existing batch if needed
+                Ok(WatcherBatch {
+                    paths: vec![PathBuf::from(path)],
+                })
+            }
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => Ok(WatcherBatch::empty()),
+            Err(std::sync::mpsc::TryRecvError::Empty) => Err(()),
+        }
+    }
+
     // ========================================================================
     // LEGACY: Old single-event API for backward compatibility during migration
     // ========================================================================
