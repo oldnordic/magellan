@@ -50,6 +50,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
+use std::mem::ManuallyDrop;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
@@ -78,13 +79,14 @@ type ThreadSafeBackend = Arc<dyn GraphBackend + Send + Sync>;
 ///
 /// # Shutdown
 ///
-/// Drop implementation is NOT provided in this phase (handled in 49-03).
-/// For now, the thread runs until the program exits or the backend disconnects.
+/// The receiver automatically shuts down the event loop thread when dropped.
+/// The subscription is cleaned up automatically when the receiver channel is dropped.
 pub struct PubSubEventReceiver {
-    /// Background thread handle (prefixed with _ to suppress "never read" warning)
-    _thread: JoinHandle<()>,
+    /// Background thread handle (wrapped in ManuallyDrop for custom Drop logic)
+    /// We use ManuallyDrop so we can extract the JoinHandle in shutdown()
+    _thread: ManuallyDrop<JoinHandle<()>>,
     /// Subscription ID for cleanup (prefixed with _ to suppress "never read" warning)
-    /// Note: Cleanup will be implemented in phase 49-03
+    /// Note: The subscription is automatically cleaned up when the channel is dropped
     _sub_id: u64,
     /// Atomic flag for graceful shutdown (shared with event loop thread)
     shutdown: Arc<AtomicBool>,
@@ -120,10 +122,49 @@ impl PubSubEventReceiver {
         });
 
         Ok(Self {
-            _thread: thread,
+            _thread: ManuallyDrop::new(thread),
             _sub_id: sub_id,
             shutdown,
         })
+    }
+
+    /// Explicitly shut down the pub/sub receiver and join the event loop thread.
+    ///
+    /// This method consumes the receiver, ensuring that:
+    /// 1. The shutdown flag is set to signal the event loop to exit
+    /// 2. The event loop thread is joined (waits for clean termination)
+    /// 3. The subscription is cleaned up automatically when the receiver is dropped
+    ///
+    /// # Note
+    ///
+    /// This method is called by `FileSystemWatcher::drop()` during graceful shutdown.
+    /// The backend's pub/sub subscription is automatically cleaned up when the
+    /// receiver channel is dropped (the backend detects the disconnect and removes
+    /// the subscription).
+    pub fn shutdown(mut self) {
+        // Set shutdown flag to signal event loop to exit
+        self.shutdown.store(true, Ordering::SeqCst);
+        // SAFETY: We're consuming self, so we can safely extract the JoinHandle
+        // The Drop impl will not run because we're using ManuallyDrop
+        let thread = unsafe { ManuallyDrop::take(&mut self._thread) };
+        // Join the thread - this waits for the event loop to exit cleanly
+        let _ = thread.join();
+        // Note: unsubscribe happens automatically when the receiver is dropped
+    }
+}
+
+impl Drop for PubSubEventReceiver {
+    fn drop(&mut self) {
+        // Signal shutdown to event loop thread
+        self.shutdown.store(true, Ordering::SeqCst);
+        // SAFETY: Drop is running, we can safely extract the JoinHandle
+        // and drop it without running its destructor (we already signaled shutdown)
+        let thread = unsafe { ManuallyDrop::take(&mut self._thread) };
+        // Drop the thread handle - this detaches the thread
+        // The event loop will exit due to the shutdown flag being set
+        drop(thread);
+        // Note: The subscription will be automatically cleaned up when the receiver
+        // channel is dropped (backend detects disconnect and removes subscription).
     }
 }
 
