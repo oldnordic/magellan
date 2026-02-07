@@ -63,6 +63,22 @@ docs/archive/
 # Planning documents (GSD workflow - local only)
 .planning/
 
+# GSD command definitions (local workflow)
+commands/gsd/
+get-shit-done/
+
+# All documentation (local development docs)
+docs/
+
+# Development scripts (local utilities)
+scripts/
+
+# GitHub CI/CD (not using - they charge now)
+.github/
+
+# Project metadata (local)
+opencode.json
+
 # Internal issues/reviews (development only)
 docs/CODE_REVIEW*.md
 docs/COMBINED_ISSUES*.md
