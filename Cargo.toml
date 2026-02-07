@@ -78,6 +78,7 @@ base64 = "0.22"
 blake3 = "1.5"
 camino = "1.2"
 rayon = "1.11"
+tempfile = "3.10"
 
 # LLVM C API bindings (optional, for llvm-cfg feature)
 [dependencies.inkwell]
