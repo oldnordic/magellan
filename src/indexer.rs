@@ -17,11 +17,18 @@ use anyhow::Result;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::{CodeGraph, FileEvent, FileSystemWatcher, WatcherConfig};
+
+#[cfg(feature = "native-v2")]
+use std::sync::mpsc::{Sender, channel as mpsc_channel};
+
+#[cfg(feature = "native-v2")]
+use sqlitegraph::GraphBackend;
 
 /// Handle a single file event, updating the graph appropriately.
 ///
@@ -281,6 +288,12 @@ impl PipelineSharedState {
 /// - Bounded sync_channel(1) for wakeup ticks (non-blocking insertion)
 /// - Snapshot+clear drain semantics for deterministic processing
 ///
+/// # Pub/Sub Integration (native-v2 feature)
+///
+/// When the native-v2 feature is enabled, the watcher subscribes to graph mutation
+/// events for reactive cache invalidation. The backend is passed to the watcher
+/// thread which creates a PubSubEventReceiver.
+///
 /// # Arguments
 /// * `config` - Pipeline configuration
 /// * `shutdown` - AtomicBool for graceful shutdown
@@ -288,11 +301,19 @@ impl PipelineSharedState {
 /// # Returns
 /// Number of paths processed during watch phase
 pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>) -> Result<usize> {
+    // Open graph first so we can get the backend for pub/sub subscription
+    let mut graph = CodeGraph::open(&config.db_path)?;
+
     // Create shared state for buffering dirty paths
     let (shared_state, wakeup_rx) = PipelineSharedState::new();
 
     // Keep a reference for the main thread to drain dirty paths
     let main_state = shared_state.clone();
+
+    // Create channel for pub/sub cache invalidation (only used with native-v2)
+    // The sender will be cloned and passed to the watcher thread for pub/sub
+    #[cfg(feature = "native-v2")]
+    let (pubsub_cache_tx, _pubsub_cache_rx) = mpsc_channel();
 
     // Start watcher thread
     let watcher_thread = {
@@ -300,16 +321,37 @@ pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>
         let watcher_config = config.watcher_config.clone();
         let shared_state = Arc::new(shared_state);
         let shutdown_watch = shutdown.clone();
+        let db_path = config.db_path.clone();
+
+        #[cfg(feature = "native-v2")]
+        let pubsub_sender = pubsub_cache_tx.clone();
 
         thread::spawn(move || {
-            if let Err(e) = watcher_loop(root_path, watcher_config, shared_state, shutdown_watch) {
+            #[cfg(feature = "native-v2")]
+            let result = watcher_loop_with_native_backend(
+                root_path,
+                watcher_config,
+                shared_state,
+                shutdown_watch,
+                db_path,
+                Some(pubsub_sender),
+            );
+
+            #[cfg(not(feature = "native-v2"))]
+            let result = watcher_loop(
+                root_path,
+                watcher_config,
+                shared_state,
+                shutdown_watch,
+                #[cfg(feature = "native-v2")]
+                None,
+            );
+
+            if let Err(e) = result {
                 eprintln!("Watcher thread error: {:?}", e);
             }
         })
     };
-
-    // Open graph
-    let mut graph = CodeGraph::open(&config.db_path)?;
 
     // Baseline scan if requested
     if config.scan_initial {
@@ -402,13 +444,33 @@ pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>
 }
 
 /// Watcher loop that receives batches and inserts paths into shared state.
+///
+/// When native-v2 is enabled and a backend is provided, this uses the pub/sub-enabled
+/// watcher for reactive cache invalidation. Otherwise, uses the filesystem-only watcher.
 fn watcher_loop(
     root_path: PathBuf,
     config: WatcherConfig,
     shared_state: Arc<PipelineSharedState>,
     shutdown: Arc<AtomicBool>,
+    #[cfg(feature = "native-v2")] pubsub_args: Option<(
+        Arc<dyn GraphBackend + Send + Sync>,
+        mpsc::Sender<String>,
+    )>,
 ) -> Result<()> {
+    #[cfg(not(feature = "native-v2"))]
     let watcher = FileSystemWatcher::new(root_path, config, shutdown.clone())?;
+
+    #[cfg(feature = "native-v2")]
+    let watcher = match pubsub_args {
+        Some((backend, cache_sender)) => {
+            // Use pub/sub-enabled watcher for reactive cache invalidation
+            FileSystemWatcher::with_pubsub(root_path, config, shutdown.clone(), backend, cache_sender)?
+        }
+        None => {
+            // Use filesystem-only watcher
+            FileSystemWatcher::new(root_path, config, shutdown.clone())?
+        }
+    };
 
     // Receive batches and insert dirty paths
     // Use timeout-based checking to respond to shutdown signal
@@ -429,6 +491,44 @@ fn watcher_loop(
     }
 
     Ok(())
+}
+
+/// Watcher loop wrapper for native-v2 feature.
+///
+/// This function opens its own backend connection for pub/sub subscription,
+/// then uses the pub/sub-enabled watcher for reactive cache invalidation.
+#[cfg(feature = "native-v2")]
+fn watcher_loop_with_native_backend(
+    root_path: PathBuf,
+    config: WatcherConfig,
+    shared_state: Arc<PipelineSharedState>,
+    shutdown: Arc<AtomicBool>,
+    db_path: PathBuf,
+    cache_sender: Option<mpsc::Sender<String>>,
+) -> Result<()> {
+    use sqlitegraph::NativeGraphBackend;
+
+    // Try to open a Native backend for pub/sub subscription
+    let pubsub_args = match cache_sender {
+        Some(sender) => {
+            // Open a new backend connection for pub/sub
+            // Note: NativeGraphBackend::open will use the same database file
+            match NativeGraphBackend::open(&db_path) {
+                Ok(backend) => {
+                    // Wrap in Arc for thread-safe sharing
+                    let backend_arc: Arc<dyn GraphBackend + Send + Sync> = Arc::new(backend);
+                    Some((backend_arc, sender))
+                }
+                Err(e) => {
+                    eprintln!("Warning: Failed to open native backend for pub/sub: {:?}. Using filesystem-only watching.", e);
+                    None
+                }
+            }
+        }
+        None => None,
+    };
+
+    watcher_loop(root_path, config, shared_state, shutdown, pubsub_args)
 }
 
 /// Process a list of dirty paths, reconciling each in sorted order.
