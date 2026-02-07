@@ -192,9 +192,9 @@ pub fn run_watch(
         let mut signals = Signals::new([signal::SIGTERM, signal::SIGINT])?;
 
         std::thread::spawn(move || {
-            for _ in &mut signals {
+            // Handle first signal received
+            if let Some(_) = signals.into_iter().next() {
                 shutdown_clone.store(true, Ordering::SeqCst);
-                break;
             }
         });
     }
