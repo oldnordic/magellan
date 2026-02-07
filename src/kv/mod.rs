@@ -61,6 +61,7 @@ pub use keys::{file_path_key, file_sym_key, sym_fqn_key, sym_fqn_of_key, sym_id_
 // Public API - Index Management
 // ============================================================================
 
+use anyhow::Result;
 use crate::ingest::SymbolFact;
 use sqlitegraph::backend::KvValue;
 use sqlitegraph::{GraphBackend, SnapshotId};

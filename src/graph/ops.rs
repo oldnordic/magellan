@@ -4,6 +4,7 @@
 
 use anyhow::Result;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use sqlitegraph::{GraphBackend, SnapshotId};
 
@@ -183,7 +184,7 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
     // Only available with native-v2 backend (KV store is native-only)
     #[cfg(feature = "native-v2")]
     {
-        let backend: &dyn GraphBackend = &*graph.files.backend;
+        let backend = Rc::clone(&graph.files.backend);
         crate::kv::populate_symbol_index(
             backend,
             file_id.as_i64() as u64,
