@@ -1,6 +1,7 @@
 //! Cross-backend database migration command implementation
 //!
 //! Handles migration between SQLite and Native V2 backends:
+//! - Detect backend format from file headers (magic bytes)
 //! - Export graph data from SQLite database to snapshot format
 //! - Import snapshot data into Native V2 backend
 //! - Migrate Magellan-specific side tables (chunks, metrics, execution log)
@@ -24,9 +25,151 @@
 
 use anyhow::Result;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use sqlitegraph::GraphBackend;
+
+/// Magic bytes for Native V2 database files
+///
+/// Native V2 databases start with "MAG2" (4 bytes) at offset 0.
+/// Verified from sqlitegraph/src/backend/native/v2/constants.rs
+const NATIVE_V2_MAGIC: &[u8] = b"MAG2";
+
+/// Database backend format detected from file headers
+///
+/// Represents the two supported backend formats in Magellan.
+/// Used for automatic backend detection before migration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BackendFormat {
+    /// SQLite database (traditional backend)
+    Sqlite,
+    /// Native V2 database (new high-performance backend)
+    NativeV2,
+}
+
+/// Errors that can occur during backend format detection
+///
+/// These errors provide specific feedback for migration failures,
+/// helping users understand what went wrong.
+#[derive(Debug, thiserror::Error)]
+pub enum MigrationError {
+    /// Database file does not exist at the specified path
+    #[error("Database not found: {path}")]
+    DatabaseNotFound {
+        path: PathBuf,
+    },
+
+    /// Cannot open the database file (permission denied, locked, etc.)
+    #[error("Cannot open database '{path}': {source}")]
+    CannotOpenDatabase {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    /// Cannot read file header (I/O error, truncated file, etc.)
+    #[error("Cannot read header from '{path}': {source}")]
+    CannotReadHeader {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    /// File is neither Native V2 nor SQLite format
+    #[error("Unknown database format: {path}. Details: {details}")]
+    UnknownFormat {
+        path: PathBuf,
+        details: String,
+    },
+
+    /// In-memory databases cannot be migrated (no file path)
+    #[error("In-memory databases (':memory:') are not supported for migration. Use a file-based database.")]
+    InMemoryDatabaseNotSupported,
+}
+
+/// Detect the backend format of a database file from its header
+///
+/// This function determines whether a database file uses SQLite or Native V2
+/// backend format by examining file headers. It does NOT rely on file extensions
+/// since users may rename files.
+///
+/// # Detection Strategy
+///
+/// 1. Reject `:memory:` path immediately (in-memory databases not supported)
+/// 2. Check if file exists (return `DatabaseNotFound` if not)
+/// 3. Read first 4 bytes and check for Native V2 magic bytes (`b"MAG2"`)
+/// 4. If magic bytes match, return `BackendFormat::NativeV2`
+/// 5. Otherwise, attempt to open as SQLite database
+/// 6. If SQLite open succeeds, return `BackendFormat::Sqlite`
+/// 7. If SQLite open fails, return `UnknownFormat`
+///
+/// # Arguments
+/// * `db_path` - Path to the database file to detect
+///
+/// # Returns
+/// `Ok(BackendFormat)` with the detected format, or `Err(MigrationError)` if detection fails
+///
+/// # Errors
+/// - `InMemoryDatabaseNotSupported` - if path is `:memory:`
+/// - `DatabaseNotFound` - if the file doesn't exist
+/// - `CannotOpenDatabase` - if file cannot be opened for reading
+/// - `CannotReadHeader` - if header cannot be read (I/O error, truncated file)
+/// - `UnknownFormat` - if neither Native V2 nor SQLite format is detected
+///
+/// # Example
+/// ```no_run
+/// use magellan::migrate_backend_cmd::detect_backend_format;
+/// use std::path::Path;
+///
+/// let db_path = Path::new("/path/to/database.db");
+/// match detect_backend_format(db_path) {
+///     Ok(format) => println!("Detected format: {:?}", format),
+///     Err(e) => eprintln!("Detection failed: {}", e),
+/// }
+/// ```
+pub fn detect_backend_format(db_path: &Path) -> Result<BackendFormat, MigrationError> {
+    // Check for in-memory database path
+    if db_path.to_str() == Some(":memory:") {
+        return Err(MigrationError::InMemoryDatabaseNotSupported);
+    }
+
+    // Check if file exists
+    if !db_path.exists() {
+        return Err(MigrationError::DatabaseNotFound {
+            path: db_path.to_path_buf(),
+        });
+    }
+
+    // Open file for reading magic bytes
+    let mut file = fs::File::open(db_path).map_err(|e| MigrationError::CannotOpenDatabase {
+        path: db_path.to_path_buf(),
+        source: e,
+    })?;
+
+    // Read first 4 bytes (magic number)
+    let mut magic = [0u8; 4];
+    file.read_exact(&mut magic).map_err(|e| MigrationError::CannotReadHeader {
+        path: db_path.to_path_buf(),
+        source: e,
+    })?;
+
+    // Check for Native V2 magic bytes
+    if magic == NATIVE_V2_MAGIC {
+        return Ok(BackendFormat::NativeV2);
+    }
+
+    // Fallback: try to open as SQLite database (read-only to avoid creating new file)
+    rusqlite::Connection::open_with_flags(
+        db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .map(|_| BackendFormat::Sqlite)
+    .map_err(|e| MigrationError::UnknownFormat {
+        path: db_path.to_path_buf(),
+        details: e.to_string(),
+    })
+}
 
 /// Snapshot export metadata returned by export_snapshot
 ///
@@ -399,5 +542,92 @@ mod tests {
         assert_eq!(meta.edges_imported, 99);
         assert_eq!(meta.source_dir, PathBuf::from("/test"));
         assert_eq!(meta.import_timestamp, 12345);
+    }
+
+    // Tests for detect_backend_format function
+
+    #[test]
+    fn test_detect_backend_format_sqlite() {
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+
+        // Create a SQLite database
+        let graph = SqliteGraph::open(&db_path).unwrap();
+        let _backend = SqliteGraphBackend::from_graph(graph);
+
+        // Detect format
+        let format = detect_backend_format(&db_path).unwrap();
+        assert_eq!(format, BackendFormat::Sqlite);
+    }
+
+    #[test]
+    fn test_detect_backend_format_in_memory_rejected() {
+        let memory_path = Path::new(":memory:");
+
+        let result = detect_backend_format(memory_path);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            MigrationError::InMemoryDatabaseNotSupported => {
+                // Expected error
+            }
+            other => panic!("Expected InMemoryDatabaseNotSupported, got: {}", other),
+        }
+    }
+
+    #[test]
+    fn test_detect_backend_format_nonexistent_file() {
+        let nonexistent = PathBuf::from("/nonexistent/path/that/does/not/exist.db");
+
+        let result = detect_backend_format(&nonexistent);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            MigrationError::DatabaseNotFound { path } => {
+                assert_eq!(path, nonexistent);
+            }
+            other => panic!("Expected DatabaseNotFound, got: {}", other),
+        }
+    }
+
+    #[test]
+    fn test_detect_backend_format_native_v2_magic_bytes() {
+        let temp_dir = TempDir::new().unwrap();
+        let fake_v2 = temp_dir.path().join("fake.v2");
+
+        // Create a file with Native V2 magic bytes
+        fs::write(&fake_v2, b"MAG2").unwrap();
+
+        let format = detect_backend_format(&fake_v2).unwrap();
+        assert_eq!(format, BackendFormat::NativeV2);
+    }
+
+    #[test]
+    fn test_detect_backend_format_empty_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let empty_file = temp_dir.path().join("empty.db");
+
+        // Create an empty file
+        fs::File::create(&empty_file).unwrap();
+
+        let result = detect_backend_format(&empty_file);
+        assert!(result.is_err());
+        // Empty file will fail to read header (CannotReadHeader)
+        match result.unwrap_err() {
+            MigrationError::CannotReadHeader { .. } => {
+                // Expected - empty file is not a valid database (too short for header)
+            }
+            other => panic!("Expected CannotReadHeader, got: {}", other),
+        }
+    }
+
+    #[test]
+    fn test_backend_format_equality() {
+        // Test BackendFormat equality and debug representation
+        assert_eq!(BackendFormat::Sqlite, BackendFormat::Sqlite);
+        assert_eq!(BackendFormat::NativeV2, BackendFormat::NativeV2);
+        assert_ne!(BackendFormat::Sqlite, BackendFormat::NativeV2);
+
+        // Test Debug output is non-empty
+        assert!(!format!("{:?}", BackendFormat::Sqlite).is_empty());
+        assert!(!format!("{:?}", BackendFormat::NativeV2).is_empty());
     }
 }
