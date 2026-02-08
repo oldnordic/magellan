@@ -635,6 +635,21 @@ impl ChunkStore {
         })
     }
 
+    /// Check if this ChunkStore is using KV backend (Native-V2)
+    ///
+    /// This method allows AST operations to check at runtime whether they should
+    /// use KV store (Native-V2) or SQL queries (SQLite).
+    pub fn has_kv_backend(&self) -> bool {
+        #[cfg(feature = "native-v2")]
+        {
+            self.kv_backend.is_some()
+        }
+        #[cfg(not(feature = "native-v2"))]
+        {
+            false
+        }
+    }
+
     /// Get chunks by symbol kind (e.g., "fn", "struct").
     pub fn get_chunks_by_kind(&self, symbol_kind: &str) -> Result<Vec<CodeChunk>> {
         self.with_conn(|conn| {
