@@ -80,45 +80,48 @@ Magellan is a deterministic codebase mapping CLI for local developers. This road
 
 ---
 
-### Phase 56: get_chunks_for_file() KV Support (BUG FIX)
+### Phase 56: get_chunks_for_file() KV Support ✅
 
 **Goal:** ChunkStore.get_chunks_for_file() works correctly on Native-V2 backend using KV store queries.
 
+**Status:** Complete - 2026-02-08
+
 **Depends on:** Phase 55
 
-**Requirements:** CHUNK-01
+**Requirements:** CHUNK-01 ✅
 
 **Success Criteria** (what must be TRUE):
-1. User can run `magellan chunks --db <native-v2-db>` and get correct output (currently fails)
-2. User can retrieve all code chunks for a specific file on Native-V2 backend
-3. Cross-backend test verifies identical results for SQLite vs Native-V2
+1. ✅ User can run `magellan chunks --db <native-v2-db>` and get correct output
+2. ✅ User can retrieve all code chunks for a specific file on Native-V2 backend
+3. ✅ Cross-backend test verifies identical results for SQLite vs Native-V2
 
-**Plans:** 3 plans (TDD methodology)
+**Plans:** 2/3 complete (56-02 skipped as redundant)
 
-**Pattern Reference:** Use `get_chunks_for_symbol()` (lines 558-592 in src/generation/mod.rs) as implementation template:
-```rust
-#[cfg(feature = "native-v2")]
-{
-    if let Some(ref backend) = self.kv_backend {
-        // Prefix scan: chunk:{escaped_path}:*
-        // Decode JSON values
-        // Return chunks
-    }
-}
-```
+**Implementation:**
+- KV prefix scan using `chunk:{escaped_path}:` pattern
+- Colon escaping with `::` for file paths containing colons
+- Sort by `byte_start` for consistent ordering
+- Early return pattern with SQLite fallback
 
-**Known Bug:** `get_chunks_for_file()` at lines 523-555 in src/generation/mod.rs has no KV branch - only SQL queries.
+**Commits:**
+- e961e1d: test(56-01): add failing test
+- 7b25126: feat(56-01): add KV prefix scan support
+- b79e738: refactor(56-01): remove unused mut
+- 05c65e6: docs(56-01): complete plan
+- fdb1c0b: docs(56-03): update NATIVE-V2.md
 
 Plans:
-- [ ] 56-01: Write failing test for get_chunks_for_file() on Native-V2
-- [ ] 56-02: Add KV prefix scan support to get_chunks_for_file()
-- [ ] 56-03: Verify test passes on both backends
+- [x] 56-01: Write failing test for get_chunks_for_file() on Native-V2 ✅
+- [x] 56-02: Add KV prefix scan support to get_chunks_for_file() ✅
+- [x] 56-03: Update documentation ✅
 
 ---
 
 ### Phase 57: get_chunk_by_span() Verification
 
 **Goal:** ChunkStore.get_chunk_by_span() verified to work correctly on both backends.
+
+**Status:** In progress - 2026-02-08
 
 **Depends on:** Phase 56
 
@@ -129,13 +132,13 @@ Plans:
 2. Cross-backend test verifies identical results for SQLite vs Native-V2
 3. Edge cases (missing chunks, overlapping spans) handled correctly
 
-**Plans:** 2 plans (verification-focused)
+**Plans:** 2/2 created (verification-focused)
 
 **Note:** `get_chunk_by_span()` already has KV support (lines 461-485 in src/generation/mod.rs). This phase verifies correctness.
 
 Plans:
-- [ ] 57-01: Write cross-backend test for get_chunk_by_span()
-- [ ] 57-02: Verify edge cases and fix any issues
+- [x] 57-01: Write cross-backend test for get_chunk_by_span()
+- [x] 57-02: Verify edge cases and fix any issues
 
 ---
 
@@ -194,8 +197,8 @@ Phases execute in numeric order: 56 → 57 → 58 → 59
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 46-55 | v2.0 | 55/55 | Complete | 2026-02-08 |
-| 56. get_chunks_for_file() KV Support | v2.1 | 0/3 | Not started | - |
-| 57. get_chunk_by_span() Verification | v2.1 | 0/2 | Not started | - |
+| 56. get_chunks_for_file() KV Support | v2.1 | 2/3 | Complete | 2026-02-08 |
+| 57. get_chunk_by_span() Verification | v2.1 | 0/2 | Planning | - |
 | 58. CLI Command Parity - Chunk Queries | v2.1 | 0/3 | Not started | - |
 | 59. CLI Command Parity - AST Queries + Test Suite | v2.1 | 0/4 | Not started | - |
 
@@ -210,8 +213,8 @@ Phases execute in numeric order: 56 → 57 → 58 → 59
 | QUERY-03: magellan get-file command | 58 | Pending |
 | QUERY-04: magellan ast command | 59 | Pending |
 | QUERY-05: magellan find-ast command | 59 | Pending |
-| CHUNK-01: get_chunks_for_file() KV support | 56 | Pending |
-| CHUNK-03: get_chunk_by_span() KV support | 57 | Pending |
+| CHUNK-01: get_chunks_for_file() KV support | 56 | ✅ Complete |
+| CHUNK-03: get_chunk_by_span() KV support | 57 | In Progress |
 | VERIFY-01: Cross-backend test suite | 59 | Pending |
 
 **Coverage:** 8/8 requirements mapped (100%)
