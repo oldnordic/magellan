@@ -2,52 +2,38 @@
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-02-06)
+See: .planning/PROJECT.md (updated 2026-02-08)
 
 **Core value:** Produce correct, deterministic symbol + reference + call graph data from real codebases, continuously, without stopping on bad files.
-**Current focus:** v2.1 Backend Parity Completion - MILESTONE COMPLETE ✅ (archived 2026-02-08)
+**Current focus:** v2.2 Code Quality & Cross-File Relations
 
 ## Current Position
 
-Phase: v2.1 Backend Parity Completion - MILESTONE ARCHIVED
-Status: All 4 phases (56-59) complete, milestone archived to .planning/milestones/v2.1-*
-Last activity: 2026-02-08 — Milestone v2.1 archived
+Phase: Not started (defining requirements)
+Status: Milestone v2.2 started, defining requirements
+Last activity: 2026-02-08 — Milestone v2.2 initiated
 
-Progress: [████████████████████████] 100% (v2.1 complete) ✅
+Progress: [░░░░░░░░░░░░░░░░░░░░] 0% (v2.2 not started)
 
-**Completed Phases (v2.0):**
-- Phase 46: Backend Abstraction Foundation ✅
-- Phase 47: Data Migration & Compatibility ✅
-- Phase 48: Native V2 Performance Features ✅
-- Phase 49: Pub/Sub Integration ✅
-- Phase 49.5: Native V2 Test Fixes ✅
-- Phase 50: Testing & Documentation ✅
-- Phase 51: Fix Native V2 Compilation Errors ✅
-- Phase 52: Eliminate Native-V2 Stubs ✅
-- Phase 53: Fix Native-V2 Database Initialization ✅
-- Phase 54: CLI Backend Detection and Dual Query Methods ✅
-- Phase 55: KV Data Storage Migration ✅
+**Completed Milestones:**
+- v1.0 Magellan - Phases 1-9 (shipped 2026-01-19)
+- v1.1 Correctness + Safety - Phases 10-13 (shipped 2026-01-20)
+- v1.2 Unified JSON Schema - Phase 14 (shipped 2026-01-22)
+- v1.3 Performance - Phase 15 (shipped 2026-01-22)
+- v1.4 Bug Fixes & Correctness - Phases 16-19 (shipped 2026-01-22)
+- v1.5 Symbol Identity - Phases 20-26 (shipped 2026-01-23)
+- v1.6 Quality & Bugfix - Phases 27-28 (shipped 2026-02-04)
+- v1.7 Concurrency & Thread Safety - Phases 29-33 (shipped 2026-02-04)
+- v1.8 CFG and Metrics - Phases 34-35 (shipped 2026-01-31)
+- v1.9 AST & Graph Algorithms - Phases 36-44 (shipped 2026-02-04)
+- v2.0 Native V2 Backend Migration - Phases 46-55 (shipped 2026-02-08)
+- v2.1 Backend Parity Completion - Phases 56-59 (shipped 2026-02-08)
 
-**Phase 56 Summary:**
-Bug fix completed: get_chunks_for_file() now has KV support using kv_prefix_scan(). Tests added in backend_integration_tests.rs. Cross-backend parity verified.
-
-**Phase 57 Plan 01 Summary:**
-Verification completed: get_chunk_by_span() works correctly on Native-V2 KV backend. Cross-backend tests added (test_get_chunk_by_span_cross_backend, test_get_chunk_by_span_with_colon_path, test_get_chunk_by_span_empty_result). All tests pass - no code changes needed since KV support already existed (lines 461-485 in src/generation/mod.rs).
-
-**Phase 57 Plan 02 Summary:**
-Edge case testing completed: Added 3 comprehensive tests for get_chunk_by_span() covering zero-length spans, multiple chunks in same file, and exact span matching requirements. All 10 backend_integration_tests pass. Documentation updated in NATIVE-V2.md with dedicated ChunkStore Operations section. No deviations - plan executed exactly as written.
-
-**Phase 58 Plan 02 Summary:**
-CLI integration tests added for magellan get command: 5 tests verifying get_chunks_for_symbol() works on Native-V2 backend. Cross-backend parity verified between SQLite and Native-V2. Task 2 (--with-context/--with-semantics/--with-checksums tests) deferred due to architectural constraints (run_get() is binary module not exposed as library). Core functionality verified - get_chunks_for_symbol() has KV support and works correctly on both backends.
-
-**Phase 58 Plan 03 Summary:**
-Verification completed: magellan get-file command works correctly on Native-V2 backend. Existing backend integration tests (test_get_chunks_for_file_cross_backend, test_get_chunks_for_file_with_colon_path, test_get_chunks_for_file_empty_result, test_get_chunks_for_file_byte_order) already cover all requirements. All 4 tests pass. No new tests created - verified that existing tests in backend_integration_tests.rs provide equivalent coverage to what was specified in the plan. KV prefix scan pattern `chunk:{escaped_path}:*` works correctly for retrieving all chunks for a file.
-
-**Phase 59 Plan 02 Summary:**
-CLI integration tests for magellan find-ast command verified. Tests already existed from 59-01 commit (b1d5b94). Three tests verify get_ast_nodes_by_kind() has KV support (lines 197-224 in ast_ops.rs): test_magellan_find_ast_command_structure (passes), test_magellan_find_ast_empty_result (passes), and tests expecting data persistence (fail due to KV snapshot isolation). Key finding: Direct kv_set() calls don't persist data across CodeGraph instances due to snapshot isolation in NativeGraphBackend. Tests verify code structure works correctly; full end-to-end testing requires using actual indexing pipeline.
-
-**Phase 59 Plan 04 Summary:**
-v2.1 Backend Parity Completion milestone finished. Full test suite run: 471 lib tests pass, 14/14 backend integration tests pass. Added AST Query Operations section to NATIVE-V2.md documenting KV support status for all AST query methods. Updated README.md with v2.1 Backend Parity Completion section. Updated CHANGELOG.md with v2.1.0 release details. Marked Phase 59 and v2.1 milestone as complete in ROADMAP.md. All v2.1 requirements verified: QUERY-01 through QUERY-05 complete, VERIFY-01 complete. Known limitations documented: position-based AST queries lack KV support on Native-V2 backend.
+**v2.2 Focus Areas:**
+- Cross-file reference indexing
+- Caller/callee tracking re-enablement
+- Code quality improvements (main.rs split, unwrap() reduction)
+- Backend abstraction (SQLite-specific code removal)
 
 ## Performance Metrics
 
@@ -63,51 +49,11 @@ v2.1 Backend Parity Completion milestone finished. Full test suite run: 471 lib 
 | 46-55 (v2.0) | 55 | ~10h | ~11 min |
 | 56-59 (v2.1) | 13 | ~4h | ~18 min |
 
-**Recent Trend:**
-- Last 5 plans: ~8-12 min each (v2.0 phases focused on infrastructure)
-- Trend: Stable (backend integration work continues)
-
-*Updated after each plan completion*
-| Phase 56 P01 | 4 | 3 tasks | 2 files |
-| Phase 57-get-chunk-by-span-verification P57-01 | 102 | 1 tasks | 1 files |
-| Phase 57 P02 | 2.3 | 2 tasks | 2 files |
-| Phase 58 P01 | 9min | 1 tasks | 1 files |
-| Phase 59-cli-command-parity-ast-queries-test-suite P03 | 29509773 | 2 tasks | 2 files |
-
 ## Accumulated Context
 
 ### Decisions
 
 Decisions are logged in PROJECT.md Key Decisions table.
-Recent decisions affecting current work:
-
-**From Phase 55 (KV Data Storage Migration):**
-- All metadata stored in KV during native-v2 indexing (chunks, AST nodes, labels, call edges)
-- Prefix scan pattern for KV queries (e.g., chunk:{escaped_path}:*)
-- Colon-escaping (::) in file paths to prevent key collisions
-- Early return pattern: KV branch returns early, SQLite fallback in else clause
-
-**From Phase 54 (CLI Backend Detection):**
-- Backend detection via magic bytes (b"MAG2" for Native V2)
-- Runtime backend detection using has_kv_backend() for query methods
-- Dual query methods: SQL for SQLite, KV prefix scan for Native-V2
-
-**TDD Methodology for v2.1:**
-- Each phase follows Test-Driven Development
-- Write failing test demonstrating bug on Native-V2
-- Fix code to add KV support
-- Verify test passes on both backends
-- [Phase 56]: Use kv_prefix_scan() with escaped file path prefix (chunk:{escaped_path}:) to retrieve all chunks for a file in Native-V2 backend
-- [Phase 57]: Verification TDD - write tests after implementation to prove correctness. get_chunk_by_span() already has KV support using chunk_key() for O(1) exact span lookup
-- [Phase 57]: Test organization: Added edge case tests at end of file following existing naming convention with #[cfg(feature = "native-v2")]
-- [Phase 57]: Documentation structure: Created dedicated ChunkStore Operations section with table format showing KV support status for all methods
-- [Phase 58]: Placed CLI tests in get_cmd.rs module instead of separate file to avoid circular dependency
-- [Phase 58]: Combined Task 1 and Task 2 into single comprehensive test suite
-- [Phase 59]: Structural test approach: Document KV support via code inspection when full integration requires unimplemented features
-- [Phase 59]: KV support confirmed for get_ast_nodes_by_file() and get_ast_nodes_by_kind() via ast_ops.rs code inspection
-- [Phase 59]: Known limitation: get_ast_node_at_position() lacks KV support (SQLite-only at lines 154-184 in ast_ops.rs)
-- [Phase 59]: Bug fix: file:path:{path} KV entry must be stored during file node creation for O(1) file_id lookups in AST queries. Fixed in find_or_create_file_node() with kv_set() calls.
-- [Phase 59]: Cross-backend test organization: Tests follow existing backend_integration_tests.rs pattern with #[cfg(feature = "native-v2")] and descriptive names (test_{method}_{aspect}_native_v2).
 
 ### Pending Todos
 
@@ -115,27 +61,22 @@ None yet.
 
 ### Blockers/Concerns
 
-None currently. v2.1 Backend Parity Completion milestone complete.
+**Tech Debt to Address (from CONCERNS.md):**
+- Cross-file reference indexing not working
+- Caller/callee tracking disabled in query/find commands
+- AST node storage not integrated with KV backend
+- SQLite-specific labels in GraphBackend trait
+- Large main.rs file (2874 lines)
+- 64+ unwrap() calls across codebase
 
 ## Session Continuity
 
-Last session: 2026-02-08 23:30 UTC
-Stopped at: v2.1 Backend Parity Completion milestone archived
+Last session: 2026-02-08 23:45 UTC
+Stopped at: Milestone v2.2 initiated, defining requirements
 Resume file: None
-Blockers: None - v2.1 milestone complete and archived
+Blockers: None
 
-## v2.1 Milestone Archive
+## v2.2 Milestone Context
 
-**Archived to:** .planning/milestones/v2.1-*
-**Tag:** v2.1.0
-**Git Range:** 9065bef..aac90a2 (26 commits)
-**Duration:** 2026-02-08 (~4 hours)
-
-**Key Files:**
-- .planning/milestones/v2.1-ROADMAP.md - Archived roadmap
-- .planning/milestones/v2.1-REQUIREMENTS.md - Archived requirements
-- .planning/v2.1-MILESTONE-AUDIT.md - Milestone audit report
-
-**Next Steps:**
-- Use `/gsd:new-milestone` to start the next milestone
-- Or use `/gsd:progress` to check current project status
+**Archived v2.1:** .planning/milestones/v2.1-*
+**Next Steps:** Define requirements → Create roadmap → Start phase planning
