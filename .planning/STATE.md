@@ -5,16 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-06)
 
 **Core value:** Produce correct, deterministic symbol + reference + call graph data from real codebases, continuously, without stopping on bad files.
-**Current focus:** Phase 46 - Backend Abstraction Foundation (COMPLETE) → Next: Phase 47
+**Current focus:** Phase 52 - Eliminate Native-V2 Stubs (next phase)
 
 ## Current Position
 
-Phase: 47 of 51 (Data Migration & Compatibility)
-Plan: 5 of 5 in current phase
-Status: Phase complete
-Last activity: 2026-02-07 — Completed 47-05-PLAN.md (Round-trip migration test)
+Phase: 52 of 52 (Eliminate Native-V2 Stubs)
+Plan: 1 of 7 in current phase (just completed)
+Status: Phase 52 in progress
+Last activity: 2026-02-08 — Completed 52-01 (KV Key Patterns and Encoding Functions)
 
-Progress: [███████████████████] 92.4% (194/210 total plans)
+Progress: [██████████████████░] 97.1% (204/210 total plans)
+
+**Completed Phases:**
+- Phase 46: Backend Abstraction Foundation ✅
+- Phase 47: Data Migration & Compatibility ✅
+- Phase 48: Native V2 Performance Features ✅
+- Phase 49: Pub/Sub Integration ✅
+- Phase 51: Fix Native V2 Compilation Errors ✅
 
 ## Performance Metrics
 
@@ -48,12 +55,19 @@ Progress: [███████████████████] 92.4% (194
 
 ### Roadmap Evolution
 
+- Phase 52 added: Eliminate Native-V2 Stubs - Store metadata in KV instead of SQLite stubs (2026-02-07)
 - Phase 51 added: Fix native-v2 compilation errors and enable native backend (2026-02-07)
 
 ### Decisions
 
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
+
+**From Phase 52-01 (KV Key Patterns and Encoding Functions):**
+- Generic type parameters for encoding functions (e.g., `encode_cfg_blocks<T>`) avoid exposing private modules (ast_node, schema) while maintaining type safety
+- Path escaping with "::" prevents colon-based key collisions in file paths (e.g., Windows paths or module names like "src/test:module/file.rs")
+- ?Sized bound for encode_json allows encoding slices (&[T]) and other DSTs without requiring conversion to Vec
+- JSON encoding chosen over binary for metadata (human-readable, debuggable, sufficient for metadata sizes)
 
 **From Phase 47-03 (Backend Format Detection):**
 - Implemented detect_backend_format() using magic byte inspection (b"MAG2" for Native V2)
@@ -293,12 +307,14 @@ Blockers:
 
 **Milestone Goal:** Migrate from SQLiteGraph's SQLite backend to Native V2 backend for 10x traversal performance, O(1) symbol lookups, and pub/sub events.
 
-**Phases:** 46-51 (29+ plans planned)
-- Phase 46: Backend Abstraction Foundation (4 plans) - Type signature changes, feature flag propagation
+**Phases:** 46-52 (36+ plans planned)
+- Phase 46: Backend Abstraction Foundation (6 plans) - Type signature changes, feature flag propagation
 - Phase 47: Data Migration & Compatibility (5 plans) - Snapshot export/import, backend detection, migration CLI
 - Phase 48: Native V2 Performance Features (5 plans) - KV store indexing, clustered adjacency, benchmarks
 - Phase 49: Pub/Sub Integration (3 plans) - Event subscription, cache invalidation, cleanup
 - Phase 50: Testing & Documentation (12 plans) - Feature parity, CI matrix, documentation updates
+- Phase 51: Fix Native V2 Compilation Errors (3 plans) - Module fixes, type mismatches, disabled() constructors
+- Phase 52: Eliminate Native-V2 Stubs (7 plans) - Metadata storage in KV, full feature parity
 
 **Total v2.0 Requirements:** 30
 - Backend Infrastructure: 5 (BACKEND-01 to BACKEND-05)
@@ -314,13 +330,22 @@ Blockers:
 
 ## Session Continuity
 
-Last session: 2026-02-07
-Stopped at: Completed 47-05-PLAN.md (Round-trip migration test)
+Last session: 2026-02-08
+Stopped at: Completed 52-01-PLAN.md (KV Key Patterns and Encoding Functions)
 Resume file: None
 Blockers:
 - algorithms.rs module uses concrete SqliteGraph type - requires conditional compilation to work with Native backend
 - 305 tests fail with native-v2 feature due to algorithms.rs limitation (verified in 46-05)
 - Pre-existing test failures: migration_tests expects schema v5 (actual is v7), parser_tests trait parsing issues
+
+**From Phase 52-01 (KV Key Patterns and Encoding Functions):**
+- Added 6 key construction functions (chunk_key, execution_log_key, file_metrics_key, symbol_metrics_key, cfg_blocks_key, ast_nodes_key)
+- Added 6 JSON encoding/decoding functions with generic type parameters to avoid private module dependencies
+- Added serde derives to ExecutionRecord for JSON serialization
+- All 31 KV tests pass (19 keys + 10 encoding + 2 module)
+- Namespace collision test confirms all 12 key prefixes are distinct
+- File sizes exceed minimums (keys.rs: 493 lines, encoding.rs: 369 lines)
+- Commits: 70baa00 (key patterns), 66e57be (encoding functions), 6bc7d1d (serde derives)
 
 **From Phase 47-05 (Round-Trip Migration Test):**
 - Created tests/backend_migration_tests.rs with 3 test functions (455 lines)
