@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-06)
 ## Current Position
 
 Phase: 52 of 52 (Eliminate Native-V2 Stubs)
-Plan: 5 of 7 in current phase (just completed)
+Plan: 6 of 7 in current phase (just completed)
 Status: Phase 52 in progress
-Last activity: 2026-02-08 — Completed 52-05 (CFG KV Backend Storage)
+Last activity: 2026-02-08 — Completed 52-06 (Side Table Migration to KV)
 
-Progress: [██████████████████░] 98.1% (206/210 total plans)
+Progress: [██████████████████░] 98.6% (207/210 total plans)
 
 **Completed Phases:**
 - Phase 46: Backend Abstraction Foundation ✅
@@ -351,7 +351,7 @@ Blockers:
 ## Session Continuity
 
 Last session: 2026-02-08
-Stopped at: Completed 52-05-PLAN.md (CFG KV Backend Storage)
+Stopped at: Completed 52-06-PLAN.md (Side Table Migration to KV)
 Resume file: None
 Blockers:
 - algorithms.rs module uses concrete SqliteGraph type - requires conditional compilation to work with Native backend
@@ -366,6 +366,14 @@ Blockers:
 - All 3 KV storage tests pass (roundtrip, empty, overwrite)
 - All 2 ChunkStore integration tests pass
 - Commits: f8db4cd (KV storage functions), 4ce8b1b (ChunkStore integration)
+
+**From Phase 52-06 (Side Table Migration to KV):**
+- Use inline implementation for chunk migration in migrate_backend_cmd.rs (ChunkStore::migrate_chunks_to_kv exists but is library-only)
+- Re-export AST KV storage functions (store_ast_nodes_kv, get_ast_nodes_kv) from graph module for binary access
+- Remove migrate_backend_cmd from lib.rs to avoid circular dependency (binary-only module, declared in main.rs)
+- Use magellan:: prefix for library imports in binary modules, crate:: prefix within library modules
+- Migrate chunks, AST nodes, and CFG blocks to KV; skip metrics and execution logs (already have KV APIs)
+- Commits: d76a7c7 (AST KV storage), 7362918 (side table migration)
 
 **From Phase 52-03 (ExecutionLog KV Backend):**
 - Added KV backend support to ExecutionLog (kv_backend field, with_kv_backend constructor)
