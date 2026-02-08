@@ -26,7 +26,7 @@ fn test_get_chunks_for_file_cross_backend() {
 
     // Create Native-V2 backend
     let native_backend = Rc::new(NativeGraphBackend::new(&native_db).unwrap()) as Rc<dyn sqlitegraph::GraphBackend>;
-    let mut native_chunks = ChunkStore::with_kv_backend(native_backend);
+    let native_chunks = ChunkStore::with_kv_backend(native_backend);
 
     // Create test chunks for src/test.rs
     let test_chunks = vec![
@@ -79,7 +79,7 @@ fn test_get_chunks_for_file_with_colon_path() {
     let native_db = temp_dir.path().join("test_colon.db");
 
     let native_backend = Rc::new(NativeGraphBackend::new(&native_db).unwrap()) as Rc<dyn sqlitegraph::GraphBackend>;
-    let mut native_chunks = ChunkStore::with_kv_backend(native_backend);
+    let native_chunks = ChunkStore::with_kv_backend(native_backend);
 
     // Create chunk for file with colon in path
     let colon_path = "src/module:name/file.rs";
@@ -125,7 +125,7 @@ fn test_get_chunks_for_file_byte_order() {
     let native_db = temp_dir.path().join("test_order.db");
 
     let native_backend = Rc::new(NativeGraphBackend::new(&native_db).unwrap()) as Rc<dyn sqlitegraph::GraphBackend>;
-    let mut native_chunks = ChunkStore::with_kv_backend(native_backend);
+    let native_chunks = ChunkStore::with_kv_backend(native_backend);
 
     // Create chunks in random order
     let chunks = vec![
