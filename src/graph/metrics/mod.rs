@@ -416,3 +416,229 @@ pub mod query {
         metrics.get_hotspots(limit, min_loc, min_fan_in, min_fan_out)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[cfg(feature = "native-v2")]
+    fn test_metrics_file_kv_roundtrip() {
+        use sqlitegraph::NativeGraphBackend;
+        use tempfile::TempDir;
+        use std::rc::Rc;
+
+        // Create a temporary database
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let backend = NativeGraphBackend::open(&db_path).unwrap();
+        let backend: Rc<dyn sqlitegraph::GraphBackend> = Rc::new(backend);
+
+        let metrics_ops = MetricsOps::with_kv_backend(backend);
+
+        // Create test file metrics
+        let file_metrics = FileMetrics {
+            file_path: "src/test.rs".to_string(),
+            symbol_count: 5,
+            loc: 100,
+            estimated_loc: 100.0,
+            fan_in: 2,
+            fan_out: 3,
+            complexity_score: 15.5,
+            last_updated: 1234567890,
+        };
+
+        // Upsert metrics
+        metrics_ops.upsert_file_metrics(&file_metrics).unwrap();
+
+        // Retrieve metrics
+        let retrieved = metrics_ops.get_file_metrics("src/test.rs").unwrap();
+
+        // Verify all fields match
+        assert!(retrieved.is_some());
+        let retrieved = retrieved.unwrap();
+        assert_eq!(retrieved.file_path, file_metrics.file_path);
+        assert_eq!(retrieved.symbol_count, file_metrics.symbol_count);
+        assert_eq!(retrieved.loc, file_metrics.loc);
+        assert_eq!(retrieved.estimated_loc, file_metrics.estimated_loc);
+        assert_eq!(retrieved.fan_in, file_metrics.fan_in);
+        assert_eq!(retrieved.fan_out, file_metrics.fan_out);
+        assert_eq!(retrieved.complexity_score, file_metrics.complexity_score);
+        assert_eq!(retrieved.last_updated, file_metrics.last_updated);
+    }
+
+    #[test]
+    #[cfg(feature = "native-v2")]
+    fn test_metrics_symbol_kv_roundtrip() {
+        use sqlitegraph::NativeGraphBackend;
+        use tempfile::TempDir;
+        use std::rc::Rc;
+
+        // Create a temporary database
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let backend = NativeGraphBackend::open(&db_path).unwrap();
+        let backend: Rc<dyn sqlitegraph::GraphBackend> = Rc::new(backend);
+
+        let metrics_ops = MetricsOps::with_kv_backend(backend);
+
+        // Create test symbol metrics
+        let symbol_metrics = SymbolMetrics {
+            symbol_id: 12345,
+            symbol_name: "test_function".to_string(),
+            kind: "Function".to_string(),
+            file_path: "src/test.rs".to_string(),
+            loc: 50,
+            estimated_loc: 50.0,
+            fan_in: 1,
+            fan_out: 2,
+            cyclomatic_complexity: 3,
+            last_updated: 1234567890,
+        };
+
+        // Upsert metrics
+        metrics_ops.upsert_symbol_metrics(&symbol_metrics).unwrap();
+
+        // Retrieve metrics
+        let retrieved = metrics_ops.get_symbol_metrics(12345).unwrap();
+
+        // Verify all fields match
+        assert!(retrieved.is_some());
+        let retrieved = retrieved.unwrap();
+        assert_eq!(retrieved.symbol_id, symbol_metrics.symbol_id);
+        assert_eq!(retrieved.symbol_name, symbol_metrics.symbol_name);
+        assert_eq!(retrieved.kind, symbol_metrics.kind);
+        assert_eq!(retrieved.file_path, symbol_metrics.file_path);
+        assert_eq!(retrieved.loc, symbol_metrics.loc);
+        assert_eq!(retrieved.estimated_loc, symbol_metrics.estimated_loc);
+        assert_eq!(retrieved.fan_in, symbol_metrics.fan_in);
+        assert_eq!(retrieved.fan_out, symbol_metrics.fan_out);
+        assert_eq!(retrieved.cyclomatic_complexity, symbol_metrics.cyclomatic_complexity);
+        assert_eq!(retrieved.last_updated, symbol_metrics.last_updated);
+    }
+
+    #[test]
+    #[cfg(feature = "native-v2")]
+    fn test_metrics_kv_persistence() {
+        use sqlitegraph::NativeGraphBackend;
+        use tempfile::TempDir;
+        use std::rc::Rc;
+
+        // Create a temporary database
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let backend = NativeGraphBackend::open(&db_path).unwrap();
+        let backend: Rc<dyn sqlitegraph::GraphBackend> = Rc::new(backend);
+
+        // Create first MetricsOps instance and upsert metrics
+        {
+            let metrics_ops = MetricsOps::with_kv_backend(backend.clone());
+            let file_metrics = FileMetrics {
+                file_path: "src/persist.rs".to_string(),
+                symbol_count: 10,
+                loc: 200,
+                estimated_loc: 200.0,
+                fan_in: 5,
+                fan_out: 7,
+                complexity_score: 25.0,
+                last_updated: 9876543210,
+            };
+            metrics_ops.upsert_file_metrics(&file_metrics).unwrap();
+        } // metrics_ops dropped here
+
+        // Create new MetricsOps instance with same backend
+        let metrics_ops = MetricsOps::with_kv_backend(backend);
+
+        // Verify metrics are retrievable (persistence works)
+        let retrieved = metrics_ops.get_file_metrics("src/persist.rs").unwrap();
+        assert!(retrieved.is_some());
+        let retrieved = retrieved.unwrap();
+        assert_eq!(retrieved.file_path, "src/persist.rs");
+        assert_eq!(retrieved.symbol_count, 10);
+        assert_eq!(retrieved.loc, 200);
+        assert_eq!(retrieved.complexity_score, 25.0);
+        assert_eq!(retrieved.last_updated, 9876543210);
+    }
+
+    #[test]
+    #[cfg(feature = "native-v2")]
+    fn test_metrics_kv_update() {
+        use sqlitegraph::NativeGraphBackend;
+        use tempfile::TempDir;
+        use std::rc::Rc;
+
+        // Create a temporary database
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let backend = NativeGraphBackend::open(&db_path).unwrap();
+        let backend: Rc<dyn sqlitegraph::GraphBackend> = Rc::new(backend);
+
+        let metrics_ops = MetricsOps::with_kv_backend(backend);
+
+        // Upsert initial metrics
+        let initial_metrics = FileMetrics {
+            file_path: "src/update.rs".to_string(),
+            symbol_count: 3,
+            loc: 50,
+            estimated_loc: 50.0,
+            fan_in: 1,
+            fan_out: 1,
+            complexity_score: 5.0,
+            last_updated: 1111111111,
+        };
+        metrics_ops.upsert_file_metrics(&initial_metrics).unwrap();
+
+        // Verify initial values
+        let retrieved = metrics_ops.get_file_metrics("src/update.rs").unwrap();
+        assert!(retrieved.is_some());
+        let retrieved = retrieved.unwrap();
+        assert_eq!(retrieved.symbol_count, 3);
+        assert_eq!(retrieved.complexity_score, 5.0);
+
+        // Upsert updated metrics with different values
+        let updated_metrics = FileMetrics {
+            file_path: "src/update.rs".to_string(),
+            symbol_count: 8,
+            loc: 150,
+            estimated_loc: 150.0,
+            fan_in: 4,
+            fan_out: 6,
+            complexity_score: 20.0,
+            last_updated: 2222222222,
+        };
+        metrics_ops.upsert_file_metrics(&updated_metrics).unwrap();
+
+        // Verify latest values are returned
+        let retrieved = metrics_ops.get_file_metrics("src/update.rs").unwrap();
+        assert!(retrieved.is_some());
+        let retrieved = retrieved.unwrap();
+        assert_eq!(retrieved.symbol_count, 8);
+        assert_eq!(retrieved.loc, 150);
+        assert_eq!(retrieved.complexity_score, 20.0);
+        assert_eq!(retrieved.last_updated, 2222222222);
+    }
+
+    #[test]
+    #[cfg(feature = "native-v2")]
+    fn test_metrics_kv_missing_key_returns_none() {
+        use sqlitegraph::NativeGraphBackend;
+        use tempfile::TempDir;
+        use std::rc::Rc;
+
+        // Create a temporary database
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let backend = NativeGraphBackend::open(&db_path).unwrap();
+        let backend: Rc<dyn sqlitegraph::GraphBackend> = Rc::new(backend);
+
+        let metrics_ops = MetricsOps::with_kv_backend(backend);
+
+        // Try to get metrics for a file that doesn't exist
+        let retrieved = metrics_ops.get_file_metrics("src/nonexistent.rs").unwrap();
+        assert!(retrieved.is_none());
+
+        // Try to get metrics for a symbol that doesn't exist
+        let retrieved = metrics_ops.get_symbol_metrics(99999).unwrap();
+        assert!(retrieved.is_none());
+    }
+}
