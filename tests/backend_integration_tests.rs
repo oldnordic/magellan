@@ -168,3 +168,152 @@ fn test_get_chunks_for_file_byte_order() {
     assert_eq!(result[1].byte_start, 50, "Second chunk should start at 50");
     assert_eq!(result[2].byte_start, 100, "Third chunk should start at 100");
 }
+
+/// Test: get_chunk_by_span() retrieves chunk by exact byte span on KV backend.
+///
+/// This is a verification test: get_chunk_by_span() already has KV support
+/// (lines 461-485 in src/generation/mod.rs). This test proves it works correctly.
+#[cfg(feature = "native-v2")]
+#[test]
+fn test_get_chunk_by_span_cross_backend() {
+    let temp_dir = TempDir::new().unwrap();
+    let native_db = temp_dir.path().join("test_span.db");
+
+    let native_backend = Rc::new(NativeGraphBackend::new(&native_db).unwrap()) as Rc<dyn sqlitegraph::GraphBackend>;
+    let native_chunks = ChunkStore::with_kv_backend(native_backend);
+
+    // Create test chunks for src/span_test.rs
+    let test_chunks = vec![
+        CodeChunk::new(
+            "src/span_test.rs".to_string(),
+            0,
+            100,
+            "fn first() {}".to_string(),
+            Some("first".to_string()),
+            Some("Function".to_string()),
+        ),
+        CodeChunk::new(
+            "src/span_test.rs".to_string(),
+            100,
+            200,
+            "fn second() {}".to_string(),
+            Some("second".to_string()),
+            Some("Function".to_string()),
+        ),
+        CodeChunk::new(
+            "src/span_test.rs".to_string(),
+            200,
+            300,
+            "fn third() {}".to_string(),
+            Some("third".to_string()),
+            Some("Function".to_string()),
+        ),
+    ];
+
+    // Store all chunks
+    for chunk in &test_chunks {
+        native_chunks.store_chunk(chunk).unwrap();
+    }
+
+    // Verify O(1) retrieval by exact span
+    let result = native_chunks.get_chunk_by_span("src/span_test.rs", 100, 200).unwrap();
+
+    assert!(result.is_some(), "Should retrieve chunk at span 100-200");
+    let chunk = result.unwrap();
+    assert_eq!(chunk.file_path, "src/span_test.rs");
+    assert_eq!(chunk.byte_start, 100);
+    assert_eq!(chunk.byte_end, 200);
+    assert_eq!(chunk.content, "fn second() {}", "Content should match");
+    assert_eq!(chunk.symbol_name, Some("second".to_string()));
+    assert_eq!(chunk.symbol_kind, Some("Function".to_string()));
+
+    // Verify retrieval of first chunk
+    let first_result = native_chunks.get_chunk_by_span("src/span_test.rs", 0, 100).unwrap();
+    assert!(first_result.is_some(), "Should retrieve first chunk");
+    assert_eq!(first_result.unwrap().symbol_name, Some("first".to_string()));
+
+    // Verify retrieval of last chunk
+    let last_result = native_chunks.get_chunk_by_span("src/span_test.rs", 200, 300).unwrap();
+    assert!(last_result.is_some(), "Should retrieve last chunk");
+    assert_eq!(last_result.unwrap().symbol_name, Some("third".to_string()));
+}
+
+/// Test: get_chunk_by_span() handles files with colons in path.
+///
+/// File paths containing colons (e.g., "src/module:name/file.rs") must be
+/// escaped in KV keys to prevent collisions. The chunk_key function escapes
+/// colons with "::" to ensure unique keys.
+#[cfg(feature = "native-v2")]
+#[test]
+fn test_get_chunk_by_span_with_colon_path() {
+    let temp_dir = TempDir::new().unwrap();
+    let native_db = temp_dir.path().join("test_colon_span.db");
+
+    let native_backend = Rc::new(NativeGraphBackend::new(&native_db).unwrap()) as Rc<dyn sqlitegraph::GraphBackend>;
+    let native_chunks = ChunkStore::with_kv_backend(native_backend);
+
+    // Create chunks for files with colons in paths
+    let colon_path_1 = "src/module:name/file.rs";
+    let colon_path_2 = "src/other::path.rs";
+
+    let chunk1 = CodeChunk::new(
+        colon_path_1.to_string(),
+        0,
+        50,
+        "fn colon_test_1() {}".to_string(),
+        Some("colon_test_1".to_string()),
+        Some("Function".to_string()),
+    );
+
+    let chunk2 = CodeChunk::new(
+        colon_path_2.to_string(),
+        0,
+        50,
+        "fn colon_test_2() {}".to_string(),
+        Some("colon_test_2".to_string()),
+        Some("Function".to_string()),
+    );
+
+    native_chunks.store_chunk(&chunk1).unwrap();
+    native_chunks.store_chunk(&chunk2).unwrap();
+
+    // Retrieve first chunk with colon path
+    let result1 = native_chunks.get_chunk_by_span(colon_path_1, 0, 50).unwrap();
+    assert!(result1.is_some(), "Should retrieve chunk with colon in path");
+    assert_eq!(result1.unwrap().symbol_name, Some("colon_test_1".to_string()));
+
+    // Retrieve second chunk with colon path
+    let result2 = native_chunks.get_chunk_by_span(colon_path_2, 0, 50).unwrap();
+    assert!(result2.is_some(), "Should retrieve chunk with double colon in path");
+    assert_eq!(result2.unwrap().symbol_name, Some("colon_test_2".to_string()));
+}
+
+/// Test: get_chunk_by_span() returns None for non-existent chunk.
+#[cfg(feature = "native-v2")]
+#[test]
+fn test_get_chunk_by_span_empty_result() {
+    let temp_dir = TempDir::new().unwrap();
+    let native_db = temp_dir.path().join("test_empty_span.db");
+
+    let native_backend = Rc::new(NativeGraphBackend::new(&native_db).unwrap()) as Rc<dyn sqlitegraph::GraphBackend>;
+    let native_chunks = ChunkStore::with_kv_backend(native_backend);
+
+    // Create and store a chunk
+    let chunk = CodeChunk::new(
+        "src/exists.rs".to_string(),
+        0,
+        100,
+        "fn exists() {}".to_string(),
+        Some("exists".to_string()),
+        Some("Function".to_string()),
+    );
+    native_chunks.store_chunk(&chunk).unwrap();
+
+    // Query for non-existent chunk should return Ok(None), not an error
+    let result = native_chunks.get_chunk_by_span("src/exists.rs", 200, 300).unwrap();
+    assert!(result.is_none(), "Should return None for non-existent span");
+
+    // Query for non-existent file should also return Ok(None)
+    let result = native_chunks.get_chunk_by_span("src/nonexistent.rs", 0, 100).unwrap();
+    assert!(result.is_none(), "Should return None for non-existent file");
+}
