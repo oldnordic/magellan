@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-02-06)
 
 ## Current Position
 
-Phase: 58 of 59 (CLI Command Parity - Chunk Queries)
-Plan: 03 of 3 complete
-Status: Ready for Phase 59
-Last activity: 2026-02-08 — Phase 58 Plan 03 complete (get-file command verification)
+Phase: 59 of 59 (CLI Command Parity - AST Queries + Test Suite)
+Plan: 01 of 4
+Status: In progress - Plan 01 complete
+Last activity: 2026-02-08 — Phase 59 Plan 01 completed (AST command integration tests)
 
-Progress: [████████████░░░░░░░░░░] 50% (v2.1: 6/12 plans complete)
+Progress: [███████████████░░░░░░░] 79% (v2.1: 10/13 plans complete)
 
 **Completed Phases (v2.0):**
 - Phase 46: Backend Abstraction Foundation ✅
@@ -97,6 +97,9 @@ Recent decisions affecting current work:
 - [Phase 57]: Documentation structure: Created dedicated ChunkStore Operations section with table format showing KV support status for all methods
 - [Phase 58]: Placed CLI tests in get_cmd.rs module instead of separate file to avoid circular dependency
 - [Phase 58]: Combined Task 1 and Task 2 into single comprehensive test suite
+- [Phase 59]: Structural test approach: Document KV support via code inspection when full integration requires unimplemented features
+- [Phase 59]: KV support confirmed for get_ast_nodes_by_file() and get_ast_nodes_by_kind() via ast_ops.rs code inspection
+- [Phase 59]: Known limitation: get_ast_node_at_position() lacks KV support (SQLite-only at lines 154-184 in ast_ops.rs)
 
 ### Pending Todos
 
@@ -104,14 +107,16 @@ None yet.
 
 ### Blockers/Concerns
 
-None currently. Phase 58 complete.
+None currently. Phase 59 Plan 01 complete.
 
-**Future phase (59):**
-- Final verification and cleanup
+**Remaining work (59):**
+- Plan 02: find-ast command tests
+- Plan 03: Additional AST command verification
+- Plan 04: Final cleanup and documentation
 
 ## Session Continuity
 
-Last session: 2026-02-08 20:56 UTC
-Stopped at: Completed Phase 58 Plan 03 (get-file command verification)
+Last session: 2026-02-08 21:23 UTC
+Stopped at: Completed Phase 59 Plan 01 (AST command integration tests)
 Resume file: None
-Blockers: None - ready to continue to Phase 59
+Blockers: None - ready to continue to Phase 59 Plan 02
