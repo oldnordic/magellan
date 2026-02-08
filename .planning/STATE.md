@@ -5,28 +5,31 @@
 See: .planning/PROJECT.md (updated 2026-02-06)
 
 **Core value:** Produce correct, deterministic symbol + reference + call graph data from real codebases, continuously, without stopping on bad files.
-**Current focus:** Phase 54-02 complete - Backend-aware chunk query support
+**Current focus:** Phase 50 complete - All v2.0 Native V2 Backend Migration phases complete
 
 ## Current Position
 
-Phase: 54 of 54 - COMPLETE
-Status: Phase 54-05 completed (5/5 plans complete)
-Last activity: 2026-02-08 — Phase 54-05 completed (Backend compatibility documentation)
+Phase: 55 of 55 - In Progress
+Status: KV Data Storage Migration - Code chunks now stored in KV during indexing
+Last activity: 2026-02-08 — Phase 55-01 completed (Code chunks KV storage)
 
-Progress: [███████████████████] 100% (218/218 total plans)
+Progress: [███░░░░░░░░░░░░░░░] 6% (phase 55 started)
 
 **Completed Phases:**
 - Phase 46: Backend Abstraction Foundation ✅
 - Phase 47: Data Migration & Compatibility ✅
 - Phase 48: Native V2 Performance Features ✅
 - Phase 49: Pub/Sub Integration ✅
+- Phase 49.5: Native V2 Test Fixes ✅
+- Phase 50: Testing & Documentation ✅
 - Phase 51: Fix Native V2 Compilation Errors ✅
 - Phase 52: Eliminate Native-V2 Stubs ✅
 - Phase 53: Fix Native-V2 Database Initialization ✅
 - Phase 54: CLI Backend Detection and Dual Query Methods ✅
+- Phase 55-01: Code Chunks KV Storage ✅
 
 **Next Phase:**
-- Phase 54 complete - All planned work for this roadmap phase is done
+- Phase 55-02: AST Nodes KV storage (apply same pattern as chunks)
 
 ## Performance Metrics
 
@@ -60,6 +63,25 @@ Progress: [███████████████████] 100% (218/
 
 ### Roadmap Evolution
 
+- Phase 50 completed: Testing & Documentation (2026-02-08)
+  - Requirements fulfilled by Phases 47, 49, 49.5, 54 (executed out of order)
+  - All CLI commands work on both backends via backend detection (Phase 54)
+  - 469 tests pass with native-v2 feature (Phase 49.5)
+  - Backend compatibility documentation complete (Phase 54-05: MANUAL.md section 6)
+  - Migration guide available: `magellan migrate-backend` (Phase 47)
+  - v2.0 Native V2 Backend Migration milestone complete
+- Phase 49.5 completed: Native V2 Test Fixes (2026-02-08)
+  - Plan 49.5-02: Gated pragma tests with `#[cfg(not(feature = "native-v2"))]`
+  - Plan 49.5-03: Gated 9 test modules + individual tests that use direct SQL
+  - All 469 lib tests pass with `--features native-v2 -- --test-threads=1`
+  - Fixed duplicate test function in backend_migration_tests.rs
+  - 15 tests gated for SQLite (use direct SQL queries incompatible with native-v2)
+- Phase 49 gap closure completed: Pub/Sub cache receiver wired + unused code removed (2026-02-08)
+  - Plan 49-04: Unprefixed pubsub_cache_rx receiver and added dual-channel polling to main loop
+  - Plan 49-05: Removed unused pubsub_file_rx channel and recv_batch_merging() method
+  - Fixed KvValue::BigInt bug in src/graph/ast_ops.rs (variant doesn't exist)
+  - All 8/8 observable truths now verified (5/8 before gap closure)
+  - Architecture simplified: PubSubEventReceiver → cache_sender → pubsub_cache_rx → main_state → process_dirty_paths
 - Phase 54-05 completed: Backend compatibility documentation (2026-02-08)
   - Added "Backend Compatibility" section (Section 6) to MANUAL.md
   - Documented command compatibility table for all 25 CLI commands
@@ -92,6 +114,13 @@ Progress: [███████████████████] 100% (218/
   - Public API available at magellan::detect_backend_format() and magellan::BackendFormat
   - Foundation for CLI commands to auto-detect backend and route to SQL queries or KV prefix scans
 - Phase 54 added: CLI Backend Detection and Dual Query Methods - Auto-detect backend and use appropriate query methods (2026-02-08)
+- Phase 55-01 completed: Code Chunks KV Storage (2026-02-08)
+  - Added KV storage path to ChunkStore::store_chunks() for indexing
+  - Added KV prefix scan to count_chunks_for_file() for deletion verification
+  - Code chunks now written to chunk:* keys during native-v2 indexing
+  - SQLite fallback preserved for backward compatibility
+  - Commits: af8a45d (store_chunks KV), 1271a39 (count_chunks_for_file KV)
+- Phase 55 added: KV Data Storage Migration - Migrate indexing pipeline to use KV storage (2026-02-08)
 - Phase 53 completed: Fix Native-V2 Database Initialization (2026-02-08)
   - Fixed ExecutionLog::disabled() → ExecutionLog::with_kv_backend()
   - Fixed MetricsOps::disabled() → MetricsOps::with_kv_backend()
@@ -113,6 +142,13 @@ Recent decisions affecting current work:
 - Early return pattern for KV branch prevents dual-write (records written to KV OR SQLite, never both)
 - JSON-based KV storage for ExecutionRecord (KvValue::Json) instead of binary encoding (human-readable, debuggable)
 - Prefix scan (execlog:*) for list_all() in KV mode replaces SQL ORDER BY, with in-memory sort by started_at
+
+**From Phase 55-01 (Code Chunks KV Storage):**
+- Individual kv_set calls for store_chunks() instead of bulk transaction (KV backend writes internally, no explicit transaction needed)
+- Dummy ID (1) returned for each chunk in KV mode since KV store has no auto-increment capability
+- Colon escaping in file paths with :: prevents key collisions in prefix scans (chunk:{path}:{start}:{end} format)
+- Early-return pattern: KV branch checks backend and returns early, SQLite fallback preserved in else clause
+- Prefix scan for count_chunks_for_file() using format "chunk:{escaped_path}:" to match all chunks for a file
 
 **From Phase 52-01 (KV Key Patterns and Encoding Functions):**
 - Generic type parameters for encoding functions (e.g., `encode_cfg_blocks<T>`) avoid exposing private modules (ast_node, schema) while maintaining type safety
@@ -296,13 +332,19 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-08
-Stopped at: Completed 52-04 (MetricsOps KV Backend)
+Stopped at: Completed 55-01 (Code Chunks KV Storage)
 Resume file: None
 Blockers:
 - algorithms.rs module uses concrete SqliteGraph type - requires conditional compilation to work with Native backend
 - 305 tests fail with native-v2 feature due to algorithms.rs limitation (verified in 46-05)
 - Pre-existing test failures: migration_tests expects schema v5 (actual is v7), parser_tests trait parsing issues
-- Generation module tests use non-existent NativeGraphBackend::new_temp() method (blocks test compilation)
+
+**From Phase 55-01 (Code Chunks KV Storage):**
+- Added KV storage path to ChunkStore::store_chunks() using individual kv_set calls
+- Added KV prefix scan to count_chunks_for_file() for deletion verification
+- Colon escaping (::) used in file paths to avoid key collisions
+- Dummy ID (1) returned for KV mode (no auto-increment in KV store)
+- Commits: af8a45d (store_chunks KV), 1271a39 (count_chunks_for_file KV)
 
 **From Phase 51-02 (Type Mismatches and Trait Bounds for KV Functions):**
 - Fixed KV function return types: Box<dyn Error> → anyhow::Result
