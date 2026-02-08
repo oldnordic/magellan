@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-06)
 
 **Core value:** Produce correct, deterministic symbol + reference + call graph data from real codebases, continuously, without stopping on bad files.
-**Current focus:** Phase 57 of 59 - v2.1 Backend Parity Completion
+**Current focus:** Phase 58 of 59 - v2.1 Backend Parity Completion
 
 ## Current Position
 
 Phase: 58 of 59 (CLI Command Parity - Chunk Queries)
-Plan: 02 of 3
-Status: In progress (1 task completed, 1 deferred)
-Last activity: 2026-02-08 — Phase 58 Plan 02 partially complete (CLI integration tests added)
+Plan: 03 of 3 complete
+Status: Ready for Phase 59
+Last activity: 2026-02-08 — Phase 58 Plan 03 complete (get-file command verification)
 
-Progress: [███████████░░░░░░░░░░░░] 42% (v2.1: 5/12 plans complete)
+Progress: [████████████░░░░░░░░░░] 50% (v2.1: 6/12 plans complete)
 
 **Completed Phases (v2.0):**
 - Phase 46: Backend Abstraction Foundation ✅
@@ -40,6 +40,9 @@ Edge case testing completed: Added 3 comprehensive tests for get_chunk_by_span()
 
 **Phase 58 Plan 02 Summary:**
 CLI integration tests added for magellan get command: 5 tests verifying get_chunks_for_symbol() works on Native-V2 backend. Cross-backend parity verified between SQLite and Native-V2. Task 2 (--with-context/--with-semantics/--with-checksums tests) deferred due to architectural constraints (run_get() is binary module not exposed as library). Core functionality verified - get_chunks_for_symbol() has KV support and works correctly on both backends.
+
+**Phase 58 Plan 03 Summary:**
+Verification completed: magellan get-file command works correctly on Native-V2 backend. Existing backend integration tests (test_get_chunks_for_file_cross_backend, test_get_chunks_for_file_with_colon_path, test_get_chunks_for_file_empty_result, test_get_chunks_for_file_byte_order) already cover all requirements. All 4 tests pass. No new tests created - verified that existing tests in backend_integration_tests.rs provide equivalent coverage to what was specified in the plan. KV prefix scan pattern `chunk:{escaped_path}:*` works correctly for retrieving all chunks for a file.
 
 ## Performance Metrics
 
@@ -101,15 +104,14 @@ None yet.
 
 ### Blockers/Concerns
 
-None currently. Phase 57 complete.
+None currently. Phase 58 complete.
 
-**Future phases (58-59):**
-- Additional ChunkStore methods may need verification
-- CLI commands need end-to-end testing on both backends
+**Future phase (59):**
+- Final verification and cleanup
 
 ## Session Continuity
 
 Last session: 2026-02-08 20:56 UTC
-Stopped at: Completed Phase 58 Plan 02 (CLI integration tests for magellan get command, Task 1 of 2)
+Stopped at: Completed Phase 58 Plan 03 (get-file command verification)
 Resume file: None
-Blockers: None - ready to continue to Phase 58 Plan 03
+Blockers: None - ready to continue to Phase 59
