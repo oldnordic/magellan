@@ -8,7 +8,7 @@ use rusqlite::{params, OptionalExtension};
 use std::path::Path;
 
 /// Execution log entry
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ExecutionRecord {
     pub id: i64,
     pub execution_id: String,
