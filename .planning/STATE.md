@@ -5,16 +5,15 @@
 See: .planning/PROJECT.md (updated 2026-02-06)
 
 **Core value:** Produce correct, deterministic symbol + reference + call graph data from real codebases, continuously, without stopping on bad files.
-**Current focus:** Phase 52 - Eliminate Native-V2 Stubs (next phase)
+**Current focus:** Phase 53 complete - Native-V2 Database Initialization fixed
 
 ## Current Position
 
-Phase: 52 of 52 (Eliminate Native-V2 Stubs)
-Plan: 7 of 7 in current phase (just completed)
-Status: Phase 52 COMPLETE
-Last activity: 2026-02-08 — Completed 52-07 (Verify end-to-end functionality)
+Phase: 53 of 53 - COMPLETE ✅
+Status: Phase 53 successfully completed
+Last activity: 2026-02-08 — Phase 53 completed (database initialization fix, sqlitegraph 1.5.3 published)
 
-Progress: [███████████████████] 100% (210/210 total plans)
+Progress: [███████████████████] 100% (213/213 total plans)
 
 **Completed Phases:**
 - Phase 46: Backend Abstraction Foundation ✅
@@ -22,6 +21,8 @@ Progress: [███████████████████] 100% (210/
 - Phase 48: Native V2 Performance Features ✅
 - Phase 49: Pub/Sub Integration ✅
 - Phase 51: Fix Native V2 Compilation Errors ✅
+- Phase 52: Eliminate Native-V2 Stubs ✅
+- Phase 53: Fix Native-V2 Database Initialization ✅
 
 ## Performance Metrics
 
@@ -55,6 +56,14 @@ Progress: [███████████████████] 100% (210/
 
 ### Roadmap Evolution
 
+- Phase 53 completed: Fix Native-V2 Database Initialization (2026-02-08)
+  - Fixed ExecutionLog::disabled() → ExecutionLog::with_kv_backend()
+  - Fixed MetricsOps::disabled() → MetricsOps::with_kv_backend()
+  - Fixed count_chunks() to support KV backend
+  - Fixed header corruption bug in sqlitegraph (multiple GraphFile instances)
+  - Published sqlitegraph 1.5.3 to crates.io
+  - Verified data persistence works correctly despite tcache_thread_shutdown crash
+- Phase 53 added: Fix Native-V2 Database Initialization - execution_log uses KV backend (2026-02-08)
 - Phase 52 added: Eliminate Native-V2 Stubs - Store metadata in KV instead of SQLite stubs (2026-02-07)
 - Phase 51 added: Fix native-v2 compilation errors and enable native backend (2026-02-07)
 
