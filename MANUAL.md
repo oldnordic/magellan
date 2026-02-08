@@ -1493,9 +1493,89 @@ On a codebase with 10,000 symbols:
 
 ---
 
-## 6. Known Limitations
+## 6. Backend Compatibility
 
-### 6.1 In-Memory Databases
+### 6.1 Supported Database Backends
+
+Magellan supports two database backends:
+
+| Backend | Description | Build Flag |
+|---------|-------------|------------|
+| **SQLite** | Default backend using sqlitegraph | Default |
+| **Native V2** | High-performance key-value backend | `--features native-v2` |
+
+### 6.2 Detecting Backend Format
+
+To check which backend format a database uses:
+
+```bash
+# Check file header (first 4 bytes)
+# - "MAG2" = Native V2
+# - "SQLite format 3" = SQLite
+
+# Example using hexdump
+hexdump -C -n 4 codegraph.db
+# Output: 4d 41 47 32  (Native V2)
+# Output: 53 51 4c 69  (SQLite)
+```
+
+### 6.3 Command Compatibility
+
+Most CLI commands work with both backends. The table below shows compatibility:
+
+| Command | SQLite | Native V2 | Notes |
+|---------|--------|-----------|-------|
+| `scan` | Yes | Yes | Core indexing works with both |
+| `find` | Yes | Yes | Symbol lookup works with both |
+| `refs` | Yes | Yes | Reference queries work with both |
+| `files` | Yes | Yes | File listing works with both |
+| `chunks` | Yes | Yes | Code chunks via SQL or KV |
+| `chunk-by-span` | Yes | Yes | Span-based chunk retrieval |
+| `chunk-by-symbol` | Yes | Yes | Symbol-based chunk retrieval |
+| `get` | Yes | Yes | Source code retrieval |
+| `get-file` | Yes | Yes | File content retrieval |
+| `ast` | Yes | Yes | AST node queries |
+| `find-ast` | Yes | Yes | AST kind-based queries |
+| `label` | Yes | Yes | Graph label queries |
+| `collisions` | Yes | Yes | FQN collision detection |
+| `cycles` | Yes | **No** | SQLite-only (see below) |
+| `dead-code` | Yes | **No** | SQLite-only (see below) |
+| `reachable` | Yes | **No** | SQLite-only (see below) |
+| `condense` | Yes | **No** | SQLite-only (see below) |
+| `paths` | Yes | **No** | SQLite-only (see below) |
+| `slice` | Yes | **No** | SQLite-only (see below) |
+| `verify` | Yes | Yes | Graph validation |
+| `export` | Yes | Yes | Data export |
+| `migrate` | Yes | Yes | Schema migration |
+
+### 6.4 SQLite-Only Algorithm Commands
+
+The following commands require SQLite backend and are **not compatible** with Native V2:
+
+- **`cycles`** - Find cycles in the call graph
+- **`dead-code`** - Find unused symbols
+- **`reachable`** - Compute reachability from a symbol
+- **`condense`** - Create condensation DAG from SCCs
+- **`paths`** - Enumerate execution paths
+- **`slice`** - Program slicing (backward/forward)
+
+These commands use graph algorithms from `sqlitegraph` that require the concrete `SqliteGraph` type. Native V2 support for these algorithms is planned for a future phase.
+
+### 6.5 Building with Native V2
+
+```bash
+# Build with Native V2 backend
+cargo build --release --features native-v2
+
+# The resulting binary will use Native V2 for all operations
+# Algorithm commands (cycles, dead-code, reachable, etc.) will not work
+```
+
+---
+
+## 7. Known Limitations
+
+### 7.1 In-Memory Databases
 
 Magellan uses SQLite Shared connections for concurrent access (via `sqlitegraph` and
 `ChunkStore`), which don't work with `:memory:` databases. Each thread would get its
