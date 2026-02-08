@@ -10,8 +10,8 @@ See: .planning/PROJECT.md (updated 2026-02-06)
 ## Current Position
 
 Phase: 55 of 55 - COMPLETE
-Status: KV Data Storage Migration - All data types stored in KV during indexing
-Last activity: 2026-02-08 — Phase 55-08 completed (Full Test Suite and Smoke Test)
+Status: KV Data Storage Migration - All data types stored in KV during indexing, documentation complete
+Last activity: 2026-02-08 — Phase 55-06 completed (KV Data Storage Documentation)
 
 Progress: [████████████████████] 100% (phase 55 complete)
 
@@ -31,11 +31,12 @@ Progress: [████████████████████] 100% (p
 - Phase 55-03: Label KV Storage Infrastructure ✅
 - Phase 55-04: Export and Migration KV Metadata ✅
 - Phase 55-05: KV Indexing Integration Tests ✅
+- Phase 55-06: KV Data Storage Documentation ✅
 - Phase 55-07: Call Edges KV Storage ✅
 - Phase 55-08: Full Test Suite and Smoke Test ✅
 
 **Phase 55 Summary:**
-All KV data storage migrations complete. 473 lib tests pass (99.2% pass rate). Smoke test successfully indexes Magellan source code (50+ files in 11.6 seconds). All KV data types verified: chunks, AST nodes, labels, symbol index, call edges.
+All KV data storage migrations complete. 473 lib tests pass (99.2% pass rate). Smoke test successfully indexes Magellan source code (50+ files in 11.6 seconds). All KV data types verified: chunks, AST nodes, labels, symbol index, call edges. Complete documentation for KV indexing behavior including MANUAL.md section 6.6, README.md Native V2 Backend section, and comprehensive docs/NATIVE-V2.md (297 lines).
 
 **Next Phase:**
 Phase 55 complete. Native V2 backend migration feature-complete for indexing pipeline.
@@ -189,6 +190,14 @@ Recent decisions affecting current work:
 - Three-pattern KV indexing for call edges: calls:{caller}:{callee} for existence, calls:from:{caller} for "who does X call", calls:to:{callee} for "who calls X"
 - More KV storage per call edge enables bidirectional call graph queries without graph traversal
 - Ignore KV deletion errors during file deletion (orphaned entries overwritten on reindex, graph is authoritative)
+
+**From Phase 55-06 (KV Data Storage Documentation):**
+- Added Section 6.6: KV Data Storage to MANUAL.md with complete reference table for all 17 KV key patterns
+- Added Section 7.2: KV Storage Limitations to MANUAL.md explaining SQL access limitations
+- Added Native V2 Backend section to README.md with KV storage overview and usage examples
+- Created docs/NATIVE-V2.md (297 lines) with comprehensive technical documentation covering architecture, key patterns, indexing/query behavior, migration guide, performance characteristics, and troubleshooting
+- Three-tier documentation structure: MANUAL.md (operator reference), README.md (project overview), NATIVE-V2.md (technical deep-dive)
+- Commits: f6ef028 (MANUAL.md), 3577db7 (README.md), df3eb26 (NATIVE-V2.md)
 
 **From Phase 55-04 (Export and Migration KV Metadata):**
 - Use kv_prefix_scan() with filter_map for bulk KV export instead of individual key lookups (more efficient for export)
@@ -378,7 +387,7 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-08
-Stopped at: Completed 55-02 (AST Nodes KV Storage)
+Stopped at: Completed 55-06 (KV Data Storage Documentation)
 Resume file: None
 Blockers:
 - algorithms.rs module uses concrete SqliteGraph type - requires conditional compilation to work with Native backend
