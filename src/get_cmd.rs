@@ -12,7 +12,7 @@ use magellan::graph::query;
 use magellan::generation::schema::CodeChunk;
 use magellan::output::rich::{SpanChecksums, SpanContext};
 use magellan::output::{output_json, JsonResponse, Span, SymbolMatch};
-use magellan::{detect_backend_format, BackendFormat, ChunkStore, CodeGraph, OutputFormat};
+use magellan::{detect_backend_format, BackendFormat, ChunkStore, CodeGraph, generate_execution_id, OutputFormat};
 use serde::{Deserialize, Serialize};
 use std::rc::Rc;
 
@@ -375,58 +375,8 @@ pub fn run_chunks(
         &db_path_str,
     )?;
 
-    // Direct SQL query for flexibility
-    let conn = Connection::open(&db_path)?;
-
-    let mut query = String::from(
-        "SELECT id, file_path, byte_start, byte_end, content, content_hash, \
-         symbol_name, symbol_kind, created_at \
-         FROM code_chunks \
-         WHERE 1=1",
-    );
-
-    let mut params: Vec<String> = Vec::new();
-
-    if let Some(ref file_pattern) = file_filter {
-        query.push_str(&format!(" AND file_path LIKE ?{}", params.len() + 1));
-        params.push(format!("%{}%", file_pattern));
-    }
-
-    if let Some(ref kind) = kind_filter {
-        query.push_str(&format!(" AND symbol_kind = ?{}", params.len() + 1));
-        params.push(kind.clone());
-    }
-
-    query.push_str(" ORDER BY file_path, byte_start");
-
-    if let Some(limit_val) = limit {
-        query.push_str(&format!(" LIMIT {}", limit_val));
-    }
-
-    let mut stmt = conn.prepare(&query)?;
-
-    // Build params as references for rusqlite
-    let params_ref: Vec<&dyn rusqlite::ToSql> = params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
-
-    let chunk_iter = stmt.query_map(
-        params_ref.as_slice(),
-        |row| {
-            Ok(CodeChunk {
-                id: Some(row.get(0)?),
-                file_path: row.get(1)?,
-                byte_start: row.get(2)?,
-                byte_end: row.get(3)?,
-                content: row.get(4)?,
-                content_hash: row.get(5)?,
-                symbol_name: row.get(6)?,
-                symbol_kind: row.get(7)?,
-                created_at: row.get(8)?,
-            })
-        },
-    )?;
-
-    let chunks: Result<Vec<CodeChunk>, _> = chunk_iter.collect();
-    let chunks = chunks?;
+    // Backend-aware query (SQL for SQLite, KV for Native-V2)
+    let chunks = query_chunks_from_db(&db_path, file_filter.as_deref(), kind_filter.as_deref(), limit)?;
 
     if chunks.is_empty() {
         eprintln!("No code chunks found in database");
