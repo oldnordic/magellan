@@ -5,15 +5,15 @@
 See: .planning/PROJECT.md (updated 2026-02-06)
 
 **Core value:** Produce correct, deterministic symbol + reference + call graph data from real codebases, continuously, without stopping on bad files.
-**Current focus:** Phase 54-01 complete - Backend detection re-exported for CLI commands
+**Current focus:** Phase 54-02 complete - Backend-aware chunk query support
 
 ## Current Position
 
 Phase: 54 of 54 - IN PROGRESS
-Status: Phase 54-03 completed (3/5 plans complete)
-Last activity: 2026-02-08 — Phase 54-03 completed (helper functions for dual-backend AST operations)
+Status: Phase 54-02 completed (2/5 plans complete)
+Last activity: 2026-02-08 — Phase 54-02 completed (backend-aware chunk query support)
 
-Progress: [██████████████████░] 97% (216/218 total plans)
+Progress: [██████████████████░] 97% (215/218 total plans)
 
 **Completed Phases:**
 - Phase 46: Backend Abstraction Foundation ✅
@@ -25,7 +25,7 @@ Progress: [██████████████████░] 97% (216/2
 - Phase 53: Fix Native-V2 Database Initialization ✅
 
 **Next Phase:**
-- Phase 54: CLI Backend Detection and Dual Query Methods (3/5 plans complete)
+- Phase 54: CLI Backend Detection and Dual Query Methods (2/5 plans complete)
 
 ## Performance Metrics
 
@@ -59,16 +59,13 @@ Progress: [██████████████████░] 97% (216/2
 
 ### Roadmap Evolution
 
-- Phase 54-03 completed: Helper functions for dual-backend AST operations (2026-02-08)
-  - Added has_kv_backend() method to ChunkStore for runtime backend detection
-  - Added get_file_id_kv() helper function for O(1) file_id lookups using KV store
-  - Both functions feature-gated to native-v2 with graceful fallback when disabled
-  - Infrastructure ready for AST query method modifications in Plan 54-04
-- Phase 54-02 completed: Backend-aware query_chunks_from_db helper (2026-02-08)
-  - Added query_chunks_from_db() function to support both SQLite and KV backends
-  - Refactored run_chunks to use backend-aware query helper
-  - Added get_all_chunks() method to ChunkStore for KV backend prefix scans
-  - Foundation for dual-backend query methods in place
+- Phase 54-02 completed: Backend-aware chunk query support (2026-02-08)
+  - Added query_chunks_from_db() helper function with backend detection and routing
+  - Updated run_chunks() command to use backend-aware query (works with SQLite and Native-V2)
+  - Added get_all_chunks() method to ChunkStore with KV prefix scan support
+  - Added KV backend support to ChunkStore::get_chunks_for_symbol()
+  - Colon-escaping in file paths (::) to match chunk_key() format
+  - In-memory filtering for Native-V2 chunks (acceptable for MVP)
 - Phase 54-01 completed: Backend detection re-exported for CLI commands (2026-02-08)
   - Re-exported detect_backend_format() and BackendFormat from migrate_backend_cmd module
   - Public API available at magellan::detect_backend_format() and magellan::BackendFormat
@@ -109,10 +106,14 @@ Recent decisions affecting current work:
 - Runtime backend detection pattern using cfg feature gates
 
 **From Phase 54-02 (Backend-Aware Query Helper):**
-- query_chunks_from_db() helper function abstracts backend-specific query logic
-- run_chunks() refactored to use backend-aware helper instead of direct SQL
-- get_all_chunks() added to ChunkStore for KV backend prefix scans
-- Pattern: conditional backend detection in query methods
+- query_chunks_from_db() helper function abstracts backend-specific query logic with detect_backend_format() routing
+- run_chunks() refactored to use backend-aware helper instead of direct SQL (52 lines removed)
+- get_all_chunks() added to ChunkStore for KV backend prefix scans (chunk:* keys)
+- get_chunks_for_symbol() updated with KV backend support using prefix scan and in-memory filtering
+- Colon-escaping in file paths (::) to match chunk_key() format in kv/keys.rs
+- In-memory filtering for Native-V2 chunks acceptable for Phase 54 MVP (may optimize for large datasets later)
+- Early return pattern: KV branch returns early, SQLite fallback via else clause
+- Pattern: conditional backend detection in query methods using #[cfg(feature = "native-v2")]
 
 **From Phase 54-01 (Backend Detection Re-exports):**
 - Re-exported detect_backend_format() and BackendFormat from migrate_backend_cmd module
