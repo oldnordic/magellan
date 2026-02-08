@@ -587,6 +587,24 @@ impl ChunkStore {
 
     /// Count total code chunks stored.
     pub fn count_chunks(&self) -> Result<usize> {
+        #[cfg(feature = "native-v2")]
+        {
+            // Use KV backend if available
+            if let Some(ref backend) = self.kv_backend {
+                use sqlitegraph::SnapshotId;
+
+                // Prefix scan for all chunk:* keys
+                let prefix = b"chunk:".to_vec();
+                let snapshot = SnapshotId::current();
+
+                let entries = backend.kv_prefix_scan(snapshot, &prefix)
+                    .map_err(|e| anyhow::anyhow!("Failed to scan chunks: {}", e))?;
+
+                return Ok(entries.len());
+            }
+        }
+
+        // Fallback to SQLite
         self.with_conn(|conn| {
             let count: i64 = conn
                 .query_row(

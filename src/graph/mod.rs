@@ -331,15 +331,15 @@ impl CodeGraph {
             (chunks, execution_log, metrics, needs_backfill)
         };
 
-        // Native V2 backend: stub values for SQLite-specific components
+        // Native V2 backend: KV-based storage for all side tables
         #[cfg(feature = "native-v2")]
         let (chunks, execution_log, metrics, needs_backfill) = {
             // Native V2 uses KV store instead of SQLite side-tables
-            // ChunkStore uses KV storage, others use stubs for now
+            // All side tables use KV storage for persistence
             (
                 ChunkStore::with_kv_backend(Rc::clone(&backend)),
-                execution_log::ExecutionLog::disabled(),
-                metrics::MetricsOps::disabled(),
+                execution_log::ExecutionLog::with_kv_backend(Rc::clone(&backend)),
+                metrics::MetricsOps::with_kv_backend(Rc::clone(&backend)),
                 false, // No backfill needed for new V2 databases
             )
         };
