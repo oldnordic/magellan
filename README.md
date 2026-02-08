@@ -797,6 +797,27 @@ cargo build --release --features native-v2
 
 See [MANUAL.md](MANUAL.md#6-backend-compatibility) for complete backend compatibility details.
 
+### v2.1 Backend Parity Completion ✅
+
+**Shipped:** 2026-02-08
+
+Ensured all CLI query commands and ChunkStore methods work correctly with both SQLite and Native-V2 backends using TDD methodology.
+
+**Changes:**
+- Phase 56: Added KV support for `get_chunks_for_file()`
+- Phase 57: Verified `get_chunk_by_span()` KV support
+- Phase 58: Verified `magellan chunks`, `magellan get`, `magellan get-file` commands
+- Phase 59: Verified `magellan ast`, `magellan find-ast` commands; comprehensive test suite
+
+**Test Coverage:**
+- Cross-backend integration tests in `tests/backend_integration_tests.rs`
+- CLI command tests in command modules (get_cmd.rs, ast_cmd.rs)
+- All tests pass with `--features native-v2` flag
+
+**Known Limitations:**
+- `get_ast_node_at_position()` and `get_ast_children()` lack KV support (documented in NATIVE-V2.md)
+- Position-based AST queries not supported on Native-V2 backend
+
 ## Database Schema
 
 **Nodes:**
