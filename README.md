@@ -52,7 +52,7 @@ cargo build --release
 ### Features
 
 - **Help**: Use `--help` or `-h` with any command to see usage information
-- **Native-v2 Backend**: Build with `--features native-v2` for improved performance. **Note:** The Native V2 backend provides significant performance improvements but does not yet support the graph algorithm commands (`cycles`, `dead-code`, `reachable`, `condense`, `paths`, `slice`). These commands require SQLite backend. Native V2 algorithm support is planned for a future release.
+- **Native-v2 Backend**: Build with `--features native-v2` for improved performance with KV metadata indexing. **Note:** The Native V2 backend provides significant performance improvements but does not yet support the graph algorithm commands (`cycles`, `dead-code`, `reachable`, `condense`, `paths`, `slice`). These commands require SQLite backend. Native V2 algorithm support is planned for a future release.
 - **LLVM IR CFG (optional)**: Build with `--features llvm-cfg` for C/C++ (requires Clang)
 - **Bytecode CFG (optional)**: Build with `--features bytecode-cfg` for Java (requires JVM bytecode)
 
@@ -751,6 +751,51 @@ Backward slice (15 symbols affect target):
 | JavaScript | .js, .mjs | tree-sitter-javascript |
 | TypeScript | .ts, .tsx | tree-sitter-typescript |
 | Python | .py | tree-sitter-python |
+
+## Native V2 Backend
+
+Magellan supports an alternative high-performance backend with embedded KV storage:
+
+### KV Data Storage
+
+The Native V2 backend stores all metadata in a KV store for O(1) lookups:
+
+| Data Type | KV Key Pattern | Purpose |
+|-----------|---------------|---------|
+| Symbol index | `sym:fqn:{fqn}` | O(1) symbol lookup by fully-qualified name |
+| File symbols | `file:sym:{id}` | All symbols in a file |
+| Code chunks | `chunk:{path}:{start}:{end}` | Source code for token-efficient queries |
+| AST nodes | `ast:file:{id}` | Hierarchical code structure |
+| Metrics | `metrics:file:{path}`, `metrics:symbol:{id}` | Complexity analysis |
+| Call edges | `calls:{caller}:{callee}` | Call graph relationships |
+
+**Usage:**
+
+```bash
+# Build with Native V2 backend
+cargo build --release --features native-v2
+
+# All indexing operations automatically use KV storage
+./target/release/magellan watch --root . --db ./codegraph.db --scan-initial
+
+# Queries automatically read from KV
+./target/release/magellan find --db ./codegraph.db --name main
+./target/release/magellan get --db ./codegraph.db --file src/main.rs --symbol main
+```
+
+**Benefits:**
+
+- O(1) symbol resolution instead of SQL queries
+- Efficient prefix scans for file-level operations
+- All metadata embedded with graph data in single file
+- Automatic migration from SQLite preserves all data
+
+**Limitations:**
+
+- Graph algorithm commands (`cycles`, `dead-code`, `reachable`, `condense`, `paths`, `slice`) require SQLite backend
+- No direct SQL query access to KV data (use Magellan CLI commands)
+
+See [MANUAL.md](MANUAL.md#6-backend-compatibility) for complete backend compatibility details.
 
 ## Database Schema
 
