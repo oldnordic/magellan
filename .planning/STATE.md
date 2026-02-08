@@ -10,10 +10,10 @@ See: .planning/PROJECT.md (updated 2026-02-06)
 ## Current Position
 
 Phase: 55 of 55 - In Progress
-Status: KV Data Storage Migration - AST nodes now stored in KV during indexing
-Last activity: 2026-02-08 — Phase 55-02 completed (AST Nodes KV storage)
+Status: KV Data Storage Migration - Call edges now stored in KV during indexing
+Last activity: 2026-02-08 — Phase 55-07 completed (Call Edges KV storage)
 
-Progress: [███░░░░░░░░░░░░░░░] 12% (phase 55 in progress)
+Progress: [█████░░░░░░░░░░░░░] 24% (phase 55 in progress)
 
 **Completed Phases:**
 - Phase 46: Backend Abstraction Foundation ✅
@@ -28,9 +28,11 @@ Progress: [███░░░░░░░░░░░░░░░] 12% (phase 55
 - Phase 54: CLI Backend Detection and Dual Query Methods ✅
 - Phase 55-01: Code Chunks KV Storage ✅
 - Phase 55-02: AST Nodes KV Storage ✅
+- Phase 55-03: Label KV Storage Infrastructure ✅
+- Phase 55-07: Call Edges KV Storage ✅
 
 **Next Phase:**
-- Phase 55-03: Additional KV data storage (metrics, CFG blocks) or complete phase 55
+- Phase 55-04, 55-05, 55-06: Complete remaining KV data storage migrations
 
 ## Performance Metrics
 
@@ -149,6 +151,13 @@ Recent decisions affecting current work:
 - Early return pattern for KV branch prevents dual-write (records written to KV OR SQLite, never both)
 - JSON-based KV storage for ExecutionRecord (KvValue::Json) instead of binary encoding (human-readable, debuggable)
 - Prefix scan (execlog:*) for list_all() in KV mode replaces SQL ORDER BY, with in-memory sort by started_at
+
+**From Phase 55-03 (Label KV Storage Infrastructure):**
+- Label key format: label:{name} following existing KV key pattern conventions
+- store_label(), get_label(), delete_label() helper functions in kv module for CRUD operations
+- store_entity_label() method on CodeGraph for label storage during indexing (not yet called)
+- Labels are currently legacy: queried from SQL but never written during indexing
+- Direct file_index access for immutable file_id lookup in count_ast_nodes_for_file() (bug fix)
 
 **From Phase 55-02 (AST Nodes KV Storage):**
 - Reuse existing store_ast_nodes_kv from Phase 52-05 instead of rewriting storage logic
