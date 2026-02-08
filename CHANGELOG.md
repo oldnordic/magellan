@@ -3,7 +3,7 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.1.0] - 2026-02-04
+## [2.1.0] - 2026-02-08
 
 ### Added
 - **Gitignore-Aware Indexing**: Magellan now respects `.gitignore` files when watching directories
@@ -19,11 +19,16 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - record_type column for Symbol/Reference/Call discrimination
   - Version header comment format
   - Collision groups not included in CSV export (use JSON)
+- **KV support for `get_chunks_for_file()`** using prefix scan (Phase 56)
+- **Cross-backend tests for all ChunkStore methods** (Phase 57)
+- **CLI integration tests for chunk and AST query commands** (Phases 58-59)
+- **Comprehensive cross-backend test suite** in backend_integration_tests.rs (Phase 59)
 
 ### Changed
 - **Documentation Updates**: Comprehensive documentation refresh
-  - README.md: Added gitignore support, feature flags, CSV export notes
+  - README.md: Added gitignore support, feature flags, CSV export notes, v2.1 milestone completion
   - MANUAL.md: Added optional features section, gitignore documentation
+  - NATIVE-V2.md: Added AST Query Operations section with KV support status
   - All limitations honestly documented (AST CFG limits, optional feature status)
 - **Repository Cleanup**: Removed internal development files from tracking
   - .planning/, get-shit-done/, commands/, scripts/ now gitignored
@@ -33,6 +38,20 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 - CSV export format consistency across all record types
 - Documentation clarifications for --ambiguous flag and collisions command
+- `get_chunks_for_file()` now works on Native-V2 backend via KV prefix scan
+
+### Verified
+- `magellan chunks` command works on Native-V2 backend
+- `magellan get` command works on Native-V2 backend
+- `magellan get-file` command works on Native-V2 backend
+- `magellan ast` command works on Native-V2 backend (file-based queries)
+- `magellan find-ast` command works on Native-V2 backend
+- All ChunkStore methods have KV support (via prefix scan or direct key lookup)
+
+### Documentation
+- Added AST Query Operations section to NATIVE-V2.md
+- Documented known limitations for position-based AST queries on Native-V2
+- Updated CLI command parity status across all query commands
 
 ## [2.0.0] - 2026-02-03
 
