@@ -680,4 +680,148 @@ mod tests {
         assert!(!chunk.content_hash.is_empty());
         assert!(chunk.id.is_none());
     }
+
+    #[cfg(feature = "native-v2")]
+    #[test]
+    fn test_chunk_store_kv_roundtrip() {
+        use sqlitegraph::NativeGraphBackend;
+
+        // Create a test backend with temporary file
+        let temp_dir = std::env::temp_dir();
+        let unique_id = format!("magellan_test_{}", std::process::id());
+        let db_path = temp_dir.join(unique_id);
+        let backend: Rc<dyn sqlitegraph::GraphBackend> = Rc::new(NativeGraphBackend::new(&db_path).unwrap());
+        let chunk_store = ChunkStore::with_kv_backend(Rc::clone(&backend));
+
+        // Create a test chunk
+        let chunk = CodeChunk::new(
+            "src/test.rs".to_string(),
+            100,
+            200,
+            "fn test_function() {}".to_string(),
+            Some("test_function".to_string()),
+            Some("fn".to_string()),
+        );
+
+        // Store the chunk via KV backend
+        let result = chunk_store.store_chunk(&chunk);
+        assert!(result.is_ok(), "store_chunk should succeed");
+
+        // Retrieve the chunk by span
+        let retrieved = chunk_store.get_chunk_by_span("src/test.rs", 100, 200);
+        assert!(retrieved.is_ok(), "get_chunk_by_span should succeed");
+
+        let retrieved_chunk = retrieved.unwrap();
+        assert!(retrieved_chunk.is_some(), "chunk should exist");
+        let retrieved_chunk = retrieved_chunk.unwrap();
+
+        // Verify content matches
+        assert_eq!(retrieved_chunk.file_path, "src/test.rs");
+        assert_eq!(retrieved_chunk.byte_start, 100);
+        assert_eq!(retrieved_chunk.byte_end, 200);
+        assert_eq!(retrieved_chunk.content, "fn test_function() {}");
+        assert_eq!(retrieved_chunk.symbol_name, Some("test_function".to_string()));
+        assert_eq!(retrieved_chunk.symbol_kind, Some("fn".to_string()));
+        assert_eq!(retrieved_chunk.content_hash, chunk.content_hash);
+    }
+
+    #[cfg(feature = "native-v2")]
+    #[test]
+    fn test_chunk_store_kv_persistence() {
+        use sqlitegraph::NativeGraphBackend;
+
+        // Create a test backend with temporary file
+        let temp_dir = std::env::temp_dir();
+        let unique_id = format!("magellan_test_{}", std::process::id());
+        let db_path = temp_dir.join(unique_id);
+        let backend: Rc<dyn sqlitegraph::GraphBackend> = Rc::new(NativeGraphBackend::new(&db_path).unwrap());
+
+        // Create first ChunkStore instance
+        let chunk_store1 = ChunkStore::with_kv_backend(Rc::clone(&backend));
+
+        // Create and store a chunk
+        let chunk = CodeChunk::new(
+            "src/persist.rs".to_string(),
+            0,
+            50,
+            "fn persistent() {}".to_string(),
+            Some("persistent".to_string()),
+            Some("fn".to_string()),
+        );
+
+        chunk_store1.store_chunk(&chunk).unwrap();
+
+        // Drop first ChunkStore
+        drop(chunk_store1);
+
+        // Create second ChunkStore instance with same backend
+        let chunk_store2 = ChunkStore::with_kv_backend(Rc::clone(&backend));
+
+        // Verify chunk is still retrievable
+        let retrieved = chunk_store2.get_chunk_by_span("src/persist.rs", 0, 50).unwrap();
+        assert!(retrieved.is_some(), "chunk should persist across ChunkStore instances");
+
+        let retrieved_chunk = retrieved.unwrap();
+        assert_eq!(retrieved_chunk.content, "fn persistent() {}");
+        assert_eq!(retrieved_chunk.symbol_name, Some("persistent".to_string()));
+    }
+
+    #[cfg(feature = "native-v2")]
+    #[test]
+    fn test_chunk_store_kv_by_symbol() {
+        use sqlitegraph::NativeGraphBackend;
+
+        // Create a test backend with temporary file
+        let temp_dir = std::env::temp_dir();
+        let unique_id = format!("magellan_test_{}", std::process::id());
+        let db_path = temp_dir.join(unique_id);
+        let backend: Rc<dyn sqlitegraph::GraphBackend> = Rc::new(NativeGraphBackend::new(&db_path).unwrap());
+        let chunk_store = ChunkStore::with_kv_backend(Rc::clone(&backend));
+
+        // Store multiple chunks for the same file
+        let chunk1 = CodeChunk::new(
+            "src/multi.rs".to_string(),
+            0,
+            30,
+            "fn func1() {}".to_string(),
+            Some("func1".to_string()),
+            Some("fn".to_string()),
+        );
+
+        let chunk2 = CodeChunk::new(
+            "src/multi.rs".to_string(),
+            30,
+            60,
+            "fn func2() {}".to_string(),
+            Some("func2".to_string()),
+            Some("fn".to_string()),
+        );
+
+        let chunk3 = CodeChunk::new(
+            "src/multi.rs".to_string(),
+            60,
+            90,
+            "struct MyStruct {}".to_string(),
+            Some("MyStruct".to_string()),
+            Some("struct".to_string()),
+        );
+
+        chunk_store.store_chunk(&chunk1).unwrap();
+        chunk_store.store_chunk(&chunk2).unwrap();
+        chunk_store.store_chunk(&chunk3).unwrap();
+
+        // Note: get_chunks_for_symbol uses SQLite fallback, not KV
+        // This test verifies individual chunk retrieval works
+        let retrieved1 = chunk_store.get_chunk_by_span("src/multi.rs", 0, 30).unwrap();
+        assert!(retrieved1.is_some());
+        assert_eq!(retrieved1.unwrap().symbol_name, Some("func1".to_string()));
+
+        let retrieved2 = chunk_store.get_chunk_by_span("src/multi.rs", 30, 60).unwrap();
+        assert!(retrieved2.is_some());
+        assert_eq!(retrieved2.unwrap().symbol_name, Some("func2".to_string()));
+
+        let retrieved3 = chunk_store.get_chunk_by_span("src/multi.rs", 60, 90).unwrap();
+        assert!(retrieved3.is_some());
+        assert_eq!(retrieved3.unwrap().symbol_name, Some("MyStruct".to_string()));
+    }
 }
