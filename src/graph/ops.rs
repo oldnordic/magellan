@@ -536,6 +536,17 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
 
         // Delete AST nodes for this file
         // v6: Use file_id for per-file deletion
+        #[cfg(feature = "native-v2")]
+        {
+            if graph.chunks.has_kv_backend() {
+                use crate::kv::keys::ast_nodes_key;
+                let backend = &graph.files.backend;
+                let key = ast_nodes_key(file_id.as_i64() as u64);
+                // Try KV deletion first, ignore error if key doesn't exist
+                let _ = backend.kv_delete(&key);
+            }
+        }
+
         ast_nodes_deleted = conn
             .execute(
                 "DELETE FROM ast_nodes WHERE file_id = ?1",
@@ -606,6 +617,21 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         // No file node exists, so we can't do per-file deletion via file_id.
         // This is a cleanup for orphaned data - delete all nodes (v5 behavior).
         // After reindex with v6, new nodes will have file_id and this won't happen.
+        #[cfg(feature = "native-v2")]
+        {
+            if graph.chunks.has_kv_backend() {
+                use sqlitegraph::SnapshotId;
+                let backend = &graph.files.backend;
+                let snapshot = SnapshotId::current();
+                // Delete all AST nodes via prefix scan
+                if let Ok(entries) = backend.kv_prefix_scan(snapshot, b"ast:file:") {
+                    for (key, _) in entries {
+                        let _ = backend.kv_delete(&key);
+                    }
+                }
+            }
+        }
+
         let chunk_conn = graph.chunks.connect()?;
         ast_nodes_deleted = chunk_conn
             .execute("DELETE FROM ast_nodes", [])
