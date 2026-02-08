@@ -5,6 +5,17 @@
 
 ## Recent Updates
 
+### Phase 57: get_chunk_by_span() KV Verification (2026-02-08)
+
+Verified `ChunkStore::get_chunk_by_span()` works correctly on Native-V2 backend. The method already had KV support using direct key lookups (`chunk:{path}:{start}:{end}`). This phase added comprehensive edge case tests:
+
+- Zero-length span handling (byte_start == byte_end)
+- Multiple chunks in same file retrieval
+- Exact span matching (no partial matches)
+- Colon-escaping in file paths
+
+All tests pass on both SQLite and Native-V2 backends, demonstrating full parity.
+
 ### Phase 56: get_chunks_for_file() KV Support (2026-02-08)
 
 Fixed `ChunkStore::get_chunks_for_file()` to work with Native-V2 backend via KV prefix scan. Previously, the `chunks` and `get-file` commands failed on Native-V2 databases. This fix ensures:
@@ -78,6 +89,54 @@ All KV keys use colon-separated namespace prefixes to prevent collisions:
 2. **Colon separation** enables efficient prefix scans
 3. **ID-based lookups** provide O(1) access without joins
 4. **Prefix patterns** support range queries (e.g., all symbols in a file)
+
+---
+
+## ChunkStore Operations
+
+The `ChunkStore` API provides source code chunk retrieval with full Native-V2 KV support.
+
+### Supported Methods
+
+| Method | Native-V2 Support | Key Pattern | Notes |
+|--------|------------------|-------------|-------|
+| `store_chunk()` | ✅ Yes | `chunk:{path}:{start}:{end}` | Direct KV write |
+| `get_chunk_by_span()` | ✅ Yes | `chunk:{path}:{start}:{end}` | O(1) exact match lookup |
+| `get_chunks_for_file()` | ✅ Yes | Prefix scan `chunk:{path}:*` | Returns sorted by byte_start |
+| `get_chunk_by_symbol()` | ✅ Yes | `chunk:sym:{symbol_id}` | Symbol-to-chunk mapping |
+
+### Key Format Details
+
+**get_chunk_by_span()** uses the exact key format:
+
+```
+chunk:{escaped_file_path}:{byte_start}:{byte_end}
+```
+
+- **File path escaping:** Colons (`:`) in file paths are escaped as `::` to prevent key collisions
+- **Exact match required:** Only an exact match on `(path, start, end)` returns a chunk
+- **Zero-length spans:** Supported (e.g., `chunk:file.rs:100:100` represents empty span at position 100)
+
+### Return Behavior
+
+- **Found:** `Ok(Some(CodeChunk))` - Returns the chunk if exact match exists
+- **Not found:** `Ok(None)` - No chunk at that span (not an error)
+- **Error:** `Err(...)` - Database or deserialization error
+
+### Cross-Backend Parity
+
+All `ChunkStore` methods work identically on SQLite and Native-V2 backends:
+
+```rust
+// Works on both backends
+let chunk = chunk_store.get_chunk_by_span("src/main.rs", 100, 200)?;
+
+if let Some(chunk) = chunk {
+    println!("Found: {}", chunk.content);
+}
+```
+
+No code changes needed when switching backends.
 
 ---
 
