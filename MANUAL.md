@@ -1571,6 +1571,56 @@ cargo build --release --features native-v2
 # Algorithm commands (cycles, dead-code, reachable, etc.) will not work
 ```
 
+### 6.6 KV Data Storage
+
+When using the Native V2 backend, all metadata is stored in the KV store instead
+of SQLite tables. This includes:
+
+| Data Type | KV Key Pattern | Description |
+|-----------|---------------|-------------|
+| Symbol index | `sym:fqn:{fqn}` | O(1) lookup of SymbolId by fully-qualified name |
+| Symbol ID lookup | `sym:id:{id}` | Symbol metadata by ID |
+| File path lookup | `file:path:{path}` | FileId lookup by path |
+| File symbols | `file:sym:{file_id}` | All symbols in a file |
+| Symbol reverse index | `sym:rev:{id}` | References to a symbol |
+| Symbol FQN reverse | `sym:fqn_of:{id}` | FQN lookup by SymbolId for invalidation |
+| Code chunks | `chunk:{path}:{start}:{end}` | Source code fragments for symbols |
+| AST nodes | `ast:file:{file_id}` | Abstract syntax tree nodes |
+| Execution log | `execlog:{id}` | Command execution history |
+| File metrics | `metrics:file:{path}` | Complexity, LOC, fan-in/out |
+| Symbol metrics | `metrics:symbol:{id}` | Per-symbol metrics |
+| CFG blocks | `cfg:func:{id}` | Control flow graph blocks |
+| Graph labels | `label:{name}` | Canonical FQN mappings, categories |
+| Call edges | `calls:{caller}:{callee}` | Individual call relationships |
+| Call from prefix | `calls:from:{caller}:` | All calls from a symbol |
+| Call to prefix | `calls:to:{callee}:` | All calls to a symbol |
+
+**Indexing Behavior:**
+
+When indexing files with native-v2 backend:
+1. Graph entities (File, Symbol, Reference, Call nodes) stored in Native V2 graph
+2. Code chunks stored in KV (`chunk:*` keys)
+3. AST nodes stored in KV (`ast:file:*` keys)
+4. Metrics computed and stored in KV (`metrics:*` keys)
+5. Execution log stored in KV (`execlog:*` keys)
+6. Symbol index built in KV (`sym:*` keys) for O(1) lookups
+7. Call edges stored in KV (`calls:*` keys)
+
+**Query Behavior:**
+
+All query commands automatically use the appropriate storage:
+- Native V2: Queries read from KV store
+- SQLite: Queries read from SQL tables
+
+No user action required - backend detection is automatic.
+
+**KV Storage Benefits:**
+
+- **O(1) lookups** for symbol resolution by FQN
+- **Efficient prefix scans** for finding all symbols in a file
+- **No SQL overhead** for metadata operations
+- **Embedded with graph data** - single file database
+
 ---
 
 ## 7. Known Limitations
@@ -1586,6 +1636,13 @@ Additionally, operations that retrieve the database file path will fail for
 
 **Workaround:** Use file-based databases for all operations requiring concurrent
 access or path retrieval.
+
+### 7.2 KV Storage Limitations
+
+- **No SQL query access:** KV data is not directly queryable via SQL clients
+- **Use Magellan CLI commands:** All data access works through CLI commands (`find`, `query`, `ast`, `label`, etc.)
+- **Export includes all KV metadata:** JSON/JSONL export includes all KV-stored data
+- **Algorithm commands:** Graph algorithms (cycles, dead-code, reachable, etc.) require SQLite backend
 
 ---
 
