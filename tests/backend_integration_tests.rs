@@ -464,3 +464,101 @@ fn test_get_chunk_by_span_exact_match_required() {
     let superset = native_chunks.get_chunk_by_span("src/exact.rs", 50, 250).unwrap();
     assert!(superset.is_none(), "Superset span should return None");
 }
+
+/// Test: get_ast_nodes_by_file() works on Native-V2 backend
+///
+/// This test verifies that get_ast_nodes_by_file() uses KV lookup via
+/// ast_nodes_key(file_id) for the Native-V2 backend (lines 50-110 in ast_ops.rs).
+#[cfg(feature = "native-v2")]
+#[test]
+fn test_get_ast_nodes_by_file_native_v2() {
+    use magellan::CodeGraph;
+
+    let temp_dir = TempDir::new().unwrap();
+    let native_db = temp_dir.path().join("test_ast.db");
+
+    // Create source file with various constructs
+    let source = r#"
+        fn main() {
+            if true {
+                println!("hello");
+            }
+            for i in 0..10 {
+                println!("{}", i);
+            }
+        }
+        struct TestStruct;
+        enum TestEnum { A, B }
+    "#;
+
+    // Index with Native-V2 backend
+    let mut graph = CodeGraph::open(&native_db).unwrap();
+    graph.index_file("test.rs", source.as_bytes()).unwrap();
+
+    // Query AST nodes by file
+    let nodes = graph.get_ast_nodes_by_file("test.rs").unwrap();
+
+    assert!(!nodes.is_empty(), "Should have AST nodes");
+
+    // Verify we have expected node kinds
+    let kinds: Vec<_> = nodes.iter().map(|n| n.node.kind.as_str()).collect();
+    assert!(kinds.contains(&"function_item"), "Should have function_item");
+    assert!(kinds.contains(&"struct_item"), "Should have struct_item");
+    assert!(kinds.contains(&"enum_item"), "Should have enum_item");
+}
+
+/// Test: get_ast_nodes_by_kind() works on Native-V2 backend
+///
+/// This test verifies that get_ast_nodes_by_kind() uses KV prefix scan on
+/// "ast:file:*" keys for the Native-V2 backend (lines 197-224 in ast_ops.rs).
+#[cfg(feature = "native-v2")]
+#[test]
+fn test_get_ast_nodes_by_kind_native_v2() {
+    use magellan::CodeGraph;
+
+    let temp_dir = TempDir::new().unwrap();
+    let native_db = temp_dir.path().join("test_kind.db");
+
+    let source = r#"
+        fn foo() {}
+        fn bar() {}
+        fn baz() {}
+    "#;
+
+    let mut graph = CodeGraph::open(&native_db).unwrap();
+    graph.index_file("test.rs", source.as_bytes()).unwrap();
+
+    // Find all function items
+    let fn_nodes = graph.get_ast_nodes_by_kind("function_item").unwrap();
+
+    assert_eq!(fn_nodes.len(), 3, "Should find 3 function_item nodes");
+
+    // Verify sorting by byte_start
+    for i in 1..fn_nodes.len() {
+        assert!(fn_nodes[i].byte_start >= fn_nodes[i-1].byte_start,
+            "Nodes should be sorted by byte_start");
+    }
+}
+
+/// Test: Empty results handled correctly for AST queries
+///
+/// Edge case tests for get_ast_nodes_by_file() and get_ast_nodes_by_kind()
+/// when querying non-existent files or node kinds.
+#[cfg(feature = "native-v2")]
+#[test]
+fn test_ast_queries_empty_results() {
+    use magellan::CodeGraph;
+
+    let temp_dir = TempDir::new().unwrap();
+    let native_db = temp_dir.path().join("test_empty_ast.db");
+
+    let mut graph = CodeGraph::open(&native_db).unwrap();
+
+    // Query non-existent file
+    let nodes = graph.get_ast_nodes_by_file("nonexistent.rs").unwrap();
+    assert_eq!(nodes.len(), 0, "Non-existent file should return empty");
+
+    // Query non-existent kind
+    let nodes = graph.get_ast_nodes_by_kind("nonexistent_kind").unwrap();
+    assert_eq!(nodes.len(), 0, "Non-existent kind should return empty");
+}

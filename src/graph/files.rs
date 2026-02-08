@@ -30,6 +30,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::graph::schema::FileNode;
 use crate::ingest::{SymbolFact, SymbolKind};
 
+#[cfg(feature = "native-v2")]
+use crate::kv::keys::file_path_key;
+#[cfg(feature = "native-v2")]
+use sqlitegraph::backend::KvValue;
+
 /// File operations for CodeGraph
 pub struct FileOps {
     pub backend: Rc<dyn GraphBackend>,
@@ -107,6 +112,14 @@ impl FileOps {
             // Update index
             self.file_index.insert(path.to_string(), new_node_id);
 
+            // Store file:path:{path} -> file_id mapping in KV for O(1) lookups
+            #[cfg(feature = "native-v2")]
+            {
+                let key = file_path_key(path);
+                let value = KvValue::Integer(new_node_id.as_i64() as i64);
+                self.backend.kv_set(key, value, None)?;
+            }
+
             Ok(new_node_id)
         } else {
             // Create new file node with timestamps
@@ -129,6 +142,14 @@ impl FileOps {
 
             // Update index
             self.file_index.insert(path.to_string(), node_id);
+
+            // Store file:path:{path} -> file_id mapping in KV for O(1) lookups
+            #[cfg(feature = "native-v2")]
+            {
+                let key = file_path_key(path);
+                let value = KvValue::Integer(node_id.as_i64() as i64);
+                self.backend.kv_set(key, value, None)?;
+            }
 
             Ok(node_id)
         }
