@@ -214,6 +214,74 @@ pub fn invalidate_file_index(
     Ok(())
 }
 
+/// Store a label in the KV store.
+///
+/// Labels are used for canonical FQN mappings and symbol category lookups.
+///
+/// # Arguments
+/// * `backend` - Graph backend (must be Native V2 for KV operations)
+/// * `name` - Label name
+/// * `value` - Label value (typically a symbol_id or JSON data)
+///
+/// # Returns
+/// Result<()> indicating success or failure
+#[cfg(feature = "native-v2")]
+pub fn store_label(
+    backend: Rc<dyn GraphBackend>,
+    name: &str,
+    value: KvValue,
+) -> Result<()> {
+    use crate::kv::keys::label_key;
+
+    let key = label_key(name);
+    backend.kv_set(key, value, None)?;
+    Ok(())
+}
+
+/// Get a label from the KV store.
+///
+/// # Arguments
+/// * `backend` - Graph backend (must be Native V2 for KV operations)
+/// * `name` - Label name
+///
+/// # Returns
+/// Option<KvValue> - Some(value) if found, None if not found
+#[cfg(feature = "native-v2")]
+pub fn get_label(
+    backend: &dyn GraphBackend,
+    name: &str,
+) -> Option<KvValue> {
+    use crate::kv::keys::label_key;
+
+    let key = label_key(name);
+    let snapshot = SnapshotId::current();
+
+    match backend.kv_get(snapshot, &key) {
+        Ok(value) => value,
+        Err(_) => None,
+    }
+}
+
+/// Delete a label from the KV store.
+///
+/// # Arguments
+/// * `backend` - Graph backend (must be Native V2 for KV operations)
+/// * `name` - Label name
+///
+/// # Returns
+/// Result<()> indicating success or failure
+#[cfg(feature = "native-v2")]
+pub fn delete_label(
+    backend: &dyn GraphBackend,
+    name: &str,
+) -> Result<()> {
+    use crate::kv::keys::label_key;
+
+    let key = label_key(name);
+    backend.kv_delete(&key)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
