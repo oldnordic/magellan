@@ -317,3 +317,150 @@ fn test_get_chunk_by_span_empty_result() {
     let result = native_chunks.get_chunk_by_span("src/nonexistent.rs", 0, 100).unwrap();
     assert!(result.is_none(), "Should return None for non-existent file");
 }
+
+/// Test: get_chunk_by_span() handles zero-length span (byte_start == byte_end).
+///
+/// Edge case: A zero-length span represents an empty position in the file.
+/// The KV store should still handle this correctly.
+#[cfg(feature = "native-v2")]
+#[test]
+fn test_get_chunk_by_span_zero_length() {
+    let temp_dir = TempDir::new().unwrap();
+    let native_db = temp_dir.path().join("test_zero_span.db");
+
+    let native_backend = Rc::new(NativeGraphBackend::new(&native_db).unwrap()) as Rc<dyn sqlitegraph::GraphBackend>;
+    let native_chunks = ChunkStore::with_kv_backend(native_backend);
+
+    // Create chunk with zero-length span (position 100)
+    let chunk = CodeChunk::new(
+        "src/zero.rs".to_string(),
+        100,
+        100,
+        "".to_string(),
+        Some("zero".to_string()),
+        Some("Function".to_string()),
+    );
+
+    native_chunks.store_chunk(&chunk).unwrap();
+
+    // Retrieve zero-length chunk
+    let result = native_chunks.get_chunk_by_span("src/zero.rs", 100, 100).unwrap();
+
+    assert!(result.is_some(), "Should retrieve zero-length chunk");
+    let retrieved = result.unwrap();
+    assert_eq!(retrieved.file_path, "src/zero.rs");
+    assert_eq!(retrieved.byte_start, 100, "Start should be 100");
+    assert_eq!(retrieved.byte_end, 100, "End should be 100 (zero-length)");
+    assert_eq!(retrieved.content, "", "Content should be empty");
+    assert_eq!(retrieved.symbol_name, Some("zero".to_string()));
+}
+
+/// Test: get_chunk_by_span() with multiple chunks in same file.
+///
+/// Verify that exact span matching retrieves the correct chunk when
+/// multiple chunks exist in the same file.
+#[cfg(feature = "native-v2")]
+#[test]
+fn test_get_chunk_by_span_multiple_chunks_same_file() {
+    let temp_dir = TempDir::new().unwrap();
+    let native_db = temp_dir.path().join("test_multi_span.db");
+
+    let native_backend = Rc::new(NativeGraphBackend::new(&native_db).unwrap()) as Rc<dyn sqlitegraph::GraphBackend>;
+    let native_chunks = ChunkStore::with_kv_backend(native_backend);
+
+    // Create multiple chunks in the same file
+    let chunks = vec![
+        CodeChunk::new(
+            "src/multi.rs".to_string(),
+            0,
+            50,
+            "// first".to_string(),
+            Some("first".to_string()),
+            Some("Comment".to_string()),
+        ),
+        CodeChunk::new(
+            "src/multi.rs".to_string(),
+            50,
+            150,
+            "fn second() {}".to_string(),
+            Some("second".to_string()),
+            Some("Function".to_string()),
+        ),
+        CodeChunk::new(
+            "src/multi.rs".to_string(),
+            150,
+            300,
+            "fn third() { body }".to_string(),
+            Some("third".to_string()),
+            Some("Function".to_string()),
+        ),
+    ];
+
+    // Store all chunks
+    for chunk in &chunks {
+        native_chunks.store_chunk(chunk).unwrap();
+    }
+
+    // Retrieve each chunk by exact span
+    let first = native_chunks.get_chunk_by_span("src/multi.rs", 0, 50).unwrap();
+    assert!(first.is_some(), "Should retrieve first chunk");
+    assert_eq!(first.unwrap().symbol_name, Some("first".to_string()));
+
+    let second = native_chunks.get_chunk_by_span("src/multi.rs", 50, 150).unwrap();
+    assert!(second.is_some(), "Should retrieve second chunk");
+    assert_eq!(second.unwrap().symbol_name, Some("second".to_string()));
+
+    let third = native_chunks.get_chunk_by_span("src/multi.rs", 150, 300).unwrap();
+    assert!(third.is_some(), "Should retrieve third chunk");
+    assert_eq!(third.unwrap().symbol_name, Some("third".to_string()));
+}
+
+/// Test: get_chunk_by_span() requires exact span match.
+///
+/// Verify that partial or overlapping span matches return None.
+/// Only an exact match on (file_path, byte_start, byte_end) returns a chunk.
+#[cfg(feature = "native-v2")]
+#[test]
+fn test_get_chunk_by_span_exact_match_required() {
+    let temp_dir = TempDir::new().unwrap();
+    let native_db = temp_dir.path().join("test_exact_span.db");
+
+    let native_backend = Rc::new(NativeGraphBackend::new(&native_db).unwrap()) as Rc<dyn sqlitegraph::GraphBackend>;
+    let native_chunks = ChunkStore::with_kv_backend(native_backend);
+
+    // Create and store a chunk with span 100:200
+    let chunk = CodeChunk::new(
+        "src/exact.rs".to_string(),
+        100,
+        200,
+        "fn exact() {}".to_string(),
+        Some("exact".to_string()),
+        Some("Function".to_string()),
+    );
+    native_chunks.store_chunk(&chunk).unwrap();
+
+    // Exact match should succeed
+    let exact = native_chunks.get_chunk_by_span("src/exact.rs", 100, 200).unwrap();
+    assert!(exact.is_some(), "Exact match should succeed");
+    assert_eq!(exact.unwrap().symbol_name, Some("exact".to_string()));
+
+    // Off-by-one start should fail
+    let off_start = native_chunks.get_chunk_by_span("src/exact.rs", 99, 200).unwrap();
+    assert!(off_start.is_none(), "Off-by-one start should return None");
+
+    // Off-by-one end should fail
+    let off_end = native_chunks.get_chunk_by_span("src/exact.rs", 100, 201).unwrap();
+    assert!(off_end.is_none(), "Off-by-one end should return None");
+
+    // Completely different span should fail
+    let different = native_chunks.get_chunk_by_span("src/exact.rs", 0, 50).unwrap();
+    assert!(different.is_none(), "Different span should return None");
+
+    // Overlapping but not exact should fail
+    let overlap = native_chunks.get_chunk_by_span("src/exact.rs", 150, 250).unwrap();
+    assert!(overlap.is_none(), "Overlapping span should return None");
+
+    // Superset span should fail
+    let superset = native_chunks.get_chunk_by_span("src/exact.rs", 50, 250).unwrap();
+    assert!(superset.is_none(), "Superset span should return None");
+}
