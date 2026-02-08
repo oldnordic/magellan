@@ -521,6 +521,40 @@ impl ChunkStore {
 
     /// Get all code chunks for a specific file.
     pub fn get_chunks_for_file(&self, file_path: &str) -> Result<Vec<CodeChunk>> {
+        #[cfg(feature = "native-v2")]
+        {
+            // Use KV backend if available
+            if let Some(ref backend) = self.kv_backend {
+                use crate::kv::encoding::decode_json;
+                use sqlitegraph::{SnapshotId, backend::KvValue};
+
+                let snapshot = SnapshotId::current();
+
+                // Prefix scan for all chunks in the file
+                // Key format: chunk:{file_path}:{start}:{end}
+                // Need to escape colons in file_path
+                let escaped_path = file_path.replace(':', "::");
+                let prefix = format!("chunk:{}:", escaped_path);
+                let entries = backend.kv_prefix_scan(snapshot, prefix.as_bytes())?;
+
+                let mut chunks = Vec::new();
+                for (_key, value) in entries {
+                    if let KvValue::Json(json_value) = value {
+                        let json_str = serde_json::to_string(&json_value)
+                            .map_err(|e| anyhow::anyhow!("Failed to convert JSON value: {}", e))?;
+                        let chunk: CodeChunk = decode_json(json_str.as_bytes())?;
+                        chunks.push(chunk);
+                    }
+                }
+
+                // Sort by byte_start to ensure consistent ordering
+                chunks.sort_by_key(|c| c.byte_start);
+
+                return Ok(chunks);
+            }
+        }
+
+        // Fallback to SQLite (original implementation)
         self.with_conn(|conn| {
             let mut stmt = conn
                 .prepare_cached(
