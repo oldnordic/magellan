@@ -36,7 +36,7 @@ pub mod canonical_fqn;
 mod count;
 pub mod crate_name;
 mod db_compat;
-mod execution_log;
+pub mod execution_log;
 pub mod export;
 mod files;
 pub mod filter;
@@ -99,7 +99,9 @@ pub use cache::CacheStats;
 pub use db_compat::{ensure_ast_schema, ensure_cfg_schema, CFG_EDGE};
 pub use db_compat::MAGELLAN_SCHEMA_VERSION;
 pub use export::{ExportConfig, ExportFormat};
+pub use execution_log::ExecutionLog;
 pub use freshness::{check_freshness, FreshnessStatus, STALE_THRESHOLD_SECS};
+pub use metrics::MetricsOps;
 pub use schema::{CallNode, CfgBlock, CfgEdge, FileNode, ReferenceNode, SymbolNode};
 
 /// Progress callback for scan_directory

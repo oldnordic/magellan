@@ -7,7 +7,6 @@ mod collisions_cmd;
 mod dead_code_cmd;
 mod export_cmd;
 mod migrate_cmd;
-mod migrate_backend_cmd;
 mod files_cmd;
 mod find_cmd;
 mod get_cmd;
@@ -2584,7 +2583,7 @@ fn main() -> ExitCode {
             dry_run,
             output_format,
         }) => {
-            match migrate_backend_cmd::run_migrate_backend(input_db, output_db, export_dir, dry_run) {
+            match magellan::migrate_backend_cmd::run_migrate_backend(input_db, output_db, export_dir, dry_run) {
                 Ok(result) => {
                     match output_format {
                         OutputFormat::Json | OutputFormat::Pretty => {

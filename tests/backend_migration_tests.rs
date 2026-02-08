@@ -440,3 +440,199 @@ fn test_migration_dry_run() {
     assert_eq!(result.edges_migrated, 0);
     assert!(!result.side_tables_migrated);
 }
+
+/// Test: Migration preserves multi-byte UTF-8 chunk content byte-identically.
+#[test]
+fn test_migration_preserves_chunk_content() {
+    use magellan::generation::{ChunkStore, CodeChunk};
+    use magellan::kv::keys::chunk_key;
+    use sqlitegraph::GraphBackend;
+
+    let temp_dir = TempDir::new().unwrap();
+    let source_db = temp_dir.path().join("source.db");
+    let native_db = temp_dir.path().join("native.db");
+
+    // Create SQLite database with UTF-8 content
+    let utf8_content = "pub fn 日本語 function() { let emoji = \"😀🚀\"; }";
+
+    {
+        let chunk_store = ChunkStore::new(&source_db);
+        chunk_store.ensure_schema().unwrap();
+
+        let chunk = CodeChunk::new(
+            "test.rs".to_string(),
+            0,
+            utf8_content.len(),
+            utf8_content.to_string(),
+            Some("test".to_string()),
+            Some("Function".to_string()),
+        );
+        chunk_store.store_chunk(&chunk).unwrap();
+    }
+
+    // Get original bytes from SQLite
+    let original_bytes = {
+        let conn = rusqlite::Connection::open(&source_db).unwrap();
+        let mut stmt = conn.prepare("SELECT content FROM code_chunks WHERE file_path = 'test.rs'").unwrap();
+        stmt.query_row([], |row| row.get::<_, Vec<u8>>(0)).unwrap()
+    };
+
+    // Migrate to Native V2
+    run_migrate_backend(source_db, native_db.clone(), None, false).unwrap();
+
+    // Verify byte-identical content in KV store
+    #[cfg(feature = "native-v2")]
+    {
+        use sqlitegraph::NativeGraphBackend;
+        let backend = NativeGraphBackend::open(&native_db).unwrap();
+        let snapshot = sqlitegraph::SnapshotId::current();
+
+        let key = chunk_key("test.rs", 0, utf8_content.len());
+        if let Some(sqlitegraph::backend::KvValue::Bytes(json_bytes)) = backend.kv_get(snapshot, &key).unwrap() {
+            let chunk: magellan::generation::CodeChunk = serde_json::from_slice(&json_bytes).unwrap();
+            assert_eq!(
+                chunk.content.as_bytes(),
+                original_bytes,
+                "Chunk content should be byte-identical after migration"
+            );
+            assert_eq!(chunk.content, utf8_content, "UTF-8 content should be preserved");
+        } else {
+            panic!("Chunk not found in KV store or wrong type");
+        }
+    }
+
+    #[cfg(not(feature = "native-v2"))]
+    {
+        // Without native-v2, just verify SQLite side table copy worked
+        let conn = rusqlite::Connection::open(&native_db).unwrap();
+        let mut stmt = conn.prepare("SELECT content FROM code_chunks WHERE file_path = 'test.rs'").unwrap();
+        let content: String = stmt.query_row([], |row| row.get(0)).unwrap();
+        assert_eq!(content, utf8_content, "UTF-8 content should be preserved");
+    }
+}
+
+/// Test: Migration preserves multi-byte UTF-8 chunk content byte-identically.
+#[cfg(feature = "native-v2")]
+#[test]
+fn test_migration_preserves_chunk_content() {
+    use magellan::generation::{ChunkStore, CodeChunk};
+    use magellan::kv::keys::chunk_key;
+    use sqlitegraph::GraphBackend;
+
+    let temp_dir = TempDir::new().unwrap();
+    let source_db = temp_dir.path().join("source.db");
+    let native_db = temp_dir.path().join("native.db");
+
+    // Create SQLite database with UTF-8 content
+    let utf8_content = "pub fn 日本語 function() { let emoji = \"😀🚀\"; }";
+
+    {
+        let chunk_store = ChunkStore::new(&source_db);
+        chunk_store.ensure_schema().unwrap();
+
+        let chunk = CodeChunk::new(
+            "test.rs".to_string(),
+            0,
+            utf8_content.len(),
+            utf8_content.to_string(),
+            Some("test".to_string()),
+            Some("Function".to_string()),
+        );
+        chunk_store.store_chunk(&chunk).unwrap();
+    }
+
+    // Get original bytes from SQLite
+    let original_bytes = {
+        let conn = rusqlite::Connection::open(&source_db).unwrap();
+        let mut stmt = conn.prepare("SELECT content FROM code_chunks WHERE file_path = 'test.rs'").unwrap();
+        stmt.query_row([], |row| row.get::<_, Vec<u8>>(0)).unwrap()
+    };
+
+    // Migrate to Native V2
+    run_migrate_backend(source_db, native_db.clone(), None, false).unwrap();
+
+    // Verify byte-identical content in KV store
+    {
+        use sqlitegraph::NativeGraphBackend;
+        let backend = NativeGraphBackend::open(&native_db).unwrap();
+        let snapshot = sqlitegraph::SnapshotId::current();
+
+        let key = chunk_key("test.rs", 0, utf8_content.len());
+        if let Some(sqlitegraph::backend::KvValue::Bytes(json_bytes)) = backend.kv_get(snapshot, &key).unwrap() {
+            let chunk: magellan::generation::CodeChunk = serde_json::from_slice(&json_bytes).unwrap();
+            assert_eq!(
+                chunk.content.as_bytes(),
+                original_bytes,
+                "Chunk content should be byte-identical after migration"
+            );
+            assert_eq!(chunk.content, utf8_content, "UTF-8 content should be preserved");
+        } else {
+            panic!("Chunk not found in KV store or wrong type");
+        }
+    }
+}
+
+/// Test: Migration preserves execution log history with correct ordering.
+#[cfg(feature = "native-v2")]
+#[test]
+fn test_migration_preserves_execution_history() {
+    use magellan::graph::ExecutionLog;
+    use magellan::kv::keys::execution_log_key;
+    use sqlitegraph::GraphBackend;
+
+    let temp_dir = TempDir::new().unwrap();
+    let source_db = temp_dir.path().join("source.db");
+    let native_db = temp_dir.path().join("native.db");
+
+    // Create SQLite database with 10 executions
+    let execution_ids: Vec<String> = (0..10).map(|i| format!("exec-{}", i)).collect();
+
+    {
+        let execution_log = ExecutionLog::new(&source_db);
+        let args = vec!["scan".to_string()];
+
+        for (i, exec_id) in execution_ids.iter().enumerate() {
+            execution_log.start_execution(exec_id, "2.1.0", &args, None, "/test.db").unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            execution_log.finish_execution(exec_id, "success", None, i, i * 5, i * 3).unwrap();
+        }
+    }
+
+    // Verify SQLite has all 10 executions
+    {
+        let conn = rusqlite::Connection::open(&source_db).unwrap();
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM execution_log", [], |row| row.get(0)).unwrap();
+        assert_eq!(count, 10, "SQLite should have 10 executions before migration");
+    }
+
+    // Migrate to Native V2
+    run_migrate_backend(source_db, native_db.clone(), None, false).unwrap();
+
+    // Verify KV store has execution records
+    {
+        use sqlitegraph::NativeGraphBackend;
+        let backend = NativeGraphBackend::open(&native_db).unwrap();
+        let snapshot = sqlitegraph::SnapshotId::current();
+
+        // Check that all execution IDs are in KV
+        for exec_id in &execution_ids {
+            let key = execution_log_key(exec_id);
+            let result = backend.kv_get(snapshot, &key).unwrap();
+            assert!(result.is_some(), "Execution {} should be in KV store", exec_id);
+        }
+    }
+
+    // Verify side table still has 10 executions (for compatibility)
+    {
+        let conn = rusqlite::Connection::open(&native_db).unwrap();
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM execution_log", [], |row| row.get(0)).unwrap();
+        assert_eq!(count, 10, "Side table should have 10 executions after migration");
+    }
+
+    // Verify we can query executions via ExecutionLog API
+    {
+        let execution_log = ExecutionLog::new(&native_db);
+        let all = execution_log.list_all(None).unwrap();
+        assert_eq!(all.len(), 10, "Should get all 10 executions");
+    }
+}

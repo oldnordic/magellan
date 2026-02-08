@@ -32,11 +32,11 @@ use std::rc::Rc;
 use sqlitegraph::GraphBackend;
 
 #[cfg(feature = "native-v2")]
-use magellan::generation::CodeChunk;
+use crate::generation::CodeChunk;
 #[cfg(feature = "native-v2")]
-use magellan::graph::{AstNode, CfgBlock, store_ast_nodes_kv, store_cfg_blocks_kv};
+use crate::graph::{AstNode, CfgBlock, store_ast_nodes_kv, store_cfg_blocks_kv};
 #[cfg(feature = "native-v2")]
-use magellan::kv::keys::chunk_key;
+use crate::kv::keys::chunk_key;
 
 /// Magic bytes for Native V2 database files
 ///
