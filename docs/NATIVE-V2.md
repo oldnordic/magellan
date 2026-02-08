@@ -3,6 +3,19 @@
 **Version:** 2.1.0
 **Last Updated:** 2026-02-08
 
+## Recent Updates
+
+### Phase 56: get_chunks_for_file() KV Support (2026-02-08)
+
+Fixed `ChunkStore::get_chunks_for_file()` to work with Native-V2 backend via KV prefix scan. Previously, the `chunks` and `get-file` commands failed on Native-V2 databases. This fix ensures:
+
+- `magellan chunks --file <path>` works on Native-V2
+- `magellan get-file <path>` works on Native-V2
+- Colon-escaping in file paths (`::` escape sequence) works correctly
+- Results are sorted by byte_start for SQLite parity
+
+See Phase 56 planning documents for implementation details.
+
 ---
 
 ## Overview
@@ -295,3 +308,4 @@ Planned for future releases:
 - [MANUAL.md - Backend Compatibility](../MANUAL.md#6-backend-compatibility)
 - [README.md - Native V2 Backend](../README.md#native-v2-backend)
 - [Phase 55: KV Data Storage Migration](../.planning/phases/55-kv-data-storage-migration/55-CONTEXT.md)
+- [Phase 56: get_chunks_for_file() KV Support](../.planning/phases/56-get-chunks-for-file-kv-support/56-01-SUMMARY.md)
