@@ -151,6 +151,143 @@ pub fn sym_fqn_of_key(symbol_id: i64) -> Vec<u8> {
     format!("sym:fqn_of:{}", symbol_id).into_bytes()
 }
 
+/// Construct a KV store key for a code chunk.
+///
+/// The key format is: b"chunk:{file_path}:{byte_start}:{byte_end}"
+///
+/// This enables O(1) lookup of code chunks by file path and byte range.
+/// File paths containing colons are escaped with "::" to avoid collisions.
+///
+/// # Arguments
+/// * `file_path` - Path to the file containing the chunk
+/// * `byte_start` - Start byte offset of the chunk
+/// * `byte_end` - End byte offset of the chunk
+///
+/// # Returns
+/// Vec<u8> containing the formatted key
+///
+/// # Example
+/// ```ignore
+/// let key = chunk_key("src/main.rs", 100, 200);
+/// // Returns: b"chunk:src/main.rs:100:200"
+/// ```
+pub fn chunk_key(file_path: &str, byte_start: usize, byte_end: usize) -> Vec<u8> {
+    let escaped_path = file_path.replace(':', "::");
+    format!("chunk:{}:{}:{}", escaped_path, byte_start, byte_end).into_bytes()
+}
+
+/// Construct a KV store key for an execution log entry.
+///
+/// The key format is: b"execlog:{execution_id}"
+///
+/// This enables O(1) lookup of execution records by execution ID.
+/// Used for tracking Magellan CLI command executions.
+///
+/// # Arguments
+/// * `execution_id` - UUID string identifying the execution
+///
+/// # Returns
+/// Vec<u8> containing the formatted key
+///
+/// # Example
+/// ```ignore
+/// let key = execution_log_key("550e8400-e29b-41d4-a716-446655440000");
+/// // Returns: b"execlog:550e8400-e29b-41d4-a716-446655440000"
+/// ```
+pub fn execution_log_key(execution_id: &str) -> Vec<u8> {
+    format!("execlog:{}", execution_id).into_bytes()
+}
+
+/// Construct a KV store key for file-level metrics.
+///
+/// The key format is: b"metrics:file:{file_path}"
+///
+/// This enables O(1) lookup of file metrics (complexity, line counts, etc.).
+/// File paths containing colons are escaped with "::" to avoid collisions.
+///
+/// # Arguments
+/// * `file_path` - Path to the file
+///
+/// # Returns
+/// Vec<u8> containing the formatted key
+///
+/// # Example
+/// ```ignore
+/// let key = file_metrics_key("src/main.rs");
+/// // Returns: b"metrics:file:src/main.rs"
+/// ```
+pub fn file_metrics_key(file_path: &str) -> Vec<u8> {
+    let escaped_path = file_path.replace(':', "::");
+    format!("metrics:file:{}", escaped_path).into_bytes()
+}
+
+/// Construct a KV store key for symbol-level metrics.
+///
+/// The key format is: b"metrics:symbol:{symbol_id}"
+///
+/// This enables O(1) lookup of symbol metrics (complexity, cyclomatic, etc.).
+///
+/// # Arguments
+/// * `symbol_id` - SymbolId (i64) of the symbol
+///
+/// # Returns
+/// Vec<u8> containing the formatted key
+///
+/// # Example
+/// ```ignore
+/// let key = symbol_metrics_key(12345);
+/// // Returns: b"metrics:symbol:12345"
+/// ```
+pub fn symbol_metrics_key(symbol_id: i64) -> Vec<u8> {
+    format!("metrics:symbol:{}", symbol_id).into_bytes()
+}
+
+/// Construct a KV store key for CFG blocks of a function.
+///
+/// The key format is: b"cfg:func:{function_id}"
+///
+/// This enables O(1) lookup of control flow graph blocks for a function.
+/// The stored value is an encoded Vec<CfgBlock>.
+///
+/// # Arguments
+/// * `function_id` - SymbolId (i64) of the function
+///
+/// # Returns
+/// Vec<u8> containing the formatted key
+///
+/// # Example
+/// ```ignore
+/// let key = cfg_blocks_key(12345);
+/// // Returns: b"cfg:func:12345"
+/// // Value would be encoded Vec<CfgBlock>
+/// ```
+pub fn cfg_blocks_key(function_id: i64) -> Vec<u8> {
+    format!("cfg:func:{}", function_id).into_bytes()
+}
+
+/// Construct a KV store key for AST nodes of a file.
+///
+/// The key format is: b"ast:file:{file_id}"
+///
+/// This enables O(1) lookup of abstract syntax tree nodes for a file.
+/// The stored value is an encoded Vec<AstNode>.
+///
+/// # Arguments
+/// * `file_id` - FileId (u64) of the file
+///
+/// # Returns
+/// Vec<u8> containing the formatted key
+///
+/// # Example
+/// ```ignore
+/// let key = ast_nodes_key(999);
+/// // Returns: b"ast:file:999"
+/// // Value would be encoded Vec<AstNode>
+/// ```
+pub fn ast_nodes_key(file_id: u64) -> Vec<u8> {
+    format!("ast:file:{}", file_id).into_bytes()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -229,5 +366,128 @@ mod tests {
         assert!(path_key.starts_with("file:path:"));
         assert!(sym_key.starts_with("file:sym:"));
         assert!(rev_key.starts_with("sym:rev:"));
+    }
+
+    #[test]
+    fn test_chunk_key_format() {
+        let key = chunk_key("src/main.rs", 100, 200);
+        let key_str = String::from_utf8(key).unwrap();
+        assert_eq!(key_str, "chunk:src/main.rs:100:200");
+    }
+
+    #[test]
+    fn test_chunk_key_with_colon_path() {
+        // Paths with colons should be escaped
+        let key = chunk_key("src/module:name/file.rs", 0, 100);
+        let key_str = String::from_utf8(key).unwrap();
+        assert_eq!(key_str, "chunk:src/module::name/file.rs:0:100");
+    }
+
+    #[test]
+    fn test_execution_log_key_format() {
+        let exec_id = "550e8400-e29b-41d4-a716-446655440000";
+        let key = execution_log_key(exec_id);
+        let key_str = String::from_utf8(key).unwrap();
+        assert_eq!(key_str, format!("execlog:{}", exec_id));
+    }
+
+    #[test]
+    fn test_file_metrics_key_format() {
+        let key = file_metrics_key("src/lib.rs");
+        let key_str = String::from_utf8(key).unwrap();
+        assert_eq!(key_str, "metrics:file:src/lib.rs");
+    }
+
+    #[test]
+    fn test_file_metrics_key_with_colon_path() {
+        // Paths with colons should be escaped
+        let key = file_metrics_key("src/test:module/file.rs");
+        let key_str = String::from_utf8(key).unwrap();
+        assert_eq!(key_str, "metrics:file:src/test::module/file.rs");
+    }
+
+    #[test]
+    fn test_symbol_metrics_key_format() {
+        let key = symbol_metrics_key(12345);
+        let key_str = String::from_utf8(key).unwrap();
+        assert_eq!(key_str, "metrics:symbol:12345");
+    }
+
+    #[test]
+    fn test_cfg_blocks_key_format() {
+        let key = cfg_blocks_key(999);
+        let key_str = String::from_utf8(key).unwrap();
+        assert_eq!(key_str, "cfg:func:999");
+    }
+
+    #[test]
+    fn test_ast_nodes_key_format() {
+        let key = ast_nodes_key(12345);
+        let key_str = String::from_utf8(key).unwrap();
+        assert_eq!(key_str, "ast:file:12345");
+    }
+
+    #[test]
+    fn test_metadata_key_namespaces() {
+        // Verify metadata keys use proper namespace prefixes
+        let chunk_key_str = String::from_utf8(chunk_key("test.rs", 0, 10)).unwrap();
+        let exec_key_str = String::from_utf8(execution_log_key("exec-123")).unwrap();
+        let file_metrics_str = String::from_utf8(file_metrics_key("test.rs")).unwrap();
+        let sym_metrics_str = String::from_utf8(symbol_metrics_key(1)).unwrap();
+        let cfg_str = String::from_utf8(cfg_blocks_key(1)).unwrap();
+        let ast_str = String::from_utf8(ast_nodes_key(1)).unwrap();
+
+        assert!(chunk_key_str.starts_with("chunk:"));
+        assert!(exec_key_str.starts_with("execlog:"));
+        assert!(file_metrics_str.starts_with("metrics:file:"));
+        assert!(sym_metrics_str.starts_with("metrics:symbol:"));
+        assert!(cfg_str.starts_with("cfg:func:"));
+        assert!(ast_str.starts_with("ast:file:"));
+    }
+
+    #[test]
+    fn test_no_key_namespace_collisions() {
+        // Verify all key namespace patterns are distinct
+        // We check the prefix up to and including the first value separator
+        let all_keys = vec![
+            ("sym:fqn:", sym_fqn_key("test")),
+            ("sym:id:", sym_id_key(1)),
+            ("file:path:", file_path_key("test")),
+            ("file:sym:", file_sym_key(1)),
+            ("sym:rev:", sym_rev_key(1)),
+            ("sym:fqn_of:", sym_fqn_of_key(1)),
+            ("chunk:", chunk_key("test.rs", 0, 10)),
+            ("execlog:", execution_log_key("exec-123")),
+            ("metrics:file:", file_metrics_key("test.rs")),
+            ("metrics:symbol:", symbol_metrics_key(1)),
+            ("cfg:func:", cfg_blocks_key(1)),
+            ("ast:file:", ast_nodes_key(1)),
+        ];
+
+        // Extract actual prefixes from generated keys
+        let prefixes: Vec<_> = all_keys
+            .iter()
+            .map(|(expected_prefix, key)| {
+                let key_str = String::from_utf8(key.clone()).unwrap();
+                // Verify key starts with expected prefix
+                assert!(
+                    key_str.starts_with(expected_prefix),
+                    "Key '{:?}' should start with '{}'",
+                    key_str,
+                    expected_prefix
+                );
+                // Return the expected prefix for uniqueness check
+                expected_prefix.to_string()
+            })
+            .collect();
+
+        // Check for duplicates
+        let unique_prefixes: std::collections::HashSet<_> =
+            prefixes.iter().cloned().collect();
+        assert_eq!(
+            unique_prefixes.len(),
+            prefixes.len(),
+            "All key namespace prefixes should be unique"
+        );
     }
 }
