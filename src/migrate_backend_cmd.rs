@@ -32,17 +32,15 @@ use std::rc::Rc;
 use sqlitegraph::GraphBackend;
 
 #[cfg(feature = "native-v2")]
-use crate::generation::CodeChunk;
+use crate::generation::{CodeChunk, ChunkStore};
 #[cfg(feature = "native-v2")]
 use crate::graph::{AstNode, CfgBlock, store_ast_nodes_kv, store_cfg_blocks_kv};
-#[cfg(feature = "native-v2")]
-use crate::kv::keys::chunk_key;
 
 /// Magic bytes for Native V2 database files
 ///
-/// Native V2 databases start with "MAG2" (4 bytes) at offset 0.
-/// Verified from sqlitegraph/src/backend/native/v2/constants.rs
-const NATIVE_V2_MAGIC: &[u8] = b"MAG2";
+/// Native V2 databases start with "SQLTGF" (6 bytes) at offset 0.
+/// This is the sqlitegraph native format magic string.
+const NATIVE_V2_MAGIC: &[u8] = b"SQLTGF";
 
 /// Database backend format detected from file headers
 ///
@@ -155,15 +153,15 @@ pub fn detect_backend_format(db_path: &Path) -> Result<BackendFormat, MigrationE
         source: e,
     })?;
 
-    // Read first 4 bytes (magic number)
-    let mut magic = [0u8; 4];
+    // Read first 6 bytes (magic number "SQLTGF")
+    let mut magic = [0u8; 6];
     file.read_exact(&mut magic).map_err(|e| MigrationError::CannotReadHeader {
         path: db_path.to_path_buf(),
         source: e,
     })?;
 
     // Check for Native V2 magic bytes
-    if magic == NATIVE_V2_MAGIC {
+    if &magic == NATIVE_V2_MAGIC {
         return Ok(BackendFormat::NativeV2);
     }
 
@@ -926,38 +924,11 @@ pub fn migrate_side_tables_to_kv(
 ) -> Result<MigrationSideStats> {
     let mut stats = MigrationSideStats::default();
 
+    // 1. Migrate chunks using ChunkStore helper
+    let chunk_count = ChunkStore::migrate_chunks_to_kv(sqlite_db_path, Rc::clone(native_backend))?;
+    stats.chunks = chunk_count;
+
     let conn = rusqlite::Connection::open(sqlite_db_path)?;
-
-    // 1. Migrate chunks - inline implementation since ChunkStore is in library
-    let mut chunk_stmt = conn.prepare(
-        "SELECT id, file_path, byte_start, byte_end, content, content_hash, symbol_name, symbol_kind, created_at
-         FROM code_chunks"
-    )?;
-
-    let chunks = chunk_stmt.query_map([], |row| {
-        Ok(CodeChunk {
-            id: Some(row.get(0)?),
-            file_path: row.get(1)?,
-            byte_start: row.get::<_, i64>(2)? as usize,
-            byte_end: row.get::<_, i64>(3)? as usize,
-            content: row.get(4)?,
-            content_hash: row.get(5)?,
-            symbol_name: row.get(6)?,
-            symbol_kind: row.get(7)?,
-            created_at: row.get(8)?,
-        })
-    })?;
-
-    for chunk_result in chunks {
-        let chunk = chunk_result.map_err(|e| anyhow::anyhow!("Failed to read chunk: {}", e))?;
-
-        // Store in KV using chunk_key
-        let key = chunk_key(&chunk.file_path, chunk.byte_start, chunk.byte_end);
-        let json = serde_json::to_vec(&chunk)
-            .map_err(|e| anyhow::anyhow!("Failed to serialize chunk: {}", e))?;
-        native_backend.kv_set(key, sqlitegraph::backend::KvValue::Bytes(json), None)?;
-        stats.chunks += 1;
-    }
 
     // 2. Migrate AST nodes
     let mut stmt = conn.prepare("SELECT DISTINCT file_id FROM ast_nodes")?;
