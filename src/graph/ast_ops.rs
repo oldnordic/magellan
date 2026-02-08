@@ -191,7 +191,41 @@ impl CodeGraph {
     ///
     /// # Returns
     /// Vector of matching AstNode structs
+    ///
+    /// # Note
+    /// For Native-V2 backend, uses KV prefix scan on ast:file:* keys.
+    /// For SQLite backend, queries ast_nodes table with WHERE clause.
     pub fn get_ast_nodes_by_kind(&self, kind: &str) -> Result<Vec<AstNode>> {
+        #[cfg(feature = "native-v2")]
+        {
+            if self.chunks.has_kv_backend() {
+                // Use KV store: scan all AST nodes and filter by kind
+                use sqlitegraph::{SnapshotId, backend::KvValue};
+                use crate::kv::encoding::decode_ast_nodes;
+
+                let backend = &self.files.backend;
+                let snapshot = SnapshotId::current();
+
+                // Prefix scan all ast:file:* keys
+                let entries = backend.kv_prefix_scan(snapshot, b"ast:file:")?;
+
+                let mut all_nodes = Vec::new();
+                for (_key, value) in entries {
+                    if let KvValue::Bytes(data) = value {
+                        if let Ok(nodes) = decode_ast_nodes::<AstNode>(&data) {
+                            all_nodes.extend(nodes);
+                        }
+                    }
+                }
+
+                // Filter by kind
+                all_nodes.retain(|n| n.kind == kind);
+                all_nodes.sort_by_key(|n| n.byte_start);
+                return Ok(all_nodes);
+            }
+        }
+
+        // SQLite fallback (existing code)
         let conn = self.chunks.connect()?;
 
         let mut stmt = conn.prepare(
