@@ -920,6 +920,17 @@ pub fn insert_ast_nodes(graph: &mut CodeGraph, file_id: i64, nodes: Vec<crate::g
         return Ok(0);
     }
 
+    #[cfg(feature = "native-v2")]
+    {
+        // Check if we have KV backend (Native V2)
+        if graph.chunks.has_kv_backend() {
+            use crate::graph::ast_extractor::store_ast_nodes_kv;
+            let backend = &graph.files.backend;
+            store_ast_nodes_kv(std::rc::Rc::clone(backend), file_id as u64, &nodes)?;
+            return Ok(nodes.len());
+        }
+    }
+
     use rusqlite::params;
     let conn = graph.chunks.connect()?;
 
@@ -971,7 +982,7 @@ pub fn insert_ast_nodes(graph: &mut CodeGraph, file_id: i64, nodes: Vec<crate::g
     Ok(nodes.len())
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "native-v2")))]
 mod tests {
     #[test]
     fn test_ast_nodes_indexed_with_file() {
