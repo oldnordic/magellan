@@ -427,10 +427,67 @@ Solution: Store all metadata in native-v2 KV store using key patterns:
 - Metrics: `metrics:file:{path}`, `metrics:symbol:{id}`, `metrics:hotspot`
 - CFG: `cfg:function:{func_id}`, `cfg:block:kind:{kind}`
 
+#### Phase 53: Fix Native-V2 Database Initialization
+**Goal**: Fix critical bug where magellan fails to initialize new databases in native-v2 mode with error "no such table: execution_log", creating incomplete 88-byte database files
+**Depends on**: Phase 52
+**Requirements**: PARITY-01, PARITY-02, TEST-01
+**Success Criteria** (what must be TRUE):
+  1. `magellan status --db /tmp/test.db` creates valid database without error
+  2. Database file is > 1000 bytes (not 88 bytes)
+  3. Execution log persists across runs (stored in KV)
+  4. All commands work in native-v2 mode
+**Plans**: 3 plans in 2 waves
+
+Plans:
+- [ ] 53-01-PLAN.md — Fix ExecutionLog initialization (use with_kv_backend instead of disabled())
+- [ ] 53-02-PLAN.md — Fix MetricsOps initialization (use with_kv_backend instead of disabled())
+- [ ] 53-03-PLAN.md — Test and verify (database creation, size check, round-trip)
+
+**Details**:
+Root cause: In src/graph/mod.rs:341, native-v2 mode uses `ExecutionLog::disabled()` which sets `kv_backend: None`. When `ExecutionTracker::start()` calls `start_execution()`:
+1. Checks `if let Some(ref backend) = self.kv_backend` → skips (None)
+2. Falls back to SQLite INSERT into execution_log table
+3. :memory: database has no tables (ensure_schema never called)
+4. INSERT fails with "no such table: execution_log"
+
+Fix: Use `ExecutionLog::with_kv_backend(Rc::clone(&backend))` instead of `ExecutionLog::disabled()`
+Related bug report: docs/pr2.md (2026-02-08)
+Critical severity: blocks all new database creation
+
+#### Phase 54: CLI Backend Detection and Dual Query Methods
+**Goal**: Fix CLI commands to work with both SQLite and Native-V2 backends by auto-detecting the database type and using appropriate query methods for each backend
+**Depends on**: Phase 53
+**Requirements**: PARITY-01, PARITY-02, PARITY-03, PARITY-04, PARITY-05
+**Success Criteria** (what must be TRUE):
+  1. Backend detection function identifies Native-V2 vs SQLite databases by magic bytes
+  2. Commands work correctly with SQLite databases (use SQL queries)
+  3. Commands work correctly with Native-V2 databases (use KV prefix scan or ChunkStore API)
+  4. Algorithm commands (cycles, dead-code, reachable) are documented as SQLite-only
+  5. No duplicate commands - single command that auto-detects backend
+**Plans**: 4 plans in 3 waves
+
+Plans:
+- [ ] 54-01-PLAN.md — Re-export Backend Detection (detect_backend_format from Phase 47-03)
+- [ ] 54-02-PLAN.md — Fix Chunk Commands for Native-V2 (chunks, chunk-by-span, chunk-by-symbol)
+- [ ] 54-03-PLAN.md — Fix AST Commands for Native-V2 (ast, find-ast)
+- [ ] 54-04-PLAN.md — Document Algorithm Limitations (cycles, dead-code, reachable are SQLite-only)
+
+**Details**:
+Current CLI commands use `rusqlite::Connection::open()` directly, which only works with SQLite databases. Native-V2 databases store data in binary format (not SQLite tables) and use KV store for metadata.
+
+Commands affected:
+- `chunks`, `chunk-by-span`, `chunk-by-symbol` - Direct SQLite: `Connection::open()`
+- `get`, `get-file` - Queries code_chunks table
+- `ast`, `find-ast` - Queries ast_nodes table
+- `label`, `collisions` - Queries graph_labels table
+- `dead-code`, `cycles`, `reachable` - Uses sqlitegraph algorithms (SQLite-only)
+
+Solution: Auto-detect backend by reading magic bytes ("SQLTGF" = Native-V2, "SQLite format 3" = SQLite), then use appropriate query method (SQL queries for SQLite, KV prefix scan for Native-V2).
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 46 → 47 → 48 → 49 → 50 → 51 → 52
+Phases execute in numeric order: 46 → 47 → 48 → 49 → 50 → 51 → 52 → 53 → 54
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -450,4 +507,6 @@ Phases execute in numeric order: 46 → 47 → 48 → 49 → 50 → 51 → 52
 | 49. Pub/Sub Integration | v2.0 | 0/3 | Planning ready | - |
 | 50. Testing & Documentation | v2.0 | 0/12 | Not started | - |
 | 51. Fix Native V2 Compilation | v2.0 | 3/3 | Complete | 2026-02-07 |
-| 52. Eliminate Native-V2 Stubs | v2.0 | 0/7 | Planning ready | - |
+| 52. Eliminate Native-V2 Stubs | v2.0 | 7/7 | Complete | 2026-02-08 |
+| 53. Fix Native-V2 DB Init | v2.0 | 0/3 | Planning ready | - |
+| 54. CLI Backend Detection | v2.0 | 0/4 | Planning ready | - |
