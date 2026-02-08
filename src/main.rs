@@ -96,12 +96,12 @@ fn print_usage() {
     eprintln!("  verify          Verify database vs filesystem");
     eprintln!("  ast             Query AST nodes for a file");
     eprintln!("  find-ast        Find AST nodes by kind");
-    eprintln!("  reachable       Show symbols reachable from a given symbol");
-    eprintln!("  dead-code       Find dead code unreachable from an entry point");
-    eprintln!("  cycles          Detect strongly connected components (cycles) in the call graph");
-    eprintln!("  condense        Show call graph condensation (SCCs collapsed into supernodes)");
-    eprintln!("  paths           Enumerate execution paths between symbols");
-    eprintln!("  slice           Program slicing (backward/forward) from a target symbol");
+    eprintln!("  reachable       Show symbols reachable from a given symbol (SQLite backend only)");
+    eprintln!("  dead-code       Find dead code unreachable from an entry point (SQLite backend only)");
+    eprintln!("  cycles          Detect strongly connected components (cycles) in the call graph (SQLite backend only)");
+    eprintln!("  condense        Show call graph condensation (SCCs collapsed into supernodes) (SQLite backend only)");
+    eprintln!("  paths           Enumerate execution paths between symbols (SQLite backend only)");
+    eprintln!("  slice           Program slicing (backward/forward) from a target symbol (SQLite backend only)");
     eprintln!();
     eprintln!("Global arguments:");
     eprintln!("  --output <FORMAT>   Output format: human (default), json (compact), or pretty (formatted)");
