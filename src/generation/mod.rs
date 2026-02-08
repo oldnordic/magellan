@@ -676,7 +676,24 @@ impl ChunkStore {
     /// Count code chunks for a specific file.
     ///
     /// Used by delete operations to verify deletion completeness.
+    ///
+    /// In native-v2 mode with KV backend, uses prefix scan on chunk:* keys.
+    /// Falls back to SQL COUNT query for SQLite backend.
     pub fn count_chunks_for_file(&self, file_path: &str) -> Result<usize> {
+        #[cfg(feature = "native-v2")]
+        {
+            // Use KV backend if available
+            if let Some(ref backend) = self.kv_backend {
+                let snapshot = SnapshotId::current();
+                let escaped_path = file_path.replace(':', "::");
+                let prefix = format!("chunk:{}:", escaped_path);
+
+                let entries = backend.kv_prefix_scan(snapshot, prefix.as_bytes())?;
+                return Ok(entries.len());
+            }
+        }
+
+        // Fallback to SQLite query
         self.with_conn(|conn| {
             let count: i64 = conn
                 .query_row(
