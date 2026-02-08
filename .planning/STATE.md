@@ -10,10 +10,10 @@ See: .planning/PROJECT.md (updated 2026-02-06)
 ## Current Position
 
 Phase: 55 of 55 - In Progress
-Status: KV Data Storage Migration - Call edges now stored in KV during indexing
-Last activity: 2026-02-08 — Phase 55-07 completed (Call Edges KV storage)
+Status: KV Data Storage Migration - Export and migration now include all KV metadata
+Last activity: 2026-02-08 — Phase 55-04 completed (Export/Migration with KV metadata)
 
-Progress: [█████░░░░░░░░░░░░░] 24% (phase 55 in progress)
+Progress: [█████░░░░░░░░░░░░░] 29% (phase 55 in progress)
 
 **Completed Phases:**
 - Phase 46: Backend Abstraction Foundation ✅
@@ -29,10 +29,11 @@ Progress: [█████░░░░░░░░░░░░░] 24% (phase 55
 - Phase 55-01: Code Chunks KV Storage ✅
 - Phase 55-02: AST Nodes KV Storage ✅
 - Phase 55-03: Label KV Storage Infrastructure ✅
+- Phase 55-04: Export and Migration KV Metadata ✅
 - Phase 55-07: Call Edges KV Storage ✅
 
 **Next Phase:**
-- Phase 55-04, 55-05, 55-06: Complete remaining KV data storage migrations
+- Phase 55-05, 55-06: Complete remaining KV data storage migrations
 
 ## Performance Metrics
 
@@ -177,6 +178,12 @@ Recent decisions affecting current work:
 - Three-pattern KV indexing for call edges: calls:{caller}:{callee} for existence, calls:from:{caller} for "who does X call", calls:to:{callee} for "who calls X"
 - More KV storage per call edge enables bidirectional call graph queries without graph traversal
 - Ignore KV deletion errors during file deletion (orphaned entries overwritten on reindex, graph is authoritative)
+
+**From Phase 55-04 (Export and Migration KV Metadata):**
+- Use kv_prefix_scan() with filter_map for bulk KV export instead of individual key lookups (more efficient for export)
+- Export includes code_chunks_kv, ast_nodes_kv, and call_edges_kv fields when using native-v2 backend
+- Reuse ChunkStore::migrate_chunks_to_kv() instead of inline implementation (single source of truth for chunk serialization)
+- Feature-gated KvValue import for SQLite backend compatibility (KvValue only available in native-v2)
 
 **From Phase 52-01 (KV Key Patterns and Encoding Functions):**
 - Generic type parameters for encoding functions (e.g., `encode_cfg_blocks<T>`) avoid exposing private modules (ast_node, schema) while maintaining type safety
