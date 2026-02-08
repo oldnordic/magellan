@@ -10,8 +10,8 @@ See: .planning/PROJECT.md (updated 2026-02-06)
 ## Current Position
 
 Phase: 55 of 55 - In Progress
-Status: KV Data Storage Migration - Export and migration now include all KV metadata
-Last activity: 2026-02-08 — Phase 55-04 completed (Export/Migration with KV metadata)
+Status: KV Data Storage Migration - Integration tests verify KV indexing behavior
+Last activity: 2026-02-08 — Phase 55-05 completed (KV Indexing Integration Tests)
 
 Progress: [█████░░░░░░░░░░░░░] 29% (phase 55 in progress)
 
@@ -30,10 +30,11 @@ Progress: [█████░░░░░░░░░░░░░] 29% (phase 55
 - Phase 55-02: AST Nodes KV Storage ✅
 - Phase 55-03: Label KV Storage Infrastructure ✅
 - Phase 55-04: Export and Migration KV Metadata ✅
+- Phase 55-05: KV Indexing Integration Tests ✅
 - Phase 55-07: Call Edges KV Storage ✅
 
 **Next Phase:**
-- Phase 55-05, 55-06: Complete remaining KV data storage migrations
+- Phase 55-06: Complete remaining KV data storage migrations
 
 ## Performance Metrics
 
@@ -173,6 +174,12 @@ Recent decisions affecting current work:
 - Colon escaping in file paths with :: prevents key collisions in prefix scans (chunk:{path}:{start}:{end} format)
 - Early-return pattern: KV branch checks backend and returns early, SQLite fallback preserved in else clause
 - Prefix scan for count_chunks_for_file() using format "chunk:{escaped_path}:" to match all chunks for a file
+
+**From Phase 55-05 (KV Indexing Integration Tests):**
+- Integration test pattern: index file, take backend reference, verify with kv_prefix_scan
+- Chunks stored as KvValue::Json (not Bytes) - verified via test assertions
+- Backend reference must be taken after indexing to avoid borrow checker conflicts
+- Deletion test ignored due to SQLite table dependency in delete_file_facts (architectural limitation documented for future fix)
 
 **From Phase 55-07 (Call Edges KV Storage):**
 - Three-pattern KV indexing for call edges: calls:{caller}:{callee} for existence, calls:from:{caller} for "who does X call", calls:to:{callee} for "who calls X"
