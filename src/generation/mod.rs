@@ -635,6 +635,99 @@ impl ChunkStore {
         })
     }
 
+    /// Get all code chunks from storage.
+    ///
+    /// For Native-V2 with KV backend, uses prefix scan on chunk: keys.
+    /// For SQLite, queries the code_chunks table.
+    #[cfg(feature = "native-v2")]
+    pub fn get_all_chunks(&self) -> Result<Vec<CodeChunk>> {
+        use sqlitegraph::{SnapshotId, backend::KvValue};
+        use crate::kv::encoding::decode_json;
+
+        if let Some(ref backend) = self.kv_backend {
+            let snapshot = SnapshotId::current();
+            let entries = backend.kv_prefix_scan(snapshot, b"chunk:")?;
+
+            let mut chunks = Vec::new();
+            for (_key, value) in entries {
+                if let KvValue::Json(json_value) = value {
+                    let json_str = serde_json::to_string(&json_value)
+                        .map_err(|e| anyhow::anyhow!("Failed to convert JSON value: {}", e))?;
+                    let chunk: CodeChunk = decode_json(json_str.as_bytes())?;
+                    chunks.push(chunk);
+                }
+            }
+            Ok(chunks)
+        } else {
+            // SQLite fallback - query all chunks
+            self.with_conn(|conn| {
+                let mut stmt = conn.prepare_cached(
+                    "SELECT id, file_path, byte_start, byte_end, content, content_hash,
+                            symbol_name, symbol_kind, created_at
+                     FROM code_chunks
+                     ORDER BY file_path, byte_start"
+                )
+                .map_err(|e| anyhow::anyhow!("Failed to prepare query: {}", e))?;
+
+                let chunks = stmt
+                    .query_map([], |row: &rusqlite::Row| {
+                        Ok(CodeChunk {
+                            id: Some(row.get(0)?),
+                            file_path: row.get(1)?,
+                            byte_start: row.get::<_, i64>(2)? as usize,
+                            byte_end: row.get::<_, i64>(3)? as usize,
+                            content: row.get(4)?,
+                            content_hash: row.get(5)?,
+                            symbol_name: row.get(6)?,
+                            symbol_kind: row.get(7)?,
+                            created_at: row.get(8)?,
+                        })
+                    })
+                    .map_err(|e| anyhow::anyhow!("Failed to query code chunks: {}", e))?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|e| anyhow::anyhow!("Failed to collect chunks: {}", e))?;
+
+                Ok(chunks)
+            })
+        }
+    }
+
+    /// Get all code chunks from storage.
+    ///
+    /// For SQLite, queries the code_chunks table.
+    #[cfg(not(feature = "native-v2"))]
+    pub fn get_all_chunks(&self) -> Result<Vec<CodeChunk>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare_cached(
+                "SELECT id, file_path, byte_start, byte_end, content, content_hash,
+                        symbol_name, symbol_kind, created_at
+                 FROM code_chunks
+                 ORDER BY file_path, byte_start"
+            )
+            .map_err(|e| anyhow::anyhow!("Failed to prepare query: {}", e))?;
+
+            let chunks = stmt
+                .query_map([], |row: &rusqlite::Row| {
+                    Ok(CodeChunk {
+                        id: Some(row.get(0)?),
+                        file_path: row.get(1)?,
+                        byte_start: row.get::<_, i64>(2)? as usize,
+                        byte_end: row.get::<_, i64>(3)? as usize,
+                        content: row.get(4)?,
+                        content_hash: row.get(5)?,
+                        symbol_name: row.get(6)?,
+                        symbol_kind: row.get(7)?,
+                        created_at: row.get(8)?,
+                    })
+                })
+                .map_err(|e| anyhow::anyhow!("Failed to query code chunks: {}", e))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| anyhow::anyhow!("Failed to collect chunks: {}", e))?;
+
+            Ok(chunks)
+        })
+    }
+
     /// Check if this ChunkStore is using KV backend (Native-V2)
     ///
     /// This method allows AST operations to check at runtime whether they should
