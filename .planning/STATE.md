@@ -10,10 +10,10 @@ See: .planning/PROJECT.md (updated 2026-02-06)
 ## Current Position
 
 Phase: 54 of 54 - IN PROGRESS
-Status: Phase 54-01 completed (1/5 plans complete)
-Last activity: 2026-02-08 — Phase 54-01 completed (backend detection re-exported)
+Status: Phase 54-03 completed (3/5 plans complete)
+Last activity: 2026-02-08 — Phase 54-03 completed (helper functions for dual-backend AST operations)
 
-Progress: [██████████████████░] 97% (214/218 total plans)
+Progress: [██████████████████░] 97% (216/218 total plans)
 
 **Completed Phases:**
 - Phase 46: Backend Abstraction Foundation ✅
@@ -25,7 +25,7 @@ Progress: [██████████████████░] 97% (214/2
 - Phase 53: Fix Native-V2 Database Initialization ✅
 
 **Next Phase:**
-- Phase 54: CLI Backend Detection and Dual Query Methods (1/5 plans complete)
+- Phase 54: CLI Backend Detection and Dual Query Methods (3/5 plans complete)
 
 ## Performance Metrics
 
@@ -59,6 +59,16 @@ Progress: [██████████████████░] 97% (214/2
 
 ### Roadmap Evolution
 
+- Phase 54-03 completed: Helper functions for dual-backend AST operations (2026-02-08)
+  - Added has_kv_backend() method to ChunkStore for runtime backend detection
+  - Added get_file_id_kv() helper function for O(1) file_id lookups using KV store
+  - Both functions feature-gated to native-v2 with graceful fallback when disabled
+  - Infrastructure ready for AST query method modifications in Plan 54-04
+- Phase 54-02 completed: Backend-aware query_chunks_from_db helper (2026-02-08)
+  - Added query_chunks_from_db() function to support both SQLite and KV backends
+  - Refactored run_chunks to use backend-aware query helper
+  - Added get_all_chunks() method to ChunkStore for KV backend prefix scans
+  - Foundation for dual-backend query methods in place
 - Phase 54-01 completed: Backend detection re-exported for CLI commands (2026-02-08)
   - Re-exported detect_backend_format() and BackendFormat from migrate_backend_cmd module
   - Public API available at magellan::detect_backend_format() and magellan::BackendFormat
@@ -91,6 +101,18 @@ Recent decisions affecting current work:
 - Path escaping with "::" prevents colon-based key collisions in file paths (e.g., Windows paths or module names like "src/test:module/file.rs")
 - ?Sized bound for encode_json allows encoding slices (&[T]) and other DSTs without requiring conversion to Vec
 - JSON encoding chosen over binary for metadata (human-readable, debuggable, sufficient for metadata sizes)
+
+**From Phase 54-03 (Helper Functions for Dual-Backend AST Operations):**
+- Feature-gated has_kv_backend() to return false when native-v2 disabled (prevents type errors while maintaining API consistency)
+- Accepted &Rc<dyn GraphBackend> parameter type for get_file_id_kv to work with both backend types
+- Pattern matching on KvValue for flexibility (handles both Integer and BigInt when reading file_id)
+- Runtime backend detection pattern using cfg feature gates
+
+**From Phase 54-02 (Backend-Aware Query Helper):**
+- query_chunks_from_db() helper function abstracts backend-specific query logic
+- run_chunks() refactored to use backend-aware helper instead of direct SQL
+- get_all_chunks() added to ChunkStore for KV backend prefix scans
+- Pattern: conditional backend detection in query methods
 
 **From Phase 54-01 (Backend Detection Re-exports):**
 - Re-exported detect_backend_format() and BackendFormat from migrate_backend_cmd module
@@ -381,12 +403,30 @@ Blockers:
 ## Session Continuity
 
 Last session: 2026-02-08
-Stopped at: Completed 54-01-PLAN.md (Backend Detection Re-exports)
+Stopped at: Completed 54-03-PLAN.md (Helper functions for dual-backend AST operations)
 Resume file: None
 Blockers:
 - algorithms.rs module uses concrete SqliteGraph type - requires conditional compilation to work with Native backend
 - 305 tests fail with native-v2 feature due to algorithms.rs limitation (verified in 46-05)
 - Pre-existing test failures: migration_tests expects schema v5 (actual is v7), parser_tests trait parsing issues
+
+**From Phase 54-03 (Helper Functions for Dual-Backend AST Operations):**
+- Added has_kv_backend() method to ChunkStore for runtime backend detection
+- Added get_file_id_kv() helper function for O(1) file_id lookups using KV store
+- Both functions feature-gated to native-v2 with graceful fallback when disabled
+- Commits: 88767ef (has_kv_backend), 57e8f57 (get_file_id_kv)
+
+**From Phase 54-02 (Backend-Aware Query Helper):**
+- Added query_chunks_from_db() function to support both SQLite and KV backends
+- Refactored run_chunks to use backend-aware query helper
+- Added get_all_chunks() method to ChunkStore for KV backend prefix scans
+- Commits: 610bfda (query_chunks_from_db), 94c8882 (run_chunks refactor), 7df5b61 (get_all_chunks)
+
+**From Phase 54-01 (Backend Detection Re-exports):**
+- Re-exported detect_backend_format() and BackendFormat from migrate_backend_cmd module
+- Public API available at magellan::detect_backend_format() and magellan::BackendFormat
+- Enables CLI commands to auto-detect backend without importing internal migrate_backend_cmd module
+- Foundation for dual query methods (SQL for SQLite, KV prefix scans for Native-V2)
 
 **From Phase 52-05 (CFG KV Backend Storage):**
 - Added store_cfg_blocks_kv() and get_cfg_blocks_kv() functions to cfg_extractor module
