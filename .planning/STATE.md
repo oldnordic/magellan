@@ -10,10 +10,10 @@ See: .planning/PROJECT.md (updated 2026-02-06)
 ## Current Position
 
 Phase: 55 of 55 - In Progress
-Status: KV Data Storage Migration - Code chunks now stored in KV during indexing
-Last activity: 2026-02-08 — Phase 55-01 completed (Code chunks KV storage)
+Status: KV Data Storage Migration - AST nodes now stored in KV during indexing
+Last activity: 2026-02-08 — Phase 55-02 completed (AST Nodes KV storage)
 
-Progress: [███░░░░░░░░░░░░░░░] 6% (phase 55 started)
+Progress: [███░░░░░░░░░░░░░░░] 12% (phase 55 in progress)
 
 **Completed Phases:**
 - Phase 46: Backend Abstraction Foundation ✅
@@ -27,9 +27,10 @@ Progress: [███░░░░░░░░░░░░░░░] 6% (phase 55 
 - Phase 53: Fix Native-V2 Database Initialization ✅
 - Phase 54: CLI Backend Detection and Dual Query Methods ✅
 - Phase 55-01: Code Chunks KV Storage ✅
+- Phase 55-02: AST Nodes KV Storage ✅
 
 **Next Phase:**
-- Phase 55-02: AST Nodes KV storage (apply same pattern as chunks)
+- Phase 55-03: Additional KV data storage (metrics, CFG blocks) or complete phase 55
 
 ## Performance Metrics
 
@@ -114,6 +115,12 @@ Progress: [███░░░░░░░░░░░░░░░] 6% (phase 55 
   - Public API available at magellan::detect_backend_format() and magellan::BackendFormat
   - Foundation for CLI commands to auto-detect backend and route to SQL queries or KV prefix scans
 - Phase 54 added: CLI Backend Detection and Dual Query Methods - Auto-detect backend and use appropriate query methods (2026-02-08)
+- Phase 55-02 completed: AST Nodes KV Storage (2026-02-08)
+  - Updated insert_ast_nodes() to route to KV storage when native-v2 backend is active
+  - Added KV-based counting in count_ast_nodes_for_file() for deletion verification
+  - Added KV deletion in delete_file_facts() to cleanup AST entries during file deletion
+  - All changes preserve SQLite backend compatibility with fallback SQL paths
+  - Commits: 4b3c05c (insert_ast_nodes KV), b57c80a (count_ast_nodes_for_file KV), 910a928 (delete_file_facts KV)
 - Phase 55-01 completed: Code Chunks KV Storage (2026-02-08)
   - Added KV storage path to ChunkStore::store_chunks() for indexing
   - Added KV prefix scan to count_chunks_for_file() for deletion verification
@@ -142,6 +149,13 @@ Recent decisions affecting current work:
 - Early return pattern for KV branch prevents dual-write (records written to KV OR SQLite, never both)
 - JSON-based KV storage for ExecutionRecord (KvValue::Json) instead of binary encoding (human-readable, debuggable)
 - Prefix scan (execlog:*) for list_all() in KV mode replaces SQL ORDER BY, with in-memory sort by started_at
+
+**From Phase 55-02 (AST Nodes KV Storage):**
+- Reuse existing store_ast_nodes_kv from Phase 52-05 instead of rewriting storage logic
+- Add KV branch at start of insert_ast_nodes() for early return pattern (consistency with chunks pattern)
+- Keep SQL DELETE as fallback for cleanup operations (two-phase cleanup: KV then SQL)
+- For orphan cleanup (no file node), use prefix scan on ast:file:* to delete all AST entries
+- Direct file_index access for immutable file_id lookup in count_ast_nodes_for_file()
 
 **From Phase 55-01 (Code Chunks KV Storage):**
 - Individual kv_set calls for store_chunks() instead of bulk transaction (KV backend writes internally, no explicit transaction needed)
@@ -332,12 +346,18 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-08
-Stopped at: Completed 55-01 (Code Chunks KV Storage)
+Stopped at: Completed 55-02 (AST Nodes KV Storage)
 Resume file: None
 Blockers:
 - algorithms.rs module uses concrete SqliteGraph type - requires conditional compilation to work with Native backend
 - 305 tests fail with native-v2 feature due to algorithms.rs limitation (verified in 46-05)
 - Pre-existing test failures: migration_tests expects schema v5 (actual is v7), parser_tests trait parsing issues
+
+**From Phase 55-02 (AST Nodes KV Storage):**
+- Updated insert_ast_nodes() with KV branch using store_ast_nodes_kv (reused from Phase 52-05)
+- Added KV-based counting in count_ast_nodes_for_file() using kv_get and decode_ast_nodes
+- Added KV deletion in delete_file_facts() for both normal and orphan cleanup paths
+- Commits: 4b3c05c (insert_ast_nodes KV), b57c80a (count_ast_nodes_for_file KV), 910a928 (delete_file_facts KV)
 
 **From Phase 55-01 (Code Chunks KV Storage):**
 - Added KV storage path to ChunkStore::store_chunks() using individual kv_set calls
