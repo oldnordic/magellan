@@ -315,12 +315,14 @@ Plans:
   1. Watcher mode subscribes to graph change events via pub/sub API
   2. Cache invalidation triggers immediately on graph mutations without polling
   3. Pub/sub subscriptions are properly cleaned up on watcher shutdown
-**Plans**: 3 plans in 3 waves
+**Plans**: 5 plans in 2 waves (3 original + 2 gap closure)
 
 Plans:
 - [x] 49-01-PLAN.md — Create PubSubEventReceiver module for event subscription
 - [x] 49-02-PLAN.md — Integrate pub/sub events into watcher cache invalidation
 - [x] 49-03-PLAN.md — Add pub/sub subscription cleanup on shutdown
+- [ ] 49-04-PLAN.md — Wire up pub/sub cache receiver loop (gap closure)
+- [ ] 49-05-PLAN.md — Remove unused pubsub_file_rx channel and recv_batch_merging (gap closure)
 
 #### Phase 49.5: Native V2 Test Fixes
 **Goal**: Fix test failures that occur with native-v2 feature enabled
@@ -504,9 +506,9 @@ Phases execute in numeric order: 46 → 47 → 48 → 49 → 50 → 51 → 52 �
 | 46. Backend Abstraction | v2.0 | 6/6 | Complete | 2026-02-07 |
 | 47. Data Migration | v2.0 | 0/5 | Planning ready | - |
 | 48. Performance Features | v2.0 | 0/5 | Not started | - |
-| 49. Pub/Sub Integration | v2.0 | 0/3 | Planning ready | - |
+| 49. Pub/Sub Integration | v2.0 | 3/5 | Gap closure in progress | 2026-02-08 |
 | 50. Testing & Documentation | v2.0 | 0/12 | Not started | - |
 | 51. Fix Native V2 Compilation | v2.0 | 3/3 | Complete | 2026-02-07 |
 | 52. Eliminate Native-V2 Stubs | v2.0 | 7/7 | Complete | 2026-02-08 |
 | 53. Fix Native-V2 DB Init | v2.0 | 0/3 | Planning ready | - |
-| 54. CLI Backend Detection | v2.0 | 0/4 | Planning ready | - |
+| 54. CLI Backend Detection | v2.0 | 5/5 | Complete | 2026-02-08 |
