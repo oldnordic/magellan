@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-06)
 ## Current Position
 
 Phase: 52 of 52 (Eliminate Native-V2 Stubs)
-Plan: 4 of 7 in current phase (just completed)
+Plan: 5 of 7 in current phase (just completed)
 Status: Phase 52 in progress
-Last activity: 2026-02-08 — Completed 52-04 (MetricsOps KV Backend)
+Last activity: 2026-02-08 — Completed 52-05 (CFG KV Backend Storage)
 
-Progress: [██████████████████░] 97.6% (205/210 total plans)
+Progress: [██████████████████░] 98.1% (206/210 total plans)
 
 **Completed Phases:**
 - Phase 46: Backend Abstraction Foundation ✅
@@ -351,12 +351,21 @@ Blockers:
 ## Session Continuity
 
 Last session: 2026-02-08
-Stopped at: Completed 52-03-PLAN.md (ExecutionLog KV Backend)
+Stopped at: Completed 52-05-PLAN.md (CFG KV Backend Storage)
 Resume file: None
 Blockers:
 - algorithms.rs module uses concrete SqliteGraph type - requires conditional compilation to work with Native backend
 - 305 tests fail with native-v2 feature due to algorithms.rs limitation (verified in 46-05)
 - Pre-existing test failures: migration_tests expects schema v5 (actual is v7), parser_tests trait parsing issues
+
+**From Phase 52-05 (CFG KV Backend Storage):**
+- Added store_cfg_blocks_kv() and get_cfg_blocks_kv() functions to cfg_extractor module
+- Added RustCfgExtractor wrapper with automatic KV storage on extraction
+- Integrated CFG storage with ChunkStore (store_cfg_blocks, get_cfg_blocks methods)
+- Re-exported KV functions from graph module for public API access
+- All 3 KV storage tests pass (roundtrip, empty, overwrite)
+- All 2 ChunkStore integration tests pass
+- Commits: f8db4cd (KV storage functions), 4ce8b1b (ChunkStore integration)
 
 **From Phase 52-03 (ExecutionLog KV Backend):**
 - Added KV backend support to ExecutionLog (kv_backend field, with_kv_backend constructor)
