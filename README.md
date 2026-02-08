@@ -52,7 +52,7 @@ cargo build --release
 ### Features
 
 - **Help**: Use `--help` or `-h` with any command to see usage information
-- **Native-v2 Backend**: Build with `--features native-v2` for improved performance
+- **Native-v2 Backend**: Build with `--features native-v2` for improved performance. **Note:** The Native V2 backend provides significant performance improvements but does not yet support the graph algorithm commands (`cycles`, `dead-code`, `reachable`, `condense`, `paths`, `slice`). These commands require SQLite backend. Native V2 algorithm support is planned for a future release.
 - **LLVM IR CFG (optional)**: Build with `--features llvm-cfg` for C/C++ (requires Clang)
 - **Bytecode CFG (optional)**: Build with `--features bytecode-cfg` for Java (requires JVM bytecode)
 
