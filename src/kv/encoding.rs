@@ -73,6 +73,89 @@ mod tests {
         let decoded = decode_symbol_ids(&encoded);
         assert_eq!(decoded.as_slice(), original.as_slice());
     }
+
+    #[test]
+    fn test_encode_decode_json_roundtrip() {
+        // Test with a simple struct
+        #[derive(serde::Serialize, serde::Deserialize, PartialEq, Debug)]
+        struct TestStruct {
+            name: String,
+            value: i64,
+        }
+
+        let original = TestStruct {
+            name: "test".to_string(),
+            value: 42,
+        };
+
+        let encoded = encode_json(&original).unwrap();
+        let decoded: TestStruct = decode_json(&encoded).unwrap();
+
+        assert_eq!(decoded, original);
+    }
+
+    #[test]
+    fn test_encode_decode_json_vec() {
+        let original = vec![1i64, 2, 3, 4, 5];
+
+        let encoded = encode_json(&original).unwrap();
+        let decoded: Vec<i64> = decode_json(&encoded).unwrap();
+
+        assert_eq!(decoded, original);
+    }
+
+    #[test]
+    fn test_encode_decode_json_complex() {
+        #[derive(serde::Serialize, serde::Deserialize, PartialEq, Debug)]
+        struct ComplexStruct {
+            id: i64,
+            name: String,
+            tags: Vec<String>,
+            nested: NestedStruct,
+        }
+
+        #[derive(serde::Serialize, serde::Deserialize, PartialEq, Debug)]
+        struct NestedStruct {
+            flag: bool,
+            value: Option<i64>,
+        }
+
+        let original = ComplexStruct {
+            id: 123,
+            name: "test_complex".to_string(),
+            tags: vec!["tag1".to_string(), "tag2".to_string()],
+            nested: NestedStruct {
+                flag: true,
+                value: Some(999),
+            },
+        };
+
+        let encoded = encode_json(&original).unwrap();
+        let decoded: ComplexStruct = decode_json(&encoded).unwrap();
+
+        assert_eq!(decoded, original);
+    }
+
+    #[test]
+    fn test_encode_decode_json_empty() {
+        let empty: Vec<i64> = vec![];
+        let encoded = encode_json(&empty).unwrap();
+        let decoded: Vec<i64> = decode_json(&encoded).unwrap();
+
+        assert_eq!(decoded, empty);
+        assert!(encoded.is_empty() || encoded == b"[]");
+    }
+
+    #[test]
+    fn test_encode_json_invalid_utf8() {
+        // Test that encode_json handles non-string types correctly
+        let data: Vec<u8> = vec![0xFF, 0xFE, 0xFD];
+        let encoded = encode_json(&data).unwrap();
+
+        // Should produce valid JSON (base64 or similar for bytes)
+        let decoded: Vec<u8> = decode_json(&encoded).unwrap();
+        assert_eq!(decoded, data);
+    }
 }
 
 /// Encode a slice of SymbolId (i64) values to a byte vector for KV storage.
@@ -125,4 +208,162 @@ pub fn decode_symbol_ids(bytes: &[u8]) -> Vec<i64> {
             i64::from_le_bytes(arr)
         })
         .collect()
+}
+
+/// Encode a serializable value to JSON bytes for KV storage.
+///
+/// Generic encoding function for any type implementing serde::Serialize.
+/// Uses serde_json for compact, human-readable encoding.
+///
+/// # Type Parameters
+/// * `T` - Type implementing serde::Serialize (can be unsized like slices)
+///
+/// # Arguments
+/// * `value` - Reference to value to encode
+///
+/// # Returns
+/// Result<Vec<u8>> containing JSON bytes
+///
+/// # Errors
+/// Returns error if serialization fails
+///
+/// # Example
+/// ```ignore
+/// let data = vec![1, 2, 3];
+/// let bytes = encode_json(&data)?;
+/// ```
+pub fn encode_json<T: serde::Serialize + ?Sized>(value: &T) -> anyhow::Result<Vec<u8>> {
+    serde_json::to_vec(value).map_err(|e| anyhow::anyhow!("JSON encoding failed: {}", e))
+}
+
+/// Decode JSON bytes back to a deserializable type.
+///
+/// Generic decoding function for any type implementing serde::de::DeserializeOwned.
+/// Uses serde_json for deserialization.
+///
+/// # Arguments
+/// * `bytes` - Byte slice containing JSON data
+///
+/// # Returns
+/// Result<T> containing decoded value
+///
+/// # Errors
+/// Returns error if deserialization fails
+///
+/// # Example
+/// ```ignore
+/// let data: Vec<i64> = decode_json(&bytes)?;
+/// ```
+pub fn decode_json<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> anyhow::Result<T> {
+    serde_json::from_slice(bytes).map_err(|e| anyhow::anyhow!("JSON decoding failed: {}", e))
+}
+
+/// Encode CFG blocks for KV storage.
+///
+/// Convenience wrapper around encode_json for slices of serializable types.
+/// This function is generic to avoid direct dependencies on private types.
+///
+/// # Type Parameters
+/// * `T` - Type implementing serde::Serialize (e.g., CfgBlock)
+///
+/// # Arguments
+/// * `blocks` - Slice of values to encode
+///
+/// # Returns
+/// Result<Vec<u8>> containing JSON bytes
+///
+/// # Errors
+/// Returns error if JSON serialization fails
+///
+/// # Example
+/// ```ignore
+/// use crate::graph::schema::CfgBlock;
+/// let blocks = vec![CfgBlock { ... }];
+/// let bytes = encode_cfg_blocks(&blocks)?;
+/// ```
+pub fn encode_cfg_blocks<T: serde::Serialize>(blocks: &[T]) -> anyhow::Result<Vec<u8>> {
+    encode_json(blocks)
+}
+
+/// Decode CFG blocks from KV storage.
+///
+/// Convenience wrapper around decode_json for deserializable types.
+/// This function is generic to avoid direct dependencies on private types.
+///
+/// # Type Parameters
+/// * `T` - Type implementing serde::de::DeserializeOwned (e.g., CfgBlock)
+///
+/// # Arguments
+/// * `bytes` - Byte slice containing JSON data
+///
+/// # Returns
+/// Result<Vec<T>> containing decoded values
+///
+/// # Errors
+/// Returns error if JSON deserialization fails
+///
+/// # Example
+/// ```ignore
+/// use crate::graph::schema::CfgBlock;
+/// let blocks: Vec<CfgBlock> = decode_cfg_blocks(&bytes)?;
+/// ```
+pub fn decode_cfg_blocks<T: serde::de::DeserializeOwned>(
+    bytes: &[u8],
+) -> anyhow::Result<Vec<T>> {
+    decode_json(bytes)
+}
+
+/// Encode AST nodes for KV storage.
+///
+/// Convenience wrapper around encode_json for slices of serializable types.
+/// This function is generic to avoid direct dependencies on private types.
+///
+/// # Type Parameters
+/// * `T` - Type implementing serde::Serialize (e.g., AstNode)
+///
+/// # Arguments
+/// * `nodes` - Slice of values to encode
+///
+/// # Returns
+/// Result<Vec<u8>> containing JSON bytes
+///
+/// # Errors
+/// Returns error if JSON serialization fails
+///
+/// # Example
+/// ```ignore
+/// use crate::graph::ast_node::AstNode;
+/// let nodes = vec![AstNode { ... }];
+/// let bytes = encode_ast_nodes(&nodes)?;
+/// ```
+pub fn encode_ast_nodes<T: serde::Serialize>(nodes: &[T]) -> anyhow::Result<Vec<u8>> {
+    encode_json(nodes)
+}
+
+/// Decode AST nodes from KV storage.
+///
+/// Convenience wrapper around decode_json for deserializable types.
+/// This function is generic to avoid direct dependencies on private types.
+///
+/// # Type Parameters
+/// * `T` - Type implementing serde::de::DeserializeOwned (e.g., AstNode)
+///
+/// # Arguments
+/// * `bytes` - Byte slice containing JSON data
+///
+/// # Returns
+/// Result<Vec<T>> containing decoded values
+///
+/// # Errors
+/// Returns error if JSON deserialization fails
+///
+/// # Example
+/// ```ignore
+/// use crate::graph::ast_node::AstNode;
+/// let nodes: Vec<AstNode> = decode_ast_nodes(&bytes)?;
+/// ```
+pub fn decode_ast_nodes<T: serde::de::DeserializeOwned>(
+    bytes: &[u8],
+) -> anyhow::Result<Vec<T>> {
+    decode_json(bytes)
 }
