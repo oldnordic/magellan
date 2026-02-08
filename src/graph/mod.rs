@@ -87,6 +87,8 @@ pub use ast_extractor::{extract_ast_nodes, language_from_path, normalize_node_ki
 pub use ast_node::{AstNode, AstNodeWithText, is_structural_kind};
 // Re-export CFG types for public API
 pub use cfg_extractor::{BlockKind, CfgExtractor, TerminatorKind};
+#[cfg(feature = "native-v2")]
+pub use cfg_extractor::{store_cfg_blocks_kv, get_cfg_blocks_kv};
 pub use cfg_ops::CfgOps;
 
 #[cfg(feature = "bytecode-cfg")]

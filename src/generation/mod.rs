@@ -651,6 +651,126 @@ impl ChunkStore {
             Ok(chunks)
         })
     }
+
+    /// Migrate code chunks from SQLite to KV store.
+    ///
+    /// This static method reads all chunks from a SQLite database and stores them
+    /// in the KV store. Used during backend migration to preserve chunk data.
+    ///
+    /// # Arguments
+    /// * `sqlite_db_path` - Path to the SQLite database containing code_chunks table
+    /// * `kv_backend` - KV backend to store chunks in
+    ///
+    /// # Returns
+    /// Number of chunks migrated
+    ///
+    /// # Errors
+    /// - Cannot open SQLite database
+    /// - Query fails
+    /// - KV storage fails
+    ///
+    /// # Example
+    /// ```ignore
+    /// let count = ChunkStore::migrate_chunks_to_kv(&db_path, &backend)?;
+    /// println!("Migrated {} chunks", count);
+    /// ```
+    #[cfg(feature = "native-v2")]
+    pub fn migrate_chunks_to_kv(
+        sqlite_db_path: &Path,
+        kv_backend: Rc<dyn sqlitegraph::GraphBackend>,
+    ) -> Result<usize> {
+        use crate::kv::keys::chunk_key;
+        use sqlitegraph::backend::KvValue;
+
+        // Open SQLite connection
+        let conn = rusqlite::Connection::open(sqlite_db_path)?;
+
+        // Query all chunks
+        let mut stmt = conn.prepare(
+            "SELECT id, file_path, byte_start, byte_end, content, content_hash, symbol_name, symbol_kind, created_at
+             FROM code_chunks"
+        )?;
+
+        let chunks = stmt.query_map([], |row| {
+            Ok(CodeChunk {
+                id: Some(row.get(0)?),
+                file_path: row.get(1)?,
+                byte_start: row.get::<_, i64>(2)? as usize,
+                byte_end: row.get::<_, i64>(3)? as usize,
+                content: row.get(4)?,
+                content_hash: row.get(5)?,
+                symbol_name: row.get(6)?,
+                symbol_kind: row.get(7)?,
+                created_at: row.get(8)?,
+            })
+        })?;
+
+        let mut count = 0;
+        for chunk_result in chunks {
+            let chunk = chunk_result.map_err(|e| anyhow::anyhow!("Failed to read chunk: {}", e))?;
+
+            // Store in KV using encode_json
+            let key = chunk_key(&chunk.file_path, chunk.byte_start, chunk.byte_end);
+            let json = serde_json::to_vec(&chunk)
+                .map_err(|e| anyhow::anyhow!("Failed to serialize chunk: {}", e))?;
+            kv_backend.kv_set(key, KvValue::Bytes(json), None)?;
+            count += 1;
+        }
+
+        Ok(count)
+    }
+
+    /// Store CFG blocks for a function in KV store (native-v2 mode only).
+    ///
+    /// This method stores CFG blocks using the KV backend if available.
+    /// Falls back gracefully if KV backend is not configured.
+    ///
+    /// # Arguments
+    /// * `function_id` - Database ID of the function
+    /// * `blocks` - Slice of CFG blocks to store
+    ///
+    /// # Returns
+    /// Result<()> indicating success or failure
+    #[cfg(feature = "native-v2")]
+    pub fn store_cfg_blocks(
+        &self,
+        function_id: i64,
+        blocks: &[crate::graph::CfgBlock],
+    ) -> Result<()> {
+        if let Some(ref backend) = self.kv_backend {
+            crate::graph::store_cfg_blocks_kv(
+                std::rc::Rc::clone(backend),
+                function_id,
+                blocks,
+            )
+        } else {
+            // No KV backend available - silently skip
+            Ok(())
+        }
+    }
+
+    /// Retrieve CFG blocks for a function from KV store (native-v2 mode only).
+    ///
+    /// This method retrieves CFG blocks using the KV backend if available.
+    /// Returns empty vector if KV backend is not configured.
+    ///
+    /// # Arguments
+    /// * `function_id` - Database ID of the function
+    ///
+    /// # Returns
+    /// Result<Vec<CfgBlock>> containing the retrieved blocks
+    #[cfg(feature = "native-v2")]
+    pub fn get_cfg_blocks(
+        &self,
+        function_id: i64,
+    ) -> Result<Vec<crate::graph::CfgBlock>> {
+        if let Some(ref backend) = self.kv_backend {
+            crate::graph::get_cfg_blocks_kv(backend.as_ref(), function_id)
+        } else {
+            // No KV backend available - return empty vector
+            Ok(vec![])
+        }
+    }
 }
 
 #[cfg(test)]
@@ -823,5 +943,93 @@ mod tests {
         let retrieved3 = chunk_store.get_chunk_by_span("src/multi.rs", 60, 90).unwrap();
         assert!(retrieved3.is_some());
         assert_eq!(retrieved3.unwrap().symbol_name, Some("MyStruct".to_string()));
+    }
+
+    #[cfg(feature = "native-v2")]
+    #[test]
+    fn test_cfg_integration() {
+        use crate::graph::CfgBlock;
+        use sqlitegraph::NativeGraphBackend;
+
+        // Create a test backend with temporary file
+        let temp_dir = std::env::temp_dir();
+        let unique_id = format!("magellan_test_{}", std::process::id());
+        let db_path = temp_dir.join(unique_id);
+        let backend: Rc<dyn sqlitegraph::GraphBackend> = Rc::new(NativeGraphBackend::new(&db_path).unwrap());
+        let chunk_store = ChunkStore::with_kv_backend(Rc::clone(&backend));
+
+        // Create sample CFG blocks
+        let blocks = vec![
+            CfgBlock {
+                function_id: 1,
+                kind: "entry".to_string(),
+                terminator: "fallthrough".to_string(),
+                byte_start: 0,
+                byte_end: 100,
+                start_line: 1,
+                start_col: 0,
+                end_line: 5,
+                end_col: 0,
+            },
+            CfgBlock {
+                function_id: 1,
+                kind: "if".to_string(),
+                terminator: "conditional".to_string(),
+                byte_start: 100,
+                byte_end: 200,
+                start_line: 5,
+                start_col: 0,
+                end_line: 10,
+                end_col: 0,
+            },
+        ];
+
+        // Store CFG blocks via ChunkStore
+        let result = chunk_store.store_cfg_blocks(1, &blocks);
+        assert!(result.is_ok(), "store_cfg_blocks should succeed");
+
+        // Retrieve CFG blocks via ChunkStore
+        let retrieved = chunk_store.get_cfg_blocks(1);
+        assert!(retrieved.is_ok(), "get_cfg_blocks should succeed");
+
+        let retrieved_blocks = retrieved.unwrap();
+        assert_eq!(retrieved_blocks.len(), blocks.len());
+        assert_eq!(retrieved_blocks[0].kind, "entry");
+        assert_eq!(retrieved_blocks[1].kind, "if");
+    }
+
+    #[cfg(feature = "native-v2")]
+    #[test]
+    fn test_cfg_integration_no_backend() {
+        use crate::graph::CfgBlock;
+
+        // Create ChunkStore without KV backend
+        let chunk_store = ChunkStore::new(Path::new(":memory:"));
+
+        // Create sample CFG blocks
+        let blocks = vec![
+            CfgBlock {
+                function_id: 1,
+                kind: "entry".to_string(),
+                terminator: "fallthrough".to_string(),
+                byte_start: 0,
+                byte_end: 100,
+                start_line: 1,
+                start_col: 0,
+                end_line: 5,
+                end_col: 0,
+            },
+        ];
+
+        // Store should succeed (graceful fallback)
+        let result = chunk_store.store_cfg_blocks(1, &blocks);
+        assert!(result.is_ok(), "store_cfg_blocks should succeed without backend");
+
+        // Retrieve should return empty vector
+        let retrieved = chunk_store.get_cfg_blocks(1);
+        assert!(retrieved.is_ok(), "get_cfg_blocks should succeed without backend");
+
+        let retrieved_blocks = retrieved.unwrap();
+        assert_eq!(retrieved_blocks.len(), 0, "should return empty vector without backend");
     }
 }
