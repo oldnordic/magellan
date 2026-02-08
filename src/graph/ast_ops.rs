@@ -46,8 +46,42 @@ impl CodeGraph {
     /// Vector of AstNodeWithText for all nodes in the file
     ///
     /// # Note
-    /// MVP version returns all nodes. Phase 2 will add file_id filtering.
-    pub fn get_ast_nodes_by_file(&self, _file_path: &str) -> Result<Vec<AstNodeWithText>> {
+    /// For Native-V2 backend, uses KV store with ast:file:{file_id} key.
+    /// For SQLite backend, queries ast_nodes table.
+    pub fn get_ast_nodes_by_file(&self, file_path: &str) -> Result<Vec<AstNodeWithText>> {
+        #[cfg(feature = "native-v2")]
+        {
+            // Check if using Native-V2 backend via ChunkStore helper
+            if self.chunks.has_kv_backend() {
+                // Use KV store for Native-V2
+                use sqlitegraph::{SnapshotId, backend::KvValue};
+                use crate::kv::keys::ast_nodes_key;
+                use crate::kv::encoding::decode_ast_nodes;
+
+                let backend = &self.files.backend;
+                let snapshot = SnapshotId::current();
+
+                // Get file_id first using helper from Plan 03
+                let file_id = match get_file_id_kv(backend, file_path)? {
+                    Some(id) => id,
+                    None => return Ok(vec![]), // File not found
+                };
+
+                // Get AST nodes for this file
+                let ast_key = ast_nodes_key(file_id);
+                match backend.kv_get(snapshot, &ast_key)? {
+                    Some(KvValue::Bytes(data)) => {
+                        let nodes: Vec<AstNode> = decode_ast_nodes(&data)?;
+                        return Ok(nodes.into_iter()
+                            .map(|node| AstNodeWithText::from(node))
+                            .collect());
+                    }
+                    _ => return Ok(vec![]), // No AST data for this file
+                }
+            }
+        }
+
+        // SQLite fallback (existing code)
         let conn = self.chunks.connect()?;
 
         let mut stmt = conn.prepare(
