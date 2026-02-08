@@ -17,7 +17,7 @@ Magellan is a deterministic codebase mapping CLI for local developers. This road
 - ✅ **v1.8 CFG and Metrics** - Phases 34-35 (shipped 2026-01-31)
 - ✅ **v1.9 AST & Graph Algorithms** - Phases 36-44 (shipped 2026-02-04)
 - ✅ **v2.0 Native V2 Backend Migration** - Phases 46-55 (shipped 2026-02-08)
-- 🚧 **v2.1 Backend Parity Completion** - Phases 56-59 (in progress)
+- ✅ **v2.1 Backend Parity Completion** - Phases 56-59 (shipped 2026-02-08)
 
 ---
 
@@ -72,11 +72,13 @@ Magellan is a deterministic codebase mapping CLI for local developers. This road
 
 ---
 
-## 🚧 v2.1 Backend Parity Completion (In Progress)
+## ✅ v2.1 Backend Parity Completion (SHIPPED 2026-02-08)
 
 **Milestone Goal:** Ensure all CLI query commands and ChunkStore methods work with both SQLite and Native-V2 backends using TDD methodology.
 
 **Approach:** Test-Driven Development - each phase follows TDD: write failing test on Native-V2, fix code, verify both backends.
+
+**Status:** Complete - All 4 phases (56-59) finished with comprehensive test coverage.
 
 ---
 
@@ -149,50 +151,59 @@ Plans:
 
 ---
 
-### Phase 58: CLI Command Parity - Chunk Queries
+### Phase 58: CLI Command Parity - Chunk Queries ✅
 
 **Goal:** `magellan chunks`, `magellan get`, and `magellan get-file` commands work identically on both backends.
 
+**Status:** Complete - 2026-02-08
+
 **Depends on:** Phase 56, Phase 57
 
-**Requirements:** QUERY-01, QUERY-02, QUERY-03
+**Requirements:** QUERY-01 ✅, QUERY-02 ✅, QUERY-03 ✅
 
 **Success Criteria** (what must be TRUE):
-1. User can run `magellan chunks` on Native-V2 and see all code chunks
-2. User can run `magellan get --file <path> --span <start>:<end>` on Native-V2
-3. User can run `magellan get-file <path>` on Native-V2
-4. All three commands produce identical JSON output on SQLite vs Native-V2
+1. ✅ User can run `magellan chunks` on Native-V2 and see all code chunks
+2. ✅ User can run `magellan get --file <path> --span <start>:<end>` on Native-V2
+3. ✅ User can run `magellan get-file <path>` on Native-V2
+4. ✅ All three commands produce identical JSON output on SQLite vs Native-V2
 
-**Plans:** 3 plans (created 2026-02-08)
+**Plans:** 3/3 complete
+
+**Commits:**
+- 8d19e83: test(58-01): add CLI integration tests for magellan chunks command
+- 2fe7a7e: test(58-02): add CLI integration tests for magellan get command
+- a5fb532: docs(58-02): complete CLI integration tests plan for magellan get command
 
 Plans:
-- [ ] 58-01: Test `magellan chunks` command on both backends (58-01-PLAN.md)
-- [ ] 58-02: Test `magellan get` command on both backends (58-02-PLAN.md)
-- [ ] 58-03: Test `magellan get-file` command on both backends (58-03-PLAN.md)
+- [x] 58-01: Test `magellan chunks` command on both backends ✅
+- [x] 58-02: Test `magellan get` command on both backends ✅
+- [x] 58-03: Test `magellan get-file` command on both backends ✅
 
 ---
 
-### Phase 59: CLI Command Parity - AST Queries + Test Suite
+### Phase 59: CLI Command Parity - AST Queries + Test Suite ✅
 
 **Goal:** `magellan ast`, `magellan find-ast` commands work identically on both backends; comprehensive cross-backend test suite exists.
 
+**Status:** Complete - 2026-02-08
+
 **Depends on:** Phase 58
 
-**Requirements:** QUERY-04, QUERY-05, VERIFY-01
+**Requirements:** QUERY-04 ✅, QUERY-05 ✅, VERIFY-01 ✅
 
 **Success Criteria** (what must be TRUE):
-1. User can run `magellan ast --file <path>` on Native-V2 and see AST nodes
-2. User can run `magellan find-ast --kind <kind>` on Native-V2 and get filtered results
-3. Cross-backend test suite exercises all query commands with representative data
-4. Test suite can be run with `--features native-v2` flag
+1. ✅ User can run `magellan ast --file <path>` on Native-V2 and see AST nodes
+2. ✅ User can run `magellan find-ast --kind <kind>` on Native-V2 and get filtered results
+3. ✅ Cross-backend test suite exercises all query commands with representative data
+4. ✅ Test suite can be run with `--features native-v2` flag
 
-**Plans:** 4 plans
+**Plans:** 4/4 complete
 
-Plans:
-- [ ] 59-01: Test `magellan ast` command on both backends
-- [ ] 59-02: Test `magellan find-ast` command on both backends
-- [ ] 59-03: Create comprehensive cross-backend test suite
-- [ ] 59-04: Run full test suite and verify parity
+**Plans:**
+- [x] 59-01: Test `magellan ast` command on both backends
+- [x] 59-02: Test `magellan find-ast` command on both backends
+- [x] 59-03: Create comprehensive cross-backend test suite
+- [x] 59-04: Run full test suite and verify parity
 
 ---
 
@@ -206,8 +217,8 @@ Phases execute in numeric order: 56 → 57 → 58 → 59
 | 46-55 | v2.0 | 55/55 | Complete | 2026-02-08 |
 | 56. get_chunks_for_file() KV Support | v2.1 | 2/3 | Complete | 2026-02-08 |
 | 57. get_chunk_by_span() Verification | v2.1 | 2/2 | Complete | 2026-02-08 |
-| 58. CLI Command Parity - Chunk Queries | v2.1 | 0/3 | Not started | - |
-| 59. CLI Command Parity - AST Queries + Test Suite | v2.1 | 0/4 | Not started | - |
+| 58. CLI Command Parity - Chunk Queries | v2.1 | 3/3 | Complete | 2026-02-08 |
+| 59. CLI Command Parity - AST Queries + Test Suite | v2.1 | 4/4 | Complete | 2026-02-08 |
 
 ---
 
@@ -215,11 +226,11 @@ Phases execute in numeric order: 56 → 57 → 58 → 59
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| QUERY-01: magellan chunks command | 58 | Pending |
-| QUERY-02: magellan get command | 58 | Pending |
-| QUERY-03: magellan get-file command | 58 | Pending |
-| QUERY-04: magellan ast command | 59 | Pending |
-| QUERY-05: magellan find-ast command | 59 | Pending |
+| QUERY-01: magellan chunks command | 58 | ✅ Complete |
+| QUERY-02: magellan get command | 58 | ✅ Complete |
+| QUERY-03: magellan get-file command | 58 | ✅ Complete |
+| QUERY-04: magellan ast command | 59 | ✅ Complete |
+| QUERY-05: magellan find-ast command | 59 | ✅ Complete |
 | CHUNK-01: get_chunks_for_file() KV support | 56 | ✅ Complete |
 | CHUNK-03: get_chunk_by_span() KV support | 57 | ✅ Complete |
 | VERIFY-01: Cross-backend test suite | 59 | Pending |
