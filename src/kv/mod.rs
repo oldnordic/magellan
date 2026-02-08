@@ -56,8 +56,9 @@ pub mod keys;
 pub use encoding::{decode_json, encode_json, decode_symbol_ids, encode_symbol_ids};
 #[cfg(feature = "native-v2")]
 pub use keys::{
-    ast_nodes_key, cfg_blocks_key, chunk_key, execution_log_key,
+    ast_nodes_key, calls_from_key, calls_key, calls_to_key, cfg_blocks_key, chunk_key, execution_log_key,
     file_metrics_key, file_path_key, file_sym_key,
+    label_key,
     sym_fqn_key, sym_fqn_of_key, sym_id_key, symbol_metrics_key, sym_rev_key,
 };
 

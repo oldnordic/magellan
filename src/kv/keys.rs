@@ -288,6 +288,89 @@ pub fn ast_nodes_key(file_id: u64) -> Vec<u8> {
     format!("ast:file:{}", file_id).into_bytes()
 }
 
+/// Construct a KV store key for a graph label.
+///
+/// The key format is: b"label:{name}"
+///
+/// This enables O(1) lookup of label metadata by name.
+/// Labels are used for canonical FQN mappings and symbol category lookups.
+///
+/// # Arguments
+/// * `name` - Label name
+///
+/// # Returns
+/// Vec<u8> containing the formatted key
+///
+/// # Example
+/// ```ignore
+/// let key = label_key("canonical_fqn");
+/// // Returns: b"label:canonical_fqn"
+/// ```
+pub fn label_key(name: &str) -> Vec<u8> {
+    format!("label:{}", name).into_bytes()
+}
+
+/// Construct a KV store key for a call edge between symbols.
+///
+/// Call edges are stored with multiple key patterns for different access patterns:
+/// - `calls:{caller_id}:{callee_id}` - Specific edge for existence check
+/// - `calls:from:{caller_id}` - All calls from a symbol
+/// - `calls:to:{callee_id}` - All calls to a symbol
+///
+/// # Arguments
+/// * `caller_id` - The symbol ID making the call (u64)
+/// * `callee_id` - The symbol ID being called (u64)
+///
+/// # Returns
+/// Vec<u8> containing the formatted key
+///
+/// # Example
+/// ```ignore
+/// let key = calls_key(123, 456);
+/// // Returns: b"calls:123:456"
+/// ```
+pub fn calls_key(caller_id: u64, callee_id: u64) -> Vec<u8> {
+    format!("calls:{}:{}", caller_id, callee_id).into_bytes()
+}
+
+/// Construct a KV store key prefix for caller lookups.
+///
+/// Used to find all calls made by a specific symbol.
+///
+/// # Arguments
+/// * `caller_id` - The symbol ID making the call (u64)
+///
+/// # Returns
+/// Vec<u8> containing the prefix key
+///
+/// # Example
+/// ```ignore
+/// let key = calls_from_key(123);
+/// // Returns: b"calls:from:123:"
+/// ```
+pub fn calls_from_key(caller_id: u64) -> Vec<u8> {
+    format!("calls:from:{}:", caller_id).into_bytes()
+}
+
+/// Construct a KV store key prefix for callee lookups.
+///
+/// Used to find all calls to a specific symbol.
+///
+/// # Arguments
+/// * `callee_id` - The symbol ID being called (u64)
+///
+/// # Returns
+/// Vec<u8> containing the prefix key
+///
+/// # Example
+/// ```ignore
+/// let key = calls_to_key(456);
+/// // Returns: b"calls:to:456:"
+/// ```
+pub fn calls_to_key(callee_id: u64) -> Vec<u8> {
+    format!("calls:to:{}:", callee_id).into_bytes()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -428,6 +511,34 @@ mod tests {
     }
 
     #[test]
+    fn test_label_key_format() {
+        let key = label_key("canonical_fqn");
+        let key_str = String::from_utf8(key).unwrap();
+        assert_eq!(key_str, "label:canonical_fqn");
+    }
+
+    #[test]
+    fn test_calls_key_format() {
+        let key = calls_key(123, 456);
+        let key_str = String::from_utf8(key).unwrap();
+        assert_eq!(key_str, "calls:123:456");
+    }
+
+    #[test]
+    fn test_calls_from_key_format() {
+        let key = calls_from_key(123);
+        let key_str = String::from_utf8(key).unwrap();
+        assert_eq!(key_str, "calls:from:123:");
+    }
+
+    #[test]
+    fn test_calls_to_key_format() {
+        let key = calls_to_key(456);
+        let key_str = String::from_utf8(key).unwrap();
+        assert_eq!(key_str, "calls:to:456:");
+    }
+
+    #[test]
     fn test_metadata_key_namespaces() {
         // Verify metadata keys use proper namespace prefixes
         let chunk_key_str = String::from_utf8(chunk_key("test.rs", 0, 10)).unwrap();
@@ -436,6 +547,9 @@ mod tests {
         let sym_metrics_str = String::from_utf8(symbol_metrics_key(1)).unwrap();
         let cfg_str = String::from_utf8(cfg_blocks_key(1)).unwrap();
         let ast_str = String::from_utf8(ast_nodes_key(1)).unwrap();
+        let calls_str = String::from_utf8(calls_key(1, 2)).unwrap();
+        let calls_from_str = String::from_utf8(calls_from_key(1)).unwrap();
+        let calls_to_str = String::from_utf8(calls_to_key(1)).unwrap();
 
         assert!(chunk_key_str.starts_with("chunk:"));
         assert!(exec_key_str.starts_with("execlog:"));
@@ -443,6 +557,9 @@ mod tests {
         assert!(sym_metrics_str.starts_with("metrics:symbol:"));
         assert!(cfg_str.starts_with("cfg:func:"));
         assert!(ast_str.starts_with("ast:file:"));
+        assert!(calls_str.starts_with("calls:"));
+        assert!(calls_from_str.starts_with("calls:from:"));
+        assert!(calls_to_str.starts_with("calls:to:"));
     }
 
     #[test]
@@ -462,6 +579,10 @@ mod tests {
             ("metrics:symbol:", symbol_metrics_key(1)),
             ("cfg:func:", cfg_blocks_key(1)),
             ("ast:file:", ast_nodes_key(1)),
+            ("label:", label_key("test_label")),
+            ("calls:", calls_key(1, 2)),
+            ("calls:from:", calls_from_key(1)),
+            ("calls:to:", calls_to_key(1)),
         ];
 
         // Extract actual prefixes from generated keys
