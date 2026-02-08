@@ -8,6 +8,34 @@ use rusqlite::{params, OptionalExtension};
 
 use crate::graph::{AstNode, AstNodeWithText, CodeGraph};
 
+#[cfg(feature = "native-v2")]
+/// Get file_id from file_path using KV store
+///
+/// For Native-V2 backend, looks up file:path:{path} key to get file_id.
+/// Returns None if file not found or not using Native-V2 backend.
+///
+/// # Arguments
+/// * `backend` - Graph backend reference (must support KV operations)
+/// * `file_path` - File path to look up
+///
+/// # Returns
+/// * `Ok(Some(file_id))` - File found in KV store
+/// * `Ok(None)` - File not found
+/// * `Err(e)` - KV operation failed
+fn get_file_id_kv(backend: &std::rc::Rc<dyn sqlitegraph::GraphBackend>, file_path: &str) -> Result<Option<u64>> {
+    use sqlitegraph::{SnapshotId, backend::KvValue};
+    use crate::kv::keys::file_path_key;
+
+    let snapshot = SnapshotId::current();
+    let key = file_path_key(file_path);
+
+    match backend.kv_get(snapshot, &key)? {
+        Some(KvValue::Integer(id)) => Ok(Some(id as u64)),
+        Some(KvValue::BigInt(id)) => Ok(Some(id as u64)),
+        _ => Ok(None),
+    }
+}
+
 impl CodeGraph {
     /// Get all AST nodes for a specific file
     ///
