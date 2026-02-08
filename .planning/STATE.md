@@ -173,6 +173,11 @@ Recent decisions affecting current work:
 - Early-return pattern: KV branch checks backend and returns early, SQLite fallback preserved in else clause
 - Prefix scan for count_chunks_for_file() using format "chunk:{escaped_path}:" to match all chunks for a file
 
+**From Phase 55-07 (Call Edges KV Storage):**
+- Three-pattern KV indexing for call edges: calls:{caller}:{callee} for existence, calls:from:{caller} for "who does X call", calls:to:{callee} for "who calls X"
+- More KV storage per call edge enables bidirectional call graph queries without graph traversal
+- Ignore KV deletion errors during file deletion (orphaned entries overwritten on reindex, graph is authoritative)
+
 **From Phase 52-01 (KV Key Patterns and Encoding Functions):**
 - Generic type parameters for encoding functions (e.g., `encode_cfg_blocks<T>`) avoid exposing private modules (ast_node, schema) while maintaining type safety
 - Path escaping with "::" prevents colon-based key collisions in file paths (e.g., Windows paths or module names like "src/test:module/file.rs")

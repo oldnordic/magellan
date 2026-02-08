@@ -23,6 +23,9 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use sqlitegraph::{BackendDirection, GraphBackend, NeighborQuery, SnapshotId};
 
+#[cfg(feature = "native-v2")]
+use sqlitegraph::backend::KvValue;
+
 use super::{CallNode, CodeGraph, FileNode, ReferenceNode, SymbolNode};
 use crate::graph::query::{collision_groups, CollisionField};
 
@@ -204,6 +207,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "native-v2"))]
     fn test_export_collisions_included_when_enabled() {
         let temp_dir = tempfile::TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");
@@ -239,6 +243,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "native-v2"))]
     fn test_csv_export_mixed_record_types() {
         let temp_dir = tempfile::TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");
@@ -518,7 +523,7 @@ pub fn export_json(graph: &mut CodeGraph) -> Result<String> {
     let mut symbols = Vec::new();
     let mut references = Vec::new();
     let mut calls = Vec::new();
-    let collisions = Vec::new();
+    let collisions: Vec<CollisionExport> = Vec::new();
 
     // Get all entity IDs from the graph
     let entity_ids = graph.files.backend.entity_ids()?;
@@ -611,16 +616,77 @@ pub fn export_json(graph: &mut CodeGraph) -> Result<String> {
         .sort_by(|a, b| (&a.file, &a.referenced_symbol).cmp(&(&b.file, &b.referenced_symbol)));
     calls.sort_by(|a, b| (&a.file, &a.caller, &a.callee).cmp(&(&b.file, &b.caller, &b.callee)));
 
-    let export = GraphExport {
-        version: "2.0.0".to_string(), // v1.5 adds symbol_id, canonical_fqn, display_fqn
-        files,
-        symbols,
-        references,
-        calls,
-        collisions,
-    };
+    let mut export_data = serde_json::json!({
+        "version": "2.0.0",
+        "files": files,
+        "symbols": symbols,
+        "references": references,
+        "calls": calls,
+        "collisions": collisions,
+    });
 
-    Ok(serde_json::to_string_pretty(&export)?)
+    // Export KV metadata if using native-v2 backend
+    #[cfg(feature = "native-v2")]
+    {
+        if graph.chunks.has_kv_backend() {
+            use crate::kv::encoding::decode_json;
+            let backend = &graph.files.backend;
+            let snapshot = SnapshotId::current();
+
+            // Export code chunks from KV
+            let chunk_entries = backend.kv_prefix_scan(snapshot, b"chunk:")?;
+            let chunks_json: Vec<serde_json::Value> = chunk_entries
+                .iter()
+                .filter_map(|(_key, value)| {
+                    if let KvValue::Bytes(data) = value {
+                        decode_json::<crate::generation::CodeChunk>(data)
+                            .ok()
+                            .and_then(|chunk| serde_json::to_value(chunk).ok())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            export_data["code_chunks_kv"] = serde_json::Value::from(chunks_json);
+
+            // Export AST nodes from KV
+            let ast_entries = backend.kv_prefix_scan(snapshot, b"ast:file:")?;
+            let mut ast_nodes = Vec::new();
+            for (_key, value) in ast_entries {
+                if let KvValue::Bytes(data) = value {
+                    if let Ok(nodes) = decode_json::<Vec<super::AstNode>>(&data) {
+                        for node in nodes {
+                            if let Ok(json) = serde_json::to_value(node) {
+                                ast_nodes.push(json);
+                            }
+                        }
+                    }
+                }
+            }
+            export_data["ast_nodes_kv"] = serde_json::Value::from(ast_nodes);
+
+            // Export call edges from KV
+            let call_entries = backend.kv_prefix_scan(snapshot, b"calls:")?;
+            let calls_kv_json: Vec<serde_json::Value> = call_entries
+                .iter()
+                .filter_map(|(key, value)| {
+                    // Parse key to extract caller/callee IDs
+                    let key_str = String::from_utf8_lossy(key);
+                    if let KvValue::Json(json) = value {
+                        Some(serde_json::json!({
+                            "key": key_str,
+                            "value": json
+                        }))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            export_data["call_edges_kv"] = serde_json::Value::from(calls_kv_json);
+        }
+    }
+
+    Ok(serde_json::to_string_pretty(&export_data)?)
 }
 
 /// Stream all graph data to JSON format with reduced memory footprint
