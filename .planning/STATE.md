@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-06)
 ## Current Position
 
 Phase: 52 of 52 (Eliminate Native-V2 Stubs)
-Plan: 2 of 7 in current phase (just completed)
+Plan: 4 of 7 in current phase (just completed)
 Status: Phase 52 in progress
-Last activity: 2026-02-08 — Completed 52-02 (ChunkStore KV Backend)
+Last activity: 2026-02-08 — Completed 52-04 (MetricsOps KV Backend)
 
-Progress: [██████████████████░] 97.1% (204/210 total plans)
+Progress: [██████████████████░] 97.6% (205/210 total plans)
 
 **Completed Phases:**
 - Phase 46: Backend Abstraction Foundation ✅
@@ -214,13 +214,14 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-07
-Stopped at: Completed 47-03-PLAN.md (Backend format detection)
+Last session: 2026-02-08
+Stopped at: Completed 52-04 (MetricsOps KV Backend)
 Resume file: None
 Blockers:
 - algorithms.rs module uses concrete SqliteGraph type - requires conditional compilation to work with Native backend
 - 305 tests fail with native-v2 feature due to algorithms.rs limitation (verified in 46-05)
 - Pre-existing test failures: migration_tests expects schema v5 (actual is v7), parser_tests trait parsing issues
+- Generation module tests use non-existent NativeGraphBackend::new_temp() method (blocks test compilation)
 
 **From Phase 51-02 (Type Mismatches and Trait Bounds for KV Functions):**
 - Fixed KV function return types: Box<dyn Error> → anyhow::Result
@@ -297,6 +298,19 @@ Blockers:
 - Defined public API stubs (populate_symbol_index, invalidate_file_index, lookup_symbol_by_fqn)
 - Added criterion 0.5 dev-dependency for benchmark suite
 - All 15 tests pass (5 encoding + 8 keys + 2 module)
+
+**From Phase 52-04 (MetricsOps KV Backend):**
+- Added kv_backend field to MetricsOps struct (feature-gated to native-v2)
+- Added with_kv_backend() constructor for KV-backed metrics
+- Modified upsert_file_metrics() to use KV when available
+- Modified upsert_symbol_metrics() to use KV when available
+- Modified get_file_metrics() to use KV when available
+- Modified get_symbol_metrics() to use KV when available
+- Added SnapshotId import for kv_get calls
+- Re-exported encode_json, decode_json, and metrics keys from kv module
+- Used KvValue::Bytes for JSON-encoded metrics storage
+- Added 5 comprehensive unit tests (blocked by pre-existing generation module bugs)
+- Commits: 16c6c58 (KV backend support), 3327a64 (unit tests)
 
 **From Phase 46-05 (Backend Test Verification):**
 - SQLite backend: 820 tests pass, 17 fail (96.7% pass rate)
