@@ -513,6 +513,43 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
             path, expected_calls, calls_deleted
         );
 
+        // Delete call edges from KV for symbols in this file (native-v2 only)
+        #[cfg(feature = "native-v2")]
+        {
+            if graph.chunks.has_kv_backend() {
+                use crate::kv::keys::{calls_from_key, calls_key, calls_to_key};
+                use sqlitegraph::SnapshotId;
+                let backend = &graph.files.backend;
+                let snapshot = SnapshotId::current();
+
+                // Delete call edge KV entries for each symbol in this file
+                for &sym_id in &symbol_ids_sorted {
+                    let sym_u64 = sym_id as u64;
+
+                    // Delete "from" edges (this symbol calling others)
+                    let from_prefix = calls_from_key(sym_u64);
+                    let from_entries = backend.kv_prefix_scan(snapshot, &from_prefix).unwrap_or_default();
+                    for (key, _) in from_entries {
+                        let _ = backend.kv_delete(&key);
+                    }
+
+                    // Delete "to" edges (other symbols calling this one)
+                    let to_prefix = calls_to_key(sym_u64);
+                    let to_entries = backend.kv_prefix_scan(snapshot, &to_prefix).unwrap_or_default();
+                    for (key, _) in to_entries {
+                        let _ = backend.kv_delete(&key);
+                    }
+
+                    // Delete specific edge keys where this symbol is caller
+                    let edge_prefix = format!("calls:{}:", sym_u64).into_bytes();
+                    let edge_entries = backend.kv_prefix_scan(snapshot, &edge_prefix).unwrap_or_default();
+                    for (key, _) in edge_entries {
+                        let _ = backend.kv_delete(&key);
+                    }
+                }
+            }
+        }
+
         // Explicit edge cleanup for deleted IDs (symbols + file) to ensure no rows remain.
         deleted_entity_ids.sort_unstable();
         deleted_entity_ids.dedup();
