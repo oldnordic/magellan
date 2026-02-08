@@ -431,7 +431,7 @@ mod tests {
         // Create a temporary database
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");
-        let backend = NativeGraphBackend::open(&db_path).unwrap();
+        let backend = NativeGraphBackend::new(&db_path).unwrap();
         let backend: Rc<dyn sqlitegraph::GraphBackend> = Rc::new(backend);
 
         let metrics_ops = MetricsOps::with_kv_backend(backend);
@@ -477,7 +477,7 @@ mod tests {
         // Create a temporary database
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");
-        let backend = NativeGraphBackend::open(&db_path).unwrap();
+        let backend = NativeGraphBackend::new(&db_path).unwrap();
         let backend: Rc<dyn sqlitegraph::GraphBackend> = Rc::new(backend);
 
         let metrics_ops = MetricsOps::with_kv_backend(backend);
@@ -527,7 +527,7 @@ mod tests {
         // Create a temporary database
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");
-        let backend = NativeGraphBackend::open(&db_path).unwrap();
+        let backend = NativeGraphBackend::new(&db_path).unwrap();
         let backend: Rc<dyn sqlitegraph::GraphBackend> = Rc::new(backend);
 
         // Create first MetricsOps instance and upsert metrics
@@ -570,7 +570,7 @@ mod tests {
         // Create a temporary database
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");
-        let backend = NativeGraphBackend::open(&db_path).unwrap();
+        let backend = NativeGraphBackend::new(&db_path).unwrap();
         let backend: Rc<dyn sqlitegraph::GraphBackend> = Rc::new(backend);
 
         let metrics_ops = MetricsOps::with_kv_backend(backend);
@@ -628,7 +628,7 @@ mod tests {
         // Create a temporary database
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");
-        let backend = NativeGraphBackend::open(&db_path).unwrap();
+        let backend = NativeGraphBackend::new(&db_path).unwrap();
         let backend: Rc<dyn sqlitegraph::GraphBackend> = Rc::new(backend);
 
         let metrics_ops = MetricsOps::with_kv_backend(backend);
