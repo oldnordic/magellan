@@ -55,6 +55,9 @@ pub mod indexer;
 pub mod ingest;
 pub mod migrate_backend_cmd;
 pub mod migrate_cmd;
+
+// Re-export backend detection for CLI commands
+pub use migrate_backend_cmd::{detect_backend_format, BackendFormat};
 pub mod output;
 pub mod references;
 pub mod validation;
