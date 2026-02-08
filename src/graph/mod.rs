@@ -329,9 +329,9 @@ impl CodeGraph {
         #[cfg(feature = "native-v2")]
         let (chunks, execution_log, metrics, needs_backfill) = {
             // Native V2 uses KV store instead of SQLite side-tables
-            // These components are stubs for API compatibility
+            // ChunkStore uses KV storage, others use stubs for now
             (
-                ChunkStore::in_memory(),
+                ChunkStore::with_kv_backend(Rc::clone(&backend)),
                 execution_log::ExecutionLog::disabled(),
                 metrics::MetricsOps::disabled(),
                 false, // No backfill needed for new V2 databases

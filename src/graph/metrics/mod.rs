@@ -20,7 +20,14 @@
 use anyhow::Result;
 use rusqlite::{params, OptionalExtension};
 use std::path::Path;
+use std::path::PathBuf;
+use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+#[cfg(feature = "native-v2")]
+use sqlitegraph::backend::KvValue;
+#[cfg(feature = "native-v2")]
+use sqlitegraph::SnapshotId;
 
 pub mod backfill;
 pub mod compute;
@@ -31,10 +38,13 @@ pub use schema::{FileMetrics, SymbolMetrics};
 
 /// Metrics operations for CodeGraph
 ///
-/// Uses separate rusqlite connection to same database file.
+/// Uses separate rusqlite connection to same database file (SQLite mode).
+/// Uses KV store for metrics persistence (native-v2 mode).
 /// Follows ExecutionLog pattern for side-table management.
 pub struct MetricsOps {
     db_path: std::path::PathBuf,
+    #[cfg(feature = "native-v2")]
+    kv_backend: Option<Rc<dyn sqlitegraph::GraphBackend>>,
 }
 
 impl MetricsOps {
@@ -42,6 +52,8 @@ impl MetricsOps {
     pub fn new(db_path: &Path) -> Self {
         Self {
             db_path: db_path.to_path_buf(),
+            #[cfg(feature = "native-v2")]
+            kv_backend: None,
         }
     }
 
@@ -53,6 +65,22 @@ impl MetricsOps {
     pub fn disabled() -> Self {
         Self {
             db_path: std::path::PathBuf::from(":memory:"),
+            kv_backend: None,
+        }
+    }
+
+    /// Create a KV-backed MetricsOps for native-v2 mode.
+    ///
+    /// Uses the Native V2 backend's KV store for metrics persistence.
+    /// Metrics stored in KV survive across magellan runs.
+    ///
+    /// # Arguments
+    /// * `backend` - Graph backend (must be Native V2 for KV operations)
+    #[cfg(feature = "native-v2")]
+    pub fn with_kv_backend(backend: Rc<dyn sqlitegraph::GraphBackend>) -> Self {
+        Self {
+            db_path: std::path::PathBuf::from(":memory:"),
+            kv_backend: Some(backend),
         }
     }
 
@@ -82,6 +110,22 @@ impl MetricsOps {
 
     /// Upsert file metrics (insert or replace)
     pub fn upsert_file_metrics(&self, metrics: &FileMetrics) -> Result<()> {
+        #[cfg(feature = "native-v2")]
+        {
+            if let Some(ref backend) = self.kv_backend {
+                // Use KV storage in native-v2 mode
+                use crate::kv::encoding::encode_json;
+                use crate::kv::keys::file_metrics_key;
+
+                let key = file_metrics_key(&metrics.file_path);
+                let json = encode_json(metrics)?;
+                backend.kv_set(key, KvValue::Bytes(json), None)
+                    .map_err(|e| anyhow::anyhow!("Failed to upsert file metrics (KV): {}", e))?;
+                return Ok(());
+            }
+        }
+
+        // Fall back to SQLite for non-KV mode
         let conn = self.connect()?;
         conn.execute(
             "INSERT OR REPLACE INTO file_metrics (
@@ -105,6 +149,22 @@ impl MetricsOps {
 
     /// Upsert symbol metrics (insert or replace)
     pub fn upsert_symbol_metrics(&self, metrics: &SymbolMetrics) -> Result<()> {
+        #[cfg(feature = "native-v2")]
+        {
+            if let Some(ref backend) = self.kv_backend {
+                // Use KV storage in native-v2 mode
+                use crate::kv::encoding::encode_json;
+                use crate::kv::keys::symbol_metrics_key;
+
+                let key = symbol_metrics_key(metrics.symbol_id);
+                let json = encode_json(metrics)?;
+                backend.kv_set(key, KvValue::Bytes(json), None)
+                    .map_err(|e| anyhow::anyhow!("Failed to upsert symbol metrics (KV): {}", e))?;
+                return Ok(());
+            }
+        }
+
+        // Fall back to SQLite for non-KV mode
         let conn = self.connect()?;
         conn.execute(
             "INSERT OR REPLACE INTO symbol_metrics (
@@ -154,6 +214,25 @@ impl MetricsOps {
 
     /// Get file metrics by path
     pub fn get_file_metrics(&self, file_path: &str) -> Result<Option<FileMetrics>> {
+        #[cfg(feature = "native-v2")]
+        {
+            if let Some(ref backend) = self.kv_backend {
+                // Use KV storage in native-v2 mode
+                use crate::kv::encoding::decode_json;
+                use crate::kv::keys::file_metrics_key;
+
+                let key = file_metrics_key(file_path);
+                let snapshot = SnapshotId::current();
+                if let Some(KvValue::Bytes(json)) = backend.kv_get(snapshot, &key)? {
+                    let metrics: FileMetrics = decode_json(&json)?;
+                    return Ok(Some(metrics));
+                } else {
+                    return Ok(None);
+                }
+            }
+        }
+
+        // Fall back to SQLite for non-KV mode
         let conn = self.connect()?;
         let result = conn
             .query_row(
@@ -183,6 +262,25 @@ impl MetricsOps {
 
     /// Get symbol metrics by symbol_id
     pub fn get_symbol_metrics(&self, symbol_id: i64) -> Result<Option<SymbolMetrics>> {
+        #[cfg(feature = "native-v2")]
+        {
+            if let Some(ref backend) = self.kv_backend {
+                // Use KV storage in native-v2 mode
+                use crate::kv::encoding::decode_json;
+                use crate::kv::keys::symbol_metrics_key;
+
+                let key = symbol_metrics_key(symbol_id);
+                let snapshot = SnapshotId::current();
+                if let Some(KvValue::Bytes(json)) = backend.kv_get(snapshot, &key)? {
+                    let metrics: SymbolMetrics = decode_json(&json)?;
+                    return Ok(Some(metrics));
+                } else {
+                    return Ok(None);
+                }
+            }
+        }
+
+        // Fall back to SQLite for non-KV mode
         let conn = self.connect()?;
         let result = conn
             .query_row(

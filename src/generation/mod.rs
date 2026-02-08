@@ -21,11 +21,15 @@ pub mod schema;
 
 use anyhow::Result;
 use rusqlite::{params, OptionalExtension};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 #[cfg(feature = "native-v2")]
-use tempfile::NamedTempFile;
+use sqlitegraph::backend::KvValue;
+
+#[cfg(feature = "native-v2")]
+use sqlitegraph::SnapshotId;
 
 pub use schema::CodeChunk;
 
@@ -45,9 +49,15 @@ enum ChunkStoreConnection {
 ///
 /// Can use either its own connections (legacy) or a shared connection provided
 /// by CodeGraph for transactional operations.
+///
+/// In native-v2 mode, can also use KV store for persistent chunk storage.
 pub struct ChunkStore {
     /// Connection source - either owned path or shared connection
     conn_source: ChunkStoreConnection,
+
+    /// KV backend for native-v2 mode (optional)
+    #[cfg(feature = "native-v2")]
+    kv_backend: Option<Rc<dyn sqlitegraph::GraphBackend>>,
 }
 
 impl ChunkStore {
@@ -57,6 +67,8 @@ impl ChunkStore {
     pub fn new(db_path: &Path) -> Self {
         Self {
             conn_source: ChunkStoreConnection::Owned(db_path.to_path_buf()),
+            #[cfg(feature = "native-v2")]
+            kv_backend: None,
         }
     }
 
@@ -70,24 +82,56 @@ impl ChunkStore {
     pub fn with_connection(conn: rusqlite::Connection) -> Self {
         Self {
             conn_source: ChunkStoreConnection::Shared(Arc::new(Mutex::new(conn))),
+            #[cfg(feature = "native-v2")]
+            kv_backend: None,
+        }
+    }
+
+    /// Create a ChunkStore with a KV backend for native-v2 mode.
+    ///
+    /// This constructor enables persistent chunk storage using the Native V2 backend's
+    /// KV store. Chunks stored via this ChunkStore will persist across process restarts
+    /// and can be retrieved by any ChunkStore instance using the same backend.
+    ///
+    /// # Arguments
+    /// * `backend` - Graph backend (must be Native V2 for KV operations)
+    ///
+    /// # Example
+    /// ```ignore
+    /// let backend = sqlitegraph::NativeGraphBackend::in_memory();
+    /// let chunk_store = ChunkStore::with_kv_backend(Rc::new(backend));
+    /// ```
+    #[cfg(feature = "native-v2")]
+    pub fn with_kv_backend(backend: Rc<dyn sqlitegraph::GraphBackend>) -> Self {
+        Self {
+            conn_source: ChunkStoreConnection::Owned(PathBuf::from(":memory:")),
+            kv_backend: Some(backend),
         }
     }
 
     /// Create a stub ChunkStore using a temporary file (for native-v2 mode).
     ///
     /// This is a compatibility shim for native-v2 mode where ChunkStore
-    /// is not actually used (KV store handles chunks instead).
+    /// can use either KV storage (if backend provided) or a temporary file (fallback).
     ///
     /// Uses a temporary file so that new connections can access the same data.
     #[cfg(feature = "native-v2")]
-    pub fn in_memory() -> Self {
-        // Create a unique temporary file for each call
+    pub fn in_memory(kv_backend: Option<Rc<dyn sqlitegraph::GraphBackend>>) -> Self {
+        // If KV backend is provided, use it instead of temp file
+        if kv_backend.is_some() {
+            return Self {
+                conn_source: ChunkStoreConnection::Owned(PathBuf::from(":memory:")),
+                kv_backend,
+            };
+        }
+
+        // Fallback: Create a unique temporary file for each call
         // This prevents conflicts when multiple tests run concurrently
         let temp_dir = std::env::temp_dir();
         let unique_id = format!("{}_{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
         let db_path = temp_dir.join(format!("magellan_chunkstore_stub_{}.db", unique_id));
 
-        let mut conn = rusqlite::Connection::open(&db_path)
+        let conn = rusqlite::Connection::open(&db_path)
             .expect("Failed to create temporary database for ChunkStore stub");
 
         // Create the code_chunks table with full schema for compatibility
@@ -180,6 +224,7 @@ impl ChunkStore {
 
         Self {
             conn_source: ChunkStoreConnection::Owned(db_path),
+            kv_backend: None,
         }
     }
 
@@ -310,7 +355,27 @@ impl ChunkStore {
     /// Store a code chunk in the database.
     ///
     /// Uses INSERT OR REPLACE to handle duplicates based on (file_path, byte_start, byte_end).
+    ///
+    /// In native-v2 mode with a KV backend, stores chunks in KV store for persistence.
     pub fn store_chunk(&self, chunk: &CodeChunk) -> Result<i64> {
+        #[cfg(feature = "native-v2")]
+        {
+            // Use KV backend if available
+            if let Some(ref backend) = self.kv_backend {
+                use crate::kv::keys::chunk_key;
+
+                let key = chunk_key(&chunk.file_path, chunk.byte_start, chunk.byte_end);
+                let json_value = serde_json::to_string(chunk)
+                    .map_err(|e| anyhow::anyhow!("Failed to serialize chunk: {}", e))?;
+
+                backend.kv_set(key, KvValue::Json(serde_json::from_str(&json_value)?), None)?;
+
+                // Return a dummy ID (KV doesn't have auto-increment IDs)
+                return Ok(1);
+            }
+        }
+
+        // Fallback to SQLite
         self.with_connection_mut(|conn| {
             conn.execute(
                 "INSERT OR REPLACE INTO code_chunks
@@ -377,6 +442,27 @@ impl ChunkStore {
         byte_start: usize,
         byte_end: usize,
     ) -> Result<Option<CodeChunk>> {
+        #[cfg(feature = "native-v2")]
+        {
+            // Use KV backend if available
+            if let Some(ref backend) = self.kv_backend {
+                use crate::kv::keys::chunk_key;
+                use crate::kv::encoding::decode_json;
+
+                let key = chunk_key(file_path, byte_start, byte_end);
+                let snapshot = SnapshotId::current();
+
+                if let Ok(Some(KvValue::Json(json_value))) = backend.kv_get(snapshot, &key) {
+                    let json_str = serde_json::to_string(&json_value)
+                        .map_err(|e| anyhow::anyhow!("Failed to convert JSON value: {}", e))?;
+                    let chunk: CodeChunk = decode_json(json_str.as_bytes())?;
+                    return Ok(Some(chunk));
+                }
+                return Ok(None);
+            }
+        }
+
+        // Fallback to SQLite
         self.with_conn(|conn| {
             let mut stmt = conn
                 .prepare_cached(
