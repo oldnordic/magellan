@@ -1021,6 +1021,34 @@ mod tests {
 /// Used to verify deletion completeness.
 /// v6: Uses file_id to efficiently count AST nodes per file.
 fn count_ast_nodes_for_file(graph: &CodeGraph, path: &str) -> usize {
+    #[cfg(feature = "native-v2")]
+    {
+        // Use KV store for Native V2 backend
+        if graph.chunks.has_kv_backend() {
+            use sqlitegraph::{SnapshotId, backend::KvValue};
+            use crate::kv::keys::ast_nodes_key;
+            use crate::kv::encoding::decode_ast_nodes;
+
+            // Get file_id from file_index (immutable access)
+            let file_id = match graph.files.file_index.get(path) {
+                Some(id) => id.as_i64() as u64,
+                None => return 0, // No file node, no AST nodes to count
+            };
+
+            let backend = &graph.files.backend;
+            let snapshot = SnapshotId::current();
+            let key = ast_nodes_key(file_id);
+
+            if let Ok(Some(KvValue::Bytes(data))) = backend.kv_get(snapshot, &key) {
+                if let Ok(nodes) = decode_ast_nodes::<crate::graph::ast_node::AstNode>(&data) {
+                    return nodes.len();
+                }
+            }
+            return 0;
+        }
+    }
+
+    // SQLite fallback
     use rusqlite::params;
 
     // First, get the file_id by looking up in the file_index
