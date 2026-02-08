@@ -117,28 +117,35 @@ Plans:
 
 ---
 
-### Phase 57: get_chunk_by_span() Verification
+### Phase 57: get_chunk_by_span() Verification ✅
 
 **Goal:** ChunkStore.get_chunk_by_span() verified to work correctly on both backends.
 
-**Status:** In progress - 2026-02-08
+**Status:** Complete - 2026-02-08
 
 **Depends on:** Phase 56
 
-**Requirements:** CHUNK-03
+**Requirements:** CHUNK-03 ✅
 
 **Success Criteria** (what must be TRUE):
-1. User can retrieve a code chunk by exact byte span on Native-V2 backend
-2. Cross-backend test verifies identical results for SQLite vs Native-V2
-3. Edge cases (missing chunks, overlapping spans) handled correctly
+1. ✅ User can retrieve a code chunk by exact byte span on Native-V2 backend
+2. ✅ Cross-backend test verifies identical results for SQLite vs Native-V2
+3. ✅ Edge cases (missing chunks, overlapping spans) handled correctly
 
-**Plans:** 2/2 created (verification-focused)
+**Plans:** 2/2 complete
 
-**Note:** `get_chunk_by_span()` already has KV support (lines 461-485 in src/generation/mod.rs). This phase verifies correctness.
+**Note:** `get_chunk_by_span()` already has KV support (lines 461-485 in src/generation/mod.rs). This phase verified correctness with comprehensive tests.
+
+**Commits:**
+- f13aa14: test(57-01): add cross-backend tests for get_chunk_by_span()
+- 4f7cc42: docs(57-01): complete get_chunk_by_span() verification plan
+- 3e4daf3: test(57-02): add edge case tests for get_chunk_by_span()
+- d5ad3ac: docs(57-02): document ChunkStore KV support and get_chunk_by_span()
+- d470667: docs(57-02): complete edge case testing and documentation plan
 
 Plans:
-- [x] 57-01: Write cross-backend test for get_chunk_by_span()
-- [x] 57-02: Verify edge cases and fix any issues
+- [x] 57-01: Write cross-backend test for get_chunk_by_span() ✅
+- [x] 57-02: Verify edge cases and fix any issues ✅
 
 ---
 
@@ -156,12 +163,12 @@ Plans:
 3. User can run `magellan get-file <path>` on Native-V2
 4. All three commands produce identical JSON output on SQLite vs Native-V2
 
-**Plans:** 3 plans
+**Plans:** 3 plans (created 2026-02-08)
 
 Plans:
-- [ ] 58-01: Test `magellan chunks` command on both backends
-- [ ] 58-02: Test `magellan get` command on both backends
-- [ ] 58-03: Test `magellan get-file` command on both backends
+- [ ] 58-01: Test `magellan chunks` command on both backends (58-01-PLAN.md)
+- [ ] 58-02: Test `magellan get` command on both backends (58-02-PLAN.md)
+- [ ] 58-03: Test `magellan get-file` command on both backends (58-03-PLAN.md)
 
 ---
 
@@ -198,7 +205,7 @@ Phases execute in numeric order: 56 → 57 → 58 → 59
 |-------|-----------|----------------|--------|-----------|
 | 46-55 | v2.0 | 55/55 | Complete | 2026-02-08 |
 | 56. get_chunks_for_file() KV Support | v2.1 | 2/3 | Complete | 2026-02-08 |
-| 57. get_chunk_by_span() Verification | v2.1 | 0/2 | Planning | - |
+| 57. get_chunk_by_span() Verification | v2.1 | 2/2 | Complete | 2026-02-08 |
 | 58. CLI Command Parity - Chunk Queries | v2.1 | 0/3 | Not started | - |
 | 59. CLI Command Parity - AST Queries + Test Suite | v2.1 | 0/4 | Not started | - |
 
@@ -214,7 +221,7 @@ Phases execute in numeric order: 56 → 57 → 58 → 59
 | QUERY-04: magellan ast command | 59 | Pending |
 | QUERY-05: magellan find-ast command | 59 | Pending |
 | CHUNK-01: get_chunks_for_file() KV support | 56 | ✅ Complete |
-| CHUNK-03: get_chunk_by_span() KV support | 57 | In Progress |
+| CHUNK-03: get_chunk_by_span() KV support | 57 | ✅ Complete |
 | VERIFY-01: Cross-backend test suite | 59 | Pending |
 
 **Coverage:** 8/8 requirements mapped (100%)
