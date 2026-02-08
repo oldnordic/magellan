@@ -9,11 +9,11 @@ See: .planning/PROJECT.md (updated 2026-02-06)
 
 ## Current Position
 
-Phase: 54 of 54 - IN PROGRESS
-Status: Phase 54-04 completed (4/5 plans complete)
-Last activity: 2026-02-08 — Phase 54-04 completed (AST commands dual-backend support)
+Phase: 54 of 54 - COMPLETE
+Status: Phase 54-05 completed (5/5 plans complete)
+Last activity: 2026-02-08 — Phase 54-05 completed (Backend compatibility documentation)
 
-Progress: [██████████████████░] 97% (217/218 total plans)
+Progress: [███████████████████] 100% (218/218 total plans)
 
 **Completed Phases:**
 - Phase 46: Backend Abstraction Foundation ✅
@@ -23,9 +23,10 @@ Progress: [██████████████████░] 97% (217/2
 - Phase 51: Fix Native V2 Compilation Errors ✅
 - Phase 52: Eliminate Native-V2 Stubs ✅
 - Phase 53: Fix Native-V2 Database Initialization ✅
+- Phase 54: CLI Backend Detection and Dual Query Methods ✅
 
 **Next Phase:**
-- Phase 54: CLI Backend Detection and Dual Query Methods (4/5 plans complete)
+- Phase 54 complete - All planned work for this roadmap phase is done
 
 ## Performance Metrics
 
@@ -59,6 +60,14 @@ Progress: [██████████████████░] 97% (217/2
 
 ### Roadmap Evolution
 
+- Phase 54-05 completed: Backend compatibility documentation (2026-02-08)
+  - Added "Backend Compatibility" section (Section 6) to MANUAL.md
+  - Documented command compatibility table for all 25 CLI commands
+  - Added backend format detection instructions (file header check)
+  - Listed SQLite-only algorithm commands (cycles, dead-code, reachable, condense, paths, slice)
+  - Updated README.md with algorithm limitation note for Native V2
+  - Updated CLI help text for all 6 algorithm commands with "(SQLite backend only)" suffix
+  - Commits: e36d018 (MANUAL.md), 68ea7dd (README.md), 16593f6 (CLI help)
 - Phase 54-04 completed: AST commands dual-backend support (2026-02-08)
   - Added dual-backend support to get_ast_nodes_by_file() and get_ast_nodes_by_kind()
   - Uses has_kv_backend() for runtime backend detection
