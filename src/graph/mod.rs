@@ -84,6 +84,8 @@ pub use algorithms::{
     SliceResult, SliceStatistics, Supernode, SymbolInfo,
 };
 pub use ast_extractor::{extract_ast_nodes, language_from_path, normalize_node_kind};
+#[cfg(feature = "native-v2")]
+pub use ast_extractor::{store_ast_nodes_kv, get_ast_nodes_kv};
 pub use ast_node::{AstNode, AstNodeWithText, is_structural_kind};
 // Re-export CFG types for public API
 pub use cfg_extractor::{BlockKind, CfgExtractor, TerminatorKind};

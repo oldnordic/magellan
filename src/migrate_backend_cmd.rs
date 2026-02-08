@@ -24,11 +24,19 @@
 //! These must be migrated separately via direct SQL.
 
 use anyhow::Result;
+use rusqlite::params;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use sqlitegraph::GraphBackend;
+
+#[cfg(feature = "native-v2")]
+use magellan::generation::CodeChunk;
+#[cfg(feature = "native-v2")]
+use magellan::graph::{AstNode, CfgBlock, store_ast_nodes_kv, store_cfg_blocks_kv};
+#[cfg(feature = "native-v2")]
+use magellan::kv::keys::chunk_key;
 
 /// Magic bytes for Native V2 database files
 ///
@@ -643,6 +651,40 @@ pub fn run_migrate_backend(
             )
         })?;
 
+    // Migrate side tables to KV store (native-v2 only)
+    #[cfg(feature = "native-v2")]
+    {
+        // Re-open target backend for KV migration
+        let target_backend_for_kv: Rc<dyn GraphBackend> = {
+            use sqlitegraph::NativeGraphBackend;
+            NativeGraphBackend::open(&output_db)
+                .map_err(|e| {
+                    anyhow::anyhow!(
+                        "Failed to re-open Native V2 database for KV migration '{}': {}",
+                        output_db.display(),
+                        e
+                    )
+                })
+                .map(Rc::new)?
+        };
+
+        let kv_stats = migrate_side_tables_to_kv(&output_db, &target_backend_for_kv).map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to migrate side tables to KV from '{}': {}",
+                output_db.display(),
+                e
+            )
+        })?;
+
+        // Log KV migration stats to stderr (visible in CLI output)
+        eprintln!(
+            "KV migration: {} chunks, {} AST nodes, {} CFG blocks",
+            kv_stats.chunks,
+            kv_stats.ast_nodes,
+            kv_stats.cfg_blocks
+        );
+    }
+
     // Clean up export directory (optional - keeping for now for debugging)
     // let _ = fs::remove_dir_all(&export_dir);
 
@@ -846,6 +888,133 @@ pub fn migrate_side_tables(source_db: &Path, target_db: &Path) -> Result<bool> {
     })?;
 
     Ok(any_migrated)
+}
+
+/// Statistics for side table migration to KV store
+///
+/// Contains counts of migrated records for each side table type.
+#[derive(Debug, Clone, Default)]
+pub struct MigrationSideStats {
+    pub execution_logs: usize,
+    pub file_metrics: usize,
+    pub symbol_metrics: usize,
+    pub ast_nodes: usize,
+    pub cfg_blocks: usize,
+    pub chunks: usize,
+}
+
+/// Migrate Magellan-specific side tables from SQLite to KV store
+///
+/// This function migrates side table data from SQLite to the KV store,
+/// which is used by the Native V2 backend. This is called after
+/// snapshot import to preserve metadata.
+///
+/// # Arguments
+/// * `sqlite_db_path` - Path to the source SQLite database
+/// * `native_backend` - Native V2 backend with KV store
+///
+/// # Returns
+/// Statistics about what was migrated
+///
+/// # Errors
+/// - Cannot open SQLite database
+/// - Migration fails for any side table
+#[cfg(feature = "native-v2")]
+pub fn migrate_side_tables_to_kv(
+    sqlite_db_path: &Path,
+    native_backend: &Rc<dyn GraphBackend>,
+) -> Result<MigrationSideStats> {
+    let mut stats = MigrationSideStats::default();
+
+    let conn = rusqlite::Connection::open(sqlite_db_path)?;
+
+    // 1. Migrate chunks - inline implementation since ChunkStore is in library
+    let mut chunk_stmt = conn.prepare(
+        "SELECT id, file_path, byte_start, byte_end, content, content_hash, symbol_name, symbol_kind, created_at
+         FROM code_chunks"
+    )?;
+
+    let chunks = chunk_stmt.query_map([], |row| {
+        Ok(CodeChunk {
+            id: Some(row.get(0)?),
+            file_path: row.get(1)?,
+            byte_start: row.get::<_, i64>(2)? as usize,
+            byte_end: row.get::<_, i64>(3)? as usize,
+            content: row.get(4)?,
+            content_hash: row.get(5)?,
+            symbol_name: row.get(6)?,
+            symbol_kind: row.get(7)?,
+            created_at: row.get(8)?,
+        })
+    })?;
+
+    for chunk_result in chunks {
+        let chunk = chunk_result.map_err(|e| anyhow::anyhow!("Failed to read chunk: {}", e))?;
+
+        // Store in KV using chunk_key
+        let key = chunk_key(&chunk.file_path, chunk.byte_start, chunk.byte_end);
+        let json = serde_json::to_vec(&chunk)
+            .map_err(|e| anyhow::anyhow!("Failed to serialize chunk: {}", e))?;
+        native_backend.kv_set(key, sqlitegraph::backend::KvValue::Bytes(json), None)?;
+        stats.chunks += 1;
+    }
+
+    // 2. Migrate AST nodes
+    let mut stmt = conn.prepare("SELECT DISTINCT file_id FROM ast_nodes")?;
+    let file_ids = stmt.query_map([], |row| row.get(0))?;
+
+    for file_id_result in file_ids {
+        let file_id: i64 = file_id_result?;
+        let mut stmt = conn.prepare("SELECT id, parent_id, kind, byte_start, byte_end FROM ast_nodes WHERE file_id = ?")?;
+        let nodes = stmt.query_map(params![file_id], |row| {
+            Ok(AstNode {
+                id: Some(row.get(0)?),
+                parent_id: row.get(1)?,
+                kind: row.get(2)?,
+                byte_start: row.get::<_, i64>(3)? as usize,
+                byte_end: row.get::<_, i64>(4)? as usize,
+            })
+        })?;
+
+        let nodes_vec: Vec<_> = nodes.filter_map(|n| n.ok()).collect();
+        if !nodes_vec.is_empty() {
+            store_ast_nodes_kv(Rc::clone(native_backend), file_id as u64, &nodes_vec)?;
+            stats.ast_nodes += nodes_vec.len();
+        }
+    }
+
+    // 3. Migrate CFG blocks
+    let mut stmt = conn.prepare("SELECT DISTINCT function_id FROM cfg_blocks")?;
+    let func_ids = stmt.query_map([], |row| row.get(0))?;
+
+    for func_id_result in func_ids {
+        let func_id: i64 = func_id_result?;
+        let mut stmt = conn.prepare("SELECT function_id, kind, terminator, byte_start, byte_end, start_line, start_col, end_line, end_col FROM cfg_blocks WHERE function_id = ?")?;
+        let blocks = stmt.query_map(params![func_id], |row| {
+            Ok(CfgBlock {
+                function_id: row.get(0)?,
+                kind: row.get(1)?,
+                terminator: row.get(2)?,
+                byte_start: row.get::<_, i64>(3)? as u64,
+                byte_end: row.get::<_, i64>(4)? as u64,
+                start_line: row.get::<_, i64>(5)? as u64,
+                start_col: row.get::<_, i64>(6)? as u64,
+                end_line: row.get::<_, i64>(7)? as u64,
+                end_col: row.get::<_, i64>(8)? as u64,
+            })
+        })?;
+
+        let blocks_vec: Vec<_> = blocks.filter_map(|b| b.ok()).collect();
+        if !blocks_vec.is_empty() {
+            store_cfg_blocks_kv(Rc::clone(native_backend), func_id, &blocks_vec)?;
+            stats.cfg_blocks += blocks_vec.len();
+        }
+    }
+
+    // Note: execution_logs and metrics use ExecutionLog/MetricsOps with KV backend
+    // These are migrated via their respective APIs during normal usage
+
+    Ok(stats)
 }
 
 /// Ensure table schema exists in the target database
