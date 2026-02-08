@@ -4,7 +4,7 @@
 
 use anyhow::Result;
 use rusqlite::Connection;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 // Use the library items through the magellan library
 use magellan::common::detect_language_from_path;
@@ -12,8 +12,9 @@ use magellan::graph::query;
 use magellan::generation::schema::CodeChunk;
 use magellan::output::rich::{SpanChecksums, SpanContext};
 use magellan::output::{output_json, JsonResponse, Span, SymbolMatch};
-use magellan::{generate_execution_id, CodeGraph, OutputFormat};
+use magellan::{detect_backend_format, BackendFormat, ChunkStore, CodeGraph, OutputFormat};
 use serde::{Deserialize, Serialize};
+use std::rc::Rc;
 
 /// Response for get command with rich span data
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,6 +23,107 @@ pub struct GetResponse {
     pub symbol: SymbolMatch,
     /// Source code content
     pub content: String,
+}
+
+/// Query chunks from either SQLite or Native-V2 backend
+///
+/// Detects the backend format and uses the appropriate query method:
+/// - SQLite: Direct SQL query via rusqlite::Connection
+/// - Native-V2: ChunkStore with KV backend (prefix scan)
+fn query_chunks_from_db(
+    db_path: &Path,
+    file_filter: Option<&str>,
+    kind_filter: Option<&str>,
+    limit: Option<usize>,
+) -> Result<Vec<CodeChunk>> {
+    match detect_backend_format(db_path)? {
+        BackendFormat::Sqlite => {
+            // Use existing SQL query (lines 277-327)
+            let conn = Connection::open(db_path)?;
+
+            let mut query = String::from(
+                "SELECT id, file_path, byte_start, byte_end, content, content_hash,
+                     symbol_name, symbol_kind, created_at
+                     FROM code_chunks
+                     WHERE 1=1"
+            );
+
+            let mut params: Vec<String> = Vec::new();
+
+            if let Some(file_pattern) = file_filter {
+                query.push_str(&format!(" AND file_path LIKE ?{}", params.len() + 1));
+                params.push(format!("%{}%", file_pattern));
+            }
+
+            if let Some(kind) = kind_filter {
+                query.push_str(&format!(" AND symbol_kind = ?{}", params.len() + 1));
+                params.push(kind.to_string());
+            }
+
+            query.push_str(" ORDER BY file_path, byte_start");
+
+            if let Some(limit_val) = limit {
+                query.push_str(&format!(" LIMIT {}", limit_val));
+            }
+
+            let mut stmt = conn.prepare(&query)?;
+            let params_ref: Vec<&dyn rusqlite::ToSql> =
+                params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+
+            let chunk_iter = stmt.query_map(
+                params_ref.as_slice(),
+                |row| {
+                    Ok(CodeChunk {
+                        id: Some(row.get(0)?),
+                        file_path: row.get(1)?,
+                        byte_start: row.get(2)?,
+                        byte_end: row.get(3)?,
+                        content: row.get(4)?,
+                        content_hash: row.get(5)?,
+                        symbol_name: row.get(6)?,
+                        symbol_kind: row.get(7)?,
+                        created_at: row.get(8)?,
+                    })
+                },
+            )?;
+
+            let chunks: Result<Vec<CodeChunk>, _> = chunk_iter.collect();
+            chunks.map_err(|e| e.into())
+        }
+        BackendFormat::NativeV2 => {
+            // Use ChunkStore with KV backend
+            #[cfg(feature = "native-v2")]
+            {
+                use sqlitegraph::NativeGraphBackend;
+
+                let backend = Rc::new(NativeGraphBackend::open(db_path)?);
+                let chunks = ChunkStore::with_kv_backend(backend);
+
+                // Get all chunks and filter in-memory (acceptable for small datasets)
+                let mut all_chunks = chunks.get_all_chunks()?;
+
+                // Apply filters
+                if let Some(file_pattern) = file_filter {
+                    all_chunks.retain(|c| c.file_path.contains(file_pattern));
+                }
+
+                if let Some(kind) = kind_filter {
+                    all_chunks.retain(|c| c.symbol_kind.as_deref() == Some(kind));
+                }
+
+                // Apply limit
+                if let Some(limit_val) = limit {
+                    all_chunks.truncate(limit_val);
+                }
+
+                Ok(all_chunks)
+            }
+            #[cfg(not(feature = "native-v2"))]
+            {
+                Err(anyhow::anyhow!("Native V2 backend requires 'native-v2' feature"))
+            }
+        }
+    }
 }
 
 pub fn run_get(
