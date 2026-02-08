@@ -5,15 +5,15 @@
 See: .planning/PROJECT.md (updated 2026-02-06)
 
 **Core value:** Produce correct, deterministic symbol + reference + call graph data from real codebases, continuously, without stopping on bad files.
-**Current focus:** Phase 53 complete - Native-V2 Database Initialization fixed
+**Current focus:** Phase 54-01 complete - Backend detection re-exported for CLI commands
 
 ## Current Position
 
-Phase: 53 of 53 - COMPLETE ✅
-Status: Phase 53 successfully completed
-Last activity: 2026-02-08 — Phase 53 completed (database initialization fix, sqlitegraph 1.5.3 published)
+Phase: 54 of 54 - IN PROGRESS
+Status: Phase 54-01 completed (1/5 plans complete)
+Last activity: 2026-02-08 — Phase 54-01 completed (backend detection re-exported)
 
-Progress: [███████████████████] 100% (213/213 total plans)
+Progress: [██████████████████░] 97% (214/218 total plans)
 
 **Completed Phases:**
 - Phase 46: Backend Abstraction Foundation ✅
@@ -23,6 +23,9 @@ Progress: [███████████████████] 100% (213/
 - Phase 51: Fix Native V2 Compilation Errors ✅
 - Phase 52: Eliminate Native-V2 Stubs ✅
 - Phase 53: Fix Native-V2 Database Initialization ✅
+
+**Next Phase:**
+- Phase 54: CLI Backend Detection and Dual Query Methods (1/5 plans complete)
 
 ## Performance Metrics
 
@@ -56,6 +59,11 @@ Progress: [███████████████████] 100% (213/
 
 ### Roadmap Evolution
 
+- Phase 54-01 completed: Backend detection re-exported for CLI commands (2026-02-08)
+  - Re-exported detect_backend_format() and BackendFormat from migrate_backend_cmd module
+  - Public API available at magellan::detect_backend_format() and magellan::BackendFormat
+  - Foundation for CLI commands to auto-detect backend and route to SQL queries or KV prefix scans
+- Phase 54 added: CLI Backend Detection and Dual Query Methods - Auto-detect backend and use appropriate query methods (2026-02-08)
 - Phase 53 completed: Fix Native-V2 Database Initialization (2026-02-08)
   - Fixed ExecutionLog::disabled() → ExecutionLog::with_kv_backend()
   - Fixed MetricsOps::disabled() → MetricsOps::with_kv_backend()
@@ -83,6 +91,12 @@ Recent decisions affecting current work:
 - Path escaping with "::" prevents colon-based key collisions in file paths (e.g., Windows paths or module names like "src/test:module/file.rs")
 - ?Sized bound for encode_json allows encoding slices (&[T]) and other DSTs without requiring conversion to Vec
 - JSON encoding chosen over binary for metadata (human-readable, debuggable, sufficient for metadata sizes)
+
+**From Phase 54-01 (Backend Detection Re-exports):**
+- Re-exported detect_backend_format() and BackendFormat from migrate_backend_cmd module
+- Public API available at magellan::detect_backend_format() and magellan::BackendFormat
+- Enables CLI commands to auto-detect backend without importing internal migrate_backend_cmd module
+- Foundation for dual query methods (SQL for SQLite, KV prefix scans for Native-V2)
 
 **From Phase 47-03 (Backend Format Detection):**
 - Implemented detect_backend_format() using magic byte inspection (b"MAG2" for Native V2)
@@ -367,7 +381,7 @@ Blockers:
 ## Session Continuity
 
 Last session: 2026-02-08
-Stopped at: Completed 52-06-PLAN.md (Side Table Migration to KV)
+Stopped at: Completed 54-01-PLAN.md (Backend Detection Re-exports)
 Resume file: None
 Blockers:
 - algorithms.rs module uses concrete SqliteGraph type - requires conditional compilation to work with Native backend
