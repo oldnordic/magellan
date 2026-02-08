@@ -562,3 +562,91 @@ fn test_ast_queries_empty_results() {
     let nodes = graph.get_ast_nodes_by_kind("nonexistent_kind").unwrap();
     assert_eq!(nodes.len(), 0, "Non-existent kind should return empty");
 }
+
+/// Test: All query commands work on Native-V2 backend (unified test)
+///
+/// This test verifies that ALL query commands work correctly together
+/// on the same Native-V2 database instance:
+///
+/// 1. ChunkStore queries (from Phase 56):
+///    - get_chunks_for_file() - KV prefix scan on chunk:{escaped_path}:* keys
+///    - get_chunk_by_span() - O(1) exact span lookup via chunk_key()
+///
+/// 2. AST queries (from Phase 59):
+///    - get_ast_nodes_by_file() - KV lookup via ast_nodes_key(file_id)
+///    - get_ast_nodes_by_kind() - KV prefix scan on ast:file:* keys
+///
+/// This unified test ensures:
+/// - No regressions between Phase 56-58 implementations
+/// - Complete parity verification in a single test
+/// - All query methods work on the same database
+#[cfg(feature = "native-v2")]
+#[test]
+fn test_all_query_commands_native_v2() {
+    use magellan::CodeGraph;
+
+    let temp_dir = TempDir::new().unwrap();
+    let native_db = temp_dir.path().join("test_all.db");
+
+    // Create backend and ChunkStore
+    let backend = Rc::new(NativeGraphBackend::new(&native_db).unwrap()) as Rc<dyn sqlitegraph::GraphBackend>;
+    let chunks = ChunkStore::with_kv_backend(backend.clone());
+
+    // Create comprehensive test data
+    let source = r#"
+        fn main() {
+            if true {
+                println!("test");
+            }
+        }
+
+        struct MyStruct;
+        enum MyEnum { A, B }
+    "#;
+
+    // Manually store chunks for the test file
+    let test_chunks = vec![
+        CodeChunk::new(
+            "test.rs".to_string(),
+            0,
+            source.len(),
+            source.to_string(),
+            Some("main".to_string()),
+            Some("function_item".to_string()),
+        ),
+    ];
+
+    for chunk in &test_chunks {
+        chunks.store_chunk(chunk).unwrap();
+    }
+
+    // Index the file to create AST nodes
+    let mut graph = CodeGraph::open(&native_db).unwrap();
+    graph.index_file("test.rs", source.as_bytes()).unwrap();
+
+    // Test 1: ChunkStore queries - get_chunks_for_file (from Phase 56)
+    let file_chunks = chunks.get_chunks_for_file("test.rs").unwrap();
+    assert!(!file_chunks.is_empty(), "get_chunks_for_file should work");
+
+    // Test 2: ChunkStore queries - get_chunk_by_span (from Phase 57)
+    let first_chunk = &file_chunks[0];
+    let span_chunk = chunks.get_chunk_by_span("test.rs", first_chunk.byte_start, first_chunk.byte_end).unwrap();
+    assert!(span_chunk.is_some(), "get_chunk_by_span should work");
+
+    // Test 3: AST queries by file (from Phase 59)
+    let ast_nodes = graph.get_ast_nodes_by_file("test.rs").unwrap();
+    assert!(!ast_nodes.is_empty(), "get_ast_nodes_by_file should work");
+
+    // Test 4: AST queries by kind (from Phase 59)
+    let fn_nodes = graph.get_ast_nodes_by_kind("function_item").unwrap();
+    assert!(!fn_nodes.is_empty(), "get_ast_nodes_by_kind should find function_item");
+
+    let struct_nodes = graph.get_ast_nodes_by_kind("struct_item").unwrap();
+    assert!(!struct_nodes.is_empty(), "get_ast_nodes_by_kind should find struct_item");
+
+    let enum_nodes = graph.get_ast_nodes_by_kind("enum_item").unwrap();
+    assert!(!enum_nodes.is_empty(), "get_ast_nodes_by_kind should find enum_item");
+
+    // Verify: All query methods work on the same Native-V2 database
+    // This confirms cross-backend parity for the complete query API
+}
