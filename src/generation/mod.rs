@@ -399,7 +399,29 @@ impl ChunkStore {
     }
 
     /// Store multiple code chunks in a transaction.
+    ///
+    /// In native-v2 mode with a KV backend, stores chunks in KV store.
+    /// Falls back to SQLite transaction for SQLite backend.
     pub fn store_chunks(&self, chunks: &[CodeChunk]) -> Result<Vec<i64>> {
+        #[cfg(feature = "native-v2")]
+        {
+            // Use KV backend if available
+            if let Some(ref backend) = self.kv_backend {
+                use crate::kv::keys::chunk_key;
+
+                let mut ids = Vec::new();
+                for chunk in chunks {
+                    let key = chunk_key(&chunk.file_path, chunk.byte_start, chunk.byte_end);
+                    let json_value = serde_json::to_string(chunk)
+                        .map_err(|e| anyhow::anyhow!("Failed to serialize chunk: {}", e))?;
+                    backend.kv_set(key, KvValue::Json(serde_json::from_str(&json_value)?), None)?;
+                    ids.push(1); // Dummy ID for KV mode
+                }
+                return Ok(ids);
+            }
+        }
+
+        // Fallback to SQLite transaction
         self.with_connection_mut(|conn| {
             let tx = conn
                 .unchecked_transaction()
