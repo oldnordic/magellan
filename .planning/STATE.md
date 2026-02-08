@@ -70,6 +70,7 @@ CLI integration tests for magellan find-ast command verified. Tests already exis
 | Phase 57-get-chunk-by-span-verification P57-01 | 102 | 1 tasks | 1 files |
 | Phase 57 P02 | 2.3 | 2 tasks | 2 files |
 | Phase 58 P01 | 9min | 1 tasks | 1 files |
+| Phase 59-cli-command-parity-ast-queries-test-suite P03 | 29509773 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -103,6 +104,8 @@ Recent decisions affecting current work:
 - [Phase 59]: Structural test approach: Document KV support via code inspection when full integration requires unimplemented features
 - [Phase 59]: KV support confirmed for get_ast_nodes_by_file() and get_ast_nodes_by_kind() via ast_ops.rs code inspection
 - [Phase 59]: Known limitation: get_ast_node_at_position() lacks KV support (SQLite-only at lines 154-184 in ast_ops.rs)
+- [Phase 59]: Bug fix: file:path:{path} KV entry must be stored during file node creation for O(1) file_id lookups in AST queries. Fixed in find_or_create_file_node() with kv_set() calls.
+- [Phase 59]: Cross-backend test organization: Tests follow existing backend_integration_tests.rs pattern with #[cfg(feature = "native-v2")] and descriptive names (test_{method}_{aspect}_native_v2).
 
 ### Pending Todos
 

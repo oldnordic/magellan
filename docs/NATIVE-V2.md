@@ -140,6 +140,43 @@ No code changes needed when switching backends.
 
 ---
 
+## AST Query Operations
+
+AST node queries have partial KV support. The following table shows the status of each AST query method:
+
+| Method | KV Support | Notes |
+|--------|------------|-------|
+| `get_ast_nodes_by_file()` | ✅ Yes | Uses `ast_nodes_key(file_id)` for O(1) lookup |
+| `get_ast_nodes_by_kind()` | ✅ Yes | Uses KV prefix scan on `ast:file:*` keys |
+| `get_ast_children()` | ❌ No | SQLite-only (no current Native-V2 use case) |
+| `get_ast_node_at_position()` | ❌ No | SQLite-only (file scope issue on Native-V2) |
+
+### CLI Commands
+
+| Command | Native-V2 Support |
+|---------|------------------|
+| `magellan ast --file <path>` | ✅ Works |
+| `magellan ast --file <path> --position <offset>` | ⚠️ Limited | Position query not supported |
+| `magellan find-ast --kind <kind>` | ✅ Works |
+
+### Known Limitations
+
+1. **Position-based AST queries**: `get_ast_node_at_position()` lacks KV support because Native-V2 uses file-scoped AST storage (ast:file:{file_id}). Position queries would need to scan all files' AST nodes, which is inefficient. Use file-based queries instead.
+
+2. **Child relationship queries**: `get_ast_children()` is SQLite-only. This is only used by tree-printing in `magellan ast` command, which is cosmetic. The core query functionality works correctly.
+
+### Test Coverage (v2.1)
+
+Phase 59 completed comprehensive cross-backend testing:
+
+- **CLI Integration Tests**: src/ast_cmd.rs (tests for magellan ast, magellan find-ast)
+- **Backend Tests**: tests/backend_integration_tests.rs (cross-backend AST query tests)
+- **Unified Test**: test_all_query_commands_native_v2 verifies all commands work together
+
+All tests pass with `--features native-v2`.
+
+---
+
 ## Indexing Behavior
 
 ### What Gets Stored Where
