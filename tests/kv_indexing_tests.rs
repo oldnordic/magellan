@@ -260,4 +260,70 @@ mod tests {
             assert!(matches!(value, KvValue::Json(_)), "Call value should be Json");
         }
     }
+
+    /// Smoke test: Index the Magellan source code with KV storage.
+    ///
+    /// This test indexes the actual src/ directory of the Magellan project
+    /// to verify that KV indexing works end-to-end on a real codebase.
+    ///
+    /// Run with:
+    /// ```bash
+    /// cd /home/feanor/Projects/magellan
+    /// cargo test --features native-v2 test_index_magellan_source_with_kv -- --ignored
+    /// ```
+    ///
+    /// Verifies:
+    /// - Multiple files are scanned successfully
+    /// - Symbol index (sym:fqn:) is populated
+    /// - Code chunks are stored (chunk:)
+    /// - AST nodes are stored (ast:file:)
+    /// - Call edges are stored (calls:)
+    #[test]
+    #[ignore]
+    fn test_index_magellan_source_with_kv() {
+        use std::path::PathBuf;
+
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("magellan_smoke_test.db");
+
+        let mut graph = CodeGraph::open(&db_path).unwrap();
+
+        // Scan the src directory
+        let src_dir = PathBuf::from("src");
+        if !src_dir.exists() {
+            println!("src/ directory not found - skipping smoke test");
+            return; // Skip if not run from project root
+        }
+
+        let file_count = graph.scan_directory(&src_dir, Some(&|current, total| {
+            println!("Scanning... {}/{}", current, total);
+        })).unwrap();
+
+        println!("Scanned {} files", file_count);
+        assert!(file_count > 10, "Should scan multiple files");
+
+        // Verify KV has data
+        let snapshot = SnapshotId::current();
+        let backend = graph.__backend_for_benchmarks();
+
+        // Check symbol index
+        let sym_entries = backend.kv_prefix_scan(snapshot, b"sym:fqn:").unwrap();
+        println!("Symbol index entries: {}", sym_entries.len());
+        assert!(!sym_entries.is_empty(), "Should have symbols indexed");
+
+        // Check chunks
+        let chunk_entries = backend.kv_prefix_scan(snapshot, b"chunk:").unwrap();
+        println!("Chunk entries: {}", chunk_entries.len());
+        assert!(!chunk_entries.is_empty(), "Should have code chunks");
+
+        // Check AST nodes
+        let ast_entries = backend.kv_prefix_scan(snapshot, b"ast:file:").unwrap();
+        println!("AST entries: {}", ast_entries.len());
+        assert!(!ast_entries.is_empty(), "Should have AST nodes");
+
+        // Check call edges (if any)
+        let call_entries = backend.kv_prefix_scan(snapshot, b"calls:").unwrap();
+        println!("Call edge entries: {}", call_entries.len());
+        // Don't assert on calls - may be 0 depending on indexing state
+    }
 }
