@@ -5,16 +5,15 @@
 See: .planning/PROJECT.md (updated 2026-02-06)
 
 **Core value:** Produce correct, deterministic symbol + reference + call graph data from real codebases, continuously, without stopping on bad files.
-**Current focus:** v2.1 Backend Parity Completion - MILESTONE COMPLETE ✅
+**Current focus:** v2.1 Backend Parity Completion - MILESTONE COMPLETE ✅ (archived 2026-02-08)
 
 ## Current Position
 
-Phase: 59 of 59 (CLI Command Parity - AST Queries + Test Suite)
-Plan: 04 of 4
-Status: Complete - Phase 59 and v2.1 milestone finished
-Last activity: 2026-02-08 — Phase 59 Plan 04 completed (full test suite run and documentation)
+Phase: v2.1 Backend Parity Completion - MILESTONE ARCHIVED
+Status: All 4 phases (56-59) complete, milestone archived to .planning/milestones/v2.1-*
+Last activity: 2026-02-08 — Milestone v2.1 archived
 
-Progress: [████████████████████████] 100% (v2.1: 13/13 plans complete) ✅
+Progress: [████████████████████████] 100% (v2.1 complete) ✅
 
 **Completed Phases (v2.0):**
 - Phase 46: Backend Abstraction Foundation ✅
@@ -53,16 +52,16 @@ v2.1 Backend Parity Completion milestone finished. Full test suite run: 471 lib 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 170 (v1.0 through v2.0)
+- Total plans completed: 183 (v1.0 through v2.1)
 - Average duration: ~10 min
-- Total execution time: ~28 hours
+- Total execution time: ~30 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 46-55 (v2.0) | 55 | ~10h | ~11 min |
-| 56-59 (v2.1) | 12 | TBD | TBD |
+| 56-59 (v2.1) | 13 | ~4h | ~18 min |
 
 **Recent Trend:**
 - Last 5 plans: ~8-12 min each (v2.0 phases focused on infrastructure)
@@ -120,7 +119,23 @@ None currently. v2.1 Backend Parity Completion milestone complete.
 
 ## Session Continuity
 
-Last session: 2026-02-08 21:37 UTC
-Stopped at: Completed Phase 59 Plan 04 and v2.1 Backend Parity Completion milestone
+Last session: 2026-02-08 23:30 UTC
+Stopped at: v2.1 Backend Parity Completion milestone archived
 Resume file: None
-Blockers: None - v2.1 milestone complete, ready for next phase
+Blockers: None - v2.1 milestone complete and archived
+
+## v2.1 Milestone Archive
+
+**Archived to:** .planning/milestones/v2.1-*
+**Tag:** v2.1.0
+**Git Range:** 9065bef..aac90a2 (26 commits)
+**Duration:** 2026-02-08 (~4 hours)
+
+**Key Files:**
+- .planning/milestones/v2.1-ROADMAP.md - Archived roadmap
+- .planning/milestones/v2.1-REQUIREMENTS.md - Archived requirements
+- .planning/v2.1-MILESTONE-AUDIT.md - Milestone audit report
+
+**Next Steps:**
+- Use `/gsd:new-milestone` to start the next milestone
+- Or use `/gsd:progress` to check current project status
