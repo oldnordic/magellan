@@ -434,6 +434,10 @@ impl CodeGraph {
     /// Get all entity IDs that have a specific label
     ///
     /// Uses raw SQL to query the graph_labels table directly.
+    ///
+    /// # Feature Availability
+    /// Only available with SQLite backend (not native-v2)
+    #[cfg(not(feature = "native-v2"))]
     pub fn get_entities_by_label(&self, label: &str) -> Result<Vec<i64>> {
         let conn = self.chunks.connect()?;
 
@@ -451,6 +455,10 @@ impl CodeGraph {
     }
 
     /// Get all entity IDs that have all of the specified labels (AND semantics)
+    ///
+    /// # Feature Availability
+    /// Only available with SQLite backend (not native-v2)
+    #[cfg(not(feature = "native-v2"))]
     pub fn get_entities_by_labels(&self, labels: &[&str]) -> Result<Vec<i64>> {
         if labels.is_empty() {
             return Ok(Vec::new());
@@ -494,6 +502,10 @@ impl CodeGraph {
     }
 
     /// Get all labels currently in use
+    ///
+    /// # Feature Availability
+    /// Only available with SQLite backend (not native-v2)
+    #[cfg(not(feature = "native-v2"))]
     pub fn get_all_labels(&self) -> Result<Vec<String>> {
         let conn = self.chunks.connect()?;
 
@@ -511,6 +523,10 @@ impl CodeGraph {
     }
 
     /// Get count of entities with a specific label
+    ///
+    /// # Feature Availability
+    /// Only available with SQLite backend (not native-v2)
+    #[cfg(not(feature = "native-v2"))]
     pub fn count_entities_by_label(&self, label: &str) -> Result<usize> {
         let conn = self.chunks.connect()?;
 
@@ -526,6 +542,10 @@ impl CodeGraph {
     }
 
     /// Get symbols by label with full metadata
+    ///
+    /// # Feature Availability
+    /// Only available with SQLite backend (not native-v2)
+    #[cfg(not(feature = "native-v2"))]
     pub fn get_symbols_by_label(&self, label: &str) -> Result<Vec<SymbolQueryResult>> {
         let entity_ids = self.get_entities_by_label(label)?;
         let mut results = Vec::new();
@@ -565,6 +585,10 @@ impl CodeGraph {
     }
 
     /// Get symbols by multiple labels (AND semantics) with full metadata
+    ///
+    /// # Feature Availability
+    /// Only available with SQLite backend (not native-v2)
+    #[cfg(not(feature = "native-v2"))]
     pub fn get_symbols_by_labels(&self, labels: &[&str]) -> Result<Vec<SymbolQueryResult>> {
         let entity_ids = self.get_entities_by_labels(labels)?;
         let mut results = Vec::new();

@@ -19,6 +19,7 @@ mod cycles_cmd;
 mod slice_cmd;
 mod verify_cmd;
 mod watch_cmd;
+mod version;
 
 use anyhow::Result;
 use magellan::graph::export::ExportFilters;
@@ -30,15 +31,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 fn version() {
-    let version = env!("CARGO_PKG_VERSION");
-    let commit = option_env!("MAGELLAN_COMMIT_SHA").unwrap_or("unknown");
-    let date = option_env!("MAGELLAN_BUILD_DATE").unwrap_or("unknown");
-    let rustc_version = option_env!("MAGELLAN_RUSTC_VERSION").unwrap_or("unknown");
-
-    println!(
-        "magellan {} ({} {}) rustc {}",
-        version, commit, date, rustc_version
-    );
+    println!("{}", version::version());
 }
 
 fn print_usage() {
@@ -2239,6 +2232,10 @@ fn run_status(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
 
 /// Run label query command
 /// Usage: magellan label --db <FILE> --label <LABEL> [--list] [--count] [--show-code]
+///
+/// # Feature Availability
+/// Label queries require SQLite backend (not available with native-v2)
+#[cfg(not(feature = "native-v2"))]
 fn run_label(
     db_path: PathBuf,
     labels: Vec<String>,
@@ -2349,6 +2346,24 @@ fn run_label(
 
     tracker.finish(&graph)?;
     Ok(())
+}
+
+/// Run label query command (native-v2 variant - not supported)
+///
+/// # Feature Availability
+/// Label queries are not supported with native-v2 backend
+#[cfg(feature = "native-v2")]
+fn run_label(
+    _db_path: PathBuf,
+    _labels: Vec<String>,
+    _list: bool,
+    _count: bool,
+    _show_code: bool,
+) -> Result<()> {
+    Err(anyhow::anyhow!(
+        "Label queries are not supported with the native-v2 backend. \
+         Label queries depend on SQLite's graph_labels table which doesn't exist in Native V2."
+    ))
 }
 
 fn main() -> ExitCode {
