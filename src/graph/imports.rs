@@ -411,4 +411,132 @@ mod tests {
         let resolved_id = import_node.data.get("resolved_file_id");
         assert!(resolved_id.is_some(), "Import should have resolved_file_id in metadata");
     }
+
+    #[test]
+    fn test_cross_file_import_edges() {
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
+
+        // Create test files with relative paths
+        let lib_file = "src/lib.rs";
+        let helper_file = "src/helper.rs";
+
+        // Create directories
+        std::fs::create_dir_all(temp_dir.path().join("src")).unwrap();
+
+        // Index lib.rs
+        graph.index_file(lib_file, b"fn lib() {}").unwrap();
+
+        // Index helper.rs
+        graph.index_file(helper_file, b"fn helper() {}").unwrap();
+
+        // Build module index for resolver
+        graph.module_resolver.build_module_index().unwrap();
+
+        // Get file_id for lib.rs
+        let lib_file_id = graph.files.find_file_node(lib_file).unwrap().unwrap();
+
+        // Get file_id for helper.rs (target of import)
+        let helper_file_id = graph.files.find_file_node(helper_file).unwrap().unwrap();
+
+        // Create import that references crate::helper
+        let imports = vec![
+            ImportFact {
+                file_path: PathBuf::from(lib_file),
+                import_kind: ImportKind::UseCrate,
+                import_path: vec!["crate".to_string(), "helper".to_string()],
+                imported_names: vec!["helper".to_string()],
+                is_glob: false,
+                byte_start: 0,
+                byte_end: 50,
+                start_line: 1,
+                start_col: 0,
+                end_line: 1,
+                end_col: 50,
+            },
+        ];
+
+        // Index imports with module resolver
+        let count = graph
+            .imports
+            .index_imports(lib_file, lib_file_id.as_i64(), imports, Some(&graph.module_resolver))
+            .unwrap();
+
+        assert_eq!(count, 1);
+
+        // Verify the import node was created with resolved_file_id
+        let snapshot = SnapshotId::current();
+        let entity_ids = graph.imports.backend.entity_ids().unwrap();
+        let import_node_option = entity_ids
+            .iter()
+            .find(|&&id| {
+                let node = graph
+                    .imports
+                    .backend
+                    .get_node(snapshot, id)
+                    .unwrap();
+                node.kind == "Import"
+            })
+            .map(|&id| {
+                graph
+                    .imports
+                    .backend
+                    .get_node(snapshot, id)
+                    .unwrap()
+            });
+
+        assert!(import_node_option.is_some(), "Import node should be created");
+
+        // Get the import node and its ID
+        let import_node = import_node_option.unwrap();
+        let import_id = entity_ids
+            .iter()
+            .find(|&&id| {
+                let node = graph
+                    .imports
+                    .backend
+                    .get_node(snapshot, id)
+                    .unwrap();
+                node.kind == "Import"
+            })
+            .unwrap();
+
+        // Check that resolved_file_id matches helper_file_id
+        let resolved_id = import_node.data.get("resolved_file_id");
+        assert!(resolved_id.is_some(), "Import should have resolved_file_id in metadata");
+
+        let resolved_value = resolved_id.unwrap().as_i64();
+        assert_eq!(
+            resolved_value,
+            Some(helper_file_id.as_i64()),
+            "resolved_file_id should match helper.rs file ID"
+        );
+
+        // Verify DEFINES edge exists from import to helper.rs file node
+        use sqlitegraph::BackendDirection;
+        let outgoing_edges = graph
+            .imports
+            .backend
+            .neighbors(
+                snapshot,
+                *import_id,
+                sqlitegraph::NeighborQuery {
+                    direction: BackendDirection::Outgoing,
+                    edge_type: Some("DEFINES".to_string()),
+                },
+            )
+            .unwrap();
+
+        assert_eq!(
+            outgoing_edges.len(),
+            1,
+            "Import should have exactly one DEFINES edge"
+        );
+        assert_eq!(
+            outgoing_edges[0],
+            helper_file_id.as_i64(),
+            "DEFINES edge should point to helper.rs file"
+        );
+    }
 }
