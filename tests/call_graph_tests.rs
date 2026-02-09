@@ -199,3 +199,130 @@ fn inner2() {}
         "Should have 2 unique caller-callee pairs"
     );
 }
+
+#[test]
+fn test_cross_file_call_resolution() {
+    // Test that calls across file boundaries are correctly indexed and queried
+    use magellan::CodeGraph;
+    use tempfile::TempDir;
+
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+    let mut graph = CodeGraph::open(&db_path).unwrap();
+
+    // File 1: Define a callee function
+    let caller_path = "src/caller.rs";
+    let caller_source = r#"
+pub fn caller() {
+    callee();
+}
+
+pub fn another_caller() {
+    callee();
+}
+"#;
+
+    // File 2: Define the callee function
+    let callee_path = "src/callee.rs";
+    let callee_source = r#"
+pub fn callee() {
+    println!("Called from another file");
+}
+"#;
+
+    // Index both files
+    graph.index_file(caller_path, caller_source.as_bytes()).unwrap();
+    graph.index_file(callee_path, callee_source.as_bytes()).unwrap();
+
+    // Index calls for both files
+    graph.index_calls(caller_path, caller_source.as_bytes()).unwrap();
+    graph.index_calls(callee_path, callee_source.as_bytes()).unwrap();
+
+    // Verify symbols are indexed
+    let caller_symbols = graph.symbols_in_file(caller_path).unwrap();
+    assert_eq!(
+        caller_symbols.len(),
+        2,
+        "Should have 2 symbols in caller.rs"
+    );
+
+    let callee_symbols = graph.symbols_in_file(callee_path).unwrap();
+    assert_eq!(
+        callee_symbols.len(),
+        1,
+        "Should have 1 symbol in callee.rs"
+    );
+
+    // Get symbol IDs
+    let _caller_id = graph
+        .symbol_id_by_name(caller_path, "caller")
+        .unwrap()
+        .expect("caller symbol should exist");
+    let _another_caller_id = graph
+        .symbol_id_by_name(caller_path, "another_caller")
+        .unwrap()
+        .expect("another_caller symbol should exist");
+    let _callee_id = graph
+        .symbol_id_by_name(callee_path, "callee")
+        .unwrap()
+        .expect("callee symbol should exist");
+
+    // Query calls FROM caller (outgoing)
+    let calls_from_caller = graph.calls_from_symbol(caller_path, "caller").unwrap();
+    assert_eq!(
+        calls_from_caller.len(),
+        1,
+        "caller should have 1 outgoing call"
+    );
+    assert_eq!(
+        calls_from_caller[0].callee, "callee",
+        "caller should call callee"
+    );
+    assert_eq!(
+        calls_from_caller[0].file_path,
+        std::path::PathBuf::from(caller_path),
+        "Call should be in caller.rs"
+    );
+
+    // Query calls FROM another_caller (outgoing)
+    let calls_from_another = graph
+        .calls_from_symbol(caller_path, "another_caller")
+        .unwrap();
+    assert_eq!(
+        calls_from_another.len(),
+        1,
+        "another_caller should have 1 outgoing call"
+    );
+    assert_eq!(
+        calls_from_another[0].callee, "callee",
+        "another_caller should call callee"
+    );
+
+    // Query calls TO callee (incoming) - this is the key cross-file test
+    let calls_to_callee = graph.callers_of_symbol(callee_path, "callee").unwrap();
+    assert_eq!(
+        calls_to_callee.len(),
+        2,
+        "callee should have 2 incoming calls from both callers"
+    );
+
+    // Verify the incoming calls are from different file
+    let callers: Vec<_> = calls_to_callee.iter().map(|c| &c.caller).collect();
+    assert!(
+        callers.contains(&&"caller".to_string()),
+        "callee should be called by caller"
+    );
+    assert!(
+        callers.contains(&&"another_caller".to_string()),
+        "callee should be called by another_caller"
+    );
+
+    // Verify all incoming calls originate from caller.rs (different file)
+    for call in &calls_to_callee {
+        assert_eq!(
+            call.file_path,
+            std::path::PathBuf::from(caller_path),
+            "All calls to callee should originate from caller.rs"
+        );
+    }
+}
