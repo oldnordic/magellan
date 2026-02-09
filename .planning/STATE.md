@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-08)
 ## Current Position
 
 Phase: 61 of 65 (Cross-File Symbol Resolution)
-Plan: 1 of 3 (Cross-File Import Edge Creation)
+Plan: 2 of 3 (Cross-File Call Resolution)
 Status: Complete
-Last activity: 2026-02-09 — Cross-file import edges completed
+Last activity: 2026-02-09 — Cross-file call indexing and refs display verified
 
-Progress: [███░░░░░░░░░░░░░░░░] 33% (1/3 plans complete in Phase 61)
+Progress: [██████░░░░░░░░░░░░░] 67% (2/3 plans complete in Phase 61)
 
 **Completed Milestones:**
 - v1.0 Magellan - Phases 1-9 (shipped 2026-01-19)
@@ -59,6 +59,10 @@ Progress: [███░░░░░░░░░░░░░░░░] 33% (1/3 p
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
+- v2.2: Cross-file call indexing with symbol_facts from all database symbols (not just current file)
+- v2.2: name_to_ids fallback enables simple-name matching across files for method calls
+- v2.2: Cross-file call indexing verified and tested with integration tests
+- v2.2: refs command --direction in/out flags correctly show cross-file call relationships
 - v2.2: Cross-file import edges using DEFINES edge type (Import->File)
 - v2.2: Module index rebuild after file deletion for accurate resolutions
 - v2.2: Import infrastructure with ImportExtractor for Rust, ImportOps for graph storage, ModuleResolver for path resolution
@@ -87,7 +91,7 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-09 (cross-file import edge creation)
-Stopped at: Completed Phase 61 Plan 1 - Cross-File Import Edge Creation
+Last session: 2026-02-09 (cross-file call resolution)
+Stopped at: Completed Phase 61 Plan 2 - Cross-File Call Resolution
 Resume file: None
 Blockers: None
