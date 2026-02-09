@@ -60,11 +60,12 @@ impl ImportOps {
     ///
     /// # Arguments
     /// * `path` - File path
+    /// * `file_id` - File node ID
     /// * `imports` - Vector of ImportFact to index
     ///
     /// # Returns
     /// Number of imports indexed
-    pub fn index_imports(&self, path: &str, imports: Vec<ImportFact>) -> Result<usize> {
+    pub fn index_imports(&self, path: &str, file_id: i64, imports: Vec<ImportFact>) -> Result<usize> {
         for import_fact in &imports {
             let import_node = ImportNode {
                 file: path.to_string(),
@@ -94,10 +95,17 @@ impl ImportOps {
             let import_id = self.backend.insert_node(node_spec)?;
 
             // Create IMPORTS edge from file to import
-            // Note: We'll need the file_id for this, but for now we skip
-            // edge creation since we don't have access to file_id here
-            // This will be addressed in Task 3 when we integrate with CodeGraph
-            let _ = import_id; // Suppress unused warning for now
+            let edge_spec = EdgeSpec {
+                from: file_id,
+                to: import_id.into(),
+                edge_type: "IMPORTS".to_string(),
+                data: serde_json::json!({
+                    "byte_start": import_fact.byte_start,
+                    "byte_end": import_fact.byte_end,
+                }),
+            };
+
+            self.backend.insert_edge(edge_spec)?;
         }
 
         Ok(imports.len())
@@ -177,48 +185,62 @@ mod tests {
     fn test_delete_imports_in_file() {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");
-        let graph = crate::CodeGraph::open(&db_path).unwrap();
+        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
 
-        // Create some test imports
+        // Create a file node first
         let test_file = "test.rs";
+        let source = b"use std::collections::HashMap;";
+        graph.index_file(test_file, source).unwrap();
+
+        // index_file already creates import nodes, so we should have at least 1
+        // Get the file_id
+        let file_id = graph.files.find_file_node(test_file).unwrap().unwrap();
+
+        // Create some additional test imports
         let imports = vec![
             ImportFact {
                 file_path: PathBuf::from(test_file),
                 import_kind: ImportKind::PlainUse,
                 import_path: vec!["std".to_string(), "collections".to_string()],
-                imported_names: vec!["HashMap".to_string()],
+                imported_names: vec!["HashSet".to_string()], // Different import
                 is_glob: false,
-                byte_start: 0,
-                byte_end: 100,
-                start_line: 1,
+                byte_start: 100,
+                byte_end: 200,
+                start_line: 2,
                 start_col: 0,
-                end_line: 2,
+                end_line: 3,
                 end_col: 0,
             },
         ];
 
-        // Index the imports
+        // Index additional imports
         let count = graph
             .imports
-            .index_imports(test_file, imports)
+            .index_imports(test_file, file_id.as_i64(), imports)
             .unwrap();
         assert_eq!(count, 1);
 
-        // Delete the imports
+        // Delete all imports for this file (should be 2 total now)
         let deleted = graph
             .imports
             .delete_imports_in_file(test_file)
             .unwrap();
-        assert_eq!(deleted, 1);
+        assert_eq!(deleted, 2); // 1 from index_file + 1 from manual index_imports
     }
 
     #[test]
     fn test_index_imports_creates_nodes() {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");
-        let graph = crate::CodeGraph::open(&db_path).unwrap();
+        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
 
         let test_file = "test.rs";
+        let source = b"use crate::foo::bar;";
+        graph.index_file(test_file, source).unwrap();
+
+        // Get the file_id
+        let file_id = graph.files.find_file_node(test_file).unwrap().unwrap();
+
         let imports = vec![
             ImportFact {
                 file_path: PathBuf::from(test_file),
@@ -237,7 +259,7 @@ mod tests {
 
         let count = graph
             .imports
-            .index_imports(test_file, imports)
+            .index_imports(test_file, file_id.as_i64(), imports)
             .unwrap();
 
         assert_eq!(count, 1);

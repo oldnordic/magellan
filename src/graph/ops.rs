@@ -236,6 +236,33 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
         }
     }
 
+    // Step 5.55: Extract and store import statements
+    // Import extraction provides metadata for cross-file symbol resolution (Phase 61)
+    let import_result = pool::with_parser(
+        crate::ingest::detect::Language::Rust,
+        |_parser| {
+            // Create ImportExtractor and extract imports
+            // ImportExtractor::new() returns Result, but we're in a non-Result closure
+            // So we use unwrap_or_default to handle errors gracefully
+            let mut import_extractor =
+                crate::ingest::imports::ImportExtractor::new().unwrap_or_else(|_| {
+                    // Fallback: create a new parser directly
+                    crate::ingest::imports::ImportExtractor::default()
+                });
+            import_extractor.extract_imports_rust(path_buf.clone(), source)
+        },
+    );
+    if let Ok(extracted_imports) = import_result {
+        if !extracted_imports.is_empty() {
+            // Delete old imports for this file
+            let _ = graph.imports.delete_imports_in_file(path);
+            // Index the new imports with IMPORTS edges
+            let _ = graph
+                .imports
+                .index_imports(path, file_id.as_i64(), extracted_imports);
+        }
+    }
+
     // Step 5.6: Extract and store CFG blocks for Rust functions
     // CFG extraction is only done for .rs files with function symbols
     if path.ends_with(".rs") && !function_symbol_ids.is_empty() {
