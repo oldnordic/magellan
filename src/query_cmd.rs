@@ -7,7 +7,9 @@ use magellan::common::{
     detect_language_from_path, format_symbol_kind, parse_symbol_kind, resolve_path,
 };
 use magellan::output::rich::{SpanChecksums, SpanContext};
-use magellan::output::{output_json, JsonResponse, OutputFormat, QueryResponse, Span, SymbolMatch};
+use magellan::output::{
+    output_json, CalleeInfo, CallerInfo, JsonResponse, OutputFormat, QueryResponse, Span, SymbolMatch,
+};
 use magellan::{CodeGraph, SymbolFact};
 use std::path::PathBuf;
 
@@ -42,8 +44,8 @@ pub fn run_query(
     show_extent: bool,
     output_format: OutputFormat,
     with_context: bool,
-    _with_callers: bool, // TODO: Implement caller references in query output
-    _with_callees: bool, // TODO: Implement callee references in query output
+    with_callers: bool,
+    with_callees: bool,
     with_semantics: bool,
     with_checksums: bool,
     context_lines: usize,
@@ -168,8 +170,8 @@ pub fn run_query(
             &exec_id,
             output_format,
             with_context,
-            false,
-            false,
+            with_callers,
+            with_callees,
             with_semantics,
             with_checksums,
             context_lines,
@@ -207,6 +209,41 @@ pub fn run_query(
             "  Line {:4}: {:12} {:<} [{}]",
             symbol.start_line, kind_str, name, symbol.kind_normalized
         );
+
+        // Show callers if requested
+        if with_callers {
+            let symbol_path = symbol.file_path.to_string_lossy().to_string();
+            if let Ok(callers) = graph_mut.callers_of_symbol(&symbol_path, name) {
+                if !callers.is_empty() {
+                    println!("    Called from:");
+                    for caller in &callers {
+                        println!(
+                            "      {} at {}:{}",
+                            caller.caller,
+                            caller.file_path.display(),
+                            caller.start_line
+                        );
+                    }
+                }
+            }
+        }
+
+        // Show callees if requested
+        if with_callees {
+            let symbol_path = symbol.file_path.to_string_lossy().to_string();
+            if let Ok(callees) = graph_mut.calls_from_symbol(&symbol_path, name) {
+                if !callees.is_empty() {
+                    println!("    Calls:");
+                    for callee in &callees {
+                        println!(
+                            "      {} at {}",
+                            callee.callee,
+                            callee.file_path.display()
+                        );
+                    }
+                }
+            }
+        }
     }
 
     if show_extent {
@@ -241,12 +278,12 @@ fn output_json_mode(
     kind_str: Option<String>,
     _show_extent: bool,
     _symbol: &Option<String>,
-    _graph: &mut CodeGraph,
+    graph: &mut CodeGraph,
     exec_id: &str,
     output_format: OutputFormat,
     with_context: bool,
-    _with_callers: bool,
-    _with_callees: bool,
+    with_callers: bool,
+    with_callees: bool,
     with_semantics: bool,
     with_checksums: bool,
     context_lines: usize,
@@ -296,13 +333,62 @@ fn output_json_mode(
                 span = span.with_checksums(checksums);
             }
 
+            let symbol_name = s.name.clone().unwrap_or_else(|| "(unnamed)".to_string());
+
+            // Build caller information if requested
+            let callers_info = if with_callers {
+                if let Ok(call_facts) = graph.callers_of_symbol(&file_path, &symbol_name) {
+                    let mut callers: Vec<CallerInfo> = call_facts
+                        .into_iter()
+                        .map(|call| CallerInfo {
+                            name: call.caller,
+                            file_path: call.file_path.to_string_lossy().to_string(),
+                            line: call.start_line,
+                            column: call.start_col,
+                        })
+                        .collect();
+                    // Sort deterministically
+                    callers.sort_by(|a, b| {
+                        a.file_path
+                            .cmp(&b.file_path)
+                            .then_with(|| a.line.cmp(&b.line))
+                    });
+                    Some(callers)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            // Build callee information if requested
+            let callees_info = if with_callees {
+                if let Ok(call_facts) = graph.calls_from_symbol(&file_path, &symbol_name) {
+                    let mut callees: Vec<CalleeInfo> = call_facts
+                        .into_iter()
+                        .map(|call| CalleeInfo {
+                            name: call.callee,
+                            file_path: call.file_path.to_string_lossy().to_string(),
+                        })
+                        .collect();
+                    // Sort deterministically
+                    callees.sort_by(|a, b| a.file_path.cmp(&b.file_path).then_with(|| a.name.cmp(&b.name)));
+                    Some(callees)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
             SymbolMatch::new(
-                s.name.unwrap_or_else(|| "(unnamed)".to_string()),
+                symbol_name,
                 s.kind_normalized,
                 span,
                 None,      // parent not tracked yet
                 symbol_id, // stable symbol ID from graph
             )
+            .with_callers_and_callees(callers_info, callees_info)
         })
         .collect();
 

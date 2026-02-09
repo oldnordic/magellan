@@ -503,6 +503,40 @@ pub struct SymbolMatch {
     /// and stored in the graph's SymbolNode data.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub symbol_id: Option<String>,
+    /// Functions that call this symbol (cross-file callers)
+    ///
+    /// When requested via --with-callers, this contains the list of functions
+    /// that call this symbol, along with their file paths and locations.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub callers: Option<Vec<CallerInfo>>,
+    /// Functions that this symbol calls (cross-file callees)
+    ///
+    /// When requested via --with-callees, this contains the list of functions
+    /// that this symbol calls, along with their file paths and locations.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub callees: Option<Vec<CalleeInfo>>,
+}
+
+/// Information about a function that calls a symbol
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CallerInfo {
+    /// Name of the calling function
+    pub name: String,
+    /// File containing the call
+    pub file_path: String,
+    /// Line where call occurs
+    pub line: usize,
+    /// Column where call occurs
+    pub column: usize,
+}
+
+/// Information about a function that a symbol calls
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CalleeInfo {
+    /// Name of the called function
+    pub name: String,
+    /// File containing the callee definition
+    pub file_path: String,
 }
 
 impl SymbolMatch {
@@ -601,7 +635,23 @@ impl SymbolMatch {
             kind,
             parent,
             symbol_id,
+            callers: None,
+            callees: None,
         }
+    }
+
+    /// Set caller and callee information for this symbol
+    ///
+    /// Used by the query command to populate cross-file call relationships
+    /// when --with-callers or --with-callees flags are provided.
+    pub fn with_callers_and_callees(
+        mut self,
+        callers: Option<Vec<CallerInfo>>,
+        callees: Option<Vec<CalleeInfo>>,
+    ) -> Self {
+        self.callers = callers;
+        self.callees = callees;
+        self
     }
 }
 

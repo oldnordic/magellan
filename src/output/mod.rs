@@ -6,8 +6,8 @@ pub mod command;
 pub mod rich;
 
 pub use command::{
-    generate_execution_id, output_json, CollisionCandidate, CollisionGroup, CollisionsResponse,
-    ErrorResponse, FilesResponse, FindResponse, JsonResponse, MigrateResponse, OutputFormat, QueryResponse,
-    ReferenceMatch, RefsResponse, Span, StatusResponse, SymbolMatch, ValidationError,
-    ValidationResponse, ValidationWarning,
+    generate_execution_id, output_json, CalleeInfo, CallerInfo, CollisionCandidate, CollisionGroup,
+    CollisionsResponse, ErrorResponse, FilesResponse, FindResponse, JsonResponse, MigrateResponse,
+    OutputFormat, QueryResponse, ReferenceMatch, RefsResponse, Span, StatusResponse, SymbolMatch,
+    ValidationError, ValidationResponse, ValidationWarning,
 };
