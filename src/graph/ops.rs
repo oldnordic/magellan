@@ -1266,6 +1266,9 @@ pub fn reconcile_file_path(
         let _ = delete_file_facts(graph, path_key)?;
     }
 
+    // Rebuild module index after file deletion for updated import resolutions
+    let _ = graph.module_resolver.build_module_index();
+
     let symbols = index_file(graph, path_key, &source)?;
     query::index_references(graph, path_key, &source)?;
 
