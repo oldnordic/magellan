@@ -1,6 +1,7 @@
 pub mod c;
 pub mod cpp;
 pub mod detect;
+pub mod imports;
 pub mod java;
 pub mod javascript;
 pub mod pool;
@@ -9,6 +10,8 @@ pub mod typescript;
 
 // Re-exports from detect module
 pub use detect::{detect_language, Language};
+// Re-exports from imports module
+pub use imports::{ImportFact, ImportKind};
 
 use crate::common::safe_slice;
 use serde::{Deserialize, Serialize};

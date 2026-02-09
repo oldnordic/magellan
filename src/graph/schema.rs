@@ -149,6 +149,36 @@ pub struct CfgEdge {
     pub kind: String,
 }
 
+/// Import node payload stored in sqlitegraph
+///
+/// Represents an import/use/from statement in source code.
+/// Stores metadata about what was imported and where.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportNode {
+    /// File path containing this import
+    pub file: String,
+    /// Kind of import statement (use_crate, use_super, use_self, etc.)
+    pub import_kind: String,
+    /// Full import path as components (e.g., ["crate", "foo", "bar"] for crate::foo::bar)
+    pub import_path: Vec<String>,
+    /// Specific names imported (e.g., ["HashMap", "HashSet"] for use std::collections::* with specific items)
+    pub imported_names: Vec<String>,
+    /// Whether this is a glob import (e.g., use foo::* or from foo import *)
+    pub is_glob: bool,
+    /// Byte offset where import starts
+    pub byte_start: u64,
+    /// Byte offset where import ends
+    pub byte_end: u64,
+    /// Line where import starts (1-indexed)
+    pub start_line: u64,
+    /// Column where import starts (0-indexed)
+    pub start_col: u64,
+    /// Line where import ends (1-indexed)
+    pub end_line: u64,
+    /// Column where import ends (0-indexed)
+    pub end_col: u64,
+}
+
 /// Delete edges whose from_id OR to_id is in the provided set of entity IDs.
 ///
 /// Determinism: IDs must be pre-sorted by caller.
