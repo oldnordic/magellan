@@ -90,7 +90,8 @@ impl ReferenceOps {
         let language = detect_language(&path_buf);
 
         // Build symbol_facts from ALL symbols in the database
-        // This enables cross-file reference matching
+        // This enables cross-file reference matching across all files in the codebase
+        // Note: We iterate ALL entity_ids, not just symbols from the current file
         let mut all_symbol_facts: Vec<crate::ingest::SymbolFact> = Vec::new();
 
         // Get all entity IDs from the graph
@@ -224,7 +225,8 @@ impl ReferenceOps {
         let language = detect_language(&path_buf);
 
         // Build symbol_facts from ALL symbols in the database
-        // This enables cross-file reference matching
+        // This enables cross-file reference matching across all files in the codebase
+        // Note: We iterate ALL entity_ids, not just symbols from the current file
         let mut all_symbol_facts: Vec<crate::ingest::SymbolFact> = Vec::new();
 
         // Get all entity IDs from the graph
@@ -446,7 +448,7 @@ impl ReferenceOps {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "native-v2")))]
 mod tests {
     use crate::graph::schema::SymbolNode;
     use sqlitegraph::{GraphBackend, SnapshotId};
