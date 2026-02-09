@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-08)
 ## Current Position
 
 Phase: 64 of 65 (Code Organization & Backend Abstraction)
-Plan: 4 of 4 (Label Query Conditional Compilation)
+Plan: 2 of 5 (CLI Module Extraction)
 Status: Complete
-Last activity: 2026-02-09 — SQLite-specific label query methods gated with conditional compilation
+Last activity: 2026-02-09 — Extracted Command enum and parse_args() to cli.rs module
 
-Progress: [████████████████████] 100% (4/4 plans complete in Phase 64)
+Progress: [████████░░░░░░░░░░░░] 40% (2/5 plans complete in Phase 64)
 
 **Completed Milestones:**
 - v1.0 Magellan - Phases 1-9 (shipped 2026-01-19)
@@ -89,6 +89,7 @@ Recent decisions affecting current work:
 - [Phase 62]: CallerInfo/CalleeInfo structs added to SymbolMatch for backward-compatible JSON output
 - [Phase 63-01]: Mutex lock poisoning error handling with .map_err() and Result propagation in indexer/watcher
 - [Phase 64-01]: Version information extracted from main.rs into dedicated src/version.rs module
+- [Phase 64-02]: CLI parsing (Command enum, parse_args) extracted from main.rs into src/cli.rs module (main.rs reduced from 2889 to 811 lines)
 - [Phase 64-04]: SQLite-specific label query methods gated with #[cfg(not(feature = "native-v2"))]
 
 ### Pending Todos
@@ -102,12 +103,12 @@ None yet.
 - ~~Caller/callee tracking disabled in query/find commands~~ (COMPLETED in Phase 62-01)
 - AST node storage not integrated with KV backend (addresses in Phase 65)
 - ~~SQLite-specific labels in GraphBackend trait~~ (COMPLETED in Phase 64-04)
-- Large main.rs file (2889 lines) - version module extracted (Phase 64-01), further reduction needed
+- Large main.rs file (2889 lines) - version module extracted (Phase 64-01), CLI parsing extracted (Phase 64-02), further reduction possible
 - 1017+ unwrap() calls across codebase (addresses in Phase 63-65)
 
 ## Session Continuity
 
 Last session: 2026-02-09 (Code organization)
-Stopped at: Completed Phase 64 Plan 4 - Label Query Conditional Compilation
+Stopped at: Completed Phase 64 Plan 2 - CLI Module Extraction
 Resume file: None
 Blockers: None
