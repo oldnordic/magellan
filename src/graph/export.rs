@@ -616,7 +616,7 @@ pub fn export_json(graph: &mut CodeGraph) -> Result<String> {
         .sort_by(|a, b| (&a.file, &a.referenced_symbol).cmp(&(&b.file, &b.referenced_symbol)));
     calls.sort_by(|a, b| (&a.file, &a.caller, &a.callee).cmp(&(&b.file, &b.caller, &b.callee)));
 
-    let export_data = serde_json::json!({
+    let mut export_data = serde_json::json!({
         "version": "2.0.0",
         "files": files,
         "symbols": symbols,

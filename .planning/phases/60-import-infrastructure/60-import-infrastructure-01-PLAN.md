@@ -11,13 +11,16 @@ files_modified:
   - src/graph/imports.rs
   - src/graph/mod.rs
   - src/graph/ops.rs
+  - src/graph/module_resolver.rs
   - src/lib.rs
 autonomous: true
 
 must_haves:
   truths:
     - "ImportExtractor extracts use, import, from statements during indexing"
-    - "Import nodes stored in database with IMPORTS edges to defining symbols"
+    - "Import nodes stored in database with IMPORTS metadata (edges to symbols deferred to Phase 61)"
+    - "ModuleResolver resolves crate::, super::, self:: paths to file IDs"
+    - "Module path cache (module_path -> file_id) enables efficient lookups"
     - "Import indexing integrated into CodeGraph::index_file() pipeline"
     - "ImportOps follows same Ops pattern as ReferenceOps and CallOps"
   artifacts:
@@ -31,7 +34,7 @@ must_haves:
         - "extract_imports_python"
       covered_by: "Task 1"
     - path: "src/graph/imports.rs"
-      provides: "Import node CRUD operations and IMPORTS edge management"
+      provides: "Import node CRUD operations"
       exports:
         - "ImportOps"
         - "ImportOps::delete_imports_in_file"
@@ -43,6 +46,15 @@ must_haves:
       exports:
         - "ImportNode"
       covered_by: "Task 1"
+    - path: "src/graph/module_resolver.rs"
+      provides: "Module path resolution for crate::, super::, self:: prefixes"
+      exports:
+        - "ModuleResolver"
+        - "ModuleResolver::new"
+        - "ModuleResolver::resolve_path"
+        - "ModuleResolver::build_module_index"
+        - "ModulePathCache"
+      covered_by: "Task 4"
   key_links:
     - from: "src/graph/ops.rs::CodeGraph::index_file"
       to: "src/ingest/imports.rs::ImportExtractor"
@@ -50,20 +62,30 @@ must_haves:
       pattern: "extract_imports.*Language::"
     - from: "src/graph/ops.rs::CodeGraph::index_file"
       to: "src/graph/imports.rs::ImportOps::index_imports"
-      via: "Store extracted imports as graph nodes with IMPORTS edges"
+      via: "Store extracted imports as graph nodes with metadata"
       pattern: "imports.index_imports"
     - from: "src/graph/mod.rs::CodeGraph"
       to: "src/graph/imports.rs::ImportOps"
       via: "CodeGraph includes imports: ImportOps field"
       pattern: "pub imports: imports::ImportOps"
+    - from: "src/graph/mod.rs::CodeGraph"
+      to: "src/graph/module_resolver.rs::ModuleResolver"
+      via: "CodeGraph includes module_resolver: ModuleResolver field"
+      pattern: "pub module_resolver: module_resolver::ModuleResolver"
+    - from: "src/graph/module_resolver.rs::ModuleResolver"
+      to: "src/graph/imports.rs::ImportOps"
+      via: "Import nodes use ModuleResolver for path resolution"
+      pattern: "module_resolver.resolve"
 ---
 
 <objective>
-Create the import infrastructure foundation for cross-file symbol resolution. This includes extracting import/use/from statements during indexing and storing them as graph nodes with IMPORTS edges.
+Create the import infrastructure foundation for cross-file symbol resolution. This includes: (1) extracting import/use/from statements during indexing, (2) storing them as graph nodes with metadata, (3) resolving module paths (crate::, super::, self::) to file IDs, and (4) building a module path cache for efficient lookups.
 
-Purpose: Cross-file symbol resolution requires knowing which symbols each file imports. Without this, reference resolution must guess across all symbols in the database, leading to false positives and missed matches.
+Purpose: Cross-file symbol resolution requires knowing which symbols each file imports and where those imported modules are defined. Module resolution converts relative paths (crate::, super::, self::) into concrete file IDs, enabling accurate reference resolution across files. The module path cache provides O(1) lookups during indexing.
 
-Output: ImportExtractor for parsing imports, ImportOps for graph storage, ImportNode schema, and integration into the indexing pipeline.
+Output: ImportExtractor for parsing imports, ImportOps for graph storage, ImportNode schema, ModuleResolver for path resolution, ModulePathCache for efficient lookups, and integration into the indexing pipeline.
+
+Note: IMPORTS edges to defining symbols are deferred to Phase 61. This plan creates the infrastructure (import extraction + module resolution) that enables Phase 61 to create those edges accurately.
 </objective>
 
 <execution_context>
@@ -185,10 +207,86 @@ Output: ImportExtractor for parsing imports, ImportOps for graph storage, Import
 
     Follow existing integration pattern from reference/call indexing in ops.rs.
 
-    Do NOT create IMPORTS edges to symbols yet (deferred to Phase 61 - need module resolution first).
+    Note: IMPORTS edges from file to import nodes are created. Edges from import nodes to defining symbols are deferred to Phase 61 (need ModuleResolver first, added in Task 4).
   </action>
   <verify>cargo test passes, indexing a Rust file creates Import nodes in database</verify>
   <done>ImportOps integrated into CodeGraph, imports extracted during index_file, Import nodes persisted</done>
+</task>
+
+<task type="auto">
+  <name>Task 4: Create ModuleResolver and ModulePathCache for path resolution</name>
+  <files>src/graph/module_resolver.rs, src/graph/mod.rs, src/graph/schema.rs</files>
+  <action>
+    Create module resolution infrastructure for converting crate::, super::, self:: paths to file IDs:
+
+    1. In src/graph/schema.rs, add ModulePathCache struct:
+       - cache: HashMap<String, i64> (module_path -> file_id)
+       - Implements new(), insert(), get(), clear(), build_from_index()
+       - build_from_index() scans all indexed files and builds path -> file_id mapping
+
+    2. Create src/graph/module_resolver.rs with:
+       - pub struct ModuleResolver with fields:
+         * backend: Rc<dyn GraphBackend>
+         * cache: ModulePathCache
+         * project_root: PathBuf
+       - impl ModuleResolver with methods:
+         * new(backend, project_root) -> Self
+         * resolve_path(&self, current_file: &str, import_path: &str) -> Result<Option<i64>>
+           - Handles crate:: prefix (resolves from crate root)
+           - Handles super:: prefix (resolves relative to parent module)
+           - Handles self:: prefix (resolves relative to current module)
+           - Handles plain paths (resolves from current module or extern crate)
+         * build_module_index(&mut self) -> Result<()>
+           - Scans all files in database
+           - Extracts mod declarations from Rust files
+         * get_file_for_module(&self, module_path: &str) -> Option<i64>
+           - Looks up module_path in cache
+
+    3. Module resolution logic for Rust:
+       - crate::foo::bar -> resolve from project root src/ or lib.rs
+       - super::foo -> parent module of current file
+       - self::foo -> current module of current file
+       - Plain foo -> current module, then extern crates
+
+    4. Add mod module_resolver to src/graph/mod.rs
+    5. Add pub module_resolver: module_resolver::ModuleOps field to CodeGraph struct
+
+    Module resolution is primarily for Rust in Phase 60. Python (import statements) will be added in Phase 61.
+
+    Follow existing patterns from src/graph/references.rs for query patterns and error handling.
+  </action>
+  <verify>cargo check --all-targets passes, unit tests for resolve_path verify crate::, super::, self:: resolution</verify>
+  <done>ModuleResolver created with resolve_path method, ModulePathCache implemented, CodeGraph has module_resolver field</done>
+</task>
+
+<task type="auto">
+  <name>Task 5: Integrate ModuleResolver with import indexing</name>
+  <files>src/graph/ops.rs, src/graph/imports.rs</files>
+  <action>
+    Wire ModuleResolver into the import indexing pipeline:
+
+    1. In src/graph/ops.rs index_file():
+       - After ModuleResolver is available (Task 4), pass it to ImportOps
+       - During import indexing, attempt to resolve each import_path to a file_id
+       - Store resolved file_id in Import node metadata (as optional field)
+
+    2. In src/graph/imports.rs ImportOps::index_imports():
+       - Accept optional ModuleResolver reference
+       - For each ImportFact, call module_resolver.resolve_path() if available
+       - Store resolved file_id (if found) in Import node properties
+
+    3. Build module index during CodeGraph initialization:
+       - Call module_resolver.build_module_index() after opening database
+       - This ensures cache is populated before indexing begins
+
+    4. Update import indexing flow:
+       - Extract imports -> Resolve paths via ModuleResolver -> Store with resolved file_id
+       - If resolution fails, still store import (file_id: None) - will be retried in Phase 61
+
+    This enables Phase 61 to create IMPORTS edges from imports to their defining symbols efficiently.
+  </action>
+  <verify>cargo test passes, indexing a Rust file with crate:: imports stores resolved file_id in Import nodes</verify>
+  <done>ModuleResolver integrated with import indexing, Import nodes contain resolved file_id when available</done>
 </task>
 
 </tasks>
@@ -206,6 +304,8 @@ After completing all tasks:
 2. Run: magellan index --db test.db --root . test_file.rs
 3. Query: sqlite3 test.db "SELECT kind, name FROM graph_nodes WHERE kind = 'Import'"
 4. Verify: Import nodes exist with correct import_path and imported_names
+5. Verify: Import nodes for crate:: imports have resolved file_id in properties
+6. Test ModuleResolver: verify crate::, super::, self:: paths resolve to correct file IDs
 
 cargo check --all-targets must pass with no warnings.
 </verification>
@@ -213,18 +313,22 @@ cargo check --all-targets must pass with no warnings.
 <success_criteria>
 1. ImportFact and ImportKind defined in src/ingest/mod.rs
 2. ImportNode schema defined in src/graph/schema.rs
-3. src/ingest/imports.rs created with ImportExtractor
-4. src/graph/imports.rs created with ImportOps
-5. CodeGraph has imports: ImportOps field
-6. index_file() extracts and stores imports during indexing
-7. cargo check passes
-8. Unit tests for ImportExtractor (verify use/import parsing)
+3. src/ingest/imports.rs created with ImportExtractor for Rust (Python stub)
+4. src/graph/imports.rs created with ImportOps following ReferenceOps pattern
+5. src/graph/module_resolver.rs created with ModuleResolver and ModulePathCache
+6. CodeGraph has imports: ImportOps and module_resolver: ModuleResolver fields
+7. index_file() extracts imports and attempts path resolution via ModuleResolver
+8. ModuleResolver resolves crate::, super::, self:: prefixes to file IDs
+9. ModulePathCache provides O(1) module path lookups
+10. cargo check passes with no warnings
+11. Unit tests for ImportExtractor and ModuleResolver
 </success_criteria>
 
 <output>
 After completion, create `.planning/phases/60-import-infrastructure/60-import-infrastructure-01-SUMMARY.md` with:
-- Implementation details (ImportFact structure, ImportOps API)
-- Test results (import extraction accuracy)
+- Implementation details (ImportFact structure, ImportOps API, ModuleResolver algorithm)
+- Test results (import extraction accuracy, path resolution success rate)
 - Files created/modified
-- Next steps (Phase 60-02: Module Resolution or 61: Cross-File Resolution)
+- Module resolution behavior (crate::, super::, self:: handling)
+- Next steps (Phase 61: Cross-File Resolution - creates IMPORTS edges to defining symbols using ModuleResolver)
 </output>

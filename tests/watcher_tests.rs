@@ -13,12 +13,19 @@ fn poll_for_event(watcher: &FileSystemWatcher, timeout_ms: u64) -> Option<magell
     let timeout = Duration::from_millis(timeout_ms);
 
     loop {
-        if let Some(event) = watcher.try_recv_event() {
-            return Some(event);
-        }
-
-        if start.elapsed() >= timeout {
-            return None;
+        match watcher.try_recv_event() {
+            Ok(Some(event)) => return Some(event),
+            Ok(None) => {
+                if start.elapsed() >= timeout {
+                    return None;
+                }
+            }
+            Err(_) => {
+                // Error receiving event - treat as no event
+                if start.elapsed() >= timeout {
+                    return None;
+                }
+            }
         }
 
         sleep(Duration::from_millis(50));
@@ -164,7 +171,7 @@ fn test_debounce_rapid_changes() {
 
     // Count events - rapid changes should produce a single debounced event
     let mut event_count = 0;
-    while let Some(_) = watcher.try_recv_event() {
+    while let Ok(Some(_)) = watcher.try_recv_event() {
         event_count += 1;
         if event_count > 10 {
             break;
@@ -210,7 +217,7 @@ fn test_watch_temp_directory() {
     let timeout = Duration::from_millis(2000);
 
     while start.elapsed() < timeout {
-        if let Some(event) = watcher.try_recv_event() {
+        if let Ok(Some(event)) = watcher.try_recv_event() {
             if event.path == file_path {
                 found_file_event = true;
                 break;
@@ -256,7 +263,7 @@ fn test_concurrent_legacy_event_access() {
 
     // This test verifies the lock() mechanism works correctly
     // by calling try_recv_event multiple times sequentially
-    let _ = watcher.try_recv_event();
+    let _ = watcher.try_recv_event(); // Returns Result<Option<FileEvent>>
     let _ = watcher.try_recv_event();
     let _ = watcher.try_recv_event();
 
