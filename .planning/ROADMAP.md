@@ -123,8 +123,9 @@ See [.planning/milestones/v2.1-ROADMAP.md](.planning/milestones/v2.1-ROADMAP.md)
   1. `refs` command shows references from all files in codebase
   2. `find` command returns multi-file results with correct locations
   3. `query` command includes cross-file relationships in results
-  4. Cross-file reference tests pass (tests/backend_migration_tests.rs:63-75)
-**Plans**: TBD
+  4. Cross-file reference tests pass (tests/backend_migration_tests.rs:648-987)
+**Plans:** 1/1
+- [ ] 62-01-PLAN.md — Verify CLI commands expose cross-file functionality
 
 #### Phase 63: Error Handling Quality - Critical Paths
 **Goal**: User-facing code paths have no unwrap() panic points
@@ -176,7 +177,7 @@ Phases execute in numeric order: 60 → 61 → 62 → 63 → 64 → 65
 | 56-59 | v2.1 | 13/13 | Complete | 2026-02-08 |
 | 60. Import Infrastructure | v2.2 | 1/1 | Complete | 2026-02-09 |
 | 61. Cross-File Resolution | v2.2 | 3/3 | Complete | 2026-02-09 |
-| 62. CLI Exposure | v2.2 | 0/TBD | Not started | - |
+| 62. CLI Exposure | v2.2 | 0/1 | Planning | - |
 | 63. Error Handling Quality | v2.2 | 0/TBD | Not started | - |
 | 64. Code Organization | v2.2 | 0/TBD | Not started | - |
 | 65. Performance & Validation | v2.2 | 0/TBD | Not started | - |
