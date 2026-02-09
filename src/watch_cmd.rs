@@ -5,7 +5,8 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use crate::{generate_execution_id, output_json, CodeGraph, OutputFormat, WatcherConfig};
+use crate::{generate_execution_id, output_json, CodeGraph, OutputFormat};
+use magellan::WatcherConfig;
 use magellan::graph::validation;
 use magellan::WatchPipelineConfig;
 
@@ -187,16 +188,16 @@ pub fn run_watch(
     #[cfg(unix)]
     {
         use signal_hook::consts::signal;
-        use signal_hook::iterator::Signals;
+        use signal_hook::flag;
 
-        let mut signals = Signals::new([signal::SIGTERM, signal::SIGINT])?;
+        // Set up signal flag that will set shutdown atomically when signal is received
+        // This avoids spawning a separate thread for signal handling
+        let sig_flag = flag::register(signal::SIGINT, shutdown_clone.clone())?;
+        let _ = flag::register(signal::SIGTERM, shutdown_clone.clone())?;
 
-        std::thread::spawn(move || {
-            // Handle first signal received
-            if let Some(_) = signals.into_iter().next() {
-                shutdown_clone.store(true, Ordering::SeqCst);
-            }
-        });
+        // Store the flag so it doesn't get dropped immediately (which would unregister the handler)
+        // The flag will keep the handler registered until it's dropped
+        std::mem::forget(sig_flag);
     }
 
     // Warmup parsers to avoid first-parse latency
@@ -289,7 +290,7 @@ pub fn run_watch(
                 }
             }
 
-            // Clean up parser resources (no-op but documents intent)
+            // Clean up parser resources before graph drop to prevent tcache_thread_shutdown crash
             magellan::ingest::pool::cleanup_parsers();
 
             println!("SHUTDOWN");

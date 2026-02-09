@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-08)
 
 **Core value:** Produce correct, deterministic symbol + reference + call graph data from real codebases, continuously, without stopping on bad files.
-**Current focus:** Phase 61: Cross-File Symbol Resolution
+**Current focus:** Phase 64: Code Organization & Backend Abstraction
 
 ## Current Position
 
-Phase: 63 of 65 (Error Handling Quality)
-Plan: 1 of 1 (Mutex Unwrap Error Handling)
+Phase: 64 of 65 (Code Organization & Backend Abstraction)
+Plan: 4 of 4 (Label Query Conditional Compilation)
 Status: Complete
-Last activity: 2026-02-09 — Mutex lock poisoning error handling complete
+Last activity: 2026-02-09 — SQLite-specific label query methods gated with conditional compilation
 
-Progress: [████████████████████] 100% (1/1 plans complete in Phase 63)
+Progress: [████████████████████] 100% (4/4 plans complete in Phase 64)
 
 **Completed Milestones:**
 - v1.0 Magellan - Phases 1-9 (shipped 2026-01-19)
@@ -30,6 +30,7 @@ Progress: [████████████████████] 100% (1
 - v2.0 Native V2 Backend Migration - Phases 46-55 (shipped 2026-02-08)
 - v2.1 Backend Parity Completion - Phases 56-59 (shipped 2026-02-08)
 - v2.2 Error Handling Quality - Phase 63-01 (shipped 2026-02-09)
+- v2.2 Code Organization - Phase 64 (shipped 2026-02-09)
 
 ## Performance Metrics
 
@@ -51,6 +52,8 @@ Progress: [████████████████████] 100% (1
 - Trend: Stable (consistent execution pattern)
 
 *Updated after each plan completion*
+| Phase 64-code-organization P04 | 2 | 1 task | 2 files |
+| Phase 64-code-organization P01 | 5 | 1 task | 2 files |
 | Phase 63-error-handling-quality P01 | 10 | 3 tasks | 2 files |
 | Phase 61-cross-file-resolution P01 | 12 | 3 tasks | 2 files |
 | Phase 61-cross-file-resolution P02 | 14 | 2 tasks | 2 files |
@@ -85,6 +88,8 @@ Recent decisions affecting current work:
 - [Phase 62]: query command --with-callers/--with-callees flags expose cross-file call relationships
 - [Phase 62]: CallerInfo/CalleeInfo structs added to SymbolMatch for backward-compatible JSON output
 - [Phase 63-01]: Mutex lock poisoning error handling with .map_err() and Result propagation in indexer/watcher
+- [Phase 64-01]: Version information extracted from main.rs into dedicated src/version.rs module
+- [Phase 64-04]: SQLite-specific label query methods gated with #[cfg(not(feature = "native-v2"))]
 
 ### Pending Todos
 
@@ -96,13 +101,13 @@ None yet.
 - ~~Cross-file reference indexing not working~~ (COMPLETED in Phase 61-03)
 - ~~Caller/callee tracking disabled in query/find commands~~ (COMPLETED in Phase 62-01)
 - AST node storage not integrated with KV backend (addresses in Phase 65)
-- SQLite-specific labels in GraphBackend trait (addresses in Phase 64)
-- Large main.rs file (2874 lines) (addresses in Phase 64)
+- ~~SQLite-specific labels in GraphBackend trait~~ (COMPLETED in Phase 64-04)
+- Large main.rs file (2889 lines) - version module extracted (Phase 64-01), further reduction needed
 - 1017+ unwrap() calls across codebase (addresses in Phase 63-65)
 
 ## Session Continuity
 
-Last session: 2026-02-09 (Error handling quality)
-Stopped at: Completed Phase 63 Plan 1 - Mutex Unwrap Error Handling
+Last session: 2026-02-09 (Code organization)
+Stopped at: Completed Phase 64 Plan 4 - Label Query Conditional Compilation
 Resume file: None
 Blockers: None
