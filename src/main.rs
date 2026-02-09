@@ -20,137 +20,24 @@ mod cycles_cmd;
 mod slice_cmd;
 mod verify_cmd;
 mod watch_cmd;
+mod status_cmd;
 mod version;
 mod cli;
 
-use anyhow::Result;
-use magellan::output::{generate_execution_id, output_json, JsonResponse, MigrateResponse, OutputFormat, StatusResponse};
+use magellan::output::{output_json, JsonResponse, MigrateResponse, OutputFormat};
 use serde_json;
 use magellan::CodeGraph;
-use std::path::PathBuf;
 use std::process::ExitCode;
 
 use cli::{Command, parse_args};
+use status_cmd::{ExecutionTracker, run_status};
+
+// Re-export for other command modules that use crate::generate_execution_id
+pub use magellan::output::generate_execution_id;
 
 
 fn print_usage() {
     cli::print_usage();
-}
-/// Handles both success and error outcomes.
-pub struct ExecutionTracker {
-    exec_id: String,
-    tool_version: String,
-    args: Vec<String>,
-    root: Option<String>,
-    db_path: String,
-    outcome: String,
-    error_message: Option<String>,
-    files_indexed: usize,
-    symbols_indexed: usize,
-    references_indexed: usize,
-}
-
-impl ExecutionTracker {
-    fn new(args: Vec<String>, root: Option<String>, db_path: String) -> Self {
-        Self {
-            exec_id: generate_execution_id(),
-            tool_version: env!("CARGO_PKG_VERSION").to_string(),
-            args,
-            root,
-            db_path,
-            outcome: "success".to_string(),
-            error_message: None,
-            files_indexed: 0,
-            symbols_indexed: 0,
-            references_indexed: 0,
-        }
-    }
-
-    fn start(&self, graph: &CodeGraph) -> Result<()> {
-        graph.execution_log().start_execution(
-            &self.exec_id,
-            &self.tool_version,
-            &self.args,
-            self.root.as_deref(),
-            &self.db_path,
-        )?;
-        Ok(())
-    }
-
-    fn finish(&self, graph: &CodeGraph) -> Result<()> {
-        graph.execution_log().finish_execution(
-            &self.exec_id,
-            &self.outcome,
-            self.error_message.as_deref(),
-            self.files_indexed,
-            self.symbols_indexed,
-            self.references_indexed,
-        )
-    }
-
-    /// Set execution outcome to error with message
-    ///
-    /// Currently unused but provided for API completeness and future error handling.
-    #[expect(dead_code)] // API completeness for future error handling
-    fn set_error(&mut self, msg: String) {
-        self.outcome = "error".to_string();
-        self.error_message = Some(msg);
-    }
-
-    /// Set indexing counts for execution tracking
-    ///
-    /// Currently unused but provided for API completeness and future tracking.
-    #[expect(dead_code)] // API completeness for future tracking
-    fn set_counts(&mut self, files: usize, symbols: usize, references: usize) {
-        self.files_indexed = files;
-        self.symbols_indexed = symbols;
-        self.references_indexed = references;
-    }
-
-    fn exec_id(&self) -> &str {
-        &self.exec_id
-    }
-}
-
-fn run_status(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
-    let graph = CodeGraph::open(&db_path)?;
-    let tracker = ExecutionTracker::new(
-        vec!["status".to_string()],
-        None,
-        db_path.to_string_lossy().to_string(),
-    );
-    tracker.start(&graph)?;
-
-    let file_count = graph.count_files()?;
-    let symbol_count = graph.count_symbols()?;
-    let reference_count = graph.count_references()?;
-    let call_count = graph.count_calls()?;
-    let chunk_count = graph.count_chunks()?;
-
-    match output_format {
-        OutputFormat::Json | OutputFormat::Pretty => {
-            let response = StatusResponse {
-                files: file_count,
-                symbols: symbol_count,
-                references: reference_count,
-                calls: call_count,
-                code_chunks: chunk_count,
-            };
-            let exec_id = tracker.exec_id().to_string();
-            let json_response = JsonResponse::new(response, &exec_id);
-            output_json(&json_response, output_format)?;
-        }
-        OutputFormat::Human => {
-            println!("files: {}", file_count);
-            println!("symbols: {}", symbol_count);
-            println!("references: {}", reference_count);
-            println!("calls: {}", call_count);
-            println!("code_chunks: {}", chunk_count);
-        }
-    }
-
-    tracker.finish(&graph)?;
-    Ok(())
 }
 
 fn main() -> ExitCode {
