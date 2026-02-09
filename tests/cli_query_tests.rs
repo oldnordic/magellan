@@ -1241,6 +1241,143 @@ fn main() {
     assert_eq!(data["direction"], "out");
 }
 
+#[test]
+fn test_refs_command_cross_file_direction_flags() {
+    // Test that refs --direction in/out correctly shows cross-file call relationships
+    // This verifies XREF-02 requirement: cross-file caller/callee tracking
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("magellan.db");
+
+    let caller_path = temp_dir.path().join("caller.rs");
+    let callee_path = temp_dir.path().join("callee.rs");
+
+    let bin_path = std::env::var("CARGO_BIN_EXE_magellan").unwrap_or_else(|_| {
+        let mut path = std::env::current_exe().unwrap();
+        path.pop();
+        path.pop();
+        path.push("magellan");
+        path.to_str().unwrap().to_string()
+    });
+
+    // Create caller file
+    let caller_source = r#"
+pub fn caller() {
+    callee();
+}
+
+pub fn another_caller() {
+    callee();
+}
+"#;
+    fs::write(&caller_path, caller_source).unwrap();
+
+    // Create callee file
+    let callee_source = r#"
+pub fn callee() {
+    println!("Called from another file");
+}
+"#;
+    fs::write(&callee_path, callee_source).unwrap();
+
+    // Index both files - IMPORTANT: Index all files FIRST, then index calls
+    // This ensures all symbols exist in the database before call resolution
+    {
+        let mut graph = magellan::CodeGraph::open(&db_path).unwrap();
+
+        let caller_bytes = fs::read(&caller_path).unwrap();
+        let caller_str = caller_path.to_string_lossy().to_string();
+        graph.index_file(&caller_str, &caller_bytes).unwrap();
+
+        let callee_bytes = fs::read(&callee_path).unwrap();
+        let callee_str = callee_path.to_string_lossy().to_string();
+        graph.index_file(&callee_str, &callee_bytes).unwrap();
+
+        // Now index calls - both files' symbols are in the database
+        graph.index_calls(&caller_str, &caller_bytes).unwrap();
+        graph.index_calls(&callee_str, &callee_bytes).unwrap();
+    }
+
+    // Test 1: refs --direction in on callee should show incoming calls from caller.rs
+    let output_in = Command::new(&bin_path)
+        .arg("refs")
+        .arg("--db")
+        .arg(&db_path)
+        .arg("--name")
+        .arg("callee")
+        .arg("--path")
+        .arg(&callee_path)
+        .arg("--direction")
+        .arg("in")
+        .output()
+        .expect("Failed to execute magellan refs");
+
+    let stdout_in = String::from_utf8_lossy(&output_in.stdout);
+
+    // Verify output shows callers from different file
+    assert!(
+        output_in.status.success(),
+        "Process should exit successfully\nstdout: {}",
+        stdout_in
+    );
+
+    // Verify output shows callers from different file
+    assert!(
+        stdout_in.contains("Calls TO \"callee\""),
+        "Output should show 'Calls TO \"callee\"'"
+    );
+    assert!(
+        stdout_in.contains("caller"),
+        "Output should contain 'caller' function"
+    );
+    assert!(
+        stdout_in.contains("another_caller"),
+        "Output should contain 'another_caller' function"
+    );
+    // Verify file path is shown (cross-file indicator)
+    assert!(
+        stdout_in.contains("caller.rs"),
+        "Output should show file path 'caller.rs' for cross-file calls"
+    );
+
+    // Test 2: refs --direction out on caller should show outgoing call to callee.rs
+    let output_out = Command::new(&bin_path)
+        .arg("refs")
+        .arg("--db")
+        .arg(&db_path)
+        .arg("--name")
+        .arg("caller")
+        .arg("--path")
+        .arg(&caller_path)
+        .arg("--direction")
+        .arg("out")
+        .output()
+        .expect("Failed to execute magellan refs");
+
+    let stdout_out = String::from_utf8_lossy(&output_out.stdout);
+
+    assert!(
+        output_out.status.success(),
+        "Process should exit successfully\nstdout: {}",
+        stdout_out
+    );
+
+    // Verify output shows callee from different file
+    assert!(
+        stdout_out.contains("Calls FROM \"caller\""),
+        "Output should show 'Calls FROM \"caller\"'"
+    );
+    assert!(
+        stdout_out.contains("callee"),
+        "Output should contain 'callee' function"
+    );
+    // Verify file path is shown - note: shows where the call is made (caller.rs)
+    // not where the callee is defined (callee.rs)
+    assert!(
+        stdout_out.contains("caller.rs"),
+        "Output should show file path where call is made (caller.rs)"
+    );
+}
+
 // ============================================================================
 // Phase 4: Files Command Tests
 // ============================================================================
