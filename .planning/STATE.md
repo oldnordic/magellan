@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-08)
 
 **Core value:** Produce correct, deterministic symbol + reference + call graph data from real codebases, continuously, without stopping on bad files.
-**Current focus:** Phase 64: Code Organization & Backend Abstraction
+**Current focus:** Phase 65: Performance Validation
 
 ## Current Position
 
-Phase: 64 of 65 (Code Organization & Backend Abstraction)
-Plan: 5 of 5 (Status Command Extraction)
+Phase: 65 of 65 (Performance Validation)
+Plan: 1 of 3 (Cross-File Reference and Call Tracking Validation)
 Status: Complete
-Last activity: 2026-02-09 — Extracted run_status() and ExecutionTracker to status_cmd.rs module
+Last activity: 2026-02-09 — Added Native V2 tests for cross-file references and call tracking
 
-Progress: [████████████████████] 100% (5/5 plans complete in Phase 64)
+Progress: [███░░░░░░░░░░░░░░░░] 33% (1/3 plans complete in Phase 65)
 
 **Completed Milestones:**
 - v1.0 Magellan - Phases 1-9 (shipped 2026-01-19)
@@ -31,6 +31,7 @@ Progress: [████████████████████] 100% (5
 - v2.1 Backend Parity Completion - Phases 56-59 (shipped 2026-02-08)
 - v2.2 Error Handling Quality - Phase 63-01 (shipped 2026-02-09)
 - v2.2 Code Organization - Phase 64 (shipped 2026-02-09)
+- v2.2 Performance Validation - Phase 65-01 (completed 2026-02-09)
 
 ## Performance Metrics
 
@@ -62,6 +63,8 @@ Progress: [████████████████████] 100% (5
 | Phase 62 P01 | 15 | 4 tasks | 3 files |
 | Phase 64 P03 | 2min | 1 tasks | 2 files |
 | Phase 64 P05 | 3 | 1 tasks | 2 files |
+| Phase 65 P01 | 11 | 3 tasks | 2 files |
+| Phase 65-performance-validation P01 | 11 | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -95,6 +98,7 @@ Recent decisions affecting current work:
 - [Phase 64-04]: SQLite-specific label query methods gated with #[cfg(not(feature = "native-v2"))]
 - [Phase 64]: Label command execution extracted from main.rs into dedicated src/label_cmd.rs module; ExecutionTracker made public for cross-module use
 - [Phase 64]: Re-export generate_execution_id from main.rs for verify_cmd and watch_cmd modules that use crate:: prefix
+- [Phase 65]: Call indexing via index_calls() has known limitations with Native V2 backend - cross-file call resolution may not work correctly. This is documented as a gap for future work.
 
 ### Pending Todos
 
@@ -112,7 +116,7 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-09 (Code organization)
-Stopped at: Completed Phase 64 Plan 05 - Status Command Extraction
+Last session: 2026-02-09 (Performance validation)
+Stopped at: Completed Phase 65 Plan 01 - Cross-File Reference and Call Tracking Validation
 Resume file: None
 Blockers: None

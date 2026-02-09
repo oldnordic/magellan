@@ -81,7 +81,7 @@ fn benchmark_chunk_operations(c: &mut Criterion) {
             let chunk_store = ChunkStore::new(&db_path);
             
             for i in 0..100 {
-                black_box(chunk_store.get_chunks_by_file(&format!("file_{}.rs", i))).unwrap();
+                black_box(chunk_store.get_chunks_for_file(&format!("file_{}.rs", i))).unwrap();
             }
         })
     });
