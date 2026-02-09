@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-02-08)
 
 ## Current Position
 
-Phase: 61 of 65 (Cross-File Symbol Resolution)
-Plan: 3 of 3 (Cross-File Reference Verification)
+Phase: 62 of 65 (CLI Exposure & Query Updates)
+Plan: 1 of 1 (CLI Exposure Query Updates)
 Status: Complete
-Last activity: 2026-02-09 — Cross-file reference indexing verified with integration tests
+Last activity: 2026-02-09 — Query command caller/callee implementation complete
 
-Progress: [████████████████████] 100% (3/3 plans complete in Phase 61)
+Progress: [████████████████████] 100% (1/1 plans complete in Phase 62)
 
 **Completed Milestones:**
 - v1.0 Magellan - Phases 1-9 (shipped 2026-01-19)
@@ -53,6 +53,8 @@ Progress: [████████████████████] 100% (3
 | Phase 61-cross-file-resolution P01 | 12 | 3 tasks | 2 files |
 | Phase 61-cross-file-resolution P02 | 14 | 2 tasks | 2 files |
 | Phase 61-cross-file-resolution P03 | 7 | 3 tasks | 2 files |
+| Phase 62-cli-exposure P01 | 15 | 4 tasks | 3 files |
+| Phase 62 P01 | 15 | 4 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -78,6 +80,8 @@ Recent decisions affecting current work:
 - v2.0: Native V2 backend uses clustered adjacency for 10x graph traversal performance
 - v1.7: Arc<Mutex<T>> with lock ordering prevents deadlocks in concurrent access
 - v1.5: BLAKE3-based SymbolId provides stable identifiers across re-indexing
+- [Phase 62]: query command --with-callers/--with-callees flags expose cross-file call relationships
+- [Phase 62]: CallerInfo/CalleeInfo structs added to SymbolMatch for backward-compatible JSON output
 
 ### Pending Todos
 
@@ -87,7 +91,7 @@ None yet.
 
 **Tech Debt to Address (from CONCERNS.md):**
 - ~~Cross-file reference indexing not working~~ (COMPLETED in Phase 61-03)
-- Caller/callee tracking disabled in query/find commands (addresses in Phase 61-62)
+- ~~Caller/callee tracking disabled in query/find commands~~ (COMPLETED in Phase 62-01)
 - AST node storage not integrated with KV backend (addresses in Phase 65)
 - SQLite-specific labels in GraphBackend trait (addresses in Phase 64)
 - Large main.rs file (2874 lines) (addresses in Phase 64)
@@ -95,7 +99,7 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-09 (cross-file reference verification)
-Stopped at: Completed Phase 61 Plan 3 - Cross-File Reference Verification
+Last session: 2026-02-09 (CLI exposure query updates)
+Stopped at: Completed Phase 62 Plan 1 - CLI Exposure Query Updates
 Resume file: None
 Blockers: None
