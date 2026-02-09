@@ -122,10 +122,6 @@ pub struct FileSystemWatcher {
     /// Uses Box for size erasure since PubSubEventReceiver contains JoinHandle
     #[cfg(feature = "native-v2")]
     _pubsub_receiver: Option<Box<PubSubEventReceiver>>,
-    /// Channel for receiving file paths from pub/sub events
-    /// The pub/sub receiver thread sends file paths here for cache invalidation
-    #[cfg(feature = "native-v2")]
-    pubsub_file_rx: Receiver<String>,
 }
 
 impl FileSystemWatcher {
@@ -153,13 +149,9 @@ impl FileSystemWatcher {
             }
         });
 
-        // Initialize fields differently based on feature flag
-        // This creates a dummy channel that's never used without native-v2
+        // Initialize _pubsub_receiver field differently based on feature flag
         #[cfg(feature = "native-v2")]
-        let (_pubsub_receiver, pubsub_file_rx) = {
-            let (_, rx) = mpsc::channel();
-            (None, rx)
-        };
+        let _pubsub_receiver = None;
 
         Ok(Self {
             _watcher_thread: ManuallyDrop::new(thread),
@@ -168,8 +160,6 @@ impl FileSystemWatcher {
             legacy_pending_index: Arc::new(Mutex::new(0)),
             #[cfg(feature = "native-v2")]
             _pubsub_receiver,
-            #[cfg(feature = "native-v2")]
-            pubsub_file_rx,
         })
     }
 
@@ -204,11 +194,8 @@ impl FileSystemWatcher {
             ..config
         };
 
-        // Create channel for pub/sub file paths
-        // Note: sender is dropped immediately - pub/sub receiver sends directly to cache_sender
-        let (_pubsub_file_tx, pubsub_file_rx) = mpsc::channel();
-
         // Create pub/sub event receiver with graceful degradation
+        // Pub/sub file paths are sent directly to cache_sender (main thread receives via pubsub_cache_rx)
         let _pubsub_receiver = match PubSubEventReceiver::new(backend, cache_sender) {
             Ok(receiver) => Some(Box::new(receiver)),
             Err(e) => {
@@ -229,7 +216,6 @@ impl FileSystemWatcher {
             legacy_pending_batch: Arc::new(Mutex::new(None)),
             legacy_pending_index: Arc::new(Mutex::new(0)),
             _pubsub_receiver,
-            pubsub_file_rx,
         })
     }
 
@@ -264,49 +250,6 @@ impl FileSystemWatcher {
         }
     }
 
-    /// Receive merged filesystem and pub/sub events with timeout.
-    ///
-    /// This method is only available with the native-v2 feature. It prioritizes
-    /// filesystem events over pub/sub events, falling back to pub/sub if no
-    /// filesystem batch is available within the timeout.
-    ///
-    /// # Returns
-    /// - `Ok(batch)` if a filesystem or pub/sub event is available
-    /// - `Err(())` if no events are available within the timeout
-    ///
-    /// # Arguments
-    /// * `timeout` - Maximum time to wait for events
-    ///
-    /// # Behavior
-    /// 1. First tries to receive a filesystem batch via `batch_receiver.recv_timeout(timeout)`
-    /// 2. If filesystem batch times out, tries pub/sub file path via `pubsub_file_rx.try_recv()`
-    /// 3. Returns empty batch on disconnect (caller can handle shutdown)
-    /// 4. Returns error only if neither source has events
-    #[cfg(feature = "native-v2")]
-    pub fn recv_batch_merging(&self, timeout: Duration) -> Result<WatcherBatch, ()> {
-        // Priority 1: Try to receive filesystem batch
-        match self.batch_receiver.recv_timeout(timeout) {
-            Ok(batch) => return Ok(batch),
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return Ok(WatcherBatch::empty()),
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                // Timeout is expected - fall through to pub/sub check
-            }
-        }
-
-        // Priority 2: Try to receive pub/sub file path (non-blocking)
-        match self.pubsub_file_rx.try_recv() {
-            Ok(path) => {
-                // Pub/sub events are single-path batches
-                // Caller will merge with existing batch if needed
-                Ok(WatcherBatch {
-                    paths: vec![PathBuf::from(path)],
-                })
-            }
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => Ok(WatcherBatch::empty()),
-            Err(std::sync::mpsc::TryRecvError::Empty) => Err(()),
-        }
-    }
-
     // ========================================================================
     // LEGACY: Old single-event API for backward compatibility during migration
     // ========================================================================
@@ -319,11 +262,16 @@ impl FileSystemWatcher {
     ///
     /// # Deprecated
     /// Use `try_recv_batch()` instead for deterministic batch processing.
-    pub fn try_recv_event(&self) -> Option<FileEvent> {
+    ///
+    /// # Errors
+    /// Returns an error if a mutex is poisoned (thread panicked while holding the lock).
+    pub fn try_recv_event(&self) -> Result<Option<FileEvent>> {
         // First, check if we have a pending batch to continue from
         {
-            let mut pending_batch = self.legacy_pending_batch.lock().unwrap();
-            let mut pending_index = self.legacy_pending_index.lock().unwrap();
+            let mut pending_batch = self.legacy_pending_batch.lock()
+                .map_err(|e| anyhow::anyhow!("legacy_pending_batch mutex poisoned: {}", e))?;
+            let mut pending_index = self.legacy_pending_index.lock()
+                .map_err(|e| anyhow::anyhow!("legacy_pending_index mutex poisoned: {}", e))?;
 
             if let Some(ref batch) = *pending_batch {
                 if *pending_index < batch.paths.len() {
@@ -336,10 +284,10 @@ impl FileSystemWatcher {
                         *pending_index = 0;
                     }
 
-                    return Some(FileEvent {
+                    return Ok(Some(FileEvent {
                         path,
                         event_type: EventType::Modify,
-                    });
+                    }));
                 }
             }
         }
@@ -347,31 +295,33 @@ impl FileSystemWatcher {
         // No pending batch or batch exhausted, try to get a new batch
         if let Ok(batch) = self.batch_receiver.try_recv() {
             if batch.paths.is_empty() {
-                return None;
+                return Ok(None);
             }
 
             // If there are multiple paths, store the batch for next call
             if batch.paths.len() > 1 {
                 let path = batch.paths[0].clone();
-                let mut pending_batch = self.legacy_pending_batch.lock().unwrap();
-                let mut pending_index = self.legacy_pending_index.lock().unwrap();
+                let mut pending_batch = self.legacy_pending_batch.lock()
+                    .map_err(|e| anyhow::anyhow!("legacy_pending_batch mutex poisoned: {}", e))?;
+                let mut pending_index = self.legacy_pending_index.lock()
+                    .map_err(|e| anyhow::anyhow!("legacy_pending_index mutex poisoned: {}", e))?;
                 *pending_batch = Some(batch);
                 *pending_index = 1; // Next call will return index 1
                 drop(pending_batch);
                 drop(pending_index);
-                return Some(FileEvent {
+                return Ok(Some(FileEvent {
                     path,
                     event_type: EventType::Modify,
-                });
+                }));
             }
 
             // Single path, return it directly
-            Some(FileEvent {
+            Ok(Some(FileEvent {
                 path: batch.paths[0].clone(),
                 event_type: EventType::Modify,
-            })
+            }))
         } else {
-            None
+            Ok(None)
         }
     }
 
@@ -383,11 +333,16 @@ impl FileSystemWatcher {
     ///
     /// # Deprecated
     /// Use `recv_batch()` instead for deterministic batch processing.
-    pub fn recv_event(&self) -> Option<FileEvent> {
+    ///
+    /// # Errors
+    /// Returns an error if a mutex is poisoned (thread panicked while holding the lock).
+    pub fn recv_event(&self) -> Result<Option<FileEvent>> {
         // First, check if we have a pending batch to continue from
         {
-            let mut pending_batch = self.legacy_pending_batch.lock().unwrap();
-            let mut pending_index = self.legacy_pending_index.lock().unwrap();
+            let mut pending_batch = self.legacy_pending_batch.lock()
+                .map_err(|e| anyhow::anyhow!("legacy_pending_batch mutex poisoned: {}", e))?;
+            let mut pending_index = self.legacy_pending_index.lock()
+                .map_err(|e| anyhow::anyhow!("legacy_pending_index mutex poisoned: {}", e))?;
 
             if let Some(ref batch) = *pending_batch {
                 if *pending_index < batch.paths.len() {
@@ -400,10 +355,10 @@ impl FileSystemWatcher {
                         *pending_index = 0;
                     }
 
-                    return Some(FileEvent {
+                    return Ok(Some(FileEvent {
                         path,
                         event_type: EventType::Modify,
-                    });
+                    }));
                 }
             }
         }
@@ -411,31 +366,33 @@ impl FileSystemWatcher {
         // No pending batch or batch exhausted, block for a new batch
         if let Ok(batch) = self.batch_receiver.recv() {
             if batch.paths.is_empty() {
-                return None;
+                return Ok(None);
             }
 
             // If there are multiple paths, store the batch for next call
             if batch.paths.len() > 1 {
                 let path = batch.paths[0].clone();
-                let mut pending_batch = self.legacy_pending_batch.lock().unwrap();
-                let mut pending_index = self.legacy_pending_index.lock().unwrap();
+                let mut pending_batch = self.legacy_pending_batch.lock()
+                    .map_err(|e| anyhow::anyhow!("legacy_pending_batch mutex poisoned: {}", e))?;
+                let mut pending_index = self.legacy_pending_index.lock()
+                    .map_err(|e| anyhow::anyhow!("legacy_pending_index mutex poisoned: {}", e))?;
                 *pending_batch = Some(batch);
                 *pending_index = 1; // Next call will return index 1
                 drop(pending_batch);
                 drop(pending_index);
-                return Some(FileEvent {
+                return Ok(Some(FileEvent {
                     path,
                     event_type: EventType::Modify,
-                });
+                }));
             }
 
             // Single path, return it directly
-            Some(FileEvent {
+            Ok(Some(FileEvent {
                 path: batch.paths[0].clone(),
                 event_type: EventType::Modify,
-            })
+            }))
         } else {
-            None
+            Ok(None)
         }
     }
 
