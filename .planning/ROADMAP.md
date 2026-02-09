@@ -87,17 +87,18 @@ See [.planning/milestones/v2.1-ROADMAP.md](.planning/milestones/v2.1-ROADMAP.md)
 
 **Milestone Goal:** Fix cross-file reference indexing, re-enable caller/callee tracking, improve code quality (reduce unwrap() calls, split main.rs), and complete backend abstraction for full Native V2 parity.
 
-#### Phase 60: Import Infrastructure & Module Resolution
+#### Phase 60: Import Infrastructure & Module Resolution ✅
 **Goal**: System extracts import statements and builds module path index for cross-file symbol resolution
 **Depends on**: Nothing (v2.2 foundation)
 **Requirements**: XREF-03
 **Success Criteria** (what must be TRUE):
   1. ImportExtractor extracts `use`, `import`, `from` statements during indexing
-  2. Import nodes stored in database with IMPORTS edges to defining symbols
+  2. Import nodes stored in database with IMPORTS metadata from files; module resolution enables Phase 61 to create edges to defining symbols
   3. ModuleResolver resolves `crate::`, `super::`, `self::` paths to file IDs
   4. Module path cache (module_path → file_id) enables efficient lookups
 **Plans:** 1/1
-- [ ] 60-01-PLAN.md — Import extraction infrastructure (ImportFact, ImportNode, ImportExtractor, ImportOps)
+- [x] 60-01-PLAN.md — Import extraction infrastructure (ImportFact, ImportNode, ImportExtractor, ImportOps, ModuleResolver)
+**Status**: Complete 2026-02-09
 
 #### Phase 61: Cross-File Symbol Resolution
 **Goal**: Cross-file references and call relationships are resolved and indexed across all files
@@ -169,9 +170,7 @@ Phases execute in numeric order: 60 → 61 → 62 → 63 → 64 → 65
 |-------|-----------|----------------|--------|-----------|
 | 46-55 | v2.0 | 55/55 | Complete | 2026-02-08 |
 | 56-59 | v2.1 | 13/13 | Complete | 2026-02-08 |
-| 60. Import Infrastructure | v2.2 | 0/1 | Not started | - |
-| 56-59 | v2.1 | 13/13 | Complete | 2026-02-08 |
-| 60. Import Infrastructure | v2.2 | 0/TBD | Not started | - |
+| 60. Import Infrastructure | v2.2 | 1/1 | Complete | 2026-02-09 |
 | 61. Cross-File Resolution | v2.2 | 0/TBD | Not started | - |
 | 62. CLI Exposure | v2.2 | 0/TBD | Not started | - |
 | 63. Error Handling Quality | v2.2 | 0/TBD | Not started | - |

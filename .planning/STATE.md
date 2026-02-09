@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-08)
 
 **Core value:** Produce correct, deterministic symbol + reference + call graph data from real codebases, continuously, without stopping on bad files.
-**Current focus:** Phase 60: Import Infrastructure & Module Resolution
+**Current focus:** Phase 61: Cross-File Symbol Resolution
 
 ## Current Position
 
 Phase: 60 of 65 (Import Infrastructure & Module Resolution)
-Plan: TBD (ready to plan)
-Status: Ready to plan
-Last activity: 2026-02-09 — Roadmap created for v2.2 milestone
+Plan: 1 of 1 (Import Infrastructure Foundation)
+Status: Complete
+Last activity: 2026-02-09 — Import infrastructure completed
 
-Progress: [░░░░░░░░░░] 0% (0/0 plans started in v2.2)
+Progress: [████████████████████] 100% (1/1 plans complete in v2.2)
 
 **Completed Milestones:**
 - v1.0 Magellan - Phases 1-9 (shipped 2026-01-19)
@@ -50,6 +50,7 @@ Progress: [░░░░░░░░░░] 0% (0/0 plans started in v2.2)
 - Trend: Stable (consistent execution pattern in v2.1)
 
 *Updated after each plan completion*
+| Phase 60-import-infrastructure P01 | 1273 | 5 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -58,6 +59,10 @@ Progress: [░░░░░░░░░░] 0% (0/0 plans started in v2.2)
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
+- v2.2: Import infrastructure with ImportExtractor for Rust, ImportOps for graph storage, ModuleResolver for path resolution
+- v2.2: Import nodes stored with resolved_file_id in metadata for Phase 61 edge creation
+- v2.2: ModulePathCache provides O(1) module lookups during indexing
+- v2.2: Module path conversion algorithm (src/lib.rs -> crate, src/foo.rs -> crate::foo, src/foo/mod.rs -> crate::foo)
 - v2.1: Dual backend abstraction via GraphBackend trait enables compile-time backend selection
 - v2.1: ChunkStore KV support unified across both backends
 - v2.0: Native V2 backend uses clustered adjacency for 10x graph traversal performance
@@ -80,7 +85,7 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-09 (roadmap creation)
-Stopped at: Roadmap files written, ready to begin Phase 60 planning
+Last session: 2026-02-09 (import infrastructure execution)
+Stopped at: Completed Phase 60 Plan 1 - Import Infrastructure Foundation
 Resume file: None
 Blockers: None
