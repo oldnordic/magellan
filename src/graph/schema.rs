@@ -179,6 +179,122 @@ pub struct ImportNode {
     pub end_col: u64,
 }
 
+/// Module path cache for efficient module resolution
+///
+/// Maps module paths (e.g., "crate::foo::bar") to file IDs.
+/// Used by ModuleResolver to convert relative paths to concrete file IDs.
+#[derive(Debug, Clone, Default)]
+pub struct ModulePathCache {
+    /// Cache mapping module path -> file_id
+    cache: std::collections::HashMap<String, i64>,
+}
+
+impl ModulePathCache {
+    /// Create a new empty cache
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Insert a module path -> file_id mapping
+    pub fn insert(&mut self, module_path: String, file_id: i64) {
+        self.cache.insert(module_path, file_id);
+    }
+
+    /// Get file_id for a module path
+    pub fn get(&self, module_path: &str) -> Option<i64> {
+        self.cache.get(module_path).copied()
+    }
+
+    /// Get the number of entries in the cache
+    pub fn len(&self) -> usize {
+        self.cache.len()
+    }
+
+    /// Check if cache is empty
+    pub fn is_empty(&self) -> bool {
+        self.cache.is_empty()
+    }
+
+    /// Clear the cache
+    pub fn clear(&mut self) {
+        self.cache.clear();
+    }
+
+    /// Build the cache from indexed files in the database
+    ///
+    /// Scans all File nodes and extracts module declarations
+    /// to build path -> file_id mappings.
+    pub fn build_from_index(backend: &std::rc::Rc<dyn sqlitegraph::GraphBackend>) -> Self {
+        let mut cache = Self::new();
+
+        let snapshot = sqlitegraph::SnapshotId::current();
+        let entity_ids = match backend.entity_ids() {
+            Ok(ids) => ids,
+            Err(_) => return cache,
+        };
+
+        for entity_id in entity_ids {
+            let node = match backend.get_node(snapshot, entity_id) {
+                Ok(n) => n,
+                Err(_) => continue,
+            };
+
+            if node.kind != "File" {
+                continue;
+            }
+
+            let file_path = node.file_path.as_deref().unwrap_or("");
+
+            // Build module path from file path
+            // For Rust: src/foo/bar.rs -> crate::foo::bar
+            // For Rust: src/foo/mod.rs -> crate::foo
+            // For Rust: src/lib.rs -> crate
+            if file_path.ends_with(".rs") {
+                let module_path = Self::file_path_to_module_path(file_path);
+                cache.insert(module_path, entity_id);
+            }
+        }
+
+        cache
+    }
+
+    /// Convert file path to module path (public for use by ModuleResolver)
+    ///
+    /// Examples:
+    /// - "src/lib.rs" -> "crate"
+    /// - "src/main.rs" -> "crate"
+    /// - "src/foo.rs" -> "crate::foo"
+    /// - "src/foo/mod.rs" -> "crate::foo"
+    /// - "src/foo/bar.rs" -> "crate::foo::bar"
+    /// - "src/foo/bar/mod.rs" -> "crate::foo::bar"
+    pub fn file_path_to_module_path(file_path: &str) -> String {
+        // Remove leading "src/" or trailing ".rs"
+        let path = file_path.strip_prefix("src/").unwrap_or(file_path);
+        let path = path.strip_suffix(".rs").unwrap_or(path);
+
+        // Split by "/"
+        let parts: Vec<&str> = path.split('/').collect();
+
+        // Filter out "mod" parts (from mod.rs files) but only if they're standalone
+        // "foo/mod" -> remove "mod" -> "foo"
+        // "foo/bar/mod" -> remove "mod" -> "foo/bar"
+        let module_parts: Vec<&str> = parts
+            .iter()
+            .filter(|&&part| part != "mod")
+            .map(|&part| part)
+            .collect();
+
+        // If we have lib.rs or main.rs, this is the crate root
+        if module_parts.len() == 1 && (module_parts[0] == "lib" || module_parts[0] == "main") {
+            return "crate".to_string();
+        }
+
+        // Build module path with crate:: prefix
+        let module_path = module_parts.join("::");
+        format!("crate::{}", module_path)
+    }
+}
+
 /// Delete edges whose from_id OR to_id is in the provided set of entity IDs.
 ///
 /// Determinism: IDs must be pre-sorted by caller.

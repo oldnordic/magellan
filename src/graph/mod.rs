@@ -42,6 +42,7 @@ mod files;
 pub mod filter;
 mod freshness;
 mod imports; // Private module for import operations
+mod module_resolver; // Private module for module path resolution
 pub mod metrics;
 mod ops;
 pub mod query;
@@ -143,6 +144,9 @@ pub struct CodeGraph {
 
     /// Import operations module
     imports: imports::ImportOps,
+
+    /// Module resolver for import path resolution
+    module_resolver: module_resolver::ModuleResolver,
 
     /// Code chunk storage module
     chunks: ChunkStore,
@@ -351,6 +355,16 @@ impl CodeGraph {
         // Initialize file node cache with capacity of 128 entries
         let file_node_cache = cache::FileNodeCache::new(128);
 
+        // Initialize module resolver
+        let project_root = db_path_buf
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .to_path_buf();
+        let module_resolver = module_resolver::ModuleResolver::new(
+            Rc::clone(&backend),
+            project_root,
+        );
+
         let mut graph = Self {
             files,
             symbols: symbols::SymbolOps {
@@ -363,8 +377,9 @@ impl CodeGraph {
                 backend: Rc::clone(&backend),
             },
             imports: imports::ImportOps {
-                backend,
+                backend: Rc::clone(&backend),
             },
+            module_resolver,
             chunks,
             execution_log,
             metrics,
