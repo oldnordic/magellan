@@ -25,7 +25,7 @@ use std::time::{Duration, Instant};
 use crate::{CodeGraph, FileEvent, FileSystemWatcher, WatcherConfig};
 
 #[cfg(feature = "native-v2")]
-use std::sync::mpsc::{Sender, channel as mpsc_channel};
+use std::sync::mpsc::channel as mpsc_channel;
 
 #[cfg(feature = "native-v2")]
 use sqlitegraph::GraphBackend;
@@ -244,13 +244,15 @@ impl PipelineSharedState {
     /// 4. Main thread wakes up, drains paths (finds empty—LOST DATA)
     ///
     /// By holding lock during send, we ensure data isn't drained before wakeup.
-    fn insert_dirty_paths(&self, paths: &[PathBuf]) {
-        let mut dirty_paths = self.dirty_paths.lock().unwrap();
+    fn insert_dirty_paths(&self, paths: &[PathBuf]) -> Result<()> {
+        let mut dirty_paths = self.dirty_paths.lock()
+            .map_err(|e| anyhow::anyhow!("dirty_paths mutex poisoned: {}", e))?;
         for path in paths {
             dirty_paths.insert(path.clone());
         }
         // Try to send wakeup tick, but don't block if channel is full
         let _ = self.wakeup_tx.try_send(());
+        Ok(())
     }
 
     /// Snapshot and clear the dirty path set.
@@ -261,11 +263,12 @@ impl PipelineSharedState {
     /// Safe to call from any context following global ordering.
     ///
     /// Returns all dirty paths in lexicographic order and clears the set.
-    fn drain_dirty_paths(&self) -> Vec<PathBuf> {
-        let mut paths = self.dirty_paths.lock().unwrap();
+    fn drain_dirty_paths(&self) -> Result<Vec<PathBuf>> {
+        let mut paths = self.dirty_paths.lock()
+            .map_err(|e| anyhow::anyhow!("dirty_paths mutex poisoned: {}", e))?;
         let snapshot: Vec<PathBuf> = paths.iter().cloned().collect();
         paths.clear();
-        snapshot
+        Ok(snapshot)
     }
 }
 
@@ -312,8 +315,9 @@ pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>
 
     // Create channel for pub/sub cache invalidation (only used with native-v2)
     // The sender will be cloned and passed to the watcher thread for pub/sub
+    // The receiver is used in the main loop to receive file paths from pub/sub events
     #[cfg(feature = "native-v2")]
-    let (pubsub_cache_tx, _pubsub_cache_rx) = mpsc_channel();
+    let (pubsub_cache_tx, pubsub_cache_rx) = mpsc_channel();
 
     // Start watcher thread
     let watcher_thread = {
@@ -345,6 +349,9 @@ pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>
                 shutdown_watch,
             );
 
+            // Clean up parsers before thread exit to prevent tcache_thread_shutdown crash
+            crate::ingest::pool::cleanup_parsers();
+
             if let Err(e) = result {
                 eprintln!("Watcher thread error: {:?}", e);
             }
@@ -365,7 +372,7 @@ pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>
 
     // Drain any dirty paths that accumulated during scan
     let mut total_processed = 0;
-    let paths_during_scan = main_state.drain_dirty_paths();
+    let paths_during_scan = main_state.drain_dirty_paths()?;
     if !paths_during_scan.is_empty() {
         println!(
             "Flushing {} buffered path(s) from scan...",
@@ -378,12 +385,51 @@ pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>
     println!("Magellan watching: {}", config.root_path.display());
     println!("Database: {}", config.db_path.display());
 
+    // Native-V2: Poll both pubsub_cache_rx (for backend mutations) and wakeup_rx (for filesystem events)
+    #[cfg(feature = "native-v2")]
+    while !shutdown.load(Ordering::SeqCst) {
+        // Priority 1: Check for pub/sub events (non-blocking)
+        match pubsub_cache_rx.try_recv() {
+            Ok(path) => {
+                // Pub/sub event received - insert as dirty path
+                main_state.insert_dirty_paths(&[PathBuf::from(path)])?;
+                // Continue to next iteration to check for more pub/sub events
+                continue;
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => {
+                // No pub/sub events - proceed to wait for wakeup tick
+            }
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                // Pub/sub receiver dropped - break out of loop
+                break;
+            }
+        }
+
+        // Priority 2: Wait for wakeup tick with timeout
+        match wakeup_rx.recv_timeout(Duration::from_millis(100)) {
+            Ok(()) => {
+                let dirty_paths = main_state.drain_dirty_paths()?;
+                if !dirty_paths.is_empty() {
+                    total_processed += process_dirty_paths(&mut graph, &dirty_paths)?;
+                }
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                continue;
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                break;
+            }
+        }
+    }
+
+    // Non-native-v2: Original loop that only waits for filesystem events
+    #[cfg(not(feature = "native-v2"))]
     while !shutdown.load(Ordering::SeqCst) {
         // Wait for wakeup tick with timeout
         match wakeup_rx.recv_timeout(Duration::from_millis(100)) {
             Ok(()) => {
                 // Drain and process all dirty paths
-                let dirty_paths = main_state.drain_dirty_paths();
+                let dirty_paths = main_state.drain_dirty_paths()?;
                 if !dirty_paths.is_empty() {
                     total_processed += process_dirty_paths(&mut graph, &dirty_paths)?;
                 }
@@ -399,17 +445,19 @@ pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>
         }
     }
 
-    // Wait for watcher thread to finish with timeout
-    let timeout = Duration::from_secs(5);
+    // Wait for watcher thread to finish with extended timeout
+    // Signal handler gives us 30 seconds, so we should have time to clean up
+    let timeout = Duration::from_secs(25);
     let start = Instant::now();
     let mut finished = false;
 
     while !watcher_thread.is_finished() {
         if start.elapsed() >= timeout {
             eprintln!(
-                "Warning: Watcher thread did not finish within {:?}, continuing shutdown",
+                "Warning: Watcher thread did not finish within {:?}, forcing shutdown",
                 timeout
             );
+            eprintln!("Note: Data may not be flushed. Use Ctrl+C (not timeout) for clean shutdown.");
             break;
         }
         thread::sleep(Duration::from_millis(100));
@@ -437,6 +485,9 @@ pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>
             }
         }
     }
+
+    // Clean up main thread parsers before returning to prevent tcache_thread_shutdown crash
+    crate::ingest::pool::cleanup_parsers();
 
     Ok(total_processed)
 }
@@ -475,7 +526,7 @@ fn watcher_loop(
     while !shutdown.load(Ordering::SeqCst) {
         match watcher.recv_batch_timeout(Duration::from_millis(100)) {
             Ok(Some(batch)) => {
-                shared_state.insert_dirty_paths(&batch.paths);
+                shared_state.insert_dirty_paths(&batch.paths)?;
             }
             Ok(None) => {
                 // Channel closed, exit
