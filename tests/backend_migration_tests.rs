@@ -759,3 +759,228 @@ fn main() {
         }
     }
 }
+
+/// Test: Multi-file refs command (XREF-01 requirement)
+///
+/// Verifies that refs command returns references from multiple files:
+/// 1. Create three files with cross-file references
+/// 2. Index all files
+/// 3. Run refs command on a symbol
+/// 4. Verify refs shows references from multiple files with correct file_path
+#[test]
+fn test_refs_command_multi_file() {
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+
+    // Create three files with cross-file references
+    let helper_rs = r#"
+pub fn helper() -> i32 {
+    42
+}
+"#;
+
+    let lib_rs = r#"
+pub fn call_helper() {
+    let x = helper();
+}
+
+pub fn helper() -> i32 {
+    43
+}
+"#;
+
+    let other_rs = r#"
+pub fn other_function() {
+    let y = helper();
+}
+"#;
+
+    // Index all files
+    let lib_path_str;
+    let other_path_str;
+    {
+        let mut graph = CodeGraph::open(&db_path).unwrap();
+
+        // Index helper.rs
+        let helper_path = temp_dir.path().join("src/helper.rs");
+        std::fs::create_dir_all(temp_dir.path().join("src")).unwrap();
+        std::fs::write(&helper_path, helper_rs).unwrap();
+        let helper_path_str = helper_path.to_string_lossy().to_string();
+        let helper_source = std::fs::read(&helper_path).unwrap();
+        graph.index_file(&helper_path_str, &helper_source).unwrap();
+
+        // Index lib.rs (defines and calls helper)
+        let lib_path = temp_dir.path().join("src/lib.rs");
+        std::fs::write(&lib_path, lib_rs).unwrap();
+        lib_path_str = lib_path.to_string_lossy().to_string();
+        let lib_source = std::fs::read(&lib_path).unwrap();
+        graph.index_file(&lib_path_str, &lib_source).unwrap();
+        graph.index_references(&lib_path_str, &lib_source).unwrap();
+
+        // Index other.rs (calls helper)
+        let other_path = temp_dir.path().join("src/other.rs");
+        std::fs::write(&other_path, other_rs).unwrap();
+        other_path_str = other_path.to_string_lossy().to_string();
+        let other_source = std::fs::read(&other_path).unwrap();
+        graph.index_file(&other_path_str, &other_source).unwrap();
+        graph.index_references(&other_path_str, &other_source).unwrap();
+    }
+
+    // Query references to helper() from lib.rs (the one defined there)
+    {
+        let mut graph = CodeGraph::open(&db_path).unwrap();
+
+        // Get the helper symbol from lib.rs
+        let symbol_id = magellan::graph::query::symbol_id_by_name(
+            &mut graph,
+            &lib_path_str,
+            "helper"
+        ).unwrap().expect("helper symbol should exist in lib.rs");
+
+        // Query all references to this helper symbol
+        let references = magellan::graph::query::references_to_symbol(&mut graph, symbol_id).unwrap();
+
+        // Verify we have references from multiple files
+        let other_refs: Vec<_> = references
+            .iter()
+            .filter(|r| r.file_path.ends_with("src/other.rs"))
+            .collect();
+
+        // other.rs should reference helper from lib.rs
+        assert!(
+            !other_refs.is_empty(),
+            "Expected other.rs to reference helper(), found {} references",
+            references.len()
+        );
+
+        println!("Multi-file refs to helper() from lib.rs:");
+        for ref_fact in &references {
+            println!(
+                "  {}:{}:{} -> {}",
+                ref_fact.file_path.display(),
+                ref_fact.start_line,
+                ref_fact.start_col,
+                ref_fact.referenced_symbol
+            );
+        }
+
+        // Verify each reference has correct file_path
+        for ref_fact in &references {
+            assert!(
+                ref_fact.file_path.ends_with("src/lib.rs") ||
+                ref_fact.file_path.ends_with("src/other.rs") ||
+                ref_fact.file_path.ends_with("src/helper.rs"),
+                "Reference file_path should be one of the indexed files, got: {}",
+                ref_fact.file_path.display()
+            );
+        }
+    }
+}
+
+/// Test: Multi-file find command
+///
+/// Verifies that find command handles symbols from multiple files:
+/// 1. Create two files with symbols having the same name
+/// 2. Index both files
+/// 3. Query for the symbol name
+/// 4. Verify results include symbols from both files with correct file_path
+#[test]
+fn test_find_command_multi_file() {
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+
+    // Create two files with symbols having the same name
+    let file1_content = r#"
+pub fn common_function() -> i32 {
+    100
+}
+
+pub fn unique_to_file1() -> i32 {
+    1
+}
+"#;
+
+    let file2_content = r#"
+pub fn common_function() -> String {
+    "file2".to_string()
+}
+
+pub fn unique_to_file2() -> i32 {
+    2
+}
+"#;
+
+    // Index both files
+    let file1_path_str;
+    let file2_path_str;
+    {
+        let mut graph = CodeGraph::open(&db_path).unwrap();
+
+        // Index file1.rs
+        let file1_path = temp_dir.path().join("src/file1.rs");
+        std::fs::create_dir_all(temp_dir.path().join("src")).unwrap();
+        std::fs::write(&file1_path, file1_content).unwrap();
+        file1_path_str = file1_path.to_string_lossy().to_string();
+        let file1_source = std::fs::read(&file1_path).unwrap();
+        graph.index_file(&file1_path_str, &file1_source).unwrap();
+
+        // Index file2.rs
+        let file2_path = temp_dir.path().join("src/file2.rs");
+        std::fs::write(&file2_path, file2_content).unwrap();
+        file2_path_str = file2_path.to_string_lossy().to_string();
+        let file2_source = std::fs::read(&file2_path).unwrap();
+        graph.index_file(&file2_path_str, &file2_source).unwrap();
+    }
+
+    // Query for symbols with name "common_function"
+    {
+        let mut graph = CodeGraph::open(&db_path).unwrap();
+
+        // Get symbols from file1
+        let symbols_file1 = magellan::graph::query::symbols_in_file(
+            &mut graph,
+            &file1_path_str
+        ).unwrap();
+
+        // Get symbols from file2
+        let symbols_file2 = magellan::graph::query::symbols_in_file(
+            &mut graph,
+            &file2_path_str
+        ).unwrap();
+
+        // Verify both files have common_function
+        let common_in_file1 = symbols_file1
+            .iter()
+            .filter(|s| s.name.as_deref() == Some("common_function"))
+            .count();
+
+        let common_in_file2 = symbols_file2
+            .iter()
+            .filter(|s| s.name.as_deref() == Some("common_function"))
+            .count();
+
+        assert_eq!(common_in_file1, 1, "file1.rs should have one common_function");
+        assert_eq!(common_in_file2, 1, "file2.rs should have one common_function");
+
+        // Verify each symbol has correct file_path
+        for symbol in &symbols_file1 {
+            assert!(
+                symbol.file_path.ends_with("src/file1.rs"),
+                "Symbol from file1 should have correct file_path, got: {}",
+                symbol.file_path.display()
+            );
+        }
+
+        for symbol in &symbols_file2 {
+            assert!(
+                symbol.file_path.ends_with("src/file2.rs"),
+                "Symbol from file2 should have correct file_path, got: {}",
+                symbol.file_path.display()
+            );
+        }
+
+        println!("Multi-file find results for 'common_function':");
+        println!("  file1.rs: {} symbols", symbols_file1.len());
+        println!("  file2.rs: {} symbols", symbols_file2.len());
+    }
+}
