@@ -128,7 +128,7 @@ See [.planning/milestones/v2.1-ROADMAP.md](.planning/milestones/v2.1-ROADMAP.md)
 - [x] 62-01-PLAN.md — Verify CLI commands expose cross-file functionality
 **Status**: Complete 2026-02-09
 
-#### Phase 63: Error Handling Quality - Critical Paths
+#### Phase 63: Error Handling Quality - Critical Paths ✅
 **Goal**: User-facing code paths have no unwrap() panic points
 **Depends on**: Nothing (can run parallel to Phase 60-62)
 **Requirements**: QUAL-01
@@ -139,7 +139,8 @@ See [.planning/milestones/v2.1-ROADMAP.md](.planning/milestones/v2.1-ROADMAP.md)
   4. Errors include context via `.context()` or `.with_context()`
   5. Clippy passes with `-- -W clippy::unwrap_used` on critical paths
 **Plans:** 1/1
-- [ ] 63-01-PLAN.md — Mutex lock poisoning error handling (indexer.rs, watcher/mod.rs)
+- [x] 63-01-PLAN.md — Mutex lock poisoning error handling (indexer.rs, watcher/mod.rs)
+**Status**: Complete 2026-02-09
 
 #### Phase 64: Code Organization & Backend Abstraction
 **Goal**: main.rs split into focused modules and backend abstraction completed
@@ -151,7 +152,11 @@ See [.planning/milestones/v2.1-ROADMAP.md](.planning/milestones/v2.1-ROADMAP.md)
   3. src/version.rs created with version information
   4. GraphBackend trait has no SQLite-specific method signatures
   5. Backend-specific code behind `#[cfg(feature = "...")]` gates
-**Plans**: TBD
+**Plans:** 4
+- [ ] 64-01-PLAN.md — Extract version information to src/version.rs module
+- [ ] 64-02-PLAN.md — Extract Command enum and parse_args function to src/cli.rs
+- [ ] 64-03-PLAN.md — Extract run_label function to src/label_cmd.rs
+- [ ] 64-04-PLAN.md — Gate SQLite-specific label query methods with conditional compilation
 
 #### Phase 65: Performance & Validation
 **Goal**: Codebase quality verified with comprehensive testing and benchmarking
@@ -180,8 +185,8 @@ Phases execute in numeric order: 60 → 61 → 62 → 63 → 64 → 65
 | 60. Import Infrastructure | v2.2 | 1/1 | Complete | 2026-02-09 |
 | 61. Cross-File Resolution | v2.2 | 3/3 | Complete | 2026-02-09 |
 | 62. CLI Exposure | v2.2 | 1/1 | Complete | 2026-02-09 |
-| 63. Error Handling Quality | v2.2 | 0/1 | Not started | - |
-| 64. Code Organization | v2.2 | 0/TBD | Not started | - |
+| 63. Error Handling Quality | v2.2 | 1/1 | Complete | 2026-02-09 |
+| 64. Code Organization | v2.2 | 0/4 | Not started | - |
 | 65. Performance & Validation | v2.2 | 0/TBD | Not started | - |
 
 ---
