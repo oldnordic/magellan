@@ -109,7 +109,11 @@ See [.planning/milestones/v2.1-ROADMAP.md](.planning/milestones/v2.1-ROADMAP.md)
   2. `refs` command returns multi-file results with file paths, lines, columns
   3. CALLS edges created across file boundaries during indexing
   4. `refs --direction in/out` shows call relationships from/to all files
-**Plans**: TBD
+**Plans:** 3
+- [ ] 61-01-PLAN.md — Import nodes create DEFINES edges to resolved files
+- [ ] 61-02-PLAN.md — Cross-file call indexing and querying
+- [ ] 61-03-PLAN.md — Cross-file reference indexing verification
+**Status**: Planned 2026-02-09
 
 #### Phase 62: CLI Exposure & Query Updates
 **Goal**: CLI commands expose cross-file resolution with clear, structured output
@@ -171,7 +175,7 @@ Phases execute in numeric order: 60 → 61 → 62 → 63 → 64 → 65
 | 46-55 | v2.0 | 55/55 | Complete | 2026-02-08 |
 | 56-59 | v2.1 | 13/13 | Complete | 2026-02-08 |
 | 60. Import Infrastructure | v2.2 | 1/1 | Complete | 2026-02-09 |
-| 61. Cross-File Resolution | v2.2 | 0/TBD | Not started | - |
+| 61. Cross-File Resolution | v2.2 | 0/3 | Planned | 2026-02-09 |
 | 62. CLI Exposure | v2.2 | 0/TBD | Not started | - |
 | 63. Error Handling Quality | v2.2 | 0/TBD | Not started | - |
 | 64. Code Organization | v2.2 | 0/TBD | Not started | - |

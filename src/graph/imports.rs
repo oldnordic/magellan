@@ -4,7 +4,7 @@
 
 use anyhow::Result;
 use sqlitegraph::{
-    BackendDirection, EdgeSpec, GraphBackend, NeighborQuery, NodeId, NodeSpec, SnapshotId,
+    BackendDirection, EdgeSpec, GraphBackend, NeighborQuery, NodeSpec, SnapshotId,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -117,6 +117,11 @@ impl ImportOps {
 
             let import_id = self.backend.insert_node(node_spec)?;
 
+            // Create DEFINES edge from import to resolved file (if available)
+            if let Some(target_file_id) = resolved_file_id {
+                self.create_import_edge(import_id, target_file_id)?;
+            }
+
             // Create IMPORTS edge from file to import
             let edge_spec = EdgeSpec {
                 from: file_id,
@@ -132,6 +137,23 @@ impl ImportOps {
         }
 
         Ok(imports.len())
+    }
+
+    /// Create DEFINES edge from import node to resolved file
+    ///
+    /// # Arguments
+    /// * `import_id` - Node ID of the import
+    /// * `target_id` - Node ID of the resolved file
+    fn create_import_edge(&self, import_id: i64, target_id: i64) -> Result<()> {
+        let edge_spec = EdgeSpec {
+            from: import_id,
+            to: target_id,
+            edge_type: "DEFINES".to_string(),
+            data: serde_json::json!({}),
+        };
+
+        self.backend.insert_edge(edge_spec)?;
+        Ok(())
     }
 
     /// Query all imports for a specific file
