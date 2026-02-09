@@ -7,7 +7,7 @@
 //!
 //! Run with: cargo bench --bench kv_metadata_bench --features native-v2
 
-use criterion::{black_box, BenchmarkId, Criterion, criterion_group, criterion_main};
+use criterion::{black_box, Criterion, criterion_group, criterion_main};
 use magellan::generation::{ChunkStore, CodeChunk};
 use magellan::graph::{ExecutionLog, MetricsOps};
 use magellan::graph::metrics::FileMetrics;
@@ -24,7 +24,7 @@ fn benchmark_chunk_operations(c: &mut Criterion) {
             let db_path = temp_dir.path().join("test.db");
 
             let graph = CodeGraph::open(&db_path).unwrap();
-            let backend = graph.__backend_for_benchmarks();
+            let _backend = graph.__backend_for_benchmarks();
             
             #[cfg(feature = "native-v2")]
             let chunk_store = ChunkStore::with_kv_backend(std::rc::Rc::clone(backend));
@@ -55,7 +55,7 @@ fn benchmark_chunk_operations(c: &mut Criterion) {
             // Store chunks first
             {
                 let graph = CodeGraph::open(&db_path).unwrap();
-                let backend = graph.__backend_for_benchmarks();
+                let _backend = graph.__backend_for_benchmarks();
                 
                 #[cfg(feature = "native-v2")]
                 let chunk_store = ChunkStore::with_kv_backend(std::rc::Rc::clone(backend));
@@ -77,7 +77,7 @@ fn benchmark_chunk_operations(c: &mut Criterion) {
             }
 
             // Retrieve chunks
-            let graph = CodeGraph::open(&db_path).unwrap();
+            let _graph = CodeGraph::open(&db_path).unwrap();
             let chunk_store = ChunkStore::new(&db_path);
             
             for i in 0..100 {
@@ -99,7 +99,7 @@ fn benchmark_execution_log_ops(c: &mut Criterion) {
             let db_path = temp_dir.path().join("test.db");
 
             let graph = CodeGraph::open(&db_path).unwrap();
-            let backend = graph.__backend_for_benchmarks();
+            let _backend = graph.__backend_for_benchmarks();
             
             #[cfg(feature = "native-v2")]
             let execution_log = ExecutionLog::with_kv_backend(std::rc::Rc::clone(backend));
@@ -130,7 +130,7 @@ fn benchmark_metrics_ops(c: &mut Criterion) {
             let db_path = temp_dir.path().join("test.db");
 
             let graph = CodeGraph::open(&db_path).unwrap();
-            let backend = graph.__backend_for_benchmarks();
+            let _backend = graph.__backend_for_benchmarks();
             
             #[cfg(feature = "native-v2")]
             let metrics = MetricsOps::with_kv_backend(std::rc::Rc::clone(backend));
@@ -147,7 +147,7 @@ fn benchmark_metrics_ops(c: &mut Criterion) {
                     fan_in: 0,
                     fan_out: i,
                     complexity_score: i as f64,
-                    last_updated: i as i64,
+                    last_updated: i,
                 };
                 black_box(metrics.upsert_file_metrics(&file_metrics)).unwrap();
             }
@@ -182,7 +182,7 @@ pub fn helper() {
             // Index file (creates graph entities/edges)
             black_box(graph.index_file("test.rs", source_code.as_bytes())).unwrap();
 
-            let backend = graph.__backend_for_benchmarks();
+            let _backend = graph.__backend_for_benchmarks();
 
             // Store chunks
             #[cfg(feature = "native-v2")]

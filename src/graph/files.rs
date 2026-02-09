@@ -58,7 +58,7 @@ impl FileOps {
             .and_then(|m| m.modified())
             .and_then(|t| {
                 t.duration_since(UNIX_EPOCH)
-                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+                    .map_err(std::io::Error::other)
             })
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0)

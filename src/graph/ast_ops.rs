@@ -31,7 +31,6 @@ fn get_file_id_kv(backend: &std::rc::Rc<dyn sqlitegraph::GraphBackend>, file_pat
 
     match backend.kv_get(snapshot, &key)? {
         Some(KvValue::Integer(id)) => Ok(Some(id as u64)),
-        Some(KvValue::BigInt(id)) => Ok(Some(id as u64)),
         _ => Ok(None),
     }
 }
@@ -48,7 +47,7 @@ impl CodeGraph {
     /// # Note
     /// For Native-V2 backend, uses KV store with ast:file:{file_id} key.
     /// For SQLite backend, queries ast_nodes table.
-    pub fn get_ast_nodes_by_file(&self, file_path: &str) -> Result<Vec<AstNodeWithText>> {
+    pub fn get_ast_nodes_by_file(&self, _file_path: &str) -> Result<Vec<AstNodeWithText>> {
         #[cfg(feature = "native-v2")]
         {
             // Check if using Native-V2 backend via ChunkStore helper
@@ -104,7 +103,7 @@ impl CodeGraph {
             })?
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()
-            .map(|node| AstNodeWithText::from(node))
+            .map(AstNodeWithText::from)
             .collect();
 
         Ok(nodes)
@@ -293,7 +292,7 @@ impl CodeGraph {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "native-v2")))]
 mod tests {
     use super::*;
     use tempfile::tempdir;

@@ -53,13 +53,13 @@ use std::cell::RefCell;
 // Thread-local parser storage for each supported language.
 // Each thread gets its own parser instance, avoiding lock contention.
 thread_local! {
-    static RUST_PARSER: RefCell<Option<tree_sitter::Parser>> = RefCell::new(None);
-    static PYTHON_PARSER: RefCell<Option<tree_sitter::Parser>> = RefCell::new(None);
-    static C_PARSER: RefCell<Option<tree_sitter::Parser>> = RefCell::new(None);
-    static CPP_PARSER: RefCell<Option<tree_sitter::Parser>> = RefCell::new(None);
-    static JAVA_PARSER: RefCell<Option<tree_sitter::Parser>> = RefCell::new(None);
-    static JAVASCRIPT_PARSER: RefCell<Option<tree_sitter::Parser>> = RefCell::new(None);
-    static TYPESCRIPT_PARSER: RefCell<Option<tree_sitter::Parser>> = RefCell::new(None);
+    static RUST_PARSER: RefCell<Option<tree_sitter::Parser>> = const { RefCell::new(None) };
+    static PYTHON_PARSER: RefCell<Option<tree_sitter::Parser>> = const { RefCell::new(None) };
+    static C_PARSER: RefCell<Option<tree_sitter::Parser>> = const { RefCell::new(None) };
+    static CPP_PARSER: RefCell<Option<tree_sitter::Parser>> = const { RefCell::new(None) };
+    static JAVA_PARSER: RefCell<Option<tree_sitter::Parser>> = const { RefCell::new(None) };
+    static JAVASCRIPT_PARSER: RefCell<Option<tree_sitter::Parser>> = const { RefCell::new(None) };
+    static TYPESCRIPT_PARSER: RefCell<Option<tree_sitter::Parser>> = const { RefCell::new(None) };
 }
 
 /// Initialize or get the thread-local Rust parser
@@ -279,27 +279,54 @@ pub fn warmup_parsers() -> Result<()> {
 
 /// Clean up thread-local parser resources.
 ///
-/// This is a no-op function provided for documentation and API completeness.
-/// The tree-sitter Parser automatically cleans up C resources via its Drop
-/// implementation when thread-local storage is destroyed.
+/// This function explicitly drops all thread-local parser instances,
+/// ensuring that C resources are cleaned up before the thread exits.
+/// This prevents the `tcache_thread_shutdown` crash that can occur during
+/// glibc's TLS cleanup if parsers are still allocated.
+///
+/// # Important
+///
+/// **Call this before thread exit** to ensure clean parser cleanup.
+/// The tree-sitter Parser implements Drop, but relying on implicit Drop
+/// during thread exit can cause glibc to crash with `tcache_thread_shutdown`.
 ///
 /// # Note
 ///
-/// Thread-local parsers are dropped when their thread exits.
-/// In long-running applications with thread pools, parsers persist
-/// for the pool's lifetime. This is intentional and avoids re-initialization cost.
+/// After calling this function, parsers will be re-initialized on next use
+/// via lazy initialization. This is safe but will incur re-initialization cost.
 ///
 /// # Example
 ///
 /// ```rust,no_run
 /// use crate::ingest::pool::cleanup_parsers;
 ///
-/// // During graceful shutdown
+/// // During graceful shutdown, before thread exit
 /// cleanup_parsers();
 /// ```
 pub fn cleanup_parsers() {
-    // No-op: tree-sitter Parser implements Drop
-    // Kept for API completeness and documentation
+    // Explicitly drop all thread-local parsers to ensure clean C cleanup
+    // before glibc's TLS cleanup runs (which can crash with tcache_thread_shutdown)
+    RUST_PARSER.with(|parser_cell| {
+        parser_cell.borrow_mut().take();
+    });
+    PYTHON_PARSER.with(|parser_cell| {
+        parser_cell.borrow_mut().take();
+    });
+    C_PARSER.with(|parser_cell| {
+        parser_cell.borrow_mut().take();
+    });
+    CPP_PARSER.with(|parser_cell| {
+        parser_cell.borrow_mut().take();
+    });
+    JAVA_PARSER.with(|parser_cell| {
+        parser_cell.borrow_mut().take();
+    });
+    JAVASCRIPT_PARSER.with(|parser_cell| {
+        parser_cell.borrow_mut().take();
+    });
+    TYPESCRIPT_PARSER.with(|parser_cell| {
+        parser_cell.borrow_mut().take();
+    });
 }
 
 #[cfg(test)]

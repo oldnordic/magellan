@@ -129,7 +129,7 @@ impl CfgOps {
         let mut stmt = conn.prepare(&sql)?;
 
         // Convert &[i64] to rusqlite parameters
-        let params: Vec<_> = function_ids.iter().map(|id| *id as i64).collect();
+        let params: Vec<_> = function_ids.iter().copied().collect();
 
         let affected = stmt.execute(rusqlite::params_from_iter(params))?;
         Ok(affected)

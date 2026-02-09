@@ -504,8 +504,8 @@ impl Parser {
             fqn: Some(fqn),
             canonical_fqn: Some(canonical_fqn),
             display_fqn: Some(display_fqn),
-            byte_start: node.start_byte() as usize,
-            byte_end: node.end_byte() as usize,
+            byte_start: node.start_byte(),
+            byte_end: node.end_byte(),
             start_line: node.start_position().row + 1,
             start_col: node.start_position().column,
             end_line: node.end_position().row + 1,
@@ -527,7 +527,7 @@ impl Parser {
         for child in node.children(&mut cursor) {
             match child.kind() {
                 "identifier" | "type_identifier" => {
-                    let name_bytes = safe_slice(source, child.start_byte() as usize, child.end_byte() as usize)?;
+                    let name_bytes = safe_slice(source, child.start_byte(), child.end_byte())?;
                     return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
                 }
                 _ => {}
@@ -542,7 +542,7 @@ impl Parser {
         // Access the 'type' field which always contains the struct name
         let type_node = node.child_by_field_name("type")?;
 
-        let name_bytes = safe_slice(source, type_node.start_byte() as usize, type_node.end_byte() as usize)?;
+        let name_bytes = safe_slice(source, type_node.start_byte(), type_node.end_byte())?;
         std::str::from_utf8(name_bytes).ok().map(|s| s.to_string())
     }
 
@@ -709,8 +709,8 @@ impl Parser {
             fqn: Some(fqn),
             canonical_fqn: Some(canonical_fqn),
             display_fqn: Some(display_fqn),
-            byte_start: node.start_byte() as usize,
-            byte_end: node.end_byte() as usize,
+            byte_start: node.start_byte(),
+            byte_end: node.end_byte(),
             start_line: node.start_position().row + 1,
             start_col: node.start_position().column,
             end_line: node.end_position().row + 1,
@@ -732,7 +732,7 @@ impl Parser {
         for child in node.children(&mut cursor) {
             match child.kind() {
                 "identifier" | "type_identifier" => {
-                    let name_bytes = safe_slice(source, child.start_byte() as usize, child.end_byte() as usize)?;
+                    let name_bytes = safe_slice(source, child.start_byte(), child.end_byte())?;
                     return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
                 }
                 _ => {}
@@ -756,7 +756,7 @@ impl Parser {
         // Access the 'type' field which always contains the struct name
         let type_node = node.child_by_field_name("type")?;
 
-        let name_bytes = safe_slice(source, type_node.start_byte() as usize, type_node.end_byte() as usize)?;
+        let name_bytes = safe_slice(source, type_node.start_byte(), type_node.end_byte())?;
         std::str::from_utf8(name_bytes).ok().map(|s| s.to_string())
     }
 }

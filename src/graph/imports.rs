@@ -6,7 +6,6 @@ use anyhow::Result;
 use sqlitegraph::{
     BackendDirection, EdgeSpec, GraphBackend, NeighborQuery, NodeSpec, SnapshotId,
 };
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -125,7 +124,7 @@ impl ImportOps {
             // Create IMPORTS edge from file to import
             let edge_spec = EdgeSpec {
                 from: file_id,
-                to: import_id.into(),
+                to: import_id,
                 edge_type: "IMPORTS".to_string(),
                 data: serde_json::json!({
                     "byte_start": import_fact.byte_start,

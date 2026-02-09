@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use crate::{generate_execution_id, output_json, CodeGraph, OutputFormat};

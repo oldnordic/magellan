@@ -17,7 +17,6 @@ use anyhow::{Context, Result};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -332,7 +331,7 @@ pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>
         let watcher_config = config.watcher_config.clone();
         let shared_state = Arc::new(shared_state);
         let shutdown_watch = shutdown.clone();
-        let db_path = config.db_path.clone();
+        let _db_path = config.db_path.clone();
 
         #[cfg(feature = "native-v2")]
         let pubsub_sender = pubsub_cache_tx.clone();

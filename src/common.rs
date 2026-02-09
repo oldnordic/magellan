@@ -152,7 +152,7 @@ pub fn parse_symbol_kind(s: &str) -> Option<SymbolKind> {
 /// let slice = safe_slice(source, 0, 5); // Some(b"hello")
 /// let invalid = safe_slice(source, 10, 20); // None (out of bounds)
 /// ```
-pub fn safe_slice<'a>(source: &'a [u8], start: usize, end: usize) -> Option<&'a [u8]> {
+pub fn safe_slice(source: &[u8], start: usize, end: usize) -> Option<&[u8]> {
     if start <= end && end <= source.len() {
         Some(&source[start..end])
     } else {
@@ -172,7 +172,7 @@ pub fn safe_slice<'a>(source: &'a [u8], start: usize, end: usize) -> Option<&'a 
 ///
 /// # Returns
 /// Some(&str) if bounds are valid and UTF-8 safe, None otherwise
-pub fn safe_str_slice<'a>(source: &'a str, start: usize, end: usize) -> Option<&'a str> {
+pub fn safe_str_slice(source: &str, start: usize, end: usize) -> Option<&str> {
     if start <= end && end <= source.len() {
         source.get(start..end)
     } else {

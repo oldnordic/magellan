@@ -179,7 +179,7 @@ pub fn has_suspicious_traversal(path: &str) -> bool {
     for (i, part) in parts.iter().enumerate() {
         if *part == "." && i < parts.len() - 1 {
             // Found "./", check if any later part is ".."
-            if parts[i + 1..].iter().any(|p| *p == "..") {
+            if parts[i + 1..].contains(&"..") {
                 return true;
             }
         }
@@ -188,11 +188,10 @@ pub fn has_suspicious_traversal(path: &str) -> bool {
     // Windows-specific mixed pattern: ".\" followed by "..\"
     let parts_win: Vec<&str> = path_win.split('\\').collect();
     for (i, part) in parts_win.iter().enumerate() {
-        if *part == "." && i < parts_win.len() - 1 {
-            if parts_win[i + 1..].iter().any(|p| *p == "..") {
+        if *part == "." && i < parts_win.len() - 1
+            && parts_win[i + 1..].contains(&"..") {
                 return true;
             }
-        }
     }
 
     false

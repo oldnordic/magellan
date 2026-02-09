@@ -78,13 +78,7 @@ pub fn run_migrate(
         None
     };
 
-    let old_version = match current_version {
-        Some(v) => v,
-        None => {
-            // Old database without magellan_meta table, assume version 1
-            1
-        }
-    };
+    let old_version = current_version.unwrap_or(1);
 
     if old_version == MAGELLAN_SCHEMA_VERSION {
         return Ok(MigrationResult {

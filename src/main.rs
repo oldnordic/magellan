@@ -25,7 +25,6 @@ mod version;
 mod cli;
 
 use magellan::output::{output_json, JsonResponse, MigrateResponse, OutputFormat};
-use serde_json;
 use magellan::CodeGraph;
 use std::process::ExitCode;
 
@@ -404,7 +403,7 @@ fn main() -> ExitCode {
                 Ok(exit_code) => ExitCode::from(exit_code),
                 Err(e) => {
                     eprintln!("Error: {}", e);
-                    return ExitCode::from(1);
+                    ExitCode::from(1)
                 }
             }
         }

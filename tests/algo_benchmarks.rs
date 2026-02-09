@@ -329,7 +329,7 @@ fn benchmark_branching_graph_reachability() {
 
     let mut count = 0;
     for level in 0..depth {
-        for _parent in 0..branching_factor.pow(level as u32) {
+        for _parent in 0..branching_factor.pow(level) {
             for child in 0..branching_factor {
                 let name = format!("branch_{}_{}", level, count);
                 if level < depth - 1 {

@@ -217,7 +217,7 @@ fn test_export_json_includes_file_details() {
     let files = &parsed["files"];
     assert!(files.is_array(), "files should be an array");
 
-    if files.as_array().unwrap().len() > 0 {
+    if !files.as_array().unwrap().is_empty() {
         let file = &files[0];
         assert!(file.get("path").is_some(), "File should have 'path'");
         assert!(file.get("hash").is_some(), "File should have 'hash'");
@@ -411,7 +411,7 @@ fn helper() {}
 
     // NDJSON should have one JSON object per line
     let lines: Vec<&str> = ndjson.lines().collect();
-    assert!(lines.len() > 0, "NDJSON should have at least one line");
+    assert!(!lines.is_empty(), "NDJSON should have at least one line");
 
     // Each line should be valid JSON
     for (i, line) in lines.iter().enumerate() {

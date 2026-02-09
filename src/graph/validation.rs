@@ -512,6 +512,7 @@ mod tests {
     // === Task 2: Orphan detection tests ===
 
     #[test]
+    #[cfg(not(feature = "native-v2"))]
     fn test_check_orphan_references_clean_graph() {
         // Create a graph with valid Symbol and Reference nodes with proper REFERENCES edges
         // Use file-based database because :memory: doesn't work with separate connections
@@ -594,6 +595,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "native-v2"))]
     fn test_check_orphan_calls_clean_graph() {
         // Create a graph with valid Call nodes and proper CALLER/CALLS edges
         let mut graph = crate::CodeGraph::open(":memory:").unwrap();

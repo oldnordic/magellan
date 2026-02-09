@@ -337,7 +337,7 @@ pub fn index_references(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Res
                         if !display_fqn.is_empty() {
                             display_fqn_groups
                                 .entry(display_fqn.clone())
-                                .or_insert_with(Vec::new)
+                                .or_default()
                                 .push(entity_id);
                         }
                     }
@@ -362,12 +362,12 @@ pub fn index_references(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Res
     }
 
     // Index references using ReferenceOps with ALL symbols
-    Ok(graph.references.index_references_with_symbol_id(
+    graph.references.index_references_with_symbol_id(
         path,
         source,
         &symbol_id_to_id,
         &symbol_fqn_to_id,
-    )?)
+    )
 }
 
 /// Query all references to a specific symbol
@@ -467,8 +467,7 @@ impl CodeGraph {
         let conn = self.chunks.connect()?;
 
         // Build query with positional placeholders for each label
-        let placeholders = std::iter::repeat("?")
-            .take(labels.len())
+        let placeholders = std::iter::repeat_n("?", labels.len())
             .collect::<Vec<_>>()
             .join(", ");
         let query = format!(

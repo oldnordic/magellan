@@ -6,7 +6,6 @@
 use anyhow::Result;
 use rusqlite::{params, OptionalExtension};
 use std::path::Path;
-use std::rc::Rc;
 
 #[cfg(feature = "native-v2")]
 use sqlitegraph::GraphBackend;

@@ -616,7 +616,7 @@ pub fn export_json(graph: &mut CodeGraph) -> Result<String> {
         .sort_by(|a, b| (&a.file, &a.referenced_symbol).cmp(&(&b.file, &b.referenced_symbol)));
     calls.sort_by(|a, b| (&a.file, &a.caller, &a.callee).cmp(&(&b.file, &b.caller, &b.callee)));
 
-    let mut export_data = serde_json::json!({
+    let export_data = serde_json::json!({
         "version": "2.0.0",
         "files": files,
         "symbols": symbols,
@@ -1125,7 +1125,7 @@ pub fn export_jsonl(graph: &mut CodeGraph) -> Result<String> {
     });
 
     // Serialize each record to compact JSON and join with newlines
-    let lines: Result<Vec<String>, _> = records.iter().map(|r| serde_json::to_string(r)).collect();
+    let lines: Result<Vec<String>, _> = records.iter().map(serde_json::to_string).collect();
     let lines = lines?;
 
     Ok(lines.join("\n"))
@@ -1356,7 +1356,7 @@ pub fn export_dot(graph: &mut CodeGraph, config: &ExportConfig) -> Result<String
             if config.filters.cluster {
                 file_to_nodes
                     .entry(call.file.clone())
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push((node_id, label));
             }
         }

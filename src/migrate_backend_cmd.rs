@@ -24,7 +24,6 @@
 //! These must be migrated separately via direct SQL.
 
 use anyhow::Result;
-use rusqlite::params;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -161,7 +160,7 @@ pub fn detect_backend_format(db_path: &Path) -> Result<BackendFormat, MigrationE
     })?;
 
     // Check for Native V2 magic bytes
-    if &magic == NATIVE_V2_MAGIC {
+    if magic == NATIVE_V2_MAGIC {
         return Ok(BackendFormat::NativeV2);
     }
 
@@ -772,7 +771,7 @@ pub fn migrate_side_tables(source_db: &Path, target_db: &Path) -> Result<bool> {
         let table_exists: bool = source_conn
             .query_row(
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1",
-                &[table_name],
+                [table_name],
                 |_| Ok(true),
             )
             .unwrap_or(false);

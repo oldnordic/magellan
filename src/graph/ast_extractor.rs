@@ -4,9 +4,7 @@
 //! from tree-sitter parse trees. It handles language-specific node kind
 //! mapping and parent-child relationship tracking.
 
-use anyhow::Result;
 use tree_sitter::{Node, Tree};
-use std::rc::Rc;
 
 use crate::graph::ast_node::{is_structural_kind, AstNode, kinds};
 

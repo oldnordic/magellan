@@ -99,7 +99,7 @@ pub fn check_freshness(graph: &CodeGraph) -> Result<FreshnessStatus> {
 
     // Find the most recent index time
     let mut max_indexed_at: i64 = 0;
-    for (_path, file_node) in &file_nodes {
+    for file_node in file_nodes.values() {
         if file_node.last_indexed_at > max_indexed_at {
             max_indexed_at = file_node.last_indexed_at;
         }

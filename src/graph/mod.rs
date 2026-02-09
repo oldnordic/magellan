@@ -360,7 +360,7 @@ impl CodeGraph {
             .parent()
             .unwrap_or_else(|| Path::new("."))
             .to_path_buf();
-        let mut module_resolver = module_resolver::ModuleResolver::new(
+        let module_resolver = module_resolver::ModuleResolver::new(
             Rc::clone(&backend),
             project_root,
         );

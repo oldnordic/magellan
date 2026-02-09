@@ -3,9 +3,8 @@
 //! Provides module resolution for crate::, super::, self:: prefixes.
 
 use anyhow::Result;
-use sqlitegraph::{GraphBackend, SnapshotId};
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use sqlitegraph::GraphBackend;
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use crate::graph::schema::ModulePathCache;

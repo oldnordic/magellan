@@ -295,7 +295,7 @@ fn test_span_extraction_with_tabs() {
 
     // Tab is 1 byte - check the first character which should be the tab
     assert_eq!(
-        extracted.as_bytes().get(0),
+        extracted.as_bytes().first(),
         Some(&b'\t'),
         "First char is tab (byte 0x09)"
     );

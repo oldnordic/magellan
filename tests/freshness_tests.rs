@@ -161,7 +161,7 @@ fn test_warning_includes_time_difference() {
     let minutes = status.minutes_since_index();
 
     assert!(
-        minutes >= 9 && minutes <= 11,
+        (9..=11).contains(&minutes),
         "Should be ~10 minutes old, got {}",
         minutes
     );

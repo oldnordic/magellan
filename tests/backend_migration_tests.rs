@@ -446,7 +446,7 @@ fn test_migration_dry_run() {
 #[test]
 fn test_migration_preserves_chunk_content() {
     use magellan::generation::{ChunkStore, CodeChunk};
-    use sqlitegraph::GraphBackend;
+    
 
     let temp_dir = TempDir::new().unwrap();
     let source_db = temp_dir.path().join("source.db");
@@ -471,7 +471,7 @@ fn test_migration_preserves_chunk_content() {
     }
 
     // Get original bytes from SQLite
-    let original_bytes = {
+    let _original_bytes = {
         let conn = rusqlite::Connection::open(&source_db).unwrap();
         let mut stmt = conn.prepare("SELECT content FROM code_chunks WHERE file_path = 'test.rs'").unwrap();
         stmt.query_row([], |row| row.get::<_, Vec<u8>>(0)).unwrap()

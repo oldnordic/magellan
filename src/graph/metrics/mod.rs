@@ -20,8 +20,6 @@
 use anyhow::Result;
 use rusqlite::{params, OptionalExtension};
 use std::path::Path;
-use std::path::PathBuf;
-use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(feature = "native-v2")]
@@ -332,15 +330,15 @@ impl MetricsOps {
         );
         let mut param_count = 0;
 
-        if let Some(_) = min_loc {
+        if min_loc.is_some() {
             param_count += 1;
             query.push_str(&format!(" AND loc >= ?{param_count}"));
         }
-        if let Some(_) = min_fan_in {
+        if min_fan_in.is_some() {
             param_count += 1;
             query.push_str(&format!(" AND fan_in >= ?{param_count}"));
         }
-        if let Some(_) = min_fan_out {
+        if min_fan_out.is_some() {
             param_count += 1;
             query.push_str(&format!(" AND fan_out >= ?{param_count}"));
         }

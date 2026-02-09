@@ -296,7 +296,7 @@ impl SymbolOps {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "native-v2")))]
 mod tests {
     use super::*;
     use crate::graph::schema::SymbolNode;

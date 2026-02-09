@@ -224,7 +224,7 @@ pub fn export_scip(graph: &CodeGraph, config: &ScipExportConfig) -> Result<Vec<u
 
                     file_to_symbols
                         .entry(file_path)
-                        .or_insert_with(Vec::new)
+                        .or_default()
                         .push((entity_id, symbol_node));
                 }
             }
@@ -235,7 +235,7 @@ pub fn export_scip(graph: &CodeGraph, config: &ScipExportConfig) -> Result<Vec<u
                 {
                     file_to_references
                         .entry(ref_node.file.clone())
-                        .or_insert_with(Vec::new)
+                        .or_default()
                         .push(ref_node);
                 }
             }

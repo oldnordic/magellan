@@ -184,7 +184,7 @@ impl CallOps {
         for (fqn, &id) in symbol_ids.iter() {
             // Extract simple name from FQN (after last :: or .)
             let simple_name = fqn.split("::").last().unwrap_or(fqn.as_str());
-            let simple_name = simple_name.split('.').last().unwrap_or(simple_name);
+            let simple_name = simple_name.split('.').next_back().unwrap_or(simple_name);
             name_to_ids
                 .entry(simple_name.to_string())
                 .or_default()

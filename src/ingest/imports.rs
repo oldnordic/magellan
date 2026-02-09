@@ -155,7 +155,7 @@ impl ImportExtractor {
 
         // Find the argument (the path being imported)
         let argument = node.child_by_field_name("argument")?;
-        let argument_text = safe_slice(source, argument.start_byte() as usize, argument.end_byte() as usize)?;
+        let argument_text = safe_slice(source, argument.start_byte(), argument.end_byte())?;
         let import_str = std::str::from_utf8(argument_text).ok()?;
 
         // Parse the import path and determine the kind
@@ -168,12 +168,12 @@ impl ImportExtractor {
             import_path,
             imported_names,
             is_glob,
-            byte_start: start as usize,
-            byte_end: end as usize,
-            start_line: start_line as usize,
-            start_col: start_col as usize,
-            end_line: end_line as usize,
-            end_col: end_col as usize,
+            byte_start: start,
+            byte_end: end,
+            start_line,
+            start_col,
+            end_line,
+            end_col,
         })
     }
 
@@ -201,7 +201,7 @@ impl ImportExtractor {
 
         // Get the module name
         let name_node = node.child_by_field_name("name")?;
-        let name_bytes = safe_slice(source, name_node.start_byte() as usize, name_node.end_byte() as usize)?;
+        let name_bytes = safe_slice(source, name_node.start_byte(), name_node.end_byte())?;
         let name = std::str::from_utf8(name_bytes).ok()?;
 
         Some(ImportFact {
@@ -210,12 +210,12 @@ impl ImportExtractor {
             import_path: vec![name.to_string()],
             imported_names: vec![name.to_string()],
             is_glob: false,
-            byte_start: start as usize,
-            byte_end: end as usize,
-            start_line: start_line as usize,
-            start_col: start_col as usize,
-            end_line: end_line as usize,
-            end_col: end_col as usize,
+            byte_start: start,
+            byte_end: end,
+            start_line,
+            start_col,
+            end_line,
+            end_col,
         })
     }
 

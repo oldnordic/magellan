@@ -271,7 +271,7 @@ impl AmbiguityOps for CodeGraph {
 
         // Verify symbol matches display_fqn (optional validation)
         if let Some(ref s) = symbol {
-            if s.display_fqn.as_ref().map(|s| s.as_str()) == Some(display_fqn) {
+            if s.display_fqn.as_deref() == Some(display_fqn) {
                 return Ok(symbol);
             }
         }

@@ -424,7 +424,7 @@ fn stress_mixed_operations() {
     // - 25 deletions (files 2, 6, 10, 14, ..., 98)
     // Expected: 100 - 25 = 75 files remaining
     assert!(
-        graph_file_count >= 70 && graph_file_count <= 80,
+        (70..=80).contains(&graph_file_count),
         "Expected 70-80 files after mixed operations, got {}",
         graph_file_count
     );
@@ -606,7 +606,7 @@ fn stress_database_integrity() {
 
     // Count total symbols across all files
     let mut total_symbols = 0;
-    for (_path, _file_node) in &file_nodes {
+    for _file_node in file_nodes.values() {
         // Each file should have at least one symbol
         // We verify by checking file_nodes consistency
         total_symbols += 1; // Placeholder - actual symbol counting would require more queries

@@ -65,7 +65,7 @@ pub fn verify_graph(graph: &mut CodeGraph, root: &Path) -> Result<VerifyReport> 
         .collect();
 
     // Find missing files (in DB but not on filesystem)
-    for (path, _file_node) in &db_files {
+    for path in db_files.keys() {
         let path_buf = PathBuf::from(path);
         if !fs_paths.contains(path) && !path_exists_on_disk(&path_buf) {
             // File is in DB but doesn't exist on filesystem

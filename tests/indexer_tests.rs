@@ -29,7 +29,7 @@ fn write_and_sync(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 /// processes the file after it is fully written.
 fn touch_and_sync(path: &Path) -> std::io::Result<()> {
     use std::fs::OpenOptions;
-    let mut file = OpenOptions::new().write(true).append(true).open(path)?;
+    let mut file = OpenOptions::new().append(true).open(path)?;
     std::io::Write::write_all(&mut file, b"\n")?;
     file.sync_all()?;
     Ok(())

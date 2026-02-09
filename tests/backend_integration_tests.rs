@@ -9,7 +9,6 @@ use magellan::generation::{ChunkStore, CodeChunk};
 use sqlitegraph::NativeGraphBackend;
 #[cfg(feature = "native-v2")]
 use std::rc::Rc;
-use tempfile::TempDir;
 
 /// Test: get_chunks_for_file() returns same results on SQLite and Native-V2 backends.
 ///

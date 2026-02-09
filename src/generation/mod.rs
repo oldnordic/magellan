@@ -21,8 +21,7 @@ pub mod schema;
 
 use anyhow::Result;
 use rusqlite::{params, OptionalExtension};
-use std::path::{Path, PathBuf};
-use std::rc::Rc;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 #[cfg(feature = "native-v2")]

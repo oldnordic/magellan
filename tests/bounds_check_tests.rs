@@ -155,13 +155,13 @@ fn test_multiple_files_with_valid_byte_ranges() {
 
     // Verify total symbol count
     let symbols1 = graph
-        .symbols_in_file(&file1.to_string_lossy().to_string())
+        .symbols_in_file(file1.to_string_lossy().as_ref())
         .unwrap();
     let symbols2 = graph
-        .symbols_in_file(&file2.to_string_lossy().to_string())
+        .symbols_in_file(file2.to_string_lossy().as_ref())
         .unwrap();
     let symbols3 = graph
-        .symbols_in_file(&file3.to_string_lossy().to_string())
+        .symbols_in_file(file3.to_string_lossy().as_ref())
         .unwrap();
 
     assert_eq!(symbols1.len(), 1);

@@ -236,12 +236,12 @@ pub fn run_find(
 
         // Display candidates with SymbolId and canonical FQN
         for (entity_id, symbol) in candidates.iter().enumerate() {
-            let sid = symbol.1.symbol_id.as_ref().map(|s| s.as_str()).unwrap_or("<none>");
-            let canon = symbol.1.canonical_fqn.as_ref().map(|s| s.as_str()).unwrap_or("<none>");
+            let sid = symbol.1.symbol_id.as_deref().unwrap_or("<none>");
+            let canon = symbol.1.canonical_fqn.as_deref().unwrap_or("<none>");
             eprintln!("  [{}]", entity_id + 1);
             eprintln!("    Symbol ID: {}", sid);
             eprintln!("    Canonical: {}", canon);
-            eprintln!("    Name: {}", symbol.1.name.as_ref().map(|s| s.as_str()).unwrap_or("<none>"));
+            eprintln!("    Name: {}", symbol.1.name.as_deref().unwrap_or("<none>"));
             eprintln!("    Kind: {}", symbol.1.kind);
         }
 

@@ -122,7 +122,7 @@ fn find_function_body<'a>(func_node: &Node<'a>) -> Option<Node<'a>> {
         loop {
             let child = cursor.node();
             if child.kind() == "block" {
-                return Some(child.clone());
+                return Some(child);
             }
             if !cursor.goto_next_sibling() {
                 break;

@@ -280,8 +280,7 @@ impl ModulePathCache {
         // "foo/bar/mod" -> remove "mod" -> "foo/bar"
         let module_parts: Vec<&str> = parts
             .iter()
-            .filter(|&&part| part != "mod")
-            .map(|&part| part)
+            .filter(|&&part| part != "mod").copied()
             .collect();
 
         // If we have lib.rs or main.rs, this is the crate root
@@ -309,8 +308,7 @@ pub fn delete_edges_touching_entities(
     }
 
     // Build placeholders for IN list.
-    let placeholders = std::iter::repeat("?")
-        .take(entity_ids_sorted.len())
+    let placeholders = std::iter::repeat_n("?", entity_ids_sorted.len())
         .collect::<Vec<_>>()
         .join(", ");
 
@@ -322,8 +320,7 @@ pub fn delete_edges_touching_entities(
     // Params are duplicated (for from_id and to_id IN lists).
     let params = entity_ids_sorted
         .iter()
-        .chain(entity_ids_sorted.iter())
-        .map(|id| *id);
+        .chain(entity_ids_sorted.iter()).copied();
 
     let affected = conn
         .execute(&sql, params_from_iter(params))

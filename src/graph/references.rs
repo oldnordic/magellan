@@ -141,12 +141,12 @@ impl ReferenceOps {
                                     fqn: if fqn.is_empty() { None } else { Some(fqn) },
                                     canonical_fqn: None,
                                     display_fqn: None,
-                                    byte_start: symbol_node.byte_start as usize,
-                                    byte_end: symbol_node.byte_end as usize,
-                                    start_line: symbol_node.start_line as usize,
-                                    start_col: symbol_node.start_col as usize,
-                                    end_line: symbol_node.end_line as usize,
-                                    end_col: symbol_node.end_col as usize,
+                                    byte_start: symbol_node.byte_start,
+                                    byte_end: symbol_node.byte_end,
+                                    start_line: symbol_node.start_line,
+                                    start_col: symbol_node.start_col,
+                                    end_line: symbol_node.end_line,
+                                    end_col: symbol_node.end_col,
                                 });
                             }
                         }
@@ -276,12 +276,12 @@ impl ReferenceOps {
                                     fqn: if fqn.is_empty() { None } else { Some(fqn) },
                                     canonical_fqn: symbol_node.canonical_fqn.clone(),
                                     display_fqn: symbol_node.display_fqn.clone(),
-                                    byte_start: symbol_node.byte_start as usize,
-                                    byte_end: symbol_node.byte_end as usize,
-                                    start_line: symbol_node.start_line as usize,
-                                    start_col: symbol_node.start_col as usize,
-                                    end_line: symbol_node.end_line as usize,
-                                    end_col: symbol_node.end_col as usize,
+                                    byte_start: symbol_node.byte_start,
+                                    byte_end: symbol_node.byte_end,
+                                    start_line: symbol_node.start_line,
+                                    start_col: symbol_node.start_col,
+                                    end_line: symbol_node.end_line,
+                                    end_col: symbol_node.end_col,
                                 });
                             }
                         }

@@ -12,7 +12,7 @@
 
 mod harness;
 
-use criterion::{black_box, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+use criterion::{black_box, Criterion, Throughput, criterion_group, criterion_main};
 use harness::{setup_high_fanout_graph, setup_large_graph, setup_test_graph};
 
 /// B1: Neighbor Expansion Benchmark

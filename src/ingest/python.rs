@@ -163,8 +163,8 @@ impl PythonParser {
             fqn: Some(fqn),
             canonical_fqn: Some(canonical_fqn),
             display_fqn: Some(display_fqn),
-            byte_start: node.start_byte() as usize,
-            byte_end: node.end_byte() as usize,
+            byte_start: node.start_byte(),
+            byte_end: node.end_byte(),
             start_line: node.start_position().row + 1, // tree-sitter is 0-indexed
             start_col: node.start_position().column,
             end_line: node.end_position().row + 1,
@@ -178,7 +178,7 @@ impl PythonParser {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "identifier" {
-                let name_bytes = safe_slice(source, child.start_byte() as usize, child.end_byte() as usize)?;
+                let name_bytes = safe_slice(source, child.start_byte(), child.end_byte())?;
                 return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
             }
         }
@@ -322,8 +322,8 @@ impl PythonParser {
             fqn: Some(fqn),
             canonical_fqn: Some(canonical_fqn),
             display_fqn: Some(display_fqn),
-            byte_start: node.start_byte() as usize,
-            byte_end: node.end_byte() as usize,
+            byte_start: node.start_byte(),
+            byte_end: node.end_byte(),
             start_line: node.start_position().row + 1,
             start_col: node.start_position().column,
             end_line: node.end_position().row + 1,
@@ -337,7 +337,7 @@ impl PythonParser {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "identifier" {
-                let name_bytes = safe_slice(source, child.start_byte() as usize, child.end_byte() as usize)?;
+                let name_bytes = safe_slice(source, child.start_byte(), child.end_byte())?;
                 return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
             }
         }
@@ -409,7 +409,7 @@ impl PythonParser {
         }
 
         // Get the text of this node
-        let text_bytes = &source[node.start_byte() as usize..node.end_byte() as usize];
+        let text_bytes = &source[node.start_byte()..node.end_byte()];
         let text = std::str::from_utf8(text_bytes).ok()?;
 
         // Find if this matches any symbol
@@ -418,7 +418,7 @@ impl PythonParser {
             .find(|s| s.name.as_ref().map(|n| n == text).unwrap_or(false))?;
 
         // Check if reference is OUTSIDE the symbol's defining span
-        let ref_start = node.start_byte() as usize;
+        let ref_start = node.start_byte();
 
         // Reference must start after the symbol's definition ends
         if ref_start < referenced_symbol.byte_end {
@@ -429,7 +429,7 @@ impl PythonParser {
             file_path: file_path.clone(),
             referenced_symbol: text.to_string(),
             byte_start: ref_start,
-            byte_end: node.end_byte() as usize,
+            byte_end: node.end_byte(),
             start_line: node.start_position().row + 1,
             start_col: node.start_position().column,
             end_line: node.end_position().row + 1,
@@ -539,7 +539,7 @@ impl PythonParser {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "identifier" {
-                let name_bytes = safe_slice(source, child.start_byte() as usize, child.end_byte() as usize)?;
+                let name_bytes = safe_slice(source, child.start_byte(), child.end_byte())?;
                 return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
             }
         }
@@ -564,8 +564,8 @@ impl PythonParser {
             if let Some(callee_name) = self.extract_callee_from_call(node, source) {
                 // Only create call if callee is a known function symbol
                 if symbol_map.contains_key(&callee_name) {
-                    let node_start = node.start_byte() as usize;
-                    let node_end = node.end_byte() as usize;
+                    let node_start = node.start_byte();
+                    let node_end = node.end_byte();
                     let call_fact = CallFact {
                         file_path: file_path.clone(),
                         caller: caller.name.clone().unwrap_or_default(),
@@ -591,7 +591,7 @@ impl PythonParser {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "identifier" {
-                let name_bytes = safe_slice(source, child.start_byte() as usize, child.end_byte() as usize)?;
+                let name_bytes = safe_slice(source, child.start_byte(), child.end_byte())?;
                 return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
             }
             // Handle attribute calls like obj.method() - we want the method name
@@ -618,7 +618,7 @@ impl PythonParser {
         if children.len() >= 2 {
             let attr = &children[1]; // Second child is the attribute
             if attr.kind() == "identifier" {
-                let name_bytes = safe_slice(source, attr.start_byte() as usize, attr.end_byte() as usize)?;
+                let name_bytes = safe_slice(source, attr.start_byte(), attr.end_byte())?;
                 return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
             }
         }

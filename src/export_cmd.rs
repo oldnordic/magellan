@@ -110,7 +110,7 @@ pub fn run_export(
             project_name: None,
             version: None,
         };
-        let scip_bytes = scip::export_scip(&mut graph, &scip_config)?;
+        let scip_bytes = scip::export_scip(&graph, &scip_config)?;
 
         // Write output (SCIP requires file output)
         match output {

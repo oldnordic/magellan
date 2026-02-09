@@ -9,8 +9,8 @@ use tempfile::TempDir;
 
 /// Helper function to index a test file using CodeGraph API
 fn index_test_file(source_file: &std::path::Path, db_path: &std::path::Path) {
-    let mut graph = magellan::CodeGraph::open(&db_path).unwrap();
-    let source_bytes = fs::read(&source_file).unwrap();
+    let mut graph = magellan::CodeGraph::open(db_path).unwrap();
+    let source_bytes = fs::read(source_file).unwrap();
     let path_str = source_file.to_string_lossy().to_string();
     graph.index_file(&path_str, &source_bytes).unwrap();
 }

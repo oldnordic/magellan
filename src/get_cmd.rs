@@ -12,9 +12,8 @@ use magellan::graph::query;
 use magellan::generation::schema::CodeChunk;
 use magellan::output::rich::{SpanChecksums, SpanContext};
 use magellan::output::{output_json, JsonResponse, Span, SymbolMatch};
-use magellan::{detect_backend_format, BackendFormat, ChunkStore, CodeGraph, generate_execution_id, OutputFormat};
+use magellan::{detect_backend_format, BackendFormat, CodeGraph, generate_execution_id, OutputFormat};
 use serde::{Deserialize, Serialize};
-use std::rc::Rc;
 
 /// Response for get command with rich span data
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -198,7 +197,7 @@ pub fn run_get(
                         // Add context if requested
                         if with_context {
                             if let Some(context) = SpanContext::extract(
-                                &symbol.file_path.to_string_lossy().to_string(),
+                                symbol.file_path.to_string_lossy().as_ref(),
                                 symbol.start_line,
                                 symbol.end_line,
                                 context_lines,
@@ -211,7 +210,7 @@ pub fn run_get(
                         if with_semantics {
                             let kind = symbol.kind_normalized.clone();
                             let language = detect_language_from_path(
-                                &symbol.file_path.to_string_lossy().to_string(),
+                                symbol.file_path.to_string_lossy().as_ref(),
                             );
                             enriched_span = enriched_span.with_semantics_from(kind, language);
                         }
@@ -219,7 +218,7 @@ pub fn run_get(
                         // Add checksums if requested
                         if with_checksums {
                             let checksums = SpanChecksums::compute(
-                                &symbol.file_path.to_string_lossy().to_string(),
+                                symbol.file_path.to_string_lossy().as_ref(),
                                 symbol.byte_start,
                                 symbol.byte_end,
                             );
@@ -634,7 +633,7 @@ pub fn run_chunk_by_symbol(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    
     #[cfg(feature = "native-v2")]
     use magellan::generation::schema::CodeChunk;
     #[cfg(feature = "native-v2")]

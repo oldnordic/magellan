@@ -586,7 +586,7 @@ fn test_export_csv_proper_quoting() {
 
     // Should be able to read headers without error
     let headers = rdr.headers().expect("Should have valid CSV headers");
-    assert!(headers.len() > 0, "CSV should have at least one column");
+    assert!(!headers.is_empty(), "CSV should have at least one column");
 
     // Count records - each should be parseable
     let mut record_count = 0;
@@ -775,7 +775,7 @@ fn test_export_csv_to_file() {
         .headers()
         .expect("Export file should have valid CSV headers");
     assert!(
-        headers.len() > 0,
+        !headers.is_empty(),
         "Export file should have at least one column"
     );
 }
@@ -1306,7 +1306,7 @@ fn main() {
 
     // Verify headers
     let headers = rdr.headers().expect("Should have valid CSV headers");
-    assert!(headers.len() > 0, "CSV should have at least one column");
+    assert!(!headers.is_empty(), "CSV should have at least one column");
 
     // Verify record_type column exists
     assert!(

@@ -384,7 +384,7 @@ fn test_chunk_count_matches_symbol_count() {
 
     // For simple files without impl blocks, chunk count should be close to symbol count
     // (impl blocks may create extra SymbolFacts but we only chunk functions/structs/enums)
-    assert!(chunks.len() > 0, "Should have at least some chunks");
+    assert!(!chunks.is_empty(), "Should have at least some chunks");
     assert!(chunks.len() <= symbols.len(), "Chunks should not exceed symbols");
 
     // All chunks should have valid symbol metadata

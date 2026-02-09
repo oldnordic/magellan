@@ -137,27 +137,24 @@ pub fn run_refs(
                             println!("Calls TO \"{}\":", symbol_name);
                             for call in &calls {
                                 println!(
-                                    "  From: {} ({}) at {}:{}",
+                                    "  From: {} (Function) at {}:{}",
                                     call.caller,
-                                    "Function",
                                     call.file_path.display(),
                                     call.start_line
                                 );
                             }
                         }
+                    } else if calls.is_empty() {
+                        println!("No outgoing calls from \"{}\"", symbol_name);
                     } else {
-                        if calls.is_empty() {
-                            println!("No outgoing calls from \"{}\"", symbol_name);
-                        } else {
-                            println!("Calls FROM \"{}\":", symbol_name);
-                            for call in &calls {
-                                println!(
-                                    "  To: {} at {}:{}",
-                                    call.callee,
-                                    call.file_path.display(),
-                                    call.start_line
-                                );
-                            }
+                        println!("Calls FROM \"{}\":", symbol_name);
+                        for call in &calls {
+                            println!(
+                                "  To: {} at {}:{}",
+                                call.callee,
+                                call.file_path.display(),
+                                call.start_line
+                            );
                         }
                     }
 
@@ -253,27 +250,24 @@ pub fn run_refs(
             println!("Calls TO \"{}\":", name);
             for call in &calls {
                 println!(
-                    "  From: {} ({}) at {}:{}",
+                    "  From: {} (Function) at {}:{}",
                     call.caller,
-                    "Function",
                     call.file_path.display(),
                     call.start_line
                 );
             }
         }
+    } else if calls.is_empty() {
+        println!("No outgoing calls from \"{}\"", name);
     } else {
-        if calls.is_empty() {
-            println!("No outgoing calls from \"{}\"", name);
-        } else {
-            println!("Calls FROM \"{}\":", name);
-            for call in &calls {
-                println!(
-                    "  To: {} at {}:{}",
-                    call.callee,
-                    call.file_path.display(),
-                    call.start_line
-                );
-            }
+        println!("Calls FROM \"{}\":", name);
+        for call in &calls {
+            println!(
+                "  To: {} at {}:{}",
+                call.callee,
+                call.file_path.display(),
+                call.start_line
+            );
         }
     }
 
@@ -322,7 +316,7 @@ fn output_json_mode(
             // Add context if requested
             if with_context {
                 if let Some(context) = SpanContext::extract(
-                    &call.file_path.to_string_lossy().to_string(),
+                    call.file_path.to_string_lossy().as_ref(),
                     call.start_line,
                     call.end_line,
                     context_lines,
@@ -335,14 +329,14 @@ fn output_json_mode(
             if with_semantics {
                 let kind = "call".to_string();
                 let language =
-                    detect_language_from_path(&call.file_path.to_string_lossy().to_string());
+                    detect_language_from_path(call.file_path.to_string_lossy().as_ref());
                 span = span.with_semantics_from(kind, language);
             }
 
             // Add checksums if requested
             if with_checksums {
                 let checksums = SpanChecksums::compute(
-                    &call.file_path.to_string_lossy().to_string(),
+                    call.file_path.to_string_lossy().as_ref(),
                     call.byte_start,
                     call.byte_end,
                 );

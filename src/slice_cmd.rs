@@ -152,7 +152,7 @@ pub fn run_slice(
     }
 
     // Note about call-graph fallback
-    if slice_result.statistics.data_dependencies == 0 && slice_result.slice.included_symbols.len() > 0 {
+    if slice_result.statistics.data_dependencies == 0 && !slice_result.slice.included_symbols.is_empty() {
         println!("\n  Note: Current implementation uses call-graph reachability.");
         println!("  Full CFG-based slicing will be available in a future release.");
     }
