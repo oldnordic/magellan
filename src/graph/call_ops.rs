@@ -85,11 +85,13 @@ impl CallOps {
         let language = detect_language(&path_buf);
 
         // Build symbol facts from persisted symbols to enable cross-file call matching.
+        // This iterates through ALL symbols in the database, not just the current file.
         // Also build stable symbol_id lookup map: (file_path, symbol_name) -> stable_symbol_id
         let mut symbol_facts = Vec::new();
         let mut current_file_facts = Vec::new();
         let mut stable_symbol_ids: HashMap<(String, String), Option<String>> = HashMap::new();
 
+        // Iterate over ALL symbols from all files to enable cross-file call resolution
         for symbol_id in symbol_ids.values() {
             let snapshot = SnapshotId::current();
             let node = match self.backend.get_node(snapshot, *symbol_id) {
@@ -124,10 +126,13 @@ impl CallOps {
             if node.file_path.as_deref() == Some(path) {
                 current_file_facts.push(symbol_fact);
             } else {
+                // Symbols from other files - enables cross-file call resolution
                 symbol_facts.push(symbol_fact);
             }
         }
 
+        // Combine: other files first, then current file
+        // Current file symbols are added last to take precedence for same-name symbols
         symbol_facts.extend(current_file_facts);
 
         // Extract calls using language-specific parser
@@ -166,8 +171,15 @@ impl CallOps {
         let call_count = calls.len();
 
         // Build a name-only fallback map for cross-file call resolution.
-        // After Phase 11 (FQN changes), symbol_ids uses FQNs as keys, but CallFact
-        // uses simple names. This allows fallback to simple name for cross-file calls.
+        //
+        // After Phase 11 (FQN changes), symbol_ids uses FQNs as keys (e.g., "crate::module::function"),
+        // but CallFact uses simple names (e.g., "function"). This enables fallback to simple name
+        // matching for cross-file calls where the FQN might not match exactly.
+        //
+        // For example:
+        // - CallFact.callee might be "render" (simple name from widget.render())
+        // - Symbol might be stored as "Widget::render" (FQN)
+        // - This fallback enables matching "render" to "Widget::render"
         let mut name_to_ids: HashMap<String, Vec<i64>> = HashMap::new();
         for (fqn, &id) in symbol_ids.iter() {
             // Extract simple name from FQN (after last :: or .)
@@ -195,6 +207,9 @@ impl CallOps {
             call.callee_symbol_id = stable_symbol_ids.get(&callee_key).and_then(|id| id.clone());
 
             // Resolve callee symbol_id with fallback to simple name
+            // This enables cross-file call resolution when:
+            // 1. The callee is in a different file
+            // 2. The FQN doesn't exactly match (e.g., method calls)
             let callee_symbol_id = symbol_ids.get(&call.callee).or_else(|| {
                 // Fallback: try simple name lookup for cross-file calls
                 // For method calls like widget.render(), call.callee is "render"

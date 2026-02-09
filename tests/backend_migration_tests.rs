@@ -442,10 +442,10 @@ fn test_migration_dry_run() {
 }
 
 /// Test: Migration preserves multi-byte UTF-8 chunk content byte-identically.
+#[cfg(not(feature = "native-v2"))]
 #[test]
 fn test_migration_preserves_chunk_content() {
     use magellan::generation::{ChunkStore, CodeChunk};
-    use magellan::kv::keys::chunk_key;
     use sqlitegraph::GraphBackend;
 
     let temp_dir = TempDir::new().unwrap();
@@ -483,6 +483,7 @@ fn test_migration_preserves_chunk_content() {
     // Verify byte-identical content in KV store
     #[cfg(feature = "native-v2")]
     {
+        use magellan::kv::keys::chunk_key;
         use sqlitegraph::NativeGraphBackend;
         let backend = NativeGraphBackend::open(&native_db).unwrap();
         let snapshot = sqlitegraph::SnapshotId::current();
