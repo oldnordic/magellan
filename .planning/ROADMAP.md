@@ -18,7 +18,7 @@ Magellan is a deterministic codebase mapping CLI for local developers. This road
 - ✅ **v1.9 AST & Graph Algorithms** - Phases 36-44 (shipped 2026-02-04)
 - ✅ **v2.0 Native V2 Backend Migration** - Phases 46-55 (shipped 2026-02-08)
 - ✅ **v2.1 Backend Parity Completion** - Phases 56-59 (shipped 2026-02-08) - [Archived](.planning/milestones/v2.1-ROADMAP.md)
-- 🚧 **v2.2 Code Quality & Cross-File Relations** - Phases 60-65 (in progress)
+- ✅ **v2.2 Code Quality & Cross-File Relations** - Phases 60-65 (shipped 2026-02-09)
 
 ---
 
@@ -83,7 +83,7 @@ See [.planning/milestones/v2.1-ROADMAP.md](.planning/milestones/v2.1-ROADMAP.md)
 
 ---
 
-### 🚧 v2.2 Code Quality & Cross-File Relations (In Progress)
+### ✅ v2.2 Code Quality & Cross-File Relations (SHIPPED 2026-02-09)
 
 **Milestone Goal:** Fix cross-file reference indexing, re-enable caller/callee tracking, improve code quality (reduce unwrap() calls, split main.rs), and complete backend abstraction for full Native V2 parity.
 
@@ -162,7 +162,7 @@ See [.planning/milestones/v2.1-ROADMAP.md](.planning/milestones/v2.1-ROADMAP.md)
 - [x] 64-05-PLAN.md — Extract run_status function and ExecutionTracker to src/status_cmd.rs
 **Status**: Complete 2026-02-09
 
-#### Phase 65: Performance & Validation
+#### Phase 65: Performance & Validation ✅
 **Goal**: Codebase quality verified with comprehensive testing and benchmarking
 **Depends on**: Phase 61 (resolution implementation), Phase 63 (error handling), Phase 64 (backend abstraction)
 **Requirements**: QUAL-02, BACK-03
@@ -173,10 +173,10 @@ See [.planning/milestones/v2.1-ROADMAP.md](.planning/milestones/v2.1-ROADMAP.md)
   4. Caller/callee tracking works on Native V2 backend
   5. Integration tests pass for both backends
 **Plans:** 3/3
-- [ ] 65-01-PLAN.md — Native V2 cross-file verification
-- [ ] 65-02-PLAN.md — Code quality baseline
-- [ ] 65-03-PLAN.md — v2.2 milestone finalization
-**Status**: Not started
+- [x] 65-01-PLAN.md — Native V2 cross-file verification
+- [x] 65-02-PLAN.md — Code quality baseline
+- [x] 65-03-PLAN.md — v2.2 milestone finalization
+**Status**: Complete 2026-02-09
 
 ---
 
@@ -195,7 +195,7 @@ Phases execute in numeric order: 60 → 61 → 62 → 63 → 64 → 65
 | 62. CLI Exposure | v2.2 | 1/1 | Complete | 2026-02-09 |
 | 63. Error Handling Quality | v2.2 | 1/1 | Complete | 2026-02-09 |
 | 64. Code Organization | v2.2 | 5/5 | Complete | 2026-02-09 |
-| 65. Performance & Validation | v2.2 | 0/3 | Not started | - |
+| 65. Performance & Validation | v2.2 | 3/3 | Complete | 2026-02-09 |
 
 ---
 
