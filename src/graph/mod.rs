@@ -360,7 +360,7 @@ impl CodeGraph {
             .parent()
             .unwrap_or_else(|| Path::new("."))
             .to_path_buf();
-        let module_resolver = module_resolver::ModuleResolver::new(
+        let mut module_resolver = module_resolver::ModuleResolver::new(
             Rc::clone(&backend),
             project_root,
         );
@@ -386,6 +386,10 @@ impl CodeGraph {
             file_node_cache,
             cfg_ops: cfg_ops::CfgOps::new(ChunkStore::new(&db_path_buf)),
         };
+
+        // Build module index for path resolution
+        // This enables import resolution during indexing
+        let _ = graph.module_resolver.build_module_index();
 
         // Trigger backfill if we have existing symbols but no metrics
         if needs_backfill {

@@ -256,10 +256,10 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
         if !extracted_imports.is_empty() {
             // Delete old imports for this file
             let _ = graph.imports.delete_imports_in_file(path);
-            // Index the new imports with IMPORTS edges
+            // Index the new imports with IMPORTS edges and path resolution
             let _ = graph
                 .imports
-                .index_imports(path, file_id.as_i64(), extracted_imports);
+                .index_imports(path, file_id.as_i64(), extracted_imports, Some(&graph.module_resolver));
         }
     }
 

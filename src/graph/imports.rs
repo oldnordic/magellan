@@ -62,11 +62,25 @@ impl ImportOps {
     /// * `path` - File path
     /// * `file_id` - File node ID
     /// * `imports` - Vector of ImportFact to index
+    /// * `module_resolver` - Optional ModuleResolver for path resolution
     ///
     /// # Returns
     /// Number of imports indexed
-    pub fn index_imports(&self, path: &str, file_id: i64, imports: Vec<ImportFact>) -> Result<usize> {
+    pub fn index_imports(
+        &self,
+        path: &str,
+        file_id: i64,
+        imports: Vec<ImportFact>,
+        module_resolver: Option<&crate::graph::module_resolver::ModuleResolver>,
+    ) -> Result<usize> {
         for import_fact in &imports {
+            // Resolve import path to file_id using ModuleResolver
+            let resolved_file_id = if let Some(resolver) = module_resolver {
+                resolver.resolve_path(path, &import_fact.import_path)
+            } else {
+                None
+            };
+
             let import_node = ImportNode {
                 file: path.to_string(),
                 import_kind: import_fact.import_kind.normalized_key().to_string(),
@@ -89,7 +103,16 @@ impl ImportOps {
                     import_fact.file_path.display()
                 ),
                 file_path: Some(path.to_string()),
-                data: serde_json::to_value(import_node)?,
+                // Include resolved file_id in metadata for Phase 61
+                data: {
+                    let mut data = serde_json::to_value(import_node)?;
+                    if let Some(resolved_id) = resolved_file_id {
+                        if let Some(obj) = data.as_object_mut() {
+                            obj.insert("resolved_file_id".to_string(), serde_json::json!(resolved_id));
+                        }
+                    }
+                    data
+                },
             };
 
             let import_id = self.backend.insert_node(node_spec)?;
@@ -213,10 +236,10 @@ mod tests {
             },
         ];
 
-        // Index additional imports
+        // Index additional imports (without module resolver for this test)
         let count = graph
             .imports
-            .index_imports(test_file, file_id.as_i64(), imports)
+            .index_imports(test_file, file_id.as_i64(), imports, None)
             .unwrap();
         assert_eq!(count, 1);
 
@@ -259,7 +282,7 @@ mod tests {
 
         let count = graph
             .imports
-            .index_imports(test_file, file_id.as_i64(), imports)
+            .index_imports(test_file, file_id.as_i64(), imports, None)
             .unwrap();
 
         assert_eq!(count, 1);
@@ -286,5 +309,84 @@ mod tests {
             });
 
         assert!(import_node.is_some(), "Import node should be created");
+    }
+
+    #[test]
+    fn test_index_imports_with_module_resolver() {
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
+
+        // Create test files with relative paths
+        let lib_file = "src/lib.rs";
+        let foo_file = "src/foo.rs";
+
+        // Create directories
+        std::fs::create_dir_all(temp_dir.path().join("src")).unwrap();
+
+        // Index lib.rs
+        graph.index_file(lib_file, b"fn lib() {}").unwrap();
+
+        // Index foo.rs
+        graph.index_file(foo_file, b"fn foo() {}").unwrap();
+
+        // Build module index for resolver
+        graph.module_resolver.build_module_index().unwrap();
+
+        // Get file_id for lib.rs
+        let file_id = graph.files.find_file_node(lib_file).unwrap().unwrap();
+
+        // Create import that references crate::foo
+        let imports = vec![
+            ImportFact {
+                file_path: PathBuf::from(lib_file),
+                import_kind: ImportKind::UseCrate,
+                import_path: vec!["crate".to_string(), "foo".to_string()],
+                imported_names: vec!["foo".to_string()],
+                is_glob: false,
+                byte_start: 0,
+                byte_end: 50,
+                start_line: 1,
+                start_col: 0,
+                end_line: 1,
+                end_col: 50,
+            },
+        ];
+
+        // Index imports with module resolver
+        let count = graph
+            .imports
+            .index_imports(lib_file, file_id.as_i64(), imports, Some(&graph.module_resolver))
+            .unwrap();
+
+        assert_eq!(count, 1);
+
+        // Verify the import node was created with resolved_file_id
+        let snapshot = SnapshotId::current();
+        let entity_ids = graph.imports.backend.entity_ids().unwrap();
+        let import_node_option = entity_ids
+            .iter()
+            .find(|&&id| {
+                let node = graph
+                    .imports
+                    .backend
+                    .get_node(snapshot, id)
+                    .unwrap();
+                node.kind == "Import"
+            })
+            .map(|&id| {
+                graph
+                    .imports
+                    .backend
+                    .get_node(snapshot, id)
+                    .unwrap()
+            });
+
+        assert!(import_node_option.is_some(), "Import node should be created");
+
+        // Check that resolved_file_id is in the metadata
+        let import_node = import_node_option.unwrap();
+        let resolved_id = import_node.data.get("resolved_file_id");
+        assert!(resolved_id.is_some(), "Import should have resolved_file_id in metadata");
     }
 }
