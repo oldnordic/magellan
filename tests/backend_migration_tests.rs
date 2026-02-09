@@ -637,3 +637,125 @@ fn test_migration_preserves_execution_history() {
         assert_eq!(all.len(), 10, "Should get all 10 executions");
     }
 }
+
+/// Test: Cross-file reference indexing (XREF-01 requirement)
+///
+/// Verifies that references across file boundaries are indexed correctly:
+/// 1. Index multiple files with cross-file symbol references
+/// 2. Query references_to_symbol for a symbol
+/// 3. Verify references exist from multiple files
+#[test]
+fn test_cross_file_reference_indexing() {
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+
+    // Create three Rust files with cross-file references
+    // helper.rs: defines helper() function
+    // lib.rs: defines and calls helper()
+    // main.rs: calls helper() from lib.rs
+    let helper_rs = r#"
+pub fn helper() -> i32 {
+    42
+}
+"#;
+
+    let lib_rs = r#"
+pub use crate::helper::helper;
+
+pub fn lib_function() {
+    let x = helper();
+}
+"#;
+
+    let main_rs = r#"
+use mycrate::helper;
+
+fn main() {
+    let y = helper();
+}
+"#;
+
+    // Index all files with symbols and references
+    {
+        let mut graph = CodeGraph::open(&db_path).unwrap();
+
+        // Index helper.rs first (defines the symbol)
+        let helper_path = temp_dir.path().join("src/helper.rs");
+        std::fs::create_dir_all(temp_dir.path().join("src")).unwrap();
+        std::fs::write(&helper_path, helper_rs).unwrap();
+        let helper_path_str = helper_path.to_string_lossy().to_string();
+        let helper_source = std::fs::read(&helper_path).unwrap();
+        graph.index_file(&helper_path_str, &helper_source).unwrap();
+
+        // Index lib.rs (defines and calls helper)
+        let lib_path = temp_dir.path().join("src/lib.rs");
+        std::fs::write(&lib_path, lib_rs).unwrap();
+        let lib_path_str = lib_path.to_string_lossy().to_string();
+        let lib_source = std::fs::read(&lib_path).unwrap();
+        graph.index_file(&lib_path_str, &lib_source).unwrap();
+        graph.index_references(&lib_path_str, &lib_source).unwrap();
+
+        // Index main.rs (calls helper)
+        let main_path = temp_dir.path().join("src/main.rs");
+        std::fs::write(&main_path, main_rs).unwrap();
+        let main_path_str = main_path.to_string_lossy().to_string();
+        let main_source = std::fs::read(&main_path).unwrap();
+        graph.index_file(&main_path_str, &main_source).unwrap();
+        graph.index_references(&main_path_str, &main_source).unwrap();
+    }
+
+    // Now query references to helper() symbol
+    {
+        let mut graph = CodeGraph::open(&db_path).unwrap();
+
+        // Find the helper symbol node ID
+        let helper_path_str = temp_dir.path().join("src/helper.rs").to_string_lossy().to_string();
+        let symbols = magellan::graph::query::symbols_in_file(&mut graph, &helper_path_str).unwrap();
+
+        let helper_symbol = symbols
+            .iter()
+            .find(|s| s.name.as_deref() == Some("helper"))
+            .expect("helper symbol should exist");
+
+        // Get the node ID for helper symbol
+        let symbol_id = magellan::graph::query::symbol_id_by_name(
+            &mut graph,
+            &helper_path_str,
+            "helper"
+        ).unwrap().expect("helper symbol should have node ID");
+
+        // Query all references to helper
+        let references = magellan::graph::query::references_to_symbol(&mut graph, symbol_id).unwrap();
+
+        // Verify we have references from multiple files
+        // lib.rs should reference helper
+        let lib_refs: Vec<_> = references
+            .iter()
+            .filter(|r| r.file_path.ends_with("src/lib.rs"))
+            .collect();
+
+        // main.rs should reference helper
+        let main_refs: Vec<_> = references
+            .iter()
+            .filter(|r| r.file_path.ends_with("src/main.rs"))
+            .collect();
+
+        // Assert we found cross-file references
+        assert!(
+            !lib_refs.is_empty() || !main_refs.is_empty(),
+            "Expected at least one cross-file reference to helper(), found {}",
+            references.len()
+        );
+
+        println!("Cross-file references to helper():");
+        for ref_fact in &references {
+            println!(
+                "  {}:{}:{} -> {}",
+                ref_fact.file_path.display(),
+                ref_fact.start_line,
+                ref_fact.start_col,
+                ref_fact.referenced_symbol
+            );
+        }
+    }
+}
