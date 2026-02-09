@@ -13,7 +13,7 @@
 //! **Rule:** Never send to wakeup channel while holding other locks.
 //! See `PipelineSharedState` for detailed documentation.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -132,11 +132,18 @@ pub fn run_indexer_n(root_path: PathBuf, db_path: PathBuf, max_events: usize) ->
     let idle_timeout = std::time::Duration::from_secs(2);
 
     while processed < max_events {
-        if let Some(event) = watcher.try_recv_event() {
-            handle_event(&mut graph, event)?;
-            processed += 1;
-            idle_for = std::time::Duration::from_secs(0);
-            continue;
+        match watcher.try_recv_event() {
+            Ok(Some(event)) => {
+                handle_event(&mut graph, event)?;
+                processed += 1;
+                idle_for = std::time::Duration::from_secs(0);
+                continue;
+            }
+            Ok(None) => {}
+            Err(e) => {
+                // Mutex poisoned - fail fast
+                return Err(e.context("watcher mutex poisoned during event recv"));
+            }
         }
 
         if idle_for >= idle_timeout {
