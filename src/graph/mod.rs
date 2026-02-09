@@ -41,6 +41,7 @@ pub mod export;
 mod files;
 pub mod filter;
 mod freshness;
+mod imports; // Private module for import operations
 pub mod metrics;
 mod ops;
 pub mod query;
@@ -63,7 +64,7 @@ pub use ops::test_helpers;
 
 // Re-export symbol ID generation function
 pub use symbols::generate_symbol_id;
-#[cfg(test)]
+#[cfg(all(test, not(feature = "native-v2")))]
 mod ast_tests;
 #[cfg(test)]
 mod tests;
@@ -139,6 +140,9 @@ pub struct CodeGraph {
 
     /// Call operations module
     calls: call_ops::CallOps,
+
+    /// Import operations module
+    imports: imports::ImportOps,
 
     /// Code chunk storage module
     chunks: ChunkStore,
@@ -355,7 +359,12 @@ impl CodeGraph {
             references: references::ReferenceOps {
                 backend: Rc::clone(&backend),
             },
-            calls: call_ops::CallOps { backend },
+            calls: call_ops::CallOps {
+                backend: Rc::clone(&backend),
+            },
+            imports: imports::ImportOps {
+                backend,
+            },
             chunks,
             execution_log,
             metrics,

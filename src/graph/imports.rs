@@ -1,0 +1,268 @@
+//! Import node operations for CodeGraph
+//!
+//! Handles import node CRUD operations and IMPORTS edge management.
+
+use anyhow::Result;
+use sqlitegraph::{
+    BackendDirection, EdgeSpec, GraphBackend, NeighborQuery, NodeId, NodeSpec, SnapshotId,
+};
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::rc::Rc;
+
+use crate::graph::schema::ImportNode;
+use crate::ingest::ImportFact;
+
+/// Import operations for CodeGraph
+pub struct ImportOps {
+    pub backend: Rc<dyn GraphBackend>,
+}
+
+impl ImportOps {
+    /// Delete all Import nodes that belong to a specific file path.
+    ///
+    /// Determinism: collects candidate entity IDs, sorts ascending, deletes in that order.
+    pub fn delete_imports_in_file(&self, path: &str) -> Result<usize> {
+        let entity_ids = self.backend.entity_ids()?;
+        let snapshot = SnapshotId::current();
+
+        let mut to_delete: Vec<i64> = Vec::new();
+        for entity_id in entity_ids {
+            let node = match self.backend.get_node(snapshot, entity_id) {
+                Ok(n) => n,
+                Err(_) => continue,
+            };
+
+            if node.kind != "Import" {
+                continue;
+            }
+
+            let import_node: ImportNode = match serde_json::from_value(node.data) {
+                Ok(value) => value,
+                Err(_) => continue,
+            };
+
+            if import_node.file == path {
+                to_delete.push(entity_id);
+            }
+        }
+
+        to_delete.sort_unstable();
+
+        for id in &to_delete {
+            self.backend.delete_entity(*id)?;
+        }
+
+        Ok(to_delete.len())
+    }
+
+    /// Index imports for a file into the graph
+    ///
+    /// # Arguments
+    /// * `path` - File path
+    /// * `imports` - Vector of ImportFact to index
+    ///
+    /// # Returns
+    /// Number of imports indexed
+    pub fn index_imports(&self, path: &str, imports: Vec<ImportFact>) -> Result<usize> {
+        for import_fact in &imports {
+            let import_node = ImportNode {
+                file: path.to_string(),
+                import_kind: import_fact.import_kind.normalized_key().to_string(),
+                import_path: import_fact.import_path.clone(),
+                imported_names: import_fact.imported_names.clone(),
+                is_glob: import_fact.is_glob,
+                byte_start: import_fact.byte_start as u64,
+                byte_end: import_fact.byte_end as u64,
+                start_line: import_fact.start_line as u64,
+                start_col: import_fact.start_col as u64,
+                end_line: import_fact.end_line as u64,
+                end_col: import_fact.end_col as u64,
+            };
+
+            let node_spec = NodeSpec {
+                kind: "Import".to_string(),
+                name: format!(
+                    "{} import from {}",
+                    import_fact.import_kind.normalized_key(),
+                    import_fact.file_path.display()
+                ),
+                file_path: Some(path.to_string()),
+                data: serde_json::to_value(import_node)?,
+            };
+
+            let import_id = self.backend.insert_node(node_spec)?;
+
+            // Create IMPORTS edge from file to import
+            // Note: We'll need the file_id for this, but for now we skip
+            // edge creation since we don't have access to file_id here
+            // This will be addressed in Task 3 when we integrate with CodeGraph
+            let _ = import_id; // Suppress unused warning for now
+        }
+
+        Ok(imports.len())
+    }
+
+    /// Query all imports for a specific file
+    ///
+    /// # Arguments
+    /// * `file_id` - Node ID of the file
+    ///
+    /// # Returns
+    /// Vector of ImportFact for all imports in the file
+    pub fn get_imports_for_file(&self, file_id: i64) -> Result<Vec<ImportFact>> {
+        let snapshot = SnapshotId::current();
+
+        // Query incoming IMPORTS edges from the file
+        let neighbor_ids = self.backend.neighbors(
+            snapshot,
+            file_id,
+            NeighborQuery {
+                direction: BackendDirection::Outgoing,
+                edge_type: Some("IMPORTS".to_string()),
+            },
+        )?;
+
+        let mut imports = Vec::new();
+        for import_node_id in neighbor_ids {
+            if let Ok(Some(import)) = self.import_fact_from_node(import_node_id) {
+                imports.push(import);
+            }
+        }
+
+        Ok(imports)
+    }
+
+    /// Convert an import node to ImportFact
+    fn import_fact_from_node(&self, node_id: i64) -> Result<Option<ImportFact>> {
+        let snapshot = SnapshotId::current();
+        let node = self.backend.get_node(snapshot, node_id)?;
+
+        let import_node: Option<ImportNode> = serde_json::from_value(node.data).ok();
+
+        let import_node = match import_node {
+            Some(n) => n,
+            None => return Ok(None),
+        };
+
+        // Parse import_kind from normalized key
+        let import_kind = ImportKind::from_str(&import_node.import_kind)
+            .unwrap_or(ImportKind::PlainUse);
+
+        Ok(Some(ImportFact {
+            file_path: PathBuf::from(&import_node.file),
+            import_kind,
+            import_path: import_node.import_path,
+            imported_names: import_node.imported_names,
+            is_glob: import_node.is_glob,
+            byte_start: import_node.byte_start as usize,
+            byte_end: import_node.byte_end as usize,
+            start_line: import_node.start_line as usize,
+            start_col: import_node.start_col as usize,
+            end_line: import_node.end_line as usize,
+            end_col: import_node.end_col as usize,
+        }))
+    }
+}
+
+// Re-export ImportKind for use within this module
+use crate::ingest::ImportKind;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_delete_imports_in_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let graph = crate::CodeGraph::open(&db_path).unwrap();
+
+        // Create some test imports
+        let test_file = "test.rs";
+        let imports = vec![
+            ImportFact {
+                file_path: PathBuf::from(test_file),
+                import_kind: ImportKind::PlainUse,
+                import_path: vec!["std".to_string(), "collections".to_string()],
+                imported_names: vec!["HashMap".to_string()],
+                is_glob: false,
+                byte_start: 0,
+                byte_end: 100,
+                start_line: 1,
+                start_col: 0,
+                end_line: 2,
+                end_col: 0,
+            },
+        ];
+
+        // Index the imports
+        let count = graph
+            .imports
+            .index_imports(test_file, imports)
+            .unwrap();
+        assert_eq!(count, 1);
+
+        // Delete the imports
+        let deleted = graph
+            .imports
+            .delete_imports_in_file(test_file)
+            .unwrap();
+        assert_eq!(deleted, 1);
+    }
+
+    #[test]
+    fn test_index_imports_creates_nodes() {
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let graph = crate::CodeGraph::open(&db_path).unwrap();
+
+        let test_file = "test.rs";
+        let imports = vec![
+            ImportFact {
+                file_path: PathBuf::from(test_file),
+                import_kind: ImportKind::UseCrate,
+                import_path: vec!["crate".to_string(), "foo".to_string()],
+                imported_names: vec!["bar".to_string()],
+                is_glob: false,
+                byte_start: 0,
+                byte_end: 50,
+                start_line: 1,
+                start_col: 0,
+                end_line: 1,
+                end_col: 50,
+            },
+        ];
+
+        let count = graph
+            .imports
+            .index_imports(test_file, imports)
+            .unwrap();
+
+        assert_eq!(count, 1);
+
+        // Verify the import node was created
+        let snapshot = SnapshotId::current();
+        let entity_ids = graph.imports.backend.entity_ids().unwrap();
+        let import_node = entity_ids
+            .iter()
+            .find(|&&id| {
+                let node = graph
+                    .imports
+                    .backend
+                    .get_node(snapshot, id)
+                    .unwrap();
+                node.kind == "Import"
+            })
+            .map(|&id| {
+                graph
+                    .imports
+                    .backend
+                    .get_node(snapshot, id)
+                    .unwrap()
+            });
+
+        assert!(import_node.is_some(), "Import node should be created");
+    }
+}
