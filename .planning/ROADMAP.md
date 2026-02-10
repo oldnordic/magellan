@@ -19,7 +19,7 @@ Magellan is a deterministic codebase mapping CLI for local developers. This road
 - ✅ **v2.0 Native V2 Backend Migration** - Phases 46-55 (shipped 2026-02-08)
 - ✅ **v2.1 Backend Parity Completion** - Phases 56-59 (shipped 2026-02-08)
 - ✅ **v2.2 Code Quality & Cross-File Relations** - Phases 60-65 (shipped 2026-02-09)
-- 🔄 **v2.3 Tool Migration & Core Quality** - Phases 66-71 (1/6 complete)
+- ✅ **v2.3 Tool Migration & Core Quality** - Phases 66-69 (shipped 2026-02-10)
 
 ---
 
@@ -139,7 +139,7 @@ Magellan is a deterministic codebase mapping CLI for local developers. This road
 **Plans:** 1/1
 **Plan list:**
 - [ ] 068-01-PLAN.md — Add `--impact-graph` to patch command and create verification tests
-**Status:** In Planning
+**Status:** ✅ Complete (shipped 2026-02-10)
 
 ---
 
@@ -160,8 +160,8 @@ Magellan is a deterministic codebase mapping CLI for local developers. This road
 
 **Success Criteria:**
 1. mirage opens databases using `Backend::detect_and_open()` pattern (like llmgrep)
-2. CFG blocks stored in KV format: `cfg:blocks:{function_id}` (not SQL tables)
-3. CFG edges stored in KV format: `cfg:edges:{function_id}`
+2. CFG blocks stored in KV format: `cfg:func:{function_id}` (following magellan's KV key pattern)
+3. CFG edges computed from block terminators (not stored, computed on-demand)
 4. User runs `mirage migrate --from sqlite --to native-v2 --db codegraph.db` and data converts successfully
 5. All existing commands (cfg, paths, dominators, loops) work identically on both backends
 6. No direct `rusqlite::Connection` usage remains in mirage codebase
@@ -177,8 +177,13 @@ Magellan is a deterministic codebase mapping CLI for local developers. This road
 
 **Research Flag:** Storage trait design needs deeper research during planning
 
-**Plans:** —
-**Status:** Pending
+**Plans:** 4/4
+**Plan list:**
+- [x] 069-01-PLAN.md — Create StorageTrait and backend implementations (SQLite + KV) ✅ Complete (shipped 2026-02-10)
+- [x] 069-02-PLAN.md — Migrate all commands to use Backend instead of Connection ✅ Complete (shipped 2026-02-10)
+- [x] 069-03-PLAN.md — Implement migrate command and --detect-backend ✅ Complete (shipped 2026-02-10)
+- [x] 069-04-PLAN.md — Verify backend parity and create integration tests ✅ Complete (shipped 2026-02-10)
+**Status:** ✅ Complete (shipped 2026-02-10)
 
 ---
 
@@ -214,8 +219,12 @@ Magellan is a deterministic codebase mapping CLI for local developers. This road
 
 **Addresses:** Pitfalls #1, #2 - Orphan references, call edge inconsistency
 
-**Plans:** —
-**Status:** Pending
+**Plans:** 3/3
+**Plan list:**
+- [ ] 070-01-PLAN.md — Remove unsafe downcasting from algorithms.rs
+- [ ] 070-02-PLAN.md — Replace all eprintln! with tracing logging
+- [ ] 070-03-PLAN.md — Verify and fix cross-file reference/call resolution
+**Status:** Pending (plans created 2026-02-10)
 
 ---
 
@@ -289,9 +298,9 @@ Phase 69: Mirage   Phase 70: Magellan
 | Phase | Name | Plans | Status |
 |-------|------|-------|--------|
 | 66 | CLI Flag Exposure | 1/1 | ✅ Complete |
-| 67 | llmgrep Watch | — | Pending |
-| 68 | Splice Impact Graph | — | Pending |
-| 69 | Mirage Storage Trait | — | Pending |
+| 67 | llmgrep Watch | 2/2 | ✅ Complete |
+| 68 | Splice Impact Graph | 1/1 | ✅ Complete |
+| 69 | Mirage Storage Trait | 4/4 | Pending |
 | 70 | Magellan Core Quality | — | Pending |
 | 71 | Mirage Advanced Commands | — | Pending |
 
