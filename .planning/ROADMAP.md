@@ -258,10 +258,15 @@ Magellan is a deterministic codebase mapping CLI for local developers. This road
 - `/home/feanor/Projects/mirage/src/icfg_cmd.rs` - NEW: icfg command
 - `/home/feanor/Projects/mirage/src/paths.rs` - Add `--incremental` flag
 
-**Clarification Needed:** `hotpaths` vs existing `Hotspots` command - are these the same or different?
+**Clarification (from research):** `hotpaths` = path-level frequency ranking (new), `hotspots` = function-level risk (existing). They are complementary.
 
-**Plans:** —
-**Status:** Pending
+**Plans:** 4
+**Plan list:**
+- [ ] 071-01-PLAN.md — CFG diff command (petgraph-based comparison)
+- [ ] 071-02-PLAN.md — Incremental paths with git2 integration
+- [ ] 071-03-PLAN.md — Hotpaths command (static heuristic ranking)
+- [ ] 071-04-PLAN.md — ICFG command (inter-procedural CFG)
+**Status:** Pending (4 plans created)
 
 ---
 
@@ -303,7 +308,7 @@ Phase 69: Mirage   Phase 70: Magellan
 | 68 | Splice Impact Graph | 1/1 | ✅ Complete |
 | 69 | Mirage Storage Trait | 4/4 | ✅ Complete |
 | 70 | Magellan Core Quality | 4/4 | ✅ Complete |
-| 71 | Mirage Advanced Commands | — | Pending |
+| 71 | Mirage Advanced Commands | 4 | Pending |
 
 ---
 
