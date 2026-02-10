@@ -5,7 +5,7 @@
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use tracing::{debug, info, instrument};
+use tracing::{debug, info, instrument, warn};
 
 use sqlitegraph::{GraphBackend, SnapshotId};
 
@@ -186,14 +186,14 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
     // Only available with native-v2 backend (KV store is native-only)
     #[cfg(feature = "native-v2")]
     {
-        eprintln!("DEBUG: KV indexing {} symbols for file {}", indexed_symbols.len(), path);
+        debug!(indexed_symbols = indexed_symbols.len(), path = %path, "KV indexing symbols");
         let backend = Rc::clone(&graph.files.backend);
         crate::kv::populate_symbol_index(
             backend,
             file_id.as_i64() as u64,
             &indexed_symbols,
         )?;
-        eprintln!("DEBUG: KV indexing completed for {}", path);
+        debug!(path = %path, "KV indexing completed");
     }
 
     // Step 5: Extract and store code chunks for each symbol
@@ -321,7 +321,7 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
     if let Some(_lang) = language {
         match super::calls::index_calls(graph, path, source) {
             Ok(_count) => {},
-            Err(e) => eprintln!("Warning: Failed to index calls for '{}': {}", path, e),
+            Err(e) => warn!(error = %e, path = %path, "Failed to index calls"),
         }
     }
 
@@ -355,7 +355,7 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
 
     if let Err(e) = graph.metrics.compute_for_file(path, source, &symbol_nodes) {
         // Metrics computation failure shouldn't block indexing
-        eprintln!("Warning: Failed to compute metrics for '{}': {}", path, e);
+        warn!(error = %e, path = %path, "Failed to compute metrics");
     }
 
     // Invalidate cache for this file since it was just modified
@@ -1215,12 +1215,12 @@ pub fn reconcile_file_path(
         {
             let deleted = delete_file_facts(graph, path_key)?;
             if !deleted.is_empty() {
-                eprintln!(
-                    "Deleted {} symbols, {} references, {} calls for missing file {}",
-                    deleted.symbols_deleted,
-                    deleted.references_deleted,
-                    deleted.calls_deleted,
-                    path_key
+                debug!(
+                    symbols_deleted = deleted.symbols_deleted,
+                    references_deleted = deleted.references_deleted,
+                    calls_deleted = deleted.calls_deleted,
+                    path_key = %path_key,
+                    "Deleted facts for missing file"
                 );
             }
         }
@@ -1261,12 +1261,12 @@ pub fn reconcile_file_path(
     {
         let deleted = delete_file_facts(graph, path_key)?;
         if !deleted.is_empty() {
-            eprintln!(
-                "Deleted {} symbols, {} references, {} calls for reindex of {}",
-                deleted.symbols_deleted,
-                deleted.references_deleted,
-                deleted.calls_deleted,
-                path_key
+            debug!(
+                symbols_deleted = deleted.symbols_deleted,
+                references_deleted = deleted.references_deleted,
+                calls_deleted = deleted.calls_deleted,
+                path_key = %path_key,
+                "Deleted facts for reindex"
             );
         }
     }
