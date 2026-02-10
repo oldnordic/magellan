@@ -219,12 +219,13 @@ Magellan is a deterministic codebase mapping CLI for local developers. This road
 
 **Addresses:** Pitfalls #1, #2 - Orphan references, call edge inconsistency
 
-**Plans:** 3/3
+**Plans:** 4
 **Plan list:**
-- [ ] 070-01-PLAN.md — Remove unsafe downcasting from algorithms.rs
-- [ ] 070-02-PLAN.md — Replace all eprintln! with tracing logging
-- [ ] 070-03-PLAN.md — Verify and fix cross-file reference/call resolution
-**Status:** Pending (plans created 2026-02-10)
+- [x] 070-01-PLAN.md — Remove unsafe downcasting from algorithms.rs ✅ Complete
+- [x] 070-02-PLAN.md — Replace all eprintln! with tracing logging ✅ Complete (partial gaps)
+- [x] 070-03-PLAN.md — Verify and fix cross-file reference/call resolution ✅ Complete
+- [ ] 070-04-PLAN.md — Complete tracing migration (gap closure)
+**Status:** Gaps found (Plan 04 created to complete tracing migration)
 
 ---
 
@@ -300,8 +301,8 @@ Phase 69: Mirage   Phase 70: Magellan
 | 66 | CLI Flag Exposure | 1/1 | ✅ Complete |
 | 67 | llmgrep Watch | 2/2 | ✅ Complete |
 | 68 | Splice Impact Graph | 1/1 | ✅ Complete |
-| 69 | Mirage Storage Trait | 4/4 | Pending |
-| 70 | Magellan Core Quality | — | Pending |
+| 69 | Mirage Storage Trait | 4/4 | ✅ Complete |
+| 70 | Magellan Core Quality | 3/3 | Gaps Found |
 | 71 | Mirage Advanced Commands | — | Pending |
 
 ---
