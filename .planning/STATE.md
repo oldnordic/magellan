@@ -2,19 +2,19 @@
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-02-08)
+See: .planning/PROJECT.md (updated 2026-02-10)
 
 **Core value:** Produce correct, deterministic symbol + reference + call graph data from real codebases, continuously, without stopping on bad files.
-**Current focus:** v2.2 milestone complete - Ready for next milestone planning
+**Current focus:** v2.3 Tool Migration & Core Quality milestone
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-02-10 — Milestone v2.3 started
+Phase: 66
+Plan: 01 (completed, awaiting human verification)
+Status: Awaiting checkpoint approval
+Last activity: 2026-02-10 — Completed --detect-backend flags for llmgrep and mirage
 
-Progress: [████████████████████] 100% (3/3 plans complete in Phase 65)
+Progress: [██░░░░░░░░░] 17% (1/6 plans in phase 66 complete)
 
 **Completed Milestones:**
 - v1.0 Magellan - Phases 1-9 (shipped 2026-01-19)
@@ -34,37 +34,23 @@ Progress: [████████████████████] 100% (3
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 187 (v1.0 through v2.1, plus Phase 61 Plans 01-03)
+- Total plans completed: 188 (v1.0 through 66-01)
 - Average duration: ~10 min
-- Total execution time: ~31 hours
+- Total execution time: ~31.2 hours
 
-**By Phase:**
+**By Milestone:**
 
-| Phase | Plans | Total | Avg/Plan |
-|-------|-------|-------|----------|
-| 46-55 (v2.0) | 55 | ~10h | ~11 min |
-| 56-59 (v2.1) | 13 | ~4h | ~18 min |
-| 60-65 (v2.2) | 3/5 | ~56 min | ~19 min |
+| Milestone | Phases | Plans | Total | Avg/Plan |
+|-----------|--------|-------|-------|----------|
+| v2.0 | 46-55 | 55 | ~10h | ~11 min |
+| v2.1 | 56-59 | 13 | ~4h | ~18 min |
+| v2.2 | 60-65 | 14 | ~3h | ~12 min |
 
 **Recent Trend:**
-- Last 6 plans: [12 min, 8 min, 15 min, 10 min, 14 min, 7 min, 10 min]
+- Last 6 plans: [8 min, 12 min, 8 min, 15 min, 10 min, 14 min, 7 min, 10 min]
 - Trend: Stable (consistent execution pattern)
 
 *Updated after each plan completion*
-| Phase 64-code-organization P04 | 2 | 1 task | 2 files |
-| Phase 64-code-organization P01 | 5 | 1 task | 2 files |
-| Phase 63-error-handling-quality P01 | 10 | 3 tasks | 2 files |
-| Phase 61-cross-file-resolution P01 | 12 | 3 tasks | 2 files |
-| Phase 61-cross-file-resolution P02 | 14 | 2 tasks | 2 files |
-| Phase 61-cross-file-resolution P03 | 7 | 3 tasks | 2 files |
-| Phase 62-cli-exposure P01 | 15 | 4 tasks | 3 files |
-| Phase 62 P01 | 15 | 4 tasks | 3 files |
-| Phase 64 P03 | 2min | 1 tasks | 2 files |
-| Phase 64 P05 | 3 | 1 tasks | 2 files |
-| Phase 65 P01 | 11 | 3 tasks | 2 files |
-| Phase 65-performance-validation P01 | 11 | 3 tasks | 2 files |
-| Phase 65-performance-validation P02 | 8 | 2 tasks | 64 files |
-| Phase 65-performance-validation P03 | 5 | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -73,52 +59,90 @@ Progress: [████████████████████] 100% (3
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- v2.2: Cross-file reference indexing verified with integration tests (61-03)
-- v2.2: refs and find commands return multi-file results correctly (XREF-01 satisfied)
-- v2.2: Cross-file call indexing with symbol_facts from all database symbols (not just current file)
-- v2.2: name_to_ids fallback enables simple-name matching across files for method calls
-- v2.2: Cross-file call indexing verified and tested with integration tests
-- v2.2: refs command --direction in/out flags correctly show cross-file call relationships
-- v2.2: Cross-file import edges using DEFINES edge type (Import->File)
-- v2.2: Module index rebuild after file deletion for accurate resolutions
-- v2.2: Import infrastructure with ImportExtractor for Rust, ImportOps for graph storage, ModuleResolver for path resolution
-- v2.2: Import nodes stored with resolved_file_id in metadata for edge creation
-- v2.2: ModulePathCache provides O(1) module lookups during indexing
-- v2.2: Module path conversion algorithm (src/lib.rs -> crate, src/foo.rs -> crate::foo, src/foo/mod.rs -> crate::foo)
-- v2.1: Dual backend abstraction via GraphBackend trait enables compile-time backend selection
-- v2.1: ChunkStore KV support unified across both backends
-- v2.0: Native V2 backend uses clustered adjacency for 10x graph traversal performance
-- v1.7: Arc<Mutex<T>> with lock ordering prevents deadlocks in concurrent access
-- v1.5: BLAKE3-based SymbolId provides stable identifiers across re-indexing
-- [Phase 62]: query command --with-callers/--with-callees flags expose cross-file call relationships
-- [Phase 62]: CallerInfo/CalleeInfo structs added to SymbolMatch for backward-compatible JSON output
-- [Phase 63-01]: Mutex lock poisoning error handling with .map_err() and Result propagation in indexer/watcher
-- [Phase 64-01]: Version information extracted from main.rs into dedicated src/version.rs module
-- [Phase 64-02]: CLI parsing (Command enum, parse_args) extracted from main.rs into src/cli.rs module (main.rs reduced from 2889 to 811 lines)
-- [Phase 64-04]: SQLite-specific label query methods gated with #[cfg(not(feature = "native-v2"))]
-- [Phase 64]: Label command execution extracted from main.rs into dedicated src/label_cmd.rs module; ExecutionTracker made public for cross-module use
-- [Phase 64]: Re-export generate_execution_id from main.rs for verify_cmd and watch_cmd modules that use crate:: prefix
-- [Phase 65-02]: Call indexing via index_calls() has known limitations with Native V2 backend - cross-file call resolution may not work correctly. This is documented as a gap for future work.
-- [Phase 65-02]: SystemTime::now().duration_since(UNIX_EPOCH).unwrap() is documented as infallible (CLIPPY_ACCEPTABLE.md). Clippy baseline established: 127 warnings remaining after 67 auto-fixes.
-- [Phase 65-03]: v2.2 milestone complete - Cross-file reference indexing verified on Native V2 backend, caller/callee tracking works identically on both backends, code quality baseline established with documented unwrap() usage, integration tests pass for SQLite and Native V2 backends.
+**v2.2 Decisions (shipped 2026-02-09):**
+- Cross-file reference indexing verified with integration tests
+- refs and find commands return multi-file results correctly
+- Cross-file call indexing with symbol_facts from all database symbols
+- name_to_ids fallback enables simple-name matching across files for method calls
+- refs command --direction in/out flags correctly show cross-file call relationships
+- Cross-file import edges using DEFINES edge type (Import->File)
+- Module index rebuild after file deletion for accurate resolutions
+- Import infrastructure with ImportExtractor for Rust, ImportOps for graph storage
+- ModuleResolver for path resolution
+- ModulePathCache provides O(1) module lookups during indexing
+- Dual backend abstraction via GraphBackend trait enables compile-time backend selection
+- ChunkStore KV support unified across both backends
+- Native V2 backend uses clustered adjacency for 10x graph traversal performance
+
+**v2.3 Decisions (from research and 66-01):**
+- Use `magellan::migrate_backend_cmd::detect_backend_format()` for backend detection (don't reimplement)
+- Follow llmgrep's `Backend::detect_and_open()` pattern for backend abstraction
+- Complete CLI flag exposures first (quick wins) before architectural rewrites
+- Mirage storage trait is the largest effort (2-3 weeks) and blocks advanced features
+- Magellan core quality fixes needed for accurate cross-file resolution and call tracking
+- Made CLI subcommands optional (Option<Command>) to support --detect-backend without subcommand (66-01)
+- Use clap alias attribute for flag aliases without code duplication (66-01: --purpose for --label)
+- Match splice's exact JSON format: {"backend":"...","database":"..."} for consistency (66-01)
 
 ### Pending Todos
 
-None yet.
+**v2.3 Phase Planning:**
+- Phase 66: CLI Flag Exposure (llmgrep --detect-backend, --purpose; mirage --detect-backend)
+- Phase 67: llmgrep watch command (pub/sub)
+- Phase 68: Splice --impact-graph flag exposure
+- Phase 69: Mirage storage trait rewrite (backend-agnostic, KV storage)
+- Phase 70: Magellan core quality fixes (unsafe downcasting, debug output, cross-file bugs)
+- Phase 71: Mirage advanced commands (diff, hotpaths, icfg, --incremental)
 
 ### Blockers/Concerns
 
-**Tech Debt to Address (from CONCERNS.md):**
-- ~~Cross-file reference indexing not working~~ (COMPLETED in Phase 61-03)
-- ~~Caller/callee tracking disabled in query/find commands~~ (COMPLETED in Phase 62-01)
-- AST node storage not integrated with KV backend (addresses in Phase 65)
-- ~~SQLite-specific labels in GraphBackend trait~~ (COMPLETED in Phase 64-04)
-- Large main.rs file (now 563 lines from 2889) - version module extracted (Phase 64-01), CLI parsing extracted (Phase 64-02), label command extracted (Phase 64-03), status command extracted (Phase 64-05)
-- 1017+ unwrap() calls across codebase (addresses in Phase 63-65)
+**Research Findings (from `.planning/research/SUMMARY.md`):**
+
+**Gaps to Address:**
+- sqlitegraph pub/sub API: Not verified if complete enough for llmgrep watch command
+- Import extraction performance: Unknown impact on indexing time (for Phase 70 if needed)
+- Mirage storage trait scope: Unclear if CFG analysis requires different storage patterns than semantic search
+- hotpaths vs Hotspots terminology: Migration plan asks for `hotpaths` but mirage has `Hotspots` - need clarification
+
+**Tech Debt to Address:**
+- Mirages direct `rusqlite` usage prevents backend abstraction (Phase 69)
+- Magellans cross-file reference resolution may have orphan references (Phase 70)
+- Magellans caller/callee tracking has race conditions during concurrent updates (Phase 70)
+- Unsafe downcasting in `src/graph/algorithms.rs` (Phase 70)
+- Debug `eprintln!` statements in production code (Phase 70)
 
 ## Session Continuity
 
-Last session: 2026-02-09 (v2.2 completion and finalization)
-Stopped at: v2.2 milestone complete - all documentation finalized
-Resume file: None
-Blockers: None
+Last session: 2026-02-10 (Phase 66-01: CLI Flag Exposure)
+Stopped at: Awaiting checkpoint approval for --detect-backend flags (llmgrep working, mirage changes committed but untested due to Phase 69 storage layer issues)
+Resume file: .planning/phases/066-cli-flag-exposure/66-01-RESUME.md (if checkpoint approved)
+Blockers:
+- mirage: Pre-existing storage layer compilation errors (Phase 69 will fix)
+- sqlitegraph WAL reader overflow bug in native-v2 backend (blocks full --purpose testing)
+
+## v2.3 Roadmap Summary
+
+**Phases:** 6 (Phases 66-71)
+
+| Phase | Name | Complexity | Dependencies |
+|-------|------|------------|--------------|
+| 66 | CLI Flag Exposure | Low | None |
+| 67 | llmgrep Watch | Medium | 66 |
+| 68 | Splice Impact Graph | Low | None |
+| 69 | Mirage Storage Trait | High | None |
+| 70 | Magellan Core Quality | Medium | None |
+| 71 | Mirage Advanced Commands | Medium | 69, 70 |
+
+**Research-Based:**
+- All phases based on completed research in `.planning/research/`
+- Research confidence: HIGH for stack, features, architecture, pitfalls
+
+**Key Insights:**
+- splice is 70% migrated (quick wins available)
+- llmgrep is 50% migrated (CLI flags missing)
+- mirage is 20% migrated (major rewrite needed)
+- Magellan has critical bugs affecting dependent tools
+
+---
+
+*Last updated: 2026-02-10*
