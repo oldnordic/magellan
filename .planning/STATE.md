@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-10)
 ## Current Position
 
 Phase: 070-magellan-core-quality
-Plan: 02 (complete)
-Status: Structured logging infrastructure using tracing crate
-Last activity: 2026-02-10 — Added tracing dependencies, replaced eprintln! with warn!, instrumented core graph operations
+Plan: 04 (complete)
+Status: Tracing migration complete - zero eprintln! in library code
+Last activity: 2026-02-10 — Replaced all 8 remaining eprintln! with debug!/warn!/error! macros
 
-Progress: [████████░░] 85% (5/6 phases complete, Phase 70-02 complete)
+Progress: [████████░░] 85% (5/6 phases complete, Phase 70-04 complete)
 
 **Completed Milestones:**
 - v1.0 Magellan - Phases 1-9 (shipped 2026-01-19)
@@ -51,6 +51,7 @@ Progress: [████████░░] 85% (5/6 phases complete, Phase 70-02
 - Trend: Stable (consistent execution pattern)
 
 *Updated after each plan completion*
+| Phase 070-magellan-core-quality P04 | 3 min | 3 tasks | 3 files |
 | Phase 070-magellan-core-quality P03 | 8 min | 2 tasks | 3 files |
 | Phase 069-mirage-storage-trait P04 | 8 min | 3 tasks | 3 files |
 | Phase 069-mirage-storage-trait P03 | 10 min | 3 tasks | 2 files |
@@ -80,12 +81,14 @@ Recent decisions affecting current work:
 - ChunkStore KV support unified across both backends
 - Native V2 backend uses clustered adjacency for 10x graph traversal performance
 
-**v2.3 Decisions (from research, 66-01, 69-02, 070-01, 070-02, and 070-03):**
+**v2.3 Decisions (from research, 66-01, 69-02, 070-01, 070-02, 070-03, and 070-04):**
 - **Phase 070-01**: Remove unsafe downcasting from algorithms.rs - use GraphBackend trait API instead (070-01)
 - **Phase 070-01**: Backend-agnostic algorithms: BFS for reachability, Tarjan's for SCC, DFS for path enumeration (070-01)
 - **Phase 070-02**: Use tracing crate for structured logging - keep user-facing warnings as eprintln! (070-02)
 - **Phase 070-02**: Default log level to WARN, overridable via RUST_LOG env var for debugging (070-02)
 - **Phase 070-02**: Add #[instrument] macro to core graph operations for automatic span tracking (070-02)
+- **Phase 070-04**: Complete tracing migration - zero eprintln! in library code (070-04)
+- **Phase 070-04**: Use debug! for verbose diagnostics in debug_assertions, warn! for non-fatal failures, error! for storage errors (070-04)
 - Use `magellan::migrate_backend_cmd::detect_backend_format()` for backend detection (don't reimplement)
 - Follow llmgrep's `Backend::detect_and_open()` pattern for backend abstraction
 - Complete CLI flag exposures first (quick wins) before architectural rewrites
@@ -133,8 +136,8 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-02-10 (Phase 070-03: Cross-file call resolution fix)
-Stopped at: Completed 070-03 - Two-pass indexing in call_ops.rs, cross-file validation test
+Last session: 2026-02-10 (Phase 070-04: Complete tracing migration)
+Stopped at: Completed 070-04 - Replaced all 8 remaining eprintln! with debug!/warn!/error! macros
 Resume file: None - plan complete
 Blockers: None
 
