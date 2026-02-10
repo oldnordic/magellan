@@ -903,4 +903,109 @@ mod tests {
         let error3 = ValidationError::new("DB_PARENT_MISSING".to_string(), "test".to_string());
         assert_eq!(error3.code, "DB_PARENT_MISSING");
     }
+
+    /// Integration test for cross-file call resolution
+    ///
+    /// Tests that calls from one file to symbols in another file are correctly
+    /// resolved without creating orphan calls (ORPHAN_CALL_NO_CALLEE errors).
+    #[test]
+    #[cfg(not(feature = "native-v2"))]
+    fn test_cross_file_call_resolution() {
+        use tempfile::tempdir;
+
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_cross_file_calls.db");
+
+        // Create two test files:
+        // file_a.rs: Defines functions a() and b()
+        // file_b.rs: Defines function c() that calls a() and b()
+        let file_a_path = temp_dir.path().join("file_a.rs");
+        let file_b_path = temp_dir.path().join("file_b.rs");
+
+        let file_a_content = r#"
+pub fn function_a() -> i32 {
+    42
+}
+
+pub fn function_b() -> i32 {
+    24
+}
+"#;
+
+        let file_b_content = r#"
+use crate::file_a::function_a;
+use crate::file_a::function_b;
+
+pub fn function_c() -> i32 {
+    function_a() + function_b()
+}
+"#;
+
+        std::fs::write(&file_a_path, file_a_content).unwrap();
+        std::fs::write(&file_b_path, file_b_content).unwrap();
+
+        // Index both files
+        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
+
+        let file_a_str = file_a_path.to_string_lossy().to_string();
+        let file_b_str = file_b_path.to_string_lossy().to_string();
+
+        let file_a_source = std::fs::read(&file_a_path).unwrap();
+        let file_b_source = std::fs::read(&file_b_path).unwrap();
+
+        // Index file_a first
+        graph.index_file(&file_a_str, &file_a_source).unwrap();
+        graph.index_calls(&file_a_str, &file_a_source).unwrap();
+
+        // Then index file_b (which contains calls to file_a symbols)
+        graph.index_file(&file_b_str, &file_b_source).unwrap();
+        graph.index_calls(&file_b_str, &file_b_source).unwrap();
+
+        // Validate the graph - should have NO orphan call errors
+        let report = validate_graph(&mut graph).unwrap();
+
+        // Check that there are no ORPHAN_CALL_NO_CALLEE errors
+        let orphan_callee_errors: Vec<_> = report
+            .errors
+            .iter()
+            .filter(|e| e.code == "ORPHAN_CALL_NO_CALLEE")
+            .collect();
+
+        // Check that there are no ORPHAN_CALL_NO_CALLER errors
+        let orphan_caller_errors: Vec<_> = report
+            .errors
+            .iter()
+            .filter(|e| e.code == "ORPHAN_CALL_NO_CALLER")
+            .collect();
+
+        assert!(
+            orphan_callee_errors.is_empty(),
+            "Expected zero ORPHAN_CALL_NO_CALLEE errors, but found: {:?}",
+            orphan_callee_errors
+        );
+
+        assert!(
+            orphan_caller_errors.is_empty(),
+            "Expected zero ORPHAN_CALL_NO_CALLER errors, but found: {:?}",
+            orphan_caller_errors
+        );
+
+        // Also verify we actually indexed some calls
+        let entity_ids = graph.calls.backend.entity_ids().unwrap();
+        let call_count = entity_ids
+            .iter()
+            .filter(|&&id| {
+                let snapshot = SnapshotId::current();
+                graph.calls.backend.get_node(snapshot, id)
+                    .map(|n| n.kind == "Call")
+                    .unwrap_or(false)
+            })
+            .count();
+
+        assert!(
+            call_count > 0,
+            "Expected at least one call to be indexed, but found {}",
+            call_count
+        );
+    }
 }
