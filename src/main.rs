@@ -27,6 +27,7 @@ mod cli;
 use magellan::output::{output_json, JsonResponse, MigrateResponse, OutputFormat};
 use magellan::CodeGraph;
 use std::process::ExitCode;
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 use cli::{Command, parse_args};
 use status_cmd::{ExecutionTracker, run_status};
@@ -34,12 +35,26 @@ use status_cmd::{ExecutionTracker, run_status};
 // Re-export for other command modules that use crate::generate_execution_id
 pub use magellan::output::generate_execution_id;
 
+fn init_tracing() {
+    // Default to WARN level, but allow override via RUST_LOG
+    // This keeps the CLI quiet by default unless user explicitly enables logging
+    let env_filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("warn"));
+
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(fmt::layer().with_writer(std::io::stderr))
+        .init();
+}
 
 fn print_usage() {
     cli::print_usage();
 }
 
 fn main() -> ExitCode {
+    // Initialize tracing early - before any other logic
+    init_tracing();
+
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() < 2 {
