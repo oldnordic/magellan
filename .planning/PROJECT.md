@@ -8,24 +8,31 @@ Magellan is a deterministic codebase mapping CLI for local developers. It watche
 
 Produce correct, deterministic symbol + reference + call graph data from real codebases, continuously, without stopping on bad files.
 
-## Current Milestone: v2.2 Code Quality & Cross-File Relations
+## Current Milestone: v2.3 Tool Migration & Core Quality
 
-**Goal:** Fix cross-file reference indexing, re-enable caller/callee tracking, improve code quality (reduce unwrap() calls, split main.rs), and remove SQLite-specific code from generic traits.
+**Goal:** Complete native-v2 migration for external tools (llmgrep, splice, mirage) AND fix Magellan core issues (unsafe downcasting, debug output, hardcoded SQLite paths).
 
 **Target features:**
-- Cross-file reference indexing enables inter-file relationship tracking
-- Caller/callee tracking re-enabled in query/find commands
-- Code quality: split main.rs (2874 lines → modules), reduce unwrap() panic points
-- Backend abstraction: remove SQLite-specific labels from GraphBackend trait
-- AST node storage integrated with KV backend (native-v2)
-- Fragile areas fixed: validation.rs, cfg_extractor.rs, ingest/pool.rs
 
-**Version:** v2.1 Backend Parity Completion (shipped 2026-02-08)
+**External Tools (llmgrep, splice, mirage):**
+- `--detect-backend` flag across all tools
+- llmgrep: `--purpose` search mode, `watch` command (pub/sub)
+- splice: expose `--impact-graph` as CLI flag, verify `rename` command exists
+- mirage: `diff` command (CFG comparison), `--incremental` flag, `hotpaths` command, `icfg` command
+- mirage: backend-agnostic storage trait, KV storage backend for CFG data
+
+**Magellan Core:**
+- Fix unsafe downcasting in `src/graph/algorithms.rs:92-100`
+- Remove debug `eprintln!` statements from production code
+- Use GraphBackend trait consistently (eliminate direct `rusqlite` usage)
+- Audit and fix feature flag inconsistencies across modules
+
+**Version:** v2.2 Code Quality & Cross-File Relations (shipped 2026-02-09)
 
 **Recently Shipped:**
-- v2.1: Backend Parity Completion — All CLI query commands work on Native-V2 backend, ChunkStore KV support, comprehensive test suite
-- v2.0: Native V2 Backend Migration — KV store, WAL transactions, clustered adjacency, pub/sub events
-- v1.7: Concurrency & Thread Safety — RefCell → Arc<Mutex> migration, lock ordering, timeout-based shutdown
+- v2.2: Cross-file reference indexing, caller/callee tracking, main.rs split (2889→562 lines)
+- v2.1: Backend Parity Completion — All CLI query commands work on Native-V2 backend
+- v2.0: Native V2 Backend Migration — KV store, WAL transactions, clustered adjacency
 
 **Version:** v1.7 Concurrency & Thread Safety (shipped 2026-01-24)
 
@@ -107,22 +114,27 @@ Produce correct, deterministic symbol + reference + call graph data from real co
 - ✓ Single-threaded constraints documented for caches — v1.7
 - ✓ Concurrency tests pass (TSAN blocked by toolchain, manual verification passed) — v1.7
 
-### Active (v2.2 Code Quality & Cross-File Relations)
+### Active (v2.3 Tool Migration & Core Quality)
 
-**Cross-File Relations:**
-- [ ] Cross-file reference indexing creates inter-file relationships
-- [ ] Caller/callee tracking works across file boundaries
-- [ ] Query commands show complete call relationships
+**External Tool Migration:**
+- [ ] All tools support `--detect-backend` flag (llmgrep, splice, mirage)
+- [ ] llmgrep: `--purpose` search mode using label scans
+- [ ] llmgrep: `watch` command for real-time pub/sub updates
+- [ ] splice: `--impact-graph` flag exposed on relevant commands
+- [ ] splice: `rename` command with snapshot-before support
+- [ ] mirage: `diff` command for CFG comparison between snapshots
+- [ ] mirage: `--incremental` flag on paths command
+- [ ] mirage: `hotpaths` command for most-traversed path detection
+- [ ] mirage: `icfg` command for inter-procedural CFG
+- [ ] mirage: backend-agnostic storage trait (replace direct rusqlite)
+- [ ] mirage: KV storage backend for CFG data (replace SQL tables)
 
-**Code Quality:**
-- [ ] main.rs split into focused modules (<300 LOC each)
-- [ ] unwrap() calls replaced with proper Result handling
-- [ ] Fragile areas (validation.rs, cfg_extractor.rs, ingest/pool.rs) hardened
-
-**Backend Abstraction:**
-- [ ] SQLite-specific labels removed from GraphBackend trait
-- [ ] AST node storage integrated with KV backend
-- [ ] Backend-agnostic interfaces throughout
+**Magellan Core Quality:**
+- [ ] Unsafe downcasting removed from `src/graph/algorithms.rs`
+- [ ] Debug `eprintln!` statements replaced with proper logging
+- [ ] Direct `rusqlite` usage replaced with GraphBackend trait calls
+- [ ] Feature flag inconsistencies audited and fixed
+- [ ] All modules work correctly with both SQLite and native-v2 backends
 
 ### Out of Scope (Carry Forward)
 
@@ -194,4 +206,4 @@ Produce correct, deterministic symbol + reference + call graph data from real co
 | Centralized safe_slice() helper | Reduces code duplication; prevents panics on malformed AST nodes | ✓ Good |
 
 ---
-*Last updated: 2026-02-08 for v2.2 Code Quality & Cross-File Relations milestone*
+*Last updated: 2026-02-10 for v2.3 Tool Migration & Core Quality milestone*
