@@ -2,7 +2,7 @@
 
 ## Overview
 
-Magellan is a deterministic codebase mapping CLI for local developers. This roadmap tracks the v2.2 Code Quality & Cross-File Relations milestone, which completes cross-file reference indexing, re-enables caller/callee tracking, eliminates unwrap() panic points, splits the 2874-line main.rs into focused modules, and completes backend abstraction for full Native V2 parity.
+Magellan is a deterministic codebase mapping CLI for local developers. This roadmap tracks the v2.3 Tool Migration & Core Quality milestone, which completes Native-V2 backend migration across three dependent tools (llmgrep, splice, mirage) and addresses core quality issues in Magellan itself.
 
 ## Milestones
 
@@ -17,71 +17,302 @@ Magellan is a deterministic codebase mapping CLI for local developers. This road
 - ✅ **v1.8 CFG and Metrics** - Phases 34-35 (shipped 2026-01-31)
 - ✅ **v1.9 AST & Graph Algorithms** - Phases 36-44 (shipped 2026-02-04)
 - ✅ **v2.0 Native V2 Backend Migration** - Phases 46-55 (shipped 2026-02-08)
-- ✅ **v2.1 Backend Parity Completion** - Phases 56-59 (shipped 2026-02-08) - [Archived](.planning/milestones/v2.1-ROADMAP.md)
+- ✅ **v2.1 Backend Parity Completion** - Phases 56-59 (shipped 2026-02-08)
 - ✅ **v2.2 Code Quality & Cross-File Relations** - Phases 60-65 (shipped 2026-02-09)
+- 🔄 **v2.3 Tool Migration & Core Quality** - Phases 66-71 (in planning)
+
+---
+
+## v2.3 Tool Migration & Core Quality (PLANNING)
+
+**Milestone Goal:** Complete Native-V2 backend migration for external tools (llmgrep, splice, mirage) and fix Magellan core issues (unsafe downcasting, debug output, cross-file resolution bugs).
+
+**Context:**
+- **splice** is 70% migrated (snapshots, batch editing, verify done)
+- **llmgrep** is 50% migrated (backend abstraction works, CLI flags missing)
+- **mirage** is 20% migrated (uses direct SQLite queries, no storage trait)
+- **Magellan** has critical bugs affecting cross-file reference resolution and caller/callee tracking
+
+**Based on Research:** `.planning/research/SUMMARY.md`, `.planning/research/FEATURES.md`, `.planning/research/ARCHITECTURE.md`, `.planning/research/PITFALLS.md`, `.planning/research/STACK.md`
+
+---
+
+### Phase 66: CLI Flag Exposure (llmgrep, mirage)
+
+**Goal:** All tools provide consistent `--detect-backend` flag for runtime backend detection and llmgrep exposes `--purpose` search mode.
+
+**User Value:** Users can query which backend a database uses without running a full command, enabling automated tooling and debugging. Purpose-based semantic search finds code by functional role.
+
+**Depends on:** Nothing (uses existing `magellan::migrate_backend_cmd::detect_backend_format()`)
+
+**Complexity:** Low
+
+**Requirements Addressed:**
+- TOOL-01: All tools support `--detect-backend` flag
+- TOOL-02: llmgrep `--purpose` search mode
+
+**Success Criteria:**
+1. User runs `llmgrep --detect-backend --db codegraph.db` and receives output "native-v2" or "sqlite"
+2. User runs `mirage --detect-backend --db codegraph.db` and receives output "native-v2" or "sqlite"
+3. User runs `llmgrep search --purpose "authentication" --db codegraph.db` and receives results using label-based search
+4. All tools output consistent format strings: "native-v2" and "sqlite" (exact lowercase match)
+
+**Files:**
+- `/home/feanor/Projects/llmgrep/src/main.rs` - Add global `--detect-backend` flag, `--purpose` flag to search command
+- `/home/feanor/Projects/mirage/src/main.rs` - Add global `--detect-backend` flag
+- Reference: `/home/feanor/Projects/splice/src/main.rs:414` - Splice's implementation (already done)
+
+**Avoids:** Pitfall #3 - CLI flags not exposed for implemented features
+
+**Plans:** —
+**Status:** Pending
+
+---
+
+### Phase 67: llmgrep Watch Command
+
+**Goal:** llmgrep provides real-time database updates via pub/sub infrastructure.
+
+**User Value:** Developers can monitor semantic search results continuously as they edit code, without re-running queries manually.
+
+**Depends on:** Phase 66 (backend detection verified first), sqlitegraph 1.5.7 pub/sub API completeness
+
+**Complexity:** Medium
+
+**Requirements Addressed:**
+- TOOL-03: llmgrep `watch` command for real-time pub/sub updates
+
+**Success Criteria:**
+1. User runs `llmgrep watch --query "Widget" --db codegraph.db` and receives initial results
+2. When a file is modified (matching symbols added/removed), new results appear automatically
+3. Watch mode exits cleanly on SIGINT/SIGTERM
+4. Watch mode works with both SQLite and native-v2 backends
+
+**Files:**
+- `/home/feanor/Projects/llmgrep/src/main.rs` - Add watch command to Command enum
+- `/home/feanor/Projects/llmgrep/src/watch_cmd.rs` - NEW: watch command implementation using sqlitegraph pub/sub
+
+**Research Flag:** Verify sqlitegraph pub/sub API completeness before implementation
+
+**Plans:** —
+**Status:** Pending
+
+---
+
+### Phase 68: Splice Impact Graph Exposure
+
+**Goal:** splice provides consistent `--impact-graph` flag across relevant commands for DOT graph visualization.
+
+**User Value:** Developers can visualize the impact of refactors before applying them, enabling safer code changes.
+
+**Depends on:** Nothing (internal `execute_impact_graph()` already exists)
+
+**Complexity:** Low
+
+**Requirements Addressed:**
+- TOOL-04: splice `--impact-graph` flag exposed on relevant commands
+
+**Success Criteria:**
+1. User runs `splice rename --symbol foo --to bar --impact-graph --db codegraph.db` and receives DOT graph output
+2. User runs `splice apply-files --glob "**/*.rs" --find old --replace new --impact-graph --db codegraph.db` and receives DOT graph output
+3. Impact graph shows caller/callee relationships affected by the change
+4. DOT output is parseable by graphviz tools
+
+**Files:**
+- `/home/feanor/Projects/splice/src/main.rs` - Add `--impact-graph` flag to rename, apply-files commands
+- Reference: `/home/feanor/Projects/splice/src/main.rs:148` - `execute_impact_graph()` function (already exists)
+
+**Avoids:** Pitfall #3 - CLI flags not exposed for implemented features
+
+**Plans:** —
+**Status:** Pending
+
+---
+
+### Phase 69: Mirage Storage Trait Rewrite
+
+**Goal:** mirage provides backend-agnostic storage trait, replacing direct `rusqlite` usage throughout codebase.
+
+**User Value:** mirage works with both SQLite and native-v2 backends, enabling performance benefits and new features (diff, incremental, hotpaths, icfg).
+
+**Depends on:** Nothing (foundational work for Phase 71)
+
+**Complexity:** High (2-3 weeks)
+
+**Requirements Addressed:**
+- TOOL-05: mirage backend-agnostic storage trait
+- TOOL-06: mirage KV storage backend for CFG data
+- TOOL-07: mirage `migrate` command
+
+**Success Criteria:**
+1. mirage opens databases using `Backend::detect_and_open()` pattern (like llmgrep)
+2. CFG blocks stored in KV format: `cfg:blocks:{function_id}` (not SQL tables)
+3. CFG edges stored in KV format: `cfg:edges:{function_id}`
+4. User runs `mirage migrate --from sqlite --to native-v2 --db codegraph.db` and data converts successfully
+5. All existing commands (cfg, paths, dominators, loops) work identically on both backends
+6. No direct `rusqlite::Connection` usage remains in mirage codebase
+
+**Files:**
+- `/home/feanor/Projects/mirage/src/storage/mod.rs` - Rewrite to backend-agnostic storage trait
+- `/home/feanor/Projects/mirage/src/storage/sqlite.rs` - NEW: SQLite backend implementation
+- `/home/feanor/Projects/mirage/src/storage/kv.rs` - NEW: Native-V2 KV backend implementation
+- `/home/feanor/Projects/mirage/src/migrate_cmd.rs` - NEW: migrate command
+- Reference: `/home/feanor/Projects/llmgrep/src/backend/mod.rs:149` - `Backend::detect_and_open()` pattern to copy
+
+**Addresses:** Pitfall #2 - Direct SQLite usage prevents backend abstraction
+
+**Research Flag:** Storage trait design needs deeper research during planning
+
+**Plans:** —
+**Status:** Pending
+
+---
+
+### Phase 70: Magellan Core Quality Fixes
+
+**Goal:** Fix critical bugs in Magellan that affect cross-file reference resolution and caller/callee tracking.
+
+**User Value:** Accurate call graph analysis with no orphan references or calls, enabling reliable refactoring tools.
+
+**Depends on:** Nothing (can run in parallel with Phase 69)
+
+**Complexity:** Medium
+
+**Requirements Addressed:**
+- CORE-01: Fix unsafe downcasting in `src/graph/algorithms.rs`
+- CORE-02: Remove debug `eprintln!` statements from production code
+- CORE-03: Use GraphBackend trait consistently (eliminate direct `rusqlite` usage)
+- CORE-04: Fix cross-file reference resolution (two-pass indexing)
+- CORE-05: Fix caller/callee edge consistency (transactional re-indexing)
+
+**Success Criteria:**
+1. `validate_graph()` returns zero `ORPHAN_REFERENCE` errors on cross-file codebases
+2. `validate_graph()` returns zero `ORPHAN_CALL_NO_CALLER` and `ORPHAN_CALL_NO_CALLEE` errors
+3. No `unsafe downcast_*()` calls remain in `src/graph/algorithms.rs`
+4. All `eprintln!` debug statements replaced with proper logging (tracing/log crate)
+5. Both backends (SQLite and native-v2) produce identical cross-file reference results
+
+**Files:**
+- `src/graph/algorithms.rs:92-100` - Remove unsafe downcasting
+- `src/graph/references.rs` - Implement two-pass indexing for cross-file references
+- `src/graph/call_ops.rs` - Implement transactional re-indexing for calls
+- `src/graph/validation.rs` - Verify orphan detection passes
+
+**Addresses:** Pitfalls #1, #2 - Orphan references, call edge inconsistency
+
+**Plans:** —
+**Status:** Pending
+
+---
+
+### Phase 71: Mirage Advanced Commands
+
+**Goal:** mirage implements new features enabled by KV storage: diff, hotpaths, icfg commands and `--incremental` flag.
+
+**User Value:** CFG diff between code versions, incremental analysis of changed functions only, most-traversed path detection, and inter-procedural analysis.
+
+**Depends on:** Phase 69 (storage trait required), Phase 70 (Magellan core fixes enable accurate cross-function analysis)
+
+**Complexity:** Medium
+
+**Requirements Addressed:**
+- TOOL-08: mirage `diff` command for CFG comparison between snapshots
+- TOOL-09: mirage `--incremental` flag on paths command
+- TOOL-10: mirage `hotpaths` command for most-traversed path detection
+- TOOL-11: mirage `icfg` command for inter-procedural CFG
+
+**Success Criteria:**
+1. User runs `mirage diff --function "process" --before snapshot_v1 --after snapshot_v2` and sees CFG differences
+2. User runs `mirage paths --incremental --since HEAD~1 --db codegraph.db` and only changed functions are analyzed
+3. User runs `mirage hotpaths --db codegraph.db` and receives most-traversed execution paths
+4. User runs `mirage icfg --entry "main" --depth 3 --db codegraph.db` and receives inter-procedural CFG
+5. All commands work with both SQLite and native-v2 backends
+
+**Files:**
+- `/home/feanor/Projects/mirage/src/diff_cmd.rs` - NEW: diff command
+- `/home/feanor/Projects/mirage/src/hotpaths_cmd.rs` - NEW: hotpaths command
+- `/home/feanor/Projects/mirage/src/icfg_cmd.rs` - NEW: icfg command
+- `/home/feanor/Projects/mirage/src/paths.rs` - Add `--incremental` flag
+
+**Clarification Needed:** `hotpaths` vs existing `Hotspots` command - are these the same or different?
+
+**Plans:** —
+**Status:** Pending
+
+---
+
+## Phase Dependencies (v2.3)
+
+```
+Phase 66: CLI Flag Exposure
+    |
+    v
+Phase 67: llmgrep Watch
+    |
+    v
+Phase 68: Splice Impact Graph
+    |
+    +------------------+
+    |                  |
+    v                  v
+Phase 69: Mirage   Phase 70: Magellan
+    Storage Trait      Core Quality
+    |                  |
+    +------------------+
+             |
+             v
+    Phase 71: Mirage Advanced Commands
+```
+
+**Parallel Execution Opportunities:**
+- Phase 66, 67, 68 are independent and can run in any order (or in parallel)
+- Phase 69 (Mirage Storage) and Phase 70 (Magellan Core) can run in parallel
+
+---
+
+## Progress Tracking (v2.3)
+
+| Phase | Name | Plans | Status |
+|-------|------|-------|--------|
+| 66 | CLI Flag Exposure | — | Pending |
+| 67 | llmgrep Watch | — | Pending |
+| 68 | Splice Impact Graph | — | Pending |
+| 69 | Mirage Storage Trait | — | Pending |
+| 70 | Magellan Core Quality | — | Pending |
+| 71 | Mirage Advanced Commands | — | Pending |
+
+---
+
+## Milestone Success Criteria (v2.3)
+
+The v2.3 milestone is complete when:
+
+1. **Cross-Tool Consistency:** All three tools (llmgrep, splice, mirage) provide `--detect-backend` flag with identical output formats
+
+2. **Backend Parity:**
+   - llmgrep: All commands work identically on SQLite and native-v2
+   - splice: All commands work identically on SQLite and native-v2
+   - mirage: All commands work identically on SQLite and native-v2
+
+3. **New Features Delivered:**
+   - llmgrep: `watch` command with real-time pub/sub updates
+   - llmgrep: `--purpose` search mode for label-based semantic search
+   - splice: `--impact-graph` flag for DOT visualization
+   - mirage: `diff`, `hotpaths`, `icfg` commands and `--incremental` flag
+
+4. **Magellan Core Quality:**
+   - Zero orphan references in cross-file codebases
+   - Zero orphan calls in call graph
+   - No unsafe downcasting in algorithms
+   - No debug output in production code
+   - Consistent GraphBackend trait usage throughout
+
+5. **Documentation:** All tool README.md files updated with native-v2 notes
 
 ---
 
 <details>
-<summary>✅ v2.0 Native V2 Backend Migration (Phases 46-55) - SHIPPED 2026-02-08</summary>
-
-### Phase 46: Backend Abstraction Foundation
-**Goal:** Code uses backend-agnostic types enabling compile-time backend selection via feature flag
-**Plans:** 6/6 complete
-
-### Phase 47: Data Migration & Compatibility
-**Goal:** Users can migrate existing SQLite databases to Native V2 format without data loss
-**Plans:** 5/5 complete
-
-### Phase 48: Native V2 Performance Features
-**Goal:** Graph traversal achieves 10x performance improvement through clustered adjacency and KV store
-**Plans:** 5/5 complete
-
-### Phase 49: Pub/Sub Integration
-**Goal:** Watcher mode uses pub/sub events for real-time cache invalidation
-**Plans:** 5/5 complete
-
-### Phase 49.5: Native V2 Test Fixes
-**Goal:** Fix test failures that occur with native-v2 feature enabled
-**Plans:** 3/3 complete
-
-### Phase 50: Testing & Documentation
-**Goal:** All CLI commands work identically on both backends with comprehensive documentation
-**Plans:** Fulfilled by phases 47, 49, 49.5, 54
-
-### Phase 51: Fix Native V2 Compilation Errors
-**Goal:** Native V2 backend compiles without errors and all features work correctly
-**Plans:** 3/3 complete
-
-### Phase 52: Eliminate Native-V2 Stubs
-**Goal:** Replace all SQLite stub implementations with proper KV store storage in native-v2 mode
-**Plans:** 7/7 complete
-
-### Phase 53: Fix Native-V2 Database Initialization
-**Goal:** Fix critical bug where magellan fails to initialize new databases in native-v2 mode
-**Plans:** 3/3 complete
-
-### Phase 54: CLI Backend Detection and Dual Query Methods
-**Goal:** Fix CLI commands to work with both SQLite and Native-V2 backends
-**Plans:** 5/5 complete
-
-### Phase 55: KV Data Storage Migration
-**Goal:** Update indexing pipeline to store all metadata in KV storage when using native-v2 backend
-**Plans:** 8/8 complete
-
-</details>
-
----
-
-<details>
-<summary>✅ v2.1 Backend Parity Completion (Phases 56-59) - SHIPPED 2026-02-08</summary>
-
-See [.planning/milestones/v2.1-ROADMAP.md](.planning/milestones/v2.1-ROADMAP.md) for details.
-
-**Plans completed:** 13/13
-</details>
-
----
+<summary>Archived Milestones (v1.0 - v2.2)</summary>
 
 ### ✅ v2.2 Code Quality & Cross-File Relations (SHIPPED 2026-02-09)
 
@@ -89,114 +320,66 @@ See [.planning/milestones/v2.1-ROADMAP.md](.planning/milestones/v2.1-ROADMAP.md)
 
 #### Phase 60: Import Infrastructure & Module Resolution ✅
 **Goal**: System extracts import statements and builds module path index for cross-file symbol resolution
-**Depends on**: Nothing (v2.2 foundation)
-**Requirements**: XREF-03
-**Success Criteria** (what must be TRUE):
-  1. ImportExtractor extracts `use`, `import`, `from` statements during indexing
-  2. Import nodes stored in database with IMPORTS metadata from files; module resolution enables Phase 61 to create edges to defining symbols
-  3. ModuleResolver resolves `crate::`, `super::`, `self::` paths to file IDs
-  4. Module path cache (module_path → file_id) enables efficient lookups
-**Plans:** 1/1
-- [x] 60-01-PLAN.md — Import extraction infrastructure (ImportFact, ImportNode, ImportExtractor, ImportOps, ModuleResolver)
-**Status**: Complete 2026-02-09
+**Plans:** 1/1 complete
 
 #### Phase 61: Cross-File Symbol Resolution ✅
 **Goal**: Cross-file references and call relationships are resolved and indexed across all files
-**Depends on**: Phase 60
-**Requirements**: XREF-01, XREF-02
-**Success Criteria** (what must be TRUE):
-  1. References indexed across all files in codebase (inter-file relationships)
-  2. `refs` command returns multi-file results with file paths, lines, columns
-  3. CALLS edges created across file boundaries during indexing
-  4. `refs --direction in/out` shows call relationships from/to all files
-**Plans:** 3/3
-- [x] 61-01-PLAN.md — Import nodes create DEFINES edges to resolved files
-- [x] 61-02-PLAN.md — Cross-file call indexing and querying
-- [x] 61-03-PLAN.md — Cross-file reference indexing verification
-**Status**: Complete 2026-02-09
+**Plans:** 3/3 complete
 
 #### Phase 62: CLI Exposure & Query Updates ✅
 **Goal**: CLI commands expose cross-file resolution with clear, structured output
-**Depends on**: Phase 61
-**Requirements**: None (exposes Phase 61 functionality)
-**Success Criteria** (what must be TRUE):
-  1. `refs` command shows references from all files in codebase
-  2. `find` command returns multi-file results with correct locations
-  3. `query` command includes cross-file relationships in results
-  4. Cross-file reference tests pass (tests/backend_migration_tests.rs:648-987)
-**Plans:** 1/1
-- [x] 62-01-PLAN.md — Verify CLI commands expose cross-file functionality
-**Status**: Complete 2026-02-09
+**Plans:** 1/1 complete
 
-#### Phase 63: Error Handling Quality - Critical Paths ✅
+#### Phase 63: Error Handling Quality ✅
 **Goal**: User-facing code paths have no unwrap() panic points
-**Depends on**: Nothing (can run parallel to Phase 60-62)
-**Requirements**: QUAL-01
-**Success Criteria** (what must be TRUE):
-  1. unwrap() removed from all command modules (refs_cmd, find_cmd, query_cmd, etc.)
-  2. unwrap() removed from graph operations (symbols, references, calls, etc.)
-  3. unwrap() removed from parser ingestion (pool.rs, indexer.rs)
-  4. Errors include context via `.context()` or `.with_context()`
-  5. Clippy passes with `-- -W clippy::unwrap_used` on critical paths
-**Plans:** 1/1
-- [x] 63-01-PLAN.md — Mutex lock poisoning error handling (indexer.rs, watcher/mod.rs)
-**Status**: Complete 2026-02-09
+**Plans:** 1/1 complete
 
 #### Phase 64: Code Organization & Backend Abstraction ✅
 **Goal**: main.rs split into focused modules and backend abstraction completed
-**Depends on**: Nothing (can run parallel to Phase 60-63)
-**Requirements**: QUAL-03, BACK-01, BACK-02
-**Success Criteria** (what must be TRUE):
-  1. main.rs reduced to < 650 lines (from current 2874 lines) - ~77% reduction
-  2. src/cli.rs created with argument parsing logic
-  3. src/version.rs created with version information
-  4. src/status_cmd.rs created with status command and ExecutionTracker
-  5. src/label_cmd.rs created with label command
-  6. CodeGraph has no SQLite-specific label methods exposed when native-v2 feature is enabled (methods gated with #[cfg(not(feature = "native-v2"))])
-  7. Backend-specific code behind `#[cfg(feature = "...")]` gates
-**Plans:** 5/5
-- [x] 64-01-PLAN.md — Extract version information to src/version.rs module
-- [x] 64-02-PLAN.md — Extract Command enum and parse_args function to src/cli.rs
-- [x] 64-03-PLAN.md — Extract run_label function to src/label_cmd.rs
-- [x] 64-04-PLAN.md — Gate SQLite-specific label query methods with conditional compilation
-- [x] 64-05-PLAN.md — Extract run_status function and ExecutionTracker to src/status_cmd.rs
-**Status**: Complete 2026-02-09
+**Plans:** 5/5 complete
 
 #### Phase 65: Performance & Validation ✅
 **Goal**: Codebase quality verified with comprehensive testing and benchmarking
-**Depends on**: Phase 61 (resolution implementation), Phase 63 (error handling), Phase 64 (backend abstraction)
-**Requirements**: QUAL-02, BACK-03
-**Success Criteria** (what must be TRUE):
-  1. Clippy passes with `-- -W clippy::unwrap_used` on entire codebase
-  2. All CLI query commands work identically on both backends
-  3. Cross-file reference indexing works on Native V2 backend
-  4. Caller/callee tracking works on Native V2 backend
-  5. Integration tests pass for both backends
-**Plans:** 3/3
-- [x] 65-01-PLAN.md — Native V2 cross-file verification
-- [x] 65-02-PLAN.md — Code quality baseline
-- [x] 65-03-PLAN.md — v2.2 milestone finalization
-**Status**: Complete 2026-02-09
+**Plans:** 3/3 complete
+
+### ✅ v2.1 Backend Parity Completion (SHIPPED 2026-02-08)
+**Plans:** 13/13 complete
+
+### ✅ v2.0 Native V2 Backend Migration (SHIPPED 2026-02-08)
+**Plans:** 55/55 complete
+
+### ✅ v1.9 AST & Graph Algorithms (SHIPPED 2026-02-04)
+**Plans:** 9/9 complete
+
+### ✅ v1.8 CFG and Metrics (SHIPPED 2026-01-31)
+**Plans:** 2/2 complete
+
+### ✅ v1.7 Concurrency & Thread Safety (SHIPPED 2026-02-04)
+**Plans:** 5/5 complete
+
+### ✅ v1.6 Quality & Bugfix (SHIPPED 2026-02-04)
+**Plans:** 2/2 complete
+
+### ✅ v1.5 Symbol Identity (SHIPPED 2026-01-23)
+**Plans:** 7/7 complete
+
+### ✅ v1.4 Bug Fixes & Correctness (SHIPPED 2026-01-22)
+**Plans:** 4/4 complete
+
+### ✅ v1.3 Performance (SHIPPED 2026-01-22)
+**Plans:** 1/1 complete
+
+### ✅ v1.2 Unified JSON Schema (SHIPPED 2026-01-22)
+**Plans:** 1/1 complete
+
+### ✅ v1.1 Correctness + Safety (SHIPPED 2026-01-20)
+**Plans:** 4/4 complete
+
+### ✅ v1.0 Magellan (SHIPPED 2026-01-19)
+**Plans:** 9/9 complete
+
+</details>
 
 ---
 
-## Progress
-
-**Execution Order:**
-Phases execute in numeric order: 60 → 61 → 62 → 63 → 64 → 65
-(Phases 63-64 can run in parallel with 60-62)
-
-| Phase | Milestone | Plans Complete | Status | Completed |
-|-------|-----------|----------------|--------|-----------|
-| 46-55 | v2.0 | 55/55 | Complete | 2026-02-08 |
-| 56-59 | v2.1 | 13/13 | Complete | 2026-02-08 |
-| 60. Import Infrastructure | v2.2 | 1/1 | Complete | 2026-02-09 |
-| 61. Cross-File Resolution | v2.2 | 3/3 | Complete | 2026-02-09 |
-| 62. CLI Exposure | v2.2 | 1/1 | Complete | 2026-02-09 |
-| 63. Error Handling Quality | v2.2 | 1/1 | Complete | 2026-02-09 |
-| 64. Code Organization | v2.2 | 5/5 | Complete | 2026-02-09 |
-| 65. Performance & Validation | v2.2 | 3/3 | Complete | 2026-02-09 |
-
----
-
-*Last updated: 2026-02-09*
+*Last updated: 2026-02-10*
