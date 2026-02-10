@@ -4,6 +4,8 @@
 
 use anyhow::Result;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
+use tracing::{debug, info, instrument};
 
 use sqlitegraph::{GraphBackend, SnapshotId};
 
@@ -81,6 +83,7 @@ impl DeleteResult {
 ///
 /// # Returns
 /// Number of symbols indexed
+#[instrument(skip(graph, source), fields(path = %path, source_len = source.len()))]
 pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<usize> {
     use crate::generation::CodeChunk;
     use crate::ingest::c::CParser;
@@ -183,12 +186,14 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
     // Only available with native-v2 backend (KV store is native-only)
     #[cfg(feature = "native-v2")]
     {
+        eprintln!("DEBUG: KV indexing {} symbols for file {}", indexed_symbols.len(), path);
         let backend = Rc::clone(&graph.files.backend);
         crate::kv::populate_symbol_index(
             backend,
             file_id.as_i64() as u64,
             &indexed_symbols,
         )?;
+        eprintln!("DEBUG: KV indexing completed for {}", path);
     }
 
     // Step 5: Extract and store code chunks for each symbol
@@ -313,8 +318,11 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
     }
 
     // Step 6: Index calls (all supported languages)
-    if language.is_some() {
-        let _ = super::calls::index_calls(graph, path, source);
+    if let Some(_lang) = language {
+        match super::calls::index_calls(graph, path, source) {
+            Ok(_count) => {},
+            Err(e) => eprintln!("Warning: Failed to index calls for '{}': {}", path, e),
+        }
     }
 
     // Step 7: Compute and store metrics (fan-in, fan-out, LOC, complexity)
@@ -412,6 +420,7 @@ pub fn delete_file(graph: &mut CodeGraph, path: &str) -> Result<DeleteResult> {
 ///
 /// # Returns
 /// DeleteResult with detailed counts of deleted entities.
+#[instrument(skip(graph), fields(path = %path))]
 pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResult> {
     use crate::graph::schema::delete_edges_touching_entities;
 
@@ -1191,6 +1200,7 @@ fn count_cfg_blocks_for_file(graph: &CodeGraph, path: &str) -> usize {
 /// 2. If exists → compute hash, compare to stored
 /// 3. If unchanged → return Unchanged without mutating DB
 /// 4. If changed/new → delete facts, re-index, return Reindexed
+#[instrument(skip(graph), fields(path = %path.display()))]
 pub fn reconcile_file_path(
     graph: &mut CodeGraph,
     path: &Path,
