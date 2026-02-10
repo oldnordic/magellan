@@ -1745,6 +1745,8 @@ magellan watch --root . --db magellan.db --scan-initial
 
 ## 10. Troubleshooting
 
+**Comprehensive troubleshooting guide available:** [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
+
 ### Files not being indexed
 
 Check file extension is supported:
@@ -1769,6 +1771,13 @@ magellan watch --root . --db ./magellan.db --scan-initial &
 sleep 5
 pkill -f "magellan watch"
 ```
+
+**For more troubleshooting topics**, see [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md):
+- Installation & build issues
+- Runtime issues
+- Performance issues
+- Backend-specific issues
+- Integration issues
 
 ---
 
@@ -1975,6 +1984,19 @@ This ordering prevents lost wakeups and deadlocks.
 |------|---------|
 | 0 | Success |
 | 1 | Error or issues found (verify command) |
+
+---
+
+## Further Documentation
+
+| Document | Description |
+|----------|-------------|
+| [README.md](README.md) | Quick start and command reference |
+| [CHANGELOG.md](CHANGELOG.md) | Version history and changes |
+| [docs/PHILOSOPHY.md](docs/PHILOSOPHY.md) | Design principles and LLM-era manifesto |
+| [docs/INTEGRATION.md](docs/INTEGRATION.md) | Working with llmgrep, splice, mirage |
+| [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Common issues and solutions |
+| [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | Benchmarks and optimization tips |
 
 ---
 

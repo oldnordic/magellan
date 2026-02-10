@@ -946,6 +946,26 @@ Lock ordering is enforced to prevent deadlocks:
 2. Send wakeup signal while holding lock
 3. Release lock
 
+## When NOT to Use Magellan
+
+Magellan excels at code graph analysis and symbol indexing, but it's not the right tool for every task:
+
+| Task | Use This Instead | Why |
+|------|----------------|-----|
+| Simple text search | `ripgrep` (`rg`) | Faster, no indexing needed |
+| Quick symbol jump in editor | LSP/ctags | Real-time, no separate database |
+| Type information | Language Server (LSP) | Semantic analysis, not AST-only |
+| Full-text code search | `grep`/`rg` with `-A`/`-B` | Context around matches |
+| Ad-hoc SQL queries on data | Direct database tool | Magellan stores graph, not your data |
+| Runtime code analysis | Dynamic analysis tools | Magellan is static analysis only |
+| Very large graphs (>100K nodes) | Specialized tools | Consider dedicated graph databases |
+
+**Quick Decision Guide:**
+- Need **symbol relationships**? → Use Magellan
+- Need **text search**? → Use ripgrep
+- Need **real-time IDE features**? → Use LSP
+- Need **type checking**? → Use compiler/LSP
+
 ## Known Limitations
 
 - **FQN collisions addressed in v1.5**: Symbols with identical names in different files or modules may share the same display FQN. The `collisions` command (v1.5) identifies these cases, and `--symbol-id` provides stable BLAKE3-based identifiers for unambiguous symbol reference. Common in: `main` functions across binaries, test functions, and methods with generic names (`new`, `default`, etc.) in impl blocks.
@@ -953,6 +973,24 @@ Lock ordering is enforced to prevent deadlocks:
 - **No incremental parsing**: File changes trigger full re-parse of that file
 - **Cross-crate resolution**: Rust symbols across crates are resolved by name only
 - **Testing**: Primary development and testing on Linux; Windows and macOS not regularly tested in CI
+- **Memory database**: `:memory:` databases not supported due to SQLite Shared connections
+
+## Performance Characteristics
+
+| Metric | Small (100 files) | Medium (1K files) | Large (10K files) |
+|--------|-------------------|-------------------|-------------------|
+| Indexing time | ~2s | ~18s | ~165s |
+| Database size (SQLite) | ~420 KB | ~4.2 MB | ~42 MB |
+| Database size (Native V2) | ~280 KB | ~2.8 MB | ~28 MB |
+| Query latency | 3-8ms | 10-35ms | 20-120ms |
+
+**Optimization Tips:**
+- Use Native V2 backend for 1.3-3.2x faster inserts: `--features native-v2`
+- Use gitignore-aware mode (default) to skip build artifacts
+- Use `--symbol-id` for repeated lookups (O(1) vs O(n) name lookup)
+- Use label queries for filtering: `magellan label --label fn`
+
+**For more details**, see [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
 ## License
 
@@ -972,3 +1010,15 @@ GPL-3.0-or-later
 - **Repository:** [https://github.com/oldnordic/magellan](https://github.com/oldnordic/magellan)
 - **Documentation:** [MANUAL.md](https://github.com/oldnordic/magellan/blob/main/MANUAL.md)
 - **Crates.io:** [https://crates.io/crates/magellan](https://crates.io/crates/magellan)
+
+## Full Documentation
+
+| Document | Description |
+|----------|-------------|
+| [README.md](README.md) | This file - quick start and command reference |
+| [MANUAL.md](MANUAL.md) | Comprehensive operator manual |
+| [CHANGELOG.md](CHANGELOG.md) | Version history and changes |
+| [docs/PHILOSOPHY.md](docs/PHILOSOPHY.md) | Design principles and LLM-era manifesto |
+| [docs/INTEGRATION.md](docs/INTEGRATION.md) | Working with llmgrep, splice, mirage |
+| [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Common issues and solutions |
+| [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | Benchmarks and optimization tips |
