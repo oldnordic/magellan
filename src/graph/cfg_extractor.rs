@@ -25,6 +25,7 @@
 
 use crate::graph::schema::CfgBlock;
 use tree_sitter::Node;
+use tracing::error;
 
 /// Block kind classification
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -743,11 +744,7 @@ impl<'a> RustCfgExtractor<'a> {
         // Store in KV if backend is available
         if let Some(ref backend) = self.backend {
             if let Err(e) = store_cfg_blocks_kv(std::rc::Rc::clone(backend), function_id, &blocks) {
-                eprintln!(
-                    "Failed to store CFG blocks for function {}: {}",
-                    function_id,
-                    e
-                );
+                error!(error = %e, function_id = function_id, "Failed to store CFG blocks");
             }
         }
 
