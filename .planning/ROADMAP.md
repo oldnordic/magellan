@@ -266,7 +266,7 @@ Magellan is a deterministic codebase mapping CLI for local developers. This road
 - [ ] 071-02-PLAN.md — Incremental paths with git2 integration
 - [ ] 071-03-PLAN.md — Hotpaths command (static heuristic ranking)
 - [ ] 071-04-PLAN.md — ICFG command (inter-procedural CFG)
-**Status:** Pending (4 plans created)
+**Status:** Planned (4 plans created, verified)
 
 ---
 
@@ -308,7 +308,7 @@ Phase 69: Mirage   Phase 70: Magellan
 | 68 | Splice Impact Graph | 1/1 | ✅ Complete |
 | 69 | Mirage Storage Trait | 4/4 | ✅ Complete |
 | 70 | Magellan Core Quality | 4/4 | ✅ Complete |
-| 71 | Mirage Advanced Commands | 4 | Pending |
+| 71 | Mirage Advanced Commands | 4 | Planned |
 
 ---
 

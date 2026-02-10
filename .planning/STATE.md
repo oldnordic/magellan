@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-10)
 ## Current Position
 
 Phase: 071-mirage-advanced-commands
-Plan: 01 (complete)
-Status: CFG diff command with petgraph-based comparison
-Last activity: 2026-02-10 — Implemented mirage diff command for CFG snapshot comparison with human/JSON/Pretty output
+Plan: 04 (complete)
+Status: ICFG command with depth-limited call graph traversal
+Last activity: 2026-02-10 — Implemented inter-procedural CFG construction with call/return edges via CALLS graph queries
 
-Progress: [████████░░] 87% (6/7 phases complete, Phase 71-01 complete)
+Progress: [████████░░] 88% (Phase 71-04 complete, 3 remaining plans)
 
 **Completed Milestones:**
 - v1.0 Magellan - Phases 1-9 (shipped 2026-01-19)
@@ -107,6 +107,10 @@ Recent decisions affecting current work:
 - **Phase 69-03**: Support in-place migration with same input/output database path (69-03)
 - **Phase 69-04**: Backend parity tests verify SQLite and native-v2 return identical results (69-04)
 - **Phase 69-04**: Integration tests cover all 15 mirage CLI commands (69-04)
+- **Phase 071-04**: Add id field to CfgBlockData for ICFG node mapping (071-04)
+- **Phase 071-04**: ICFG construction uses depth-limited BFS with call/return edges from CALLS graph (071-04)
+- **Phase 071-04**: NeighborQuery with edge_type filter for GraphBackend CALLS queries (071-04)
+- **Phase 071-04**: IcfgJson wrapper for JSON output (petgraph DiGraph not serializable) (071-04)
 - **Phase 071-03**: Use static heuristics (loop depth 2^N, dominator factor, early exit penalty) for hot path detection without runtime profiling (071-03)
 - **Phase 071-03**: Distinguish Hotpaths (path-level frequency) from Hotspots (function-level risk) to prevent user confusion (071-03)
 - **Phase 071-03**: Adapt to CfgBlockData structure (no id field) using NodeIndex::new(block_index) for position-based block identification (071-03)
@@ -143,8 +147,8 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-02-10 (Phase 071-02: Incremental path analysis)
-Stopped at: Completed 071-02 - Implemented git-based incremental path enumeration with --incremental flag
+Last session: 2026-02-10 (Phase 071-04: ICFG command)
+Stopped at: Completed 071-04 - Implemented inter-procedural CFG with depth-limited call graph traversal
 Resume file: None - plan complete
 Blockers: None
 
