@@ -94,8 +94,10 @@ Magellan is a deterministic codebase mapping CLI for local developers. This road
 
 **Research Flag:** Verify sqlitegraph pub/sub API completeness before implementation
 
-**Plans:** —
-**Status:** Pending
+**Plans:** 1/1
+**Plan list:**
+- [ ] 067-01-PLAN.md — Create watch_cmd.rs module with pub/sub implementation and wire up Watch command
+**Status:** Pending (plans ready for execution)
 
 ---
 
