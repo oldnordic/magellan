@@ -11,6 +11,7 @@
 use anyhow::Result;
 use ignore::gitignore::Gitignore;
 use std::path::{Path, PathBuf};
+use tracing::warn;
 
 use crate::diagnostics::{SkipReason, WatchDiagnostic};
 use crate::ingest::detect_language;
@@ -99,7 +100,7 @@ impl FileFilter {
             // The builder.add() returns Option<Error> - Some(Error) if failed
             if let Some(err) = builder.add(&gitignore_path) {
                 // Log but don't fail - malformed gitignore shouldn't crash indexing
-                eprintln!("Warning: Failed to load .gitignore: {}", err);
+                warn!(error = %err, "Failed to load .gitignore");
             }
         }
 
@@ -107,7 +108,7 @@ impl FileFilter {
         let ignore_path = root.join(".ignore");
         if ignore_path.exists() {
             if let Some(err) = builder.add(&ignore_path) {
-                eprintln!("Warning: Failed to load .ignore: {}", err);
+                warn!(error = %err, "Failed to load .ignore");
             }
         }
 

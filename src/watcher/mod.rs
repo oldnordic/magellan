@@ -47,6 +47,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+use tracing::warn;
 
 use crate::graph::filter::FileFilter;
 
@@ -145,7 +146,7 @@ impl FileSystemWatcher {
 
         let thread = thread::spawn(move || {
             if let Err(e) = run_watcher(path, batch_tx, config, shutdown) {
-                eprintln!("Watcher error: {:?}", e);
+                warn!(error = ?e, "Watcher error");
             }
         });
 
@@ -199,14 +200,14 @@ impl FileSystemWatcher {
         let _pubsub_receiver = match PubSubEventReceiver::new(backend, cache_sender) {
             Ok(receiver) => Some(Box::new(receiver)),
             Err(e) => {
-                eprintln!("Warning: Failed to create pub/sub receiver: {:?}. Continuing with filesystem-only watching.", e);
+                warn!(error = ?e, "Failed to create pub/sub receiver; continuing with filesystem-only watching");
                 None
             }
         };
 
         let thread = thread::spawn(move || {
             if let Err(e) = run_watcher(path, batch_tx, config, shutdown) {
-                eprintln!("Watcher error: {:?}", e);
+                warn!(error = ?e, "Watcher error");
             }
         });
 
@@ -454,7 +455,7 @@ fn run_watcher(
         match FileFilter::new(&root_path, &[], &[]) {
             Ok(f) => Some(f),
             Err(e) => {
-                eprintln!("Warning: Failed to create gitignore filter: {}", e);
+                warn!(error = %e, "Failed to create gitignore filter");
                 None
             }
         }
@@ -479,7 +480,7 @@ fn run_watcher(
                     }
                 }
                 Err(error) => {
-                    eprintln!("Watcher error: {:?}", error);
+                    warn!(error = ?error, "Watcher debouncer error");
                 }
             }
         },

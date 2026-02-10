@@ -4,6 +4,7 @@ use anyhow::Result;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use tracing::warn;
 
 use crate::{generate_execution_id, output_json, CodeGraph, OutputFormat};
 use magellan::WatcherConfig;
@@ -202,8 +203,7 @@ pub fn run_watch(
 
     // Warmup parsers to avoid first-parse latency
     if let Err(e) = magellan::ingest::pool::warmup_parsers() {
-        eprintln!("Warning: Parser warmup failed: {}", e);
-        eprintln!("First file parse will be slower than usual");
+        warn!(error = %e, "Parser warmup failed; first file parse will be slower");
         // Continue anyway - parsers will initialize on first use
     }
 

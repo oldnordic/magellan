@@ -59,6 +59,7 @@ use sqlitegraph::{
     backend::{PubSubEvent, SubscriptionFilter},
     GraphBackend, SnapshotId,
 };
+use tracing::{debug, warn};
 
 /// Type alias for thread-safe backend reference.
 ///
@@ -206,7 +207,7 @@ fn run_event_loop(
             }
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                 // Backend disconnected, exit loop
-                eprintln!("PubSub: Backend disconnected, stopping event receiver");
+                debug!("PubSub: Backend disconnected, stopping event receiver");
                 break;
             }
         }
@@ -246,7 +247,7 @@ fn extract_file_path(event: &PubSubEvent, backend: &dyn GraphBackend) -> Option<
                 }
                 Err(e) => {
                     // Log error but don't fail - this is opportunistic cache invalidation
-                    eprintln!("PubSub: Failed to query node {}: {:?}", node_id, e);
+                    warn!(node_id, error = ?e, "PubSub: Failed to query node");
                     None
                 }
             }
