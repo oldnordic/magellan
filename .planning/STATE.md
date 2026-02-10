@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-10)
 ## Current Position
 
 Phase: 071-mirage-advanced-commands
-Plan: 04 (complete)
-Status: ICFG command with depth-limited call graph traversal
-Last activity: 2026-02-10 — Implemented inter-procedural CFG construction with call/return edges via CALLS graph queries
+Plan: 05 (complete)
+Status: All compilation errors fixed, mirage builds successfully
+Last activity: 2026-02-11 — Fixed 15 compilation errors blocking mirage build
 
-Progress: [████████░░] 88% (Phase 71-04 complete, 3 remaining plans)
+Progress: [████████░░] 90% (Phase 71-05 complete, 2 remaining plans)
 
 **Completed Milestones:**
 - v1.0 Magellan - Phases 1-9 (shipped 2026-01-19)
@@ -117,6 +117,10 @@ Recent decisions affecting current work:
 - **Phase 071-02**: Use git2 crate for repository access instead of calling git CLI for better error handling (071-02)
 - **Phase 071-02**: Incremental path enumeration analyzes only functions in changed files using GraphBackend entity queries (071-02)
 - **Phase 071-02**: Result aggregation pattern with IncrementalPathsResult tracking analyzed/skipped function counts (071-02)
+- **Phase 071-05**: Use MirageDb instead of Backend in CLI handlers for access to resolve_function_name and load_cfg (071-05)
+- **Phase 071-05**: Use PathLimits::default() instead of args fields that don't exist (HotpathsArgs uses 'top' not 'max_paths') (071-05)
+- **Phase 071-05**: Handle Option<DominatorsIter> return type with map_or_else for HashSet collection (071-05)
+- **Phase 071-05**: Add Display trait for Path struct enabling println! output (071-05)
 
 ### Pending Todos
 
@@ -147,8 +151,8 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-02-10 (Phase 071-04: ICFG command)
-Stopped at: Completed 071-04 - Implemented inter-procedural CFG with depth-limited call graph traversal
+Last session: 2026-02-11 (Phase 071-05: Compilation fixes)
+Stopped at: Completed 071-05 - Fixed all 15 compilation errors blocking mirage build
 Resume file: None - plan complete
 Blockers: None
 
@@ -177,4 +181,4 @@ Blockers: None
 
 ---
 
-*Last updated: 2026-02-10*
+*Last updated: 2026-02-11*

@@ -260,13 +260,14 @@ Magellan is a deterministic codebase mapping CLI for local developers. This road
 
 **Clarification (from research):** `hotpaths` = path-level frequency ranking (new), `hotspots` = function-level risk (existing). They are complementary.
 
-**Plans:** 4
+**Plans:** 5
 **Plan list:**
-- [ ] 071-01-PLAN.md — CFG diff command (petgraph-based comparison)
-- [ ] 071-02-PLAN.md — Incremental paths with git2 integration
-- [ ] 071-03-PLAN.md — Hotpaths command (static heuristic ranking)
-- [ ] 071-04-PLAN.md — ICFG command (inter-procedural CFG)
-**Status:** Planned (4 plans created, verified)
+- [x] 071-01-PLAN.md — CFG diff command (petgraph-based comparison) ✅ Complete
+- [x] 071-02-PLAN.md — Incremental paths with git2 integration ✅ Complete
+- [x] 071-03-PLAN.md — Hotpaths command (static heuristic ranking) ✅ Complete
+- [x] 071-04-PLAN.md — ICFG command (inter-procedural CFG) ✅ Complete
+- [ ] 071-05-PLAN.md — Fix compilation errors (gap closure) ✅ Planned
+**Status:** 4/4 complete, gap closure plan created
 
 ---
 
@@ -308,7 +309,7 @@ Phase 69: Mirage   Phase 70: Magellan
 | 68 | Splice Impact Graph | 1/1 | ✅ Complete |
 | 69 | Mirage Storage Trait | 4/4 | ✅ Complete |
 | 70 | Magellan Core Quality | 4/4 | ✅ Complete |
-| 71 | Mirage Advanced Commands | 4 | Planned |
+| 71 | Mirage Advanced Commands | 5 | 4/4 complete, gap closure plan created |
 
 ---
 
@@ -411,4 +412,4 @@ The v2.3 milestone is complete when:
 
 ---
 
-*Last updated: 2026-02-10*
+*Last updated: 2026-02-11*
