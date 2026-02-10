@@ -106,14 +106,19 @@ pub fn populate_symbol_index(
 
     let mut symbol_ids: Vec<i64> = Vec::new();
 
+    eprintln!("DEBUG: populate_symbol_index called with {} symbols, file_id={}", symbols.len(), file_id);
+
     // For each symbol: create KV entries
     for (symbol, node_id) in symbols {
         // Only index symbols with FQN (skip unnamed symbols)
         let fqn = if let Some(ref f) = symbol.fqn {
             f.clone()
         } else {
+            eprintln!("DEBUG: Skipping symbol {:?} (node_id={}) - NO FQN", symbol.name, node_id);
             continue; // Skip symbols without FQN
         };
+
+        eprintln!("DEBUG: Indexing symbol: FQN={}, node_id={}, name={:?}", fqn, node_id, symbol.name);
 
         // 1. sym:fqn:{fqn} → SymbolId (primary lookup index)
         let fqn_key = sym_fqn_key(&fqn);
@@ -135,6 +140,9 @@ pub fn populate_symbol_index(
     let file_key = file_sym_key(file_id);
     let encoded_ids = encode_symbol_ids(&symbol_ids);
     backend.kv_set(file_key, KvValue::Bytes(encoded_ids), None)?;
+
+    // 5. Force WAL flush to make KV data visible to other processes (e.g., llmgrep)
+    backend.flush()?;
 
     Ok(())
 }

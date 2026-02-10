@@ -3,6 +3,18 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.1] - 2026-02-10
+
+### Fixed
+- **KV Data Persistence**: Fixed KV index data not being persisted across process restarts
+  - Added `backend.flush()?` call after `populate_symbol_index()` to force immediate WAL buffer flush
+  - Enables reliable cross-process KV communication (magellan → llmgrep)
+  - Requires sqlitegraph 1.5.7 for `flush()` method support
+  - WAL file now properly contains KV data (1.4MB with 1085+ entries vs 88 bytes empty header)
+
+### Changed
+- **sqlitegraph dependency**: Upgraded from 1.5.6 to 1.5.7
+
 ## [2.1.0] - 2026-02-08
 
 ### Added

@@ -1,6 +1,6 @@
 # Magellan Operator Manual
 
-**Version 2.1.0** | *Last Updated: 2026-02-04*
+**Version 2.2.1** | *Last Updated: 2026-02-10*
 
 Comprehensive instructions for operating Magellan.
 
@@ -1538,40 +1538,27 @@ Most CLI commands work with both backends. The table below shows compatibility:
 | `find-ast` | Yes | Yes | AST kind-based queries |
 | `label` | Yes | Yes | Graph label queries |
 | `collisions` | Yes | Yes | FQN collision detection |
-| `cycles` | Yes | **No** | SQLite-only (see below) |
-| `dead-code` | Yes | **No** | SQLite-only (see below) |
-| `reachable` | Yes | **No** | SQLite-only (see below) |
-| `condense` | Yes | **No** | SQLite-only (see below) |
-| `paths` | Yes | **No** | SQLite-only (see below) |
-| `slice` | Yes | **No** | SQLite-only (see below) |
+| `cycles` | Yes | Yes | Cycle detection (SCC decomposition) |
+| `dead-code` | Yes | Yes | Dead code detection |
+| `reachable` | Yes | Yes | Forward/reverse reachability |
+| `condense` | Yes | Yes | Call graph condensation |
+| `paths` | Yes | Yes | Execution path enumeration |
+| `slice` | Yes | Yes | Program slicing |
 | `verify` | Yes | Yes | Graph validation |
 | `export` | Yes | Yes | Data export |
 | `migrate` | Yes | Yes | Schema migration |
 
-### 6.4 SQLite-Only Algorithm Commands
-
-The following commands require SQLite backend and are **not compatible** with Native V2:
-
-- **`cycles`** - Find cycles in the call graph
-- **`dead-code`** - Find unused symbols
-- **`reachable`** - Compute reachability from a symbol
-- **`condense`** - Create condensation DAG from SCCs
-- **`paths`** - Enumerate execution paths
-- **`slice`** - Program slicing (backward/forward)
-
-These commands use graph algorithms from `sqlitegraph` that require the concrete `SqliteGraph` type. Native V2 support for these algorithms is planned for a future phase.
-
-### 6.5 Building with Native V2
+### 6.4 Building with Native V2
 
 ```bash
 # Build with Native V2 backend
 cargo build --release --features native-v2
 
 # The resulting binary will use Native V2 for all operations
-# Algorithm commands (cycles, dead-code, reachable, etc.) will not work
+# All algorithm commands (cycles, dead-code, reachable, etc.) work correctly
 ```
 
-### 6.6 KV Data Storage
+### 6.5 KV Data Storage
 
 When using the Native V2 backend, all metadata is stored in the KV store instead
 of SQLite tables. This includes:
@@ -1642,7 +1629,7 @@ access or path retrieval.
 - **No SQL query access:** KV data is not directly queryable via SQL clients
 - **Use Magellan CLI commands:** All data access works through CLI commands (`find`, `query`, `ast`, `label`, etc.)
 - **Export includes all KV metadata:** JSON/JSONL export includes all KV-stored data
-- **Algorithm commands:** Graph algorithms (cycles, dead-code, reachable, etc.) require SQLite backend
+- **Algorithm commands fully supported:** All graph algorithms (cycles, dead-code, reachable, condense, paths, slice) work with both backends
 
 ---
 

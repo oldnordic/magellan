@@ -1,6 +1,6 @@
 # Magellan
 
-**Version:** 2.1.0
+**Version:** 2.2.1
 
 A deterministic codebase mapping tool. Watches source files, extracts AST-level facts, and builds a searchable graph database of symbols and references.
 
@@ -52,7 +52,7 @@ cargo build --release
 ### Features
 
 - **Help**: Use `--help` or `-h` with any command to see usage information
-- **Native-v2 Backend**: Build with `--features native-v2` for improved performance with KV metadata indexing. **Note:** The Native V2 backend provides significant performance improvements but does not yet support the graph algorithm commands (`cycles`, `dead-code`, `reachable`, `condense`, `paths`, `slice`). These commands require SQLite backend. Native V2 algorithm support is planned for a future release.
+- **Native-v2 Backend**: Build with `--features native-v2` for improved performance with KV metadata indexing and full algorithm support
 - **LLVM IR CFG (optional)**: Build with `--features llvm-cfg` for C/C++ (requires Clang)
 - **Bytecode CFG (optional)**: Build with `--features bytecode-cfg` for Java (requires JVM bytecode)
 
@@ -789,34 +789,29 @@ cargo build --release --features native-v2
 - Efficient prefix scans for file-level operations
 - All metadata embedded with graph data in single file
 - Automatic migration from SQLite preserves all data
+- **Full algorithm support:** All graph algorithm commands (cycles, dead-code, reachable, condense, paths, slice) work with Native V2
 
 **Limitations:**
 
-- Graph algorithm commands (`cycles`, `dead-code`, `reachable`, `condense`, `paths`, `slice`) require SQLite backend
 - No direct SQL query access to KV data (use Magellan CLI commands)
 
 See [MANUAL.md](MANUAL.md#6-backend-compatibility) for complete backend compatibility details.
 
-### v2.1 Backend Parity Completion ✅
+### v2.2 Algorithm Parity Completion ✅
 
-**Shipped:** 2026-02-08
+**Shipped:** 2026-02-09
 
-Ensured all CLI query commands and ChunkStore methods work correctly with both SQLite and Native-V2 backends using TDD methodology.
+Full feature parity between SQLite and Native V2 backends for all graph algorithm commands.
 
 **Changes:**
-- Phase 56: Added KV support for `get_chunks_for_file()`
-- Phase 57: Verified `get_chunk_by_span()` KV support
-- Phase 58: Verified `magellan chunks`, `magellan get`, `magellan get-file` commands
-- Phase 59: Verified `magellan ast`, `magellan find-ast` commands; comprehensive test suite
+- All graph algorithms now use backend-agnostic implementations via GraphBackend trait API
+- Tarjan's SCC algorithm for cycle detection works with both backends
+- BFS-based reachability analysis for both forward and reverse queries
+- Path enumeration and program slicing fully supported on Native V2
 
 **Test Coverage:**
-- Cross-backend integration tests in `tests/backend_integration_tests.rs`
-- CLI command tests in command modules (get_cmd.rs, ast_cmd.rs)
-- All tests pass with `--features native-v2` flag
-
-**Known Limitations:**
-- `get_ast_node_at_position()` and `get_ast_children()` lack KV support (documented in NATIVE-V2.md)
-- Position-based AST queries not supported on Native-V2 backend
+- All algorithm commands verified with `--features native-v2` flag
+- Cross-backend integration tests confirm identical behavior
 
 ## Database Schema
 
