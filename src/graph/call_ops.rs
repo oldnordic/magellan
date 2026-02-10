@@ -71,10 +71,15 @@ impl CallOps {
     /// 4. Create CALLER edges from caller Symbol to Call node
     /// 5. Create CALLS edges from Call node to callee Symbol
     ///
+    /// # Two-Pass Indexing for Cross-File Call Resolution
+    /// - Pass 1: Build complete symbol_facts from ALL database entities using backend.entity_ids()
+    /// - Pass 2: Extract calls using parser with complete symbol_facts
+    /// - Pass 3: Insert Call nodes and CALLER/CALLS edges with resolved symbols
+    ///
     /// # Arguments
     /// * `path` - File path
     /// * `source` - File contents as bytes
-    /// * `symbol_ids` - Map of symbol names to their node IDs (ALL symbols in database)
+    /// * `symbol_ids` - Map of symbol FQNs to their node IDs (used for edge resolution)
     pub fn index_calls(
         &self,
         path: &str,
@@ -84,17 +89,19 @@ impl CallOps {
         let path_buf = PathBuf::from(path);
         let language = detect_language(&path_buf);
 
-        // Build symbol facts from persisted symbols to enable cross-file call matching.
-        // This iterates through ALL symbols in the database, not just the current file.
-        // Also build stable symbol_id lookup map: (file_path, symbol_name) -> stable_symbol_id
+        // Two-pass indexing: Build symbol_facts from ALL database entities
+        // This ensures cross-file calls can be resolved correctly
         let mut symbol_facts = Vec::new();
         let mut current_file_facts = Vec::new();
         let mut stable_symbol_ids: HashMap<(String, String), Option<String>> = HashMap::new();
 
-        // Iterate over ALL symbols from all files to enable cross-file call resolution
-        for symbol_id in symbol_ids.values() {
-            let snapshot = SnapshotId::current();
-            let node = match self.backend.get_node(snapshot, *symbol_id) {
+        // Pass 1: Build complete symbol_facts from ALL database entities
+        // Following references.rs pattern for correct cross-file resolution
+        let entity_ids = self.backend.entity_ids()?;
+        let snapshot = SnapshotId::current();
+
+        for entity_id in entity_ids {
+            let node = match self.backend.get_node(snapshot, entity_id) {
                 Ok(value) => value,
                 Err(_) => continue,
             };
@@ -382,9 +389,32 @@ impl CallOps {
         let symbol_node: crate::graph::schema::SymbolNode =
             serde_json::from_value(node.data.clone()).ok()?;
 
-        let file_path = node.file_path.as_deref()?;
+        // For native-v2 backend, node.file_path may not be set.
+        // Extract from canonical_fqn format: "crate::path/to/file.rs::Kind symbol_name"
+        // If neither is available, return None
+        let file_path = if let Some(p) = node.file_path.as_deref() {
+            p.to_string()
+        } else if let Some(ref canonical) = symbol_node.canonical_fqn {
+            // Parse file_path from canonical_fqn: "crate::path/to/file.rs::Kind name"
+            canonical
+                .split("::")
+                .nth(1) // Skip crate name, get path component
+                .or_else(|| {
+                    // Try alternative format without crate prefix
+                    canonical.split("::").next()
+                })
+                .unwrap_or("")
+                .to_string()
+        } else {
+            return None;
+        };
 
+        // Map kind strings to SymbolKind, supporting both normalized and language-specific values
+        // Rust uses: "fn", "method", "struct", "enum", "trait", "mod"
+        // Python uses: "function", "class", "method"
+        // Java uses: "function", "class", "interface", "method"
         let kind = match symbol_node.kind.as_str() {
+            // Normalized/language-independent forms
             "Function" => SymbolKind::Function,
             "Method" => SymbolKind::Method,
             "Class" => SymbolKind::Class,
@@ -395,6 +425,18 @@ impl CallOps {
             "Namespace" => SymbolKind::Namespace,
             "TypeAlias" => SymbolKind::TypeAlias,
             "Unknown" => SymbolKind::Unknown,
+            // Rust-specific forms
+            "fn" => SymbolKind::Function,
+            "method" => SymbolKind::Method,
+            "struct" => SymbolKind::Class,
+            "enum" => SymbolKind::Enum,
+            "trait" => SymbolKind::Interface,
+            "mod" => SymbolKind::Module,
+            // Python-specific forms
+            "function" => SymbolKind::Function,
+            "class" => SymbolKind::Class,
+            // Java-specific forms
+            "interface" => SymbolKind::Interface,
             _ => SymbolKind::Unknown,
         };
 
@@ -404,7 +446,7 @@ impl CallOps {
             .unwrap_or_else(|| kind.normalized_key().to_string());
 
         Some(SymbolFact {
-            file_path: PathBuf::from(file_path),
+            file_path: PathBuf::from(file_path.clone()),
             kind,
             kind_normalized: normalized_kind,
             name: symbol_node.name.clone(),
