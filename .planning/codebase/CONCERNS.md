@@ -1,148 +1,178 @@
 # Codebase Concerns
 
-**Analysis Date:** 2026-02-08
+**Analysis Date:** 2026-02-10
 
 ## Tech Debt
 
-**Cross-file reference indexing:**
-- Issue: Only same-file references are indexed, cross-file references are not properly created
-- Files: `src/graph/tests.rs:63-75`
-- Impact: Query and find commands miss inter-file relationships, limiting tool's effectiveness
-- Fix approach: Implement proper cross-file reference tracking in the indexing pipeline
+**Native-V2 Migration Incompleteness:**
+- Issue: Native-V2 backend exists but dependent tools (llmgrep, Mirage, splice) are not updated
+- Files: Multiple tools in separate repositories need migration
+- Impact: Performance benefits (10-100x faster symbol lookup, 70%+ smaller databases) are not accessible to users
+- Fix approach: Follow the migration plan in docs/NATIVE-V2-MIGRATION.md, starting with llmgrep
 
-**Missing caller/callee reference tracking:**
-- Issue: Query and find commands have disabled caller/callee tracking
-- Files: `src/query_cmd.rs:45-46`, `src/find_cmd.rs:130-131`
-- Impact: Users cannot see call relationships between symbols
-- Fix approach: Implement reference tracking for callers/callees in query results
+**Backend-Dependent Algorithm Implementation:**
+- Issue: Algorithms module uses unsafe downcasting for SQLite backend when native-v2 is enabled
+- Files: `src/graph/algorithms.rs:92-100`
+- Impact: Type safety violations, creates brittleness when switching backends
+- Fix approach: Implement GraphBackend trait methods for algorithms or create proper abstraction layer
 
-**AST node storage not integrated:**
-- Issue: Symbol Identity v1.5 includes AST node storage but it's not integrated
-- Files: `src/graph/symbols.rs:97`
-- Impact: Cannot store and retrieve AST nodes directly in KV store
-- Fix approach: Integrate AST node storage with KV backend implementation
+**Feature Flag Inconsistencies:**
+- Issue: Native-V2 features are conditionally compiled but not consistently used throughout codebase
+- Files: `src/kv/mod.rs` has #[cfg(feature = "native-v2")] but other modules don't check
+- Impact: Code paths may be incorrect, runtime errors possible when features are mixed
+- Fix approach: Audit all native-v2 code and ensure proper feature gating
 
-**SQLite-specific code in generic trait:**
-- Issue: Labels are SQLite-specific but hardcoded in generic GraphBackend trait
-- Files: `src/graph/symbols.rs:256`
-- Impact: Limits portability to other backends
-- Fix approach: Move labels functionality to backend-specific implementations or add trait methods
-
-**ASM-based CFG extraction not implemented:**
-- Issue: Optional ASM analyzer integration is marked TODO
-- Files: `src/graph/bytecode_cfg.rs:64`
-- Impact: Java bytecode CFG extraction uses slower AST-based approach
-- Fix approach: Implement ASM-based CFG extraction for Java when bytecode-cfg feature is enabled
+**SQLite Backend Hardcoded Paths:**
+- Issue: Many functions assume SQLite backend and use sqlitegraph::SqliteGraphBackend directly
+- Files: `src/graph/algorithms.rs`, `src/graph/ops.rs`
+- Impact: Prevents proper backend abstraction, violates dependency inversion
+- Fix approach: Use GraphBackend trait consistently everywhere
 
 ## Known Bugs
 
-**Cross-file reference bug:**
-- Symptoms: References between files are not indexed, queries miss inter-file relationships
-- Files: `src/graph/tests.rs:63-75`
-- Trigger: Indexing code in multiple files
-- Workaround: Manual file merging or single-file analysis
+**Reference Extraction Bug in Tests:**
+- Issue: `src/graph/tests.rs:63` - Reference extraction from file2 doesn't work correctly
+- Symptoms: Tests fail to find expected references across files
+- Files: `src/graph/tests.rs`
+- Trigger: When running graph reference tests
+- Workaround: Manual verification of references
 
-**Missing file_id column affects re-indexing:**
-- Symptoms: Old AST nodes persist after re-indexing due to missing file_id column
+**AST Indexing Inconsistencies:**
+- Issue: Missing file_id column causes issues with AST node re-indexing
+- Symptoms: Old if_expression nodes not properly updated
 - Files: `src/graph/ast_tests.rs:164`
-- Trigger: Re-indexing files that have been modified
+- Trigger: Re-indexing files with conditional expressions
 - Workaround: Manual database cleanup
 
-## Performance Considerations
+**WAL Buffer Flush Issues:**
+- Issue: KV indexing requires manual WAL flush after population
+- Symptoms: Data not visible to other processes immediately
+- Files: `src/kv/mod.rs:145`
+- Trigger: Concurrent access to same database
+- Workaround: Manual flush call (already implemented but shows underlying issue)
 
-**Large main.rs file:**
-- Problem: 2874 lines in single file makes it hard to maintain
-- Files: `src/main.rs`
-- Cause: All command logic in one file
-- Improvement path: Split into smaller modules, extract command handlers
+## Security Considerations
 
-**Multiple unwrap() calls in error paths:**
-- Problem: 64+ unwrap() calls across codebase can cause panics
-- Files: Multiple files including `src/ingest/pool.rs`, `src/graph/algorithms.rs`
-- Cause: Insufficient error handling in complex operations
-- Improvement path: Replace with proper Result handling and custom error types
+**File Path Traversal Risks:**
+- Risk: Malicious file paths could escape project root
+- Files: `src/watcher/mod.rs:551-562`
+- Current mitigation: Path validation checks in watcher
+- Recommendations: Add comprehensive path canonicalization and sandboxing
 
-**Heavy dependency on CLI parsing:**
-- Problem: Multiple CLI libraries could impact startup time
-- Files: `src/output/command.rs`
-- Cause: Complex command line argument handling
-- Improvement path: Simplify CLI structure, reduce dependencies
+**Debug Information Exposure:**
+- Risk: Debug eprintln! statements leak internal state
+- Files: Multiple files (src/kv/mod.rs, src/graph/ops.rs, etc.)
+- Current mitigation: None
+- Recommendations: Replace with proper logging framework or conditional compilation
+
+**Symbol Index Injection:**
+- Risk: FQN-based lookups could be vulnerable to crafted names
+- Files: `src/kv/mod.rs` symbol indexing
+- Current mitigation: Input sanitization
+- Recommendations: Additional validation of FQN components
+
+## Performance Bottlenecks
+
+**Large CLI Module:**
+- Problem: `src/cli.rs` (2306 lines) handles all commands
+- Files: `src/cli.rs`
+- Cause: Monolithic implementation
+- Improvement path: Split into command-specific modules
+
+**Inefficient Symbol Lookup without KV:**
+- Problem: SQLite backend does full table scans for symbol lookups
+- Files: `src/graph/query.rs`
+- Cause: Missing indexes on FQN column
+- Improvement path: Ensure proper indexes exist for SQLite backend
+
+**Memory Usage in Ingest Module:**
+- Problem: Large file parsing loads entire source into memory
+- Files: `src/ingest/mod.rs`, various language parsers
+- Cause: No streaming or lazy loading
+- Improvement path: Implement incremental parsing for large files
 
 ## Fragile Areas
 
-**Validation module:**
-- Files: `src/validation.rs`
-- Why fragile: Heavy use of unwrap() and temp file operations
-- Safe modification: Replace with proper error handling, add more comprehensive tests
-- Test coverage: Good test coverage but panic points exist
+**Algorithms Module Backend Abstraction:**
+- Files: `src/graph/algorithms.rs:92-100`
+- Why fragile: Uses unsafe downcasting to specific backend types
+- Safe modification: Add proper trait methods to GraphBackend
+- Test coverage: Currently has backend-specific tests
 
-**CFG extraction:**
-- Files: `src/graph/cfg_extractor.rs`
-- Why fragile: Complex AST traversal logic, platform-specific code for clang
-- Safe modification: Add more unit tests, isolate platform-specific code
-- Test coverage: Comprehensive test coverage for CFG patterns
+**Symbol Index Population Logic:**
+- Files: `src/kv/mod.rs:109-146`
+- Why fragile: Complex KV operations with many failure points
+- Safe modification: Extract into smaller, testable functions
+- Test coverage: Limited integration tests for KV operations
 
-**Memory management:**
-- Files: `src/ingest/pool.rs`, `src/generation/mod.rs`
-- Why fragile: Rc/Ref usage without clear ownership patterns
-- Safe modification: Use Arc/Mutex for shared state, implement proper cleanup
-- Test coverage: Limited testing for concurrent access patterns
+**Watcher Event Handling:**
+- Files: `src/watcher/mod.rs`
+- Why fragile: Complex state management with multiple concurrent operations
+- Safe modification: Simplify state machine, add robust error handling
+- Test coverage: Has pubsub tests but limited stress testing
 
 ## Scaling Limits
 
-**SQLite database size:**
-- Current capacity: Limited by SQLite WAL file handling
-- Limit: Performance degrades with large codebases (>1M LOC)
-- Scaling path: Implement native V2 backend for better performance
+**Concurrent Indexing Operations:**
+- Current capacity: Limited by single-threaded indexing in `src/graph/ops.rs`
+- Limit: Global lock on graph operations
+- Scaling path: Implement parallel indexing per file with merge strategy
 
-**Indexing speed:**
-- Current capacity: Depends on file count and complexity
-- Limit: Large codebases take significant time to index
-- Scaling path: Parallelize indexing, implement incremental updates
+**Large File Processing:**
+- Current capacity: Single file processing
+- Limit: Memory usage grows with file size
+- Scaling path: Streaming parser for multi-MB files
 
 ## Dependencies at Risk
 
-**SQLiteGraph version dependency:**
-- Risk: Hardcoded to version 1.5.3, may lag behind updates
-- Impact: Potential security vulnerabilities or missing features
-- Migration plan: Implement version range or abstract version dependency
+**sqlitegraph Version Dependency:**
+- Risk: Heavy dependency on sqlitegraph implementation details
+- Impact: Version updates may break code
+- Migration plan: Abstract over specific versions, implement compatibility layer
 
-**Tree-sitter grammars:**
-- Risk: Grammars may become outdated
-- Impact: Parsing errors for newer language features
-- Migration plan: Update grammars regularly, test with modern code
+**Tree-sitter Parsers:**
+- Risk: Multiple language-specific parsers may become outdated
+- Impact: Support for new language features delayed
+- Migration plan: Implement plugin architecture for parsers
 
 ## Missing Critical Features
 
-**Incremental indexing:**
-- Problem: Full re-indexing required for every change
-- Blocks: Real-time analysis for large codebases
-- Implementation needed: Change detection, partial re-indexing
+**Transaction Rollback Support:**
+- Problem: No rollback mechanism for failed indexing operations
+- Blocks: Safe atomic operations
+- Priority: High for data integrity
 
-**Export format diversity:**
-- Problem: Limited export formats beyond SCIP and CSV
-- Blocks: Integration with other tools
-- Implementation needed: Additional format support (JSON, GraphML, etc.)
+**Incremental Indexing for Large Codebases:**
+- Problem: Full re-indexing required for any change
+- Blocks: Performance on large repositories
+- Priority: Medium for scalability
+
+**Database Schema Migration Tool:**
+- Problem: Manual migration between versions
+- Blocks: Upgrades without data loss
+- Priority: Medium for maintainability
 
 ## Test Coverage Gaps
 
-**Error handling paths:**
-- What's not tested: Error cases in indexing, database failures
-- Files: `src/graph/`, `src/ingest/`
-- Risk: Silent failures or crashes under error conditions
-- Priority: High
+**Native-V2 Backend Testing:**
+- What's not tested: Most features only tested with SQLite backend
+- Files: Core indexing, query, and algorithm modules
+- Risk: Native-V2 regressions may go undetected
+- Priority: High - native-v2 is the future direction
 
-**Configuration validation:**
-- What's not tested: Invalid CLI arguments, malformed config files
-- Files: `src/validation.rs`
-- Risk: Poor user experience with invalid input
-- Priority: Medium
+**Concurrent Access Patterns:**
+- What's not tested: Real-world concurrent usage scenarios
+- Files: Watcher and indexing operations
+- Risk: Data races under load
+- Priority: High for reliability
 
-**Integration testing:**
-- What's not tested: End-to-end workflows with multiple commands
-- Files: Various integration test modules
-- Risk: Commands fail in combination but work individually
-- Priority: Medium
+**Error Path Testing:**
+- What's not tested: Database corruption, disk full, out of memory
+- Files: All modules with I/O operations
+- Risk: System may fail catastrophically under stress
+- Priority: Medium for robustness
 
-*Concerns audit: 2026-02-08*
+---
+
+*Concerns audit: 2026-02-10*
 ```

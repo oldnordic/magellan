@@ -1,143 +1,102 @@
 # Coding Conventions
 
-**Analysis Date:** 2026-02-08
+**Analysis Date:** 2026-02-10
 
 ## Naming Patterns
 
 **Files:**
-- Snake_case for modules and commands: `find_cmd.rs`, `call_graph_tests.rs`
-- PascalCase for test files: `CliSmokeTests`
-- Consistent extension: `.rs` for all Rust source files
+- snake_case for `.rs` files (e.g., `ast_extractor.rs`, `code_graph.rs`)
+- kebab-case for CLI commands and bin (e.g., `magellan watch`)
+- PascalCase for test files only when testing specific concepts (e.g., `signal_tests.rs`)
+- All files are lowercase with underscores
 
 **Functions:**
-- Public: `snake_case` with descriptive names: `validate_graph`, `detect_language_from_path`
-- Private: Leading underscore not used, rely on module privacy
-- Test functions: `test_` prefix: `test_extract_calls_detects_function_calls`
+- Public: snake_case (e.g., `index_file`, `detect_language`)
+- Private: snake_case (e.g., `get_file_id_kv`, `compute_hash`)
+- Test functions: snake_case with descriptive names (e.g., `test_watch_command_indexes_file_on_create`)
+- Async functions: clear naming indicating async operation (e.g., `run_watch_pipeline`)
 
 **Variables:**
-- `snake_case` with descriptive names
-- Loop counters: `i`, `j`, `k` only in small, local contexts
-- Temp directories: `temp_dir`, `temp_path`
-- Result variables: `result`, `outcome`
+- snake_case throughout
+- Descriptive names (e.g., `file_path`, `source_bytes`, `symbol_count`)
+- Loop counters: `i`, `j`, `idx` when appropriate for short loops
+- Parameters: clear names matching their purpose
 
 **Types:**
-- Structs: PascalCase: `ValidationReport`, `SymbolInfo`
-- Enums: PascalCase: `PathValidationError`
-- Error types: PascalCase ending with `Error`: `ValidationError`
-
-**Constants:**
-- SCREAMING_SNAKE_CASE: `MAG_REF_001_SYMBOL_NOT_FOUND`
-- Module-level constants with prefix: `ERROR_CODE_DOCUMENTATION`
+- Structs: PascalCase (e.g., `CodeGraph`, `SymbolInfo`, `ChunkStore`)
+- Enums: PascalCase (e.g., `SymbolKind`, `ReconcileOutcome`)
+- Error types: PascalCase with `Error` suffix (e.g., `ValidationError`)
+- Generic parameters: single uppercase letters (e.g., `T`, `K`, `V`)
 
 ## Code Style
 
 **Formatting:**
-- Rust default formatting with `cargo fmt`
-- 4-space indentation (tabs not used)
-- Maximum line length: 100 characters (soft limit)
-- Trailing commas in multi-line contexts
+- Tool: rustfmt (standard Rust formatting)
+- Line length: 100 characters max (soft limit)
+- Indentation: 4 spaces (no tabs)
+- Trailing commas: Always in multi-line structures
 
 **Linting:**
-- Clippy enabled via `cargo clippy --all-targets`
-- Error-level lints enforced
-- Warning-level lints reported but not blocking
+- Tool: Clippy with default rules
+- Strict error handling: no `unwrap()` in production paths
+- Explicit error types over `anywhere` in public APIs
+- Appropriate use of `?` for error propagation
 
-**Comments:**
-- Documentation comments (`///`) for all public APIs
-- Comments explain "why" not "what"
-- Complex algorithms documented with examples
-- TODO comments discouraged in favor of issues
-
-## Import Organization
-
-**Order:**
-1. Standard library (use std::)
-2. External dependencies (use crate::external)
-3. Local modules (use crate::internal)
-
-**Grouping:**
-- Related imports grouped together
-- Blank line between groups
-- No alphabetical sorting
-
-**Path Aliases:**
-- Direct imports preferred over wildcard
-- `use anyhow::Result` (not `use anyhow::*`)
-- Common patterns: `use crate::{CodeGraph, SymbolKind}`
+**Import Organization:**
+1. Standard library imports (e.g., `std::path::Path`)
+2. External crate imports (e.g., `anyhow::Result`, `rusqlite::Connection`)
+3. Local module imports (e.g., `crate::graph::CodeGraph`)
+4. Re-exports at module level with clear grouping
 
 ## Error Handling
 
 **Patterns:**
-- `anyhow::Result<T>` for public APIs
-- `thiserror::Error` for custom error types
+- Result<T> for fallible operations
+- anyhow::Result for application-level errors
+- Custom error types with context when needed
 - Early returns with `?` for error propagation
-- Avoid `unwrap()` in production code (1017 instances found - needs attention)
+- Avoidance of `expect()` in production code
 
-**Error Types:**
-- Custom error types with context
-- Structured error codes (MAG-{CATEGORY}-{NNN})
-- Error messages describe the problem and possible solution
+**Error Codes:**
+- Structured error codes with pattern `MAG-{CATEGORY}-{3-digit}`
+- Categories: REF (reference), QRY (query), IO (I/O), V (validation)
+- Error codes documented in `src/error_codes.rs`
+- Each error code stable and not reused
 
-**Success Cases:**
-- Return meaningful data, not booleans when possible
-- Option types preferred for nullable values
-- Documentation for return values
-
-## Logging
-
-**Framework:**
-- `log` crate with structured logging
-- Debug-level logging for development
-- Info-level for significant operations
-- Error-level for failures
-
-**Patterns:**
-- Log entry/exit for critical operations
-- Include context in error logs
-- No sensitive data in logs
+**Logging:**
+- Debug-level logging for operational details
+- Info for significant events (file indexing, cycles detected)
+- Warning for recoverable issues
+- Error for unrecoverable failures
+- Structured logging with consistent format
 
 ## Comments
 
 **When to Comment:**
-- Complex algorithms or business logic
-- Unusual design decisions
-- Public API documentation
-- Performance-critical sections
+- Complex algorithm explanations
+- Public API documentation (TSDoc style)
+- TODO items with clear action items
+- Workarounds for known issues
+- Non-obvious side effects
 
-**JSDoc/TSDoc:**
-- Not used (Rust uses `///` comments)
-- Examples provided for complex functions
-- Return value documented
+**TSDoc/TSDoc:**
+- Comprehensive for public APIs
+- Examples where helpful
+- Return value descriptions
+- Argument documentation
 
-## Function Design
+**Function Design:**
+- Size: Max 50 lines (exceptions for complex operations)
+- Parameters: 3-7 ideal, more use struct parameters
+- Return Values: Prefer Result<T, E> over Option<T>
+- Single responsibility principle enforced
 
-**Size:**
-- Max 300 LOC per file
-- Functions focused on single responsibility
-- Helper functions extracted for reuse
-
-**Parameters:**
-- Maximum 4 parameters preferred
-- Struct parameters for >4 parameters
-- Default values for optional parameters
-
-**Return Values:**
-- Use `Result` for fallible operations
-- Use `Option` for nullable values
-- Avoid multiple return types when possible
-
-## Module Design
-
-**Exports:**
-- Public API explicitly re-exported in `lib.rs`
-- Internal modules not re-exported
-- Feature-gated conditional compilation
-
-**Barrel Files:**
-- Not used explicitly
-- Re-exports in `lib.rs` serve similar purpose
-- Module-level organization by feature
+**Module Design:**
+- Exports: Minimal, intentional public API
+- Barrel files: Used sparingly for re-exports
+- Private implementation details kept hidden
+- Clear module boundaries
 
 ---
 
-*Convention analysis: 2026-02-08*
+*Convention analysis: 2026-02-10*

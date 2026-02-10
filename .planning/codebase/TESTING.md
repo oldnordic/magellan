@@ -1,192 +1,211 @@
 # Testing Patterns
 
-**Analysis Date:** 2026-02-08
+**Analysis Date:** 2026-02-10
 
 ## Test Framework
 
 **Runner:**
-- Rust built-in test runner (`cargo test`)
-- Criterion for benchmark tests (in `benches/`)
-- No external test framework dependencies
+- Framework: Rust built-in test runner (`cargo test`)
+- Config: No dedicated test config file found
+- Features: Tests run with `default` features unless specified
+- Parallel execution enabled by default
 
 **Assertion Library:**
-- Standard `assert!`, `assert_eq!`, `assert_ne!`
-- Custom assertion helpers for complex checks
-- No external assertion library
+- Standard library `assert!`, `assert_eq!`, `assert_ne!`
+- No external assertion library dependencies
+- Custom assertion helpers in test modules when needed
 
 **Run Commands:**
 ```bash
-cargo test                    # Run all tests
-cargo test --lib             # Run library tests only
-cargo test --test name       # Run specific integration test
-cargo test --release        # Run tests in release mode (for perf regression)
-cargo bench                 # Run benchmarks
+cargo test                      # Run all tests
+cargo test --lib               # Run library tests only
+cargo test --test signal_tests # Run specific test file
+cargo test --release          # Run tests in release mode
 ```
 
 ## Test File Organization
 
 **Location:**
+- Pattern: Separate `tests/` directory (92 source files, 52 test files)
 - Integration tests in `tests/` directory
-- Unit tests within `#[cfg(test)]` modules
-- Benchmark tests in `benches/` directory
+- Unit tests within `#[cfg(test)]` modules in source files
+- Test files not co-located with source
 
 **Naming:**
-- Test files: `snake_case_test.rs` or `feature_tests.rs`
-- Test functions: `test_descriptive_behavior()`
-- Module tests: `mod tests { ... }`
+- Pattern: `{feature}_tests.rs` (e.g., `algorithm_tests.rs`, `signal_tests.rs`)
+- Descriptive names indicating test scope
+- No test prefix/suffix convention beyond `_tests.rs`
 
 **Structure:**
-- Clear separation of test setup, execution, and verification
-- Helper functions when tests share common setup
-- Test isolation via temporary directories
+```
+tests/
+├── algorithm_tests.rs        # Graph algorithm tests
+├── cli_smoke_tests.rs        # CLI binary tests
+├── signal_tests.rs          # Signal handling tests
+├── kv_storage_tests.rs       # KV backend tests
+└── [other test files...]
+```
 
 ## Test Structure
 
 **Suite Organization:**
 ```rust
+// Each test file is self-contained
 #[test]
 fn test_feature_behavior() {
-    // Arrange: Set up test data and environment
+    // Setup (often using TempDir)
     let temp_dir = TempDir::new().unwrap();
-    let mut graph = CodeGraph::open(&db_path).unwrap();
 
-    // Act: Execute the functionality under test
-    let result = graph.index_file("test.rs", source.as_bytes());
+    // Test execution
+    let result = compute_something();
 
-    // Assert: Verify the expected outcome
+    // Verification
     assert!(result.is_ok());
-    assert_eq!(graph.symbols_count(), 1);
+    assert_eq!(result.unwrap(), expected_value);
 }
 ```
 
 **Patterns:**
-- Arrange-Act-Assert pattern consistently used
-- Descriptive test names that explain the behavior
-- Test data creation in setup phase
-- Multiple assertions per test when appropriate
+- Setup: Temporary directories with `TempDir`
+- Database: File-based databases for testing (no `:memory:`)
+- Isolation: Each test creates its own environment
+- Cleanup: Automatic via `Drop` implementations
+
+**Test Data:**
+- Inline source code as string literals
+- Temporary files created per test
+- No persistent test state between runs
+- Real code examples in test strings
 
 ## Mocking
 
-**Framework:**
-- Minimal mocking - prefer real implementations
-- `tempfile` for file system isolation
-- In-memory databases (`:memory:`) for speed
-- No mock framework dependencies
-
+**Framework:** No external mocking framework used
 **Patterns:**
 ```rust
-// Use real implementations when possible
-let mut parser = magellan::Parser::new().unwrap();
-let symbols = parser.extract_symbols(path, source);
+// Manual mocking for database operations
+let mock_db = MockDatabase::new();
+let graph = CodeGraph::with_mock(mock_db);
 
-// Isolate file system operations
-let temp_dir = TempDir::new().unwrap();
-let test_file = temp_dir.path().join("test.rs");
-fs::write(&test_file, source).unwrap();
+// Stub implementations
+#[cfg(test)]
+impl MockBackend {
+    pub fn fake_lookup(&self, path: &str) -> Option<u64> {
+        // Return predefined test data
+        Some(TEST_FILE_ID)
+    }
+}
 ```
 
 **What to Mock:**
-- File system operations (using `tempfile`)
-- Database operations (using in-memory variants)
-- External services (when absolutely necessary)
+- Database connections for isolation
+- File system operations
+- Time-based operations
+- External API calls (if any)
 
 **What NOT to Mock:**
-- Core library functionality
-- Business logic under test
-- Error handling paths
+- Core algorithm logic
+- Symbol extraction
+- Graph operations (tested against real database)
+- Language parsing
 
 ## Fixtures and Factories
 
 **Test Data:**
-- Inline source code strings for AST tests
-- Temporary directories with real files
-- Database fixtures pre-populated with test data
-
-**Location:**
-- Test data created inline or in test setup
-- No separate fixture files (to avoid stale data)
-- Deterministic generation for reproducible tests
-
-**Patterns:**
 ```rust
-let source = r#"
-fn test_function() {
-    println!("Hello, world!");
+// Common test patterns
+let rust_code = r#"
+fn main() {
+    helper_a();
+    helper_b();
+}
+
+fn helper_a() {
+    shared();
 }
 "#;
+
+// Standard test setup pattern
+let temp_dir = TempDir::new().unwrap();
+let db_path = temp_dir.path().join("test.db");
+let file_path = temp_dir.path().join("test.rs");
 ```
+
+**Location:**
+- Test data defined inline in test functions
+- Shared constants at module level when reused
+- No dedicated test fixtures directory
+- TempDir for file system isolation
 
 ## Coverage
 
-**Requirements:**
-- Not explicitly enforced
-- CI runs all tests on PRs
-- Performance regression tests for critical paths
-- Thread safety tests (TSAN - currently disabled)
-
+**Requirements:** No enforced coverage targets found
 **View Coverage:**
 ```bash
-cargo test -- --test-threads=1  # For debugging
-cargo test --release           # For performance tests
+# Generate coverage report
+cargo tarpaulin --out html
+
+# Run tests with coverage output
+cargo llvm-cov --lcov --output-path coverage.lcov
 ```
 
 ## Test Types
 
 **Unit Tests:**
-- Test individual functions and modules
-- Fast execution with minimal setup
-- Focus on edge cases and error conditions
-- Located in `#[cfg(test)]` modules
+- Scope: Individual functions and modules
+- Location: `#[cfg(test)]` modules in source files
+- Pattern: Test isolated logic without external dependencies
+- Examples: `ast_ops.rs` internal function tests
 
 **Integration Tests:**
-- Test workflows and interactions between components
-- Slower due to file system/database operations
-- Realistic test scenarios
-- Located in `tests/` directory
+- Scope: Cross-module functionality
+- Location: Separate files in `tests/` directory
+- Pattern: End-to-end workflows
+- Examples: CLI smoke tests, database migration tests
 
 **E2E Tests:**
-- CLI command testing via process spawning
-- End-to-end workflows
-- Using `Command::new()` to test binary interface
+- Framework: Custom binary spawning
+- Pattern: Start magellan process, interact with it, verify output
+- Examples: `cli_smoke_tests.rs` with `Command::new()`
+- TempDir isolation for file system operations
 
 ## Common Patterns
 
 **Async Testing:**
-- Minimal async test usage (mostly for watcher tests)
-- Synchronous testing preferred for simplicity
-- Thread operations use `std::thread::sleep` for timing
+```rust
+#[tokio::test]
+async fn test_async_operation() {
+    let result = async_operation().await;
+    assert!(result.is_ok());
+}
+```
 
 **Error Testing:**
 ```rust
 #[test]
-fn test_error_condition() {
-    let result = risky_operation();
+fn test_error_conditions() {
+    // Test expected errors
+    let result = potentially_failing_operation();
     assert!(result.is_err());
-    assert_eq!(result.unwrap_err().to_string(), "Expected error");
-}
-```
 
-**Temporary Directory Pattern:**
-```rust
-#[test]
-fn test_with_temp_dir() {
-    let temp_dir = TempDir::new().unwrap();
-    let db_path = temp_dir.path().join("test.db");
-
-    // Test code that creates and cleans up automatically
+    // Test error message content
+    match result {
+        Err(e) => assert!(e.to_string().contains("expected error")),
+        Ok(_) => panic!("Expected error"),
+    }
 }
 ```
 
 **Database Testing:**
-- In-memory `:memory:` database for unit tests
-- File-based database for integration tests
-- Automatic cleanup via `Drop` implementation
+```rust
+// Pattern for database operations
+let mut graph = CodeGraph::open(&db_path).unwrap();
+graph.index_file(&path_str, source.as_bytes()).unwrap();
 
-**Performance Testing:**
-- Specific performance regression tests
-- Baseline comparisons on PRs
-- Release mode execution for accurate measurements
+// Verify state
+let symbols = graph.symbols_in_file(&path_str).unwrap();
+assert_eq!(symbols.len(), 2);
+```
 
 ---
 
-*Testing analysis: 2026-02-08*
+*Testing analysis: 2026-02-10*

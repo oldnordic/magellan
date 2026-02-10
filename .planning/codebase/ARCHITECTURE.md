@@ -1,193 +1,157 @@
 # Architecture
 
-**Analysis Date:** 2026-02-08
+**Analysis Date:** 2026-02-10
 
 ## Pattern Overview
 
-**Overall:** Multi-language codebase analysis tool with graph-based persistence
+**Overall:** Deterministic, event-driven codebase indexing system with SQLiteGraph persistence
 
 **Key Characteristics:**
-- Deterministic code indexing using tree-sitter parsers
-- SQLite-backed graph database with optional native V2 backend
-- Multi-language support (Rust, Python, Java, C/C++, JavaScript/TypeScript)
-- Real-time file watching with debounced batch processing
-- Modular design with clear separation of concerns
+- Event-driven architecture with filesystem watcher
+- Deterministic and idempotent operations
+- Multi-language support via tree-sitter parsers
+- SQLiteGraph backend with dual backend support (SQLite and Native V2)
+- CLI tool with extensible command structure
 
 ## Layers
 
-**CLI Layer (`src/` command modules):**
-- Purpose: Command-line interface and user interaction
-- Location: `src/*.rs` (main.rs, *_cmd.rs files)
-- Contains: CLI argument parsing, command dispatch, output formatting
-- Depends on: Core library (`src/lib.rs`)
-- Used by: End users, shell scripts
+### Ingest Layer
+- **Purpose:** Multi-language source code parsing and symbol extraction
+- **Location:** `src/ingest/`
+- **Contains:** Language-specific parsers, symbol detection, FQN computation
+- **Depends on:** Tree-sitter grammars, language detection
+- **Used by:** Indexer pipeline
 
-**Core Library (`src/lib.rs`):**
-- Purpose: Public API and module organization
-- Location: `src/lib.rs`
-- Contains: Module exports, common utilities, public type definitions
-- Depends on: All sub-modules
-- Used by: CLI commands, external integration
+### Graph Layer
+- **Purpose:** Database operations and graph persistence
+- **Location:** `src/graph/`
+- **Contains:** CodeGraph wrapper, CRUD operations, query interfaces
+- **Depends on:** SQLiteGraph backend, schema management
+- **Used by:** Indexer, CLI commands
 
-**Ingest Layer (`src/ingest/`):**
-- Purpose: Language-specific source code parsing
-- Location: `src/ingest/`
-- Contains: Language parsers, symbol extraction, FQN computation
-- Depends on: tree-sitter grammars, common utilities
-- Used by: Graph indexing, file scanning
+### Indexing Layer
+- **Purpose:** Filesystem observation and indexing orchestration
+- **Location:** `src/indexer.rs`, `src/watcher/`
+- **Contains:** Filesystem watcher, event debouncing, reconciliation logic
+- **Depends on:** Graph layer, filesystem events
+- **Used by:** Watch command
 
-**Graph Layer (`src/graph/`):**
-- Purpose: Graph database operations and algorithms
-- Location: `src/graph/`
-- Contains: Symbol/Reference/Call operations, CFG extraction, graph algorithms
-- Depends on: sqlitegraph backend, metrics, validation
-- Used by: Indexer, query commands, analysis tools
+### CLI Layer
+- **Purpose:** Command-line interface and user interaction
+- **Location:** `src/main.rs`, `src/*_cmd.rs`
+- **Contains:** Command parsing, argument handling, output formatting
+- **Depends on:** All other layers
+- **Used by:** End users
 
-**Storage Layer (`src/generation/`, `src/kv/`):**
-- Purpose: Code chunk storage and KV indexing
-- Location: `src/generation/`, `src/kv/` (native-v2 only)
-- Contains: Code chunk persistence, KV indexes for fast lookups
-- Depends on: SQLite backend, KV store
-- Used by: Graph operations, symbol resolution
-
-**Watcher Layer (`src/watcher/`):**
-- Purpose: Real-time file system monitoring
-- Location: `src/watcher/`
-- Contains: File event handling, debouncing, pub/sub (native-v2)
-- Depends on: notify library, indexer pipeline
-- Used by: Continuous indexing, live development
-
-**Diagnostics Layer (`src/diagnostics/`):**
-- Purpose: Error reporting and monitoring
-- Location: `src/diagnostics/`
-- Contains: Diagnostic collection, error tracking, metrics
-- Depends on: Graph operations, execution logging
-- Used by: All components for error reporting
+### Storage Layer
+- **Purpose:** Data persistence and caching
+- **Location:** `src/generation/`, src/graph modules
+- **Contains:** Code chunk storage, file node cache, metrics
+- **Depends on:** SQLiteGraph backend
+- **Used by:** Graph layer
 
 ## Data Flow
 
-**File Processing Flow:**
+### Indexing Pipeline:
 
-1. **File Discovery** (`src/watcher/` or manual scan)
-   - Monitor file system changes or scan directory
-   - Generate file events with metadata
+1. **Filesystem Watcher** (src/watcher/)
+   - Monitors file changes with debounced batch events
+   - Emits deterministic WatcherBatch with sorted paths
 
-2. **Ingestion** (`src/ingest/`)
-   - Detect language from file extension
-   - Parse with appropriate tree-sitter grammar
-   - Extract symbol facts with scope tracking
-   - Compute FQNs and canonical names
+2. **Event Handler** (src/indexer.rs)
+   - Receives file events
+   - Calls reconcile_file_path for deterministic updates
 
-3. **Graph Storage** (`src/graph/`)
-   - Create/update File node with content hash
-   - Store Symbol nodes with DEFINES edges
-   - Extract and store Reference nodes with REFERENCES edges
-   - Store Call nodes with CALLS edges
+3. **Reconciliation** (src/graph/ops.rs)
+   - Computes SHA-256 hash of file contents
+   - Upsert File node or delete if removed
+   - Clears existing symbols/references for the file
 
-4. **Indexing** (`src/graph/symbol_index.rs`, `src/kv/`)
-   - Build symbol name-to-ID mapping
-   - Create file-to-symbol reverse index
-   - Generate reference/call indexes for fast queries
+4. **Ingestion** (src/ingest/)
+   - Detects language from file extension
+   - Parses symbols using tree-sitter
+   - Builds fully-qualified names with scope tracking
 
-5. **Analysis** (`src/graph/algorithms.rs`, etc.)
-   - Run graph algorithms (cycles, dead code, etc.)
-   - Compute metrics and statistics
-   - Generate reports and exports
+5. **Persistence** (src/graph/)
+   - Inserts Symbol nodes with DEFINES edges
+   - Extracts and stores references
+   - Builds call graph edges
+   - Stores code chunks for retrieval
 
-**Real-time Updates:**
-- Watcher detects file changes
-- Debounce events into batches
-- Reconcile file state (update/delete)
-- Re-index affected files
-- Invalidate caches as needed
+### Query Pipeline:
+
+1. **CLI Command** (src/main.rs, src/*_cmd.rs)
+   - Parses arguments and validates
+   - Creates CodeGraph instance
+
+2. **Graph Query** (src/graph/query.rs, calls.rs, etc.)
+   - Executes symbol/reference/call queries
+   - Uses file node cache for performance
+   - Returns structured results
+
+3. **Output Formatting** (src/output/)
+   - Formats results as JSON or human-readable
+   - Includes context, code snippets, or semantic info
 
 ## Key Abstractions
 
-**CodeGraph:**
-- Purpose: Main graph database interface
-- Location: `src/graph/mod.rs::CodeGraph`
-- Provides: File, Symbol, Reference, Call CRUD operations
-- Pattern: Facade pattern over multiple operation modules
+### CodeGraph
+- **Purpose:** Main database wrapper providing deterministic operations
+- **Examples:** `src/graph/mod.rs:132-829`
+- **Pattern:** Facade pattern with specialized operation modules
 
-**SymbolFact:**
-- Purpose: Language-agnostic symbol representation
-- Location: `src/ingest/mod.rs::SymbolFact`
-- Contains: File path, kind, name, spans, FQNs
-- Pattern: Data transfer object with serialization
+### SymbolFact
+- **Purpose:** Language-agnostic symbol representation
+- **Examples:** `src/ingest/mod.rs:24-54`
+- **Pattern:** Enum-based type system with language mapping
 
-**ScopeStack:**
-- Purpose: Track nested symbol scopes during parsing
-- Location: `src/ingest/mod.rs::ScopeStack`
-- Contains: Stack of scope names, language-specific separators
-- Pattern: Stack-based scope tracking
+### WatcherBatch
+- **Purpose:** Deterministic batch of file events
+- **Examples:** `src/watcher/mod.rs:57-80`
+- **Pattern:** Value object with sorted paths for deterministic behavior
 
-**ChunkStore:**
-- Purpose: Code fragment storage for efficient retrieval
-- Location: `src/generation/mod.rs::ChunkStore`
-- Contains: Code chunks with byte spans, file mapping
-- Pattern: Content-addressable storage
-
-**FileSystemWatcher:**
-- Purpose: Real-time file monitoring
-- Location: `src/watcher/mod.rs::FileSystemWatcher`
-- Contains: Event debouncing, batch processing, pub/sub support
-- Pattern: Observer pattern with debouncing
+### ChunkStore
+- **Purpose:** Source code storage with deduplication
+- **Examples:** `src/generation/mod.rs`
+- **Pattern:** Repository pattern with content hashing
 
 ## Entry Points
 
-**Main CLI:**
-- Location: `src/main.rs`
-- Triggers: Command parsing and dispatch
-- Responsibilities: Parse arguments, call appropriate command handlers
+### Main CLI Entry
+- **Location:** `src/main.rs:42-562`
+- **Purpose:** Command parsing and dispatch
+- **Triggers:** Subcommand execution
+- **Responsibilities:** Error handling, output formatting
 
-**Index Pipeline:**
-- Location: `src/indexer.rs::run_indexer`
-- Triggers: Batch file processing
-- Responsibilities: Coordinate ingestion, graph storage, indexing
+### Watch Command
+- **Location:** `src/watch_cmd.rs`, `src/indexer.rs`
+- **Purpose:** Continuous indexing with filesystem watching
+- **Triggers:** Filesystem event processing
+- **Responsibilities:** Event debouncing, batch processing
 
-**Watch Pipeline:**
-- Location: `src/indexer.rs::run_watch_pipeline`
-- Triggers: File system events
-- Responsibilities: Coordinate watcher, indexer, debouncing
-
-**Individual Commands:**
-- Location: `src/*_cmd.rs` files
-- Triggers: Specific CLI subcommands
-- Responsibilities: Command-specific logic and output
+### Index Command (via indexer)
+- **Location:** `src/indexer.rs:75-100`
+- **Purpose:** One-time directory scanning
+- **Triggers:** Directory traversal and file processing
+- **Responsibilities:** Progress reporting, deterministic ordering
 
 ## Error Handling
 
-**Strategy:** Layered error handling with context preservation
+**Strategy:** Result-based error propagation with contextual information
 
 **Patterns:**
-- anyhow::Result for error propagation
+- `anyhow::Result` for error propagation
 - Custom error types in modules
-- Diagnostic collection for non-fatal issues
-- Graceful degradation for missing features
-
-**Validation:**
-- Graph invariant checking
-- File system path validation
-- Symbol name normalization
-- Cross-reference consistency
+- Graceful degradation for non-critical failures
+- Transaction rollback on database errors
 
 ## Cross-Cutting Concerns
 
-**Logging:**
-- Execution logging via `ExecutionLog`
-- Diagnostic collection for monitoring
-- Performance metrics collection
-
-**Concurrency:**
-- Thread-safe design with Arc<Mutex<T>>
-- Global lock ordering to prevent deadlocks
-- Shared state for pipelines
-
-**Caching:**
-- File node cache for frequently accessed files
-- KV indexes for O(1) symbol lookups (native-v2)
-- Cache invalidation on file changes
+**Logging:** Structured logging with execution tracking
+**Validation:** Graph invariants and filesystem consistency checks
+**Caching:** File node cache with LRU eviction
+**Concurrency:** Single-threaded indexing, thread-safe queries
 
 ---
 
-*Architecture analysis: 2026-02-08*
+*Architecture analysis: 2026-02-10*

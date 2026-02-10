@@ -1,117 +1,144 @@
 # External Integrations
 
-**Analysis Date:** 2026-02-08
+**Analysis Date:** 2026-02-10
 
-## APIs & External Services
+## External APIs
 
-**File System:**
-- Native file system access via Rust std::fs
-- File watching via notify crate
-- Path resolution and globbing via globset and ignore
+**None - Magellan operates entirely offline:**
+- No network calls to external services
+- All processing is local
+- No API keys or authentication required
 
-**Code Analysis APIs:**
-- Tree-sitter parsers for multiple programming languages
-- No external code analysis APIs (all parsing done locally)
+## Databases
 
-## Data Storage
+**SQLite:**
+- Purpose: Primary data storage for code graph
+- Access: Via rusqlite library
+- Schema: Managed by SQLiteGraph
+- Location: User-specified file path
 
-**Databases:**
-- SQLite/sqlitegraph - Primary storage for graph data
-  - Native V2 backend with WAL transactions (optional feature)
-  - Traditional SQLite backend (default)
-  - File-based storage (.db files)
+**Native-V2 KV Store (feature flag):**
+- Purpose: High-performance key-value storage
+- Access: Via SQLiteGraph backend abstraction
+- Schema: Internal KV format
+- Performance: 10-100x faster than SQL for lookups
 
-**File Storage:**
-- Local file system only
-- No cloud storage integration
-- No distributed file systems
+## File System
 
-**Caching:**
-- In-memory caching via sqlitegraph KV store (native-v2 feature)
-- No external caching services
+**Watching:**
+- notify: Filesystem event notifications
+- debounce: Batch processing of file changes
+- .gitignore awareness: Filters version-controlled files
 
-## Authentication & Identity
+**Access Patterns:**
+- Read-only: Source code files
+- Read-write: Database files
+- Temp: Temporary files during processing
 
-**Auth Provider:**
-- No authentication required (local development tool)
-- No external identity providers
+## Authentication
 
-**Security:**
-- No API keys or secrets required
-- All processing happens locally
+**None:**
+- Magellan does not authenticate users
+- No login/session management
+- No external auth providers (OAuth, SSO, etc.)
+- Local tool with file-based permissions
 
-## Monitoring & Observability
+## Webhooks
 
-**Error Tracking:**
-- Built-in error handling via anyhow
-- No external error tracking services
-- File system diagnostics via watch_diagnostics.rs
+**None:**
+- Magellan does not send webhooks
+- No HTTP server component
+- No event publishing to external systems
 
-**Logs:**
-- Console output only
-- No logging infrastructure or external log aggregation
-- Optional file logging via export commands
+## MCP Integration
 
-## CI/CD & Deployment
+**SQLiteGraph MCP Server:**
+- Purpose: Expose code graph to MCP clients
+- Tools: Symbol lookup, reference finding, graph traversal
+- Database: Uses `codegraph.db` created by Magellan
 
-**Hosting:**
-- Self-hosted binary distribution
-- No cloud hosting dependencies
-- GitHub repository: https://github.com/oldnordic/magellan
+**Usage Pattern:**
+```bash
+# Start Magellan watcher
+magellan watch --root . --db .codemcp/codegraph.db
 
-**CI Pipeline:**
-- No external CI integrations
-- Local testing via cargo test
-- Benchmarking via criterion
+# MCP clients query the database
+mcp.tools.find_symbol("main")
+mcp.tools.get_references("function_name")
+```
 
-## Environment Configuration
+## Language Server Integration
 
-**Required env vars:**
-- None required for basic operation
+**Potential (not implemented):**
+- LSP protocol support for editor integration
+- Symbol navigation and code intelligence
+- Hover documentation
 
-**Optional env vars:**
-- PATH - Used when finding clang (llvm-cfg feature)
-- JAVA_HOME - Used for Java bytecode parsing (future feature)
+## Build Tool Integration
 
-**Secrets location:**
-- No secrets required
-- All configuration via command-line arguments
+**Git Integration:**
+- .gitignore awareness in file watcher
+- File change detection for incremental indexing
+- Repository root detection
 
-## Webhooks & Callbacks
+**Cargo Integration:**
+- For Rust projects: understands Cargo structure
+- Can index crate dependencies
+- Supports workspace detection
 
-**Incoming:**
-- None (no web server or API endpoints)
+## IDE Integration
 
-**Outgoing:**
-- None (no external API calls)
+**Via CLI:**
+- Editors can invoke `magellan` commands
+- Output parsing for symbol information
+- File path references for navigation
 
-## Language Processing
+## Testing Infrastructure
 
-**Supported Languages:**
-- Rust (tree-sitter-rust)
-- Python (tree-sitter-python)
-- C (tree-sitter-c)
-- C++ (tree-sitter-cpp)
-- Java (tree-sitter-java)
-- JavaScript (tree-sitter-javascript)
-- TypeScript (tree-sitter-typescript)
+**ThreadSanitizer (TSAN):**
+- Runtime: Thread safety analysis
+- CI: Automatic data race detection
+- Test files: `tests/tsan_thread_safety_tests.rs`
 
-**Processing:**
-- All parsing done locally via tree-sitter
-- No external language service integrations
-- No LLM or AI-based code analysis
+## Dependency Graph
 
-## Export Formats
+**External Crates:**
+```
+magellan
+├── sqlitegraph (graph database abstraction)
+├── tree-sitter (parsing infrastructure)
+│   └── tree-sitter-* (language grammars)
+├── rusqlite (SQLite bindings)
+├── clap (CLI parsing)
+├── anyhow (error handling)
+├── serde (serialization)
+├── tokio (async runtime, optional)
+└── notify (filesystem watching)
+```
 
-**Code Export:**
-- JSON output for all command results
-- SCIP protocol support for interoperability
-- No external export destinations
+## Network Usage
 
-**Graph Export:**
-- Custom graph formats
-- No standard graph database integrations
+**Outbound:**
+- None (fully offline operation)
+
+**Inbound:**
+- None (no server component)
+
+## File Format Support
+
+**Source Code:**
+- Rust: .rs files
+- C/C++: .c, .cpp, .h, .hpp files
+- Java: .java files
+- Python: .py files
+- JavaScript/TypeScript: .js, .ts, .tsx files
+- And more via tree-sitter grammars
+
+**Data:**
+- SQLite: .db database files
+- JSON: Export/import functionality
+- SCIP: (if supported) Code Intelligence Protocol
 
 ---
 
-*Integration audit: 2026-02-08*
+*Integration analysis: 2026-02-10*
