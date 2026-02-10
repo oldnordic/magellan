@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-02-10)
 
 ## Current Position
 
-Phase: 69
-Plan: 05 (next to execute)
-Status: Backend parity tests complete, storage trait abstraction verified
-Last activity: 2026-02-10 — Backend parity tests and integration tests implemented
+Phase: 070-magellan-core-quality
+Plan: 02 (complete)
+Status: Structured logging infrastructure using tracing crate
+Last activity: 2026-02-10 — Added tracing dependencies, replaced eprintln! with warn!, instrumented core graph operations
 
-Progress: [████████░░] 90% (5/6 phases complete, 4/4 plans in phase 69)
+Progress: [████████░░] 85% (5/6 phases complete, Phase 70-02 complete)
 
 **Completed Milestones:**
 - v1.0 Magellan - Phases 1-9 (shipped 2026-01-19)
@@ -47,14 +47,16 @@ Progress: [████████░░] 90% (5/6 phases complete, 4/4 plans i
 | v2.2 | 60-65 | 14 | ~3h | ~12 min |
 
 **Recent Trend:**
-- Last 6 plans: [9 min, 8 min, 12 min, 8 min, 15 min, 10 min, 14 min, 7 min, 10 min, 8 min, 10 min]
+- Last 6 plans: [9 min, 8 min, 12 min, 8 min, 15 min, 10 min, 14 min, 7 min, 10 min, 8 min, 10 min, 8 min]
 - Trend: Stable (consistent execution pattern)
 
 *Updated after each plan completion*
+| Phase 070-magellan-core-quality P03 | 8 min | 2 tasks | 3 files |
 | Phase 069-mirage-storage-trait P04 | 8 min | 3 tasks | 3 files |
 | Phase 069-mirage-storage-trait P03 | 10 min | 3 tasks | 2 files |
 | Phase 069-mirage-storage-trait P02 | 6 min | 2 tasks | 3 files |
 | Phase 069-mirage-storage-trait P01 | 7 min | 2 tasks | 2 files |
+| Phase 070-magellan-core-quality P01 | 45 min | 1 task | 1 file |
 
 ## Accumulated Context
 
@@ -78,12 +80,19 @@ Recent decisions affecting current work:
 - ChunkStore KV support unified across both backends
 - Native V2 backend uses clustered adjacency for 10x graph traversal performance
 
-**v2.3 Decisions (from research, 66-01, and 69-02):**
+**v2.3 Decisions (from research, 66-01, 69-02, 070-01, 070-02, and 070-03):**
+- **Phase 070-01**: Remove unsafe downcasting from algorithms.rs - use GraphBackend trait API instead (070-01)
+- **Phase 070-01**: Backend-agnostic algorithms: BFS for reachability, Tarjan's for SCC, DFS for path enumeration (070-01)
+- **Phase 070-02**: Use tracing crate for structured logging - keep user-facing warnings as eprintln! (070-02)
+- **Phase 070-02**: Default log level to WARN, overridable via RUST_LOG env var for debugging (070-02)
+- **Phase 070-02**: Add #[instrument] macro to core graph operations for automatic span tracking (070-02)
 - Use `magellan::migrate_backend_cmd::detect_backend_format()` for backend detection (don't reimplement)
 - Follow llmgrep's `Backend::detect_and_open()` pattern for backend abstraction
 - Complete CLI flag exposures first (quick wins) before architectural rewrites
 - Mirage storage trait is the largest effort (2-3 weeks) and blocks advanced features
 - Magellan core quality fixes needed for accurate cross-file resolution and call tracking
+- **Phase 070-03**: Follow references.rs two-pass indexing pattern - query backend.entity_ids() directly (070-03)
+- **Phase 070-03**: call_ops.rs symbol_ids parameter used for edge resolution, not symbol_fact building (070-03)
 - Made CLI subcommands optional (Option<Command>) to support --detect-backend without subcommand (66-01)
 - Use clap alias attribute for flag aliases without code duplication (66-01: --purpose for --label)
 - Match splice's exact JSON format: {"backend":"...","database":"..."} for consistency (66-01)
@@ -119,13 +128,13 @@ Recent decisions affecting current work:
 - Mirages direct `rusqlite` usage prevents backend abstraction (Phase 69)
 - Magellans cross-file reference resolution may have orphan references (Phase 70)
 - Magellans caller/callee tracking has race conditions during concurrent updates (Phase 70)
-- Unsafe downcasting in `src/graph/algorithms.rs` (Phase 70)
-- Debug `eprintln!` statements in production code (Phase 70)
+- ~~Unsafe downcasting in `src/graph/algorithms.rs` (Phase 70)~~ **COMPLETED (070-01)**
+- ~~Debug `eprintln!` statements in production code (Phase 70)~~ **COMPLETED (070-02)**
 
 ## Session Continuity
 
-Last session: 2026-02-10 (Phase 069-04: Backend parity and integration tests)
-Stopped at: Completed 069-04 - Backend parity tests and integration tests implemented
+Last session: 2026-02-10 (Phase 070-03: Cross-file call resolution fix)
+Stopped at: Completed 070-03 - Two-pass indexing in call_ops.rs, cross-file validation test
 Resume file: None - plan complete
 Blockers: None
 
