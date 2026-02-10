@@ -97,7 +97,7 @@ Magellan is a deterministic codebase mapping CLI for local developers. This road
 **Plans:** 1/1
 **Plan list:**
 - [ ] 067-01-PLAN.md — Create watch_cmd.rs module with pub/sub implementation and wire up Watch command
-**Status:** Pending (plans ready for execution)
+**Status:** ✅ Complete (shipped 2026-02-10)
 
 ---
 
@@ -115,19 +115,31 @@ Magellan is a deterministic codebase mapping CLI for local developers. This road
 - TOOL-04: splice `--impact-graph` flag exposed on relevant commands
 
 **Success Criteria:**
-1. User runs `splice rename --symbol foo --to bar --impact-graph --db codegraph.db` and receives DOT graph output
-2. User runs `splice apply-files --glob "**/*.rs" --find old --replace new --impact-graph --db codegraph.db` and receives DOT graph output
-3. Impact graph shows caller/callee relationships affected by the change
-4. DOT output is parseable by graphviz tools
+1. User runs `splice rename --symbol foo --to bar --impact-graph --preview --db codegraph.db` and receives DOT graph output
+2. User runs `splice refs --name main --path src/main.rs --impact-graph --db codegraph.db` and receives DOT graph output
+3. User runs `splice reachable --symbol main --path src/main.rs --impact-graph --db codegraph.db` and receives DOT graph output
+4. User runs `splice patch --symbol foo --file src/lib.rs --with new.rs --impact-graph --preview --db codegraph.db` and receives DOT graph output
+5. Impact graph shows caller/callee relationships affected by the change
+6. DOT output is parseable by graphviz tools (dot, xdot)
 
 **Files:**
-- `/home/feanor/Projects/splice/src/main.rs` - Add `--impact-graph` flag to rename, apply-files commands
+- `/home/feanor/Projects/splice/src/cli/mod.rs` - Add `--impact-graph` flag to patch command
+- `/home/feanor/Projects/splice/src/main.rs` - Wire up impact_graph in execute_patch and main()
+- `/home/feanor/Projects/splice/tests/integration/impact_graph_tests.rs` - NEW: verification tests
+- Reference: `/home/feanor/Projects/splice/src/main.rs:4746-4758` - rename impact_graph pattern
 - Reference: `/home/feanor/Projects/splice/src/main.rs:148` - `execute_impact_graph()` function (already exists)
 
 **Avoids:** Pitfall #3 - CLI flags not exposed for implemented features
 
-**Plans:** —
-**Status:** Pending
+**Notes:**
+- `rename`, `refs`, `reachable` already have `--impact-graph` (verified in research)
+- `apply-files` excluded (text-only, no --db parameter, would require significant scope)
+- `patch` added (symbol-based like `rename`, has --db parameter)
+
+**Plans:** 1/1
+**Plan list:**
+- [ ] 068-01-PLAN.md — Add `--impact-graph` to patch command and create verification tests
+**Status:** In Planning
 
 ---
 
