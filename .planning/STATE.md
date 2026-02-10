@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-02-10)
 
 ## Current Position
 
-Phase: 070-magellan-core-quality
-Plan: 04 (complete)
-Status: Tracing migration complete - zero eprintln! in library code
-Last activity: 2026-02-10 — Replaced all 8 remaining eprintln! with debug!/warn!/error! macros
+Phase: 071-mirage-advanced-commands
+Plan: 01 (complete)
+Status: CFG diff command with petgraph-based comparison
+Last activity: 2026-02-10 — Implemented mirage diff command for CFG snapshot comparison with human/JSON/Pretty output
 
-Progress: [████████░░] 85% (5/6 phases complete, Phase 70-04 complete)
+Progress: [████████░░] 87% (6/7 phases complete, Phase 71-01 complete)
 
 **Completed Milestones:**
 - v1.0 Magellan - Phases 1-9 (shipped 2026-01-19)
@@ -47,10 +47,11 @@ Progress: [████████░░] 85% (5/6 phases complete, Phase 70-04
 | v2.2 | 60-65 | 14 | ~3h | ~12 min |
 
 **Recent Trend:**
-- Last 6 plans: [9 min, 8 min, 12 min, 8 min, 15 min, 10 min, 14 min, 7 min, 10 min, 8 min, 10 min, 8 min]
+- Last 6 plans: [9 min, 8 min, 12 min, 8 min, 15 min, 10 min, 14 min, 7 min, 10 min, 8 min, 10 min, 8 min, 11 min]
 - Trend: Stable (consistent execution pattern)
 
 *Updated after each plan completion*
+| Phase 071-mirage-advanced-commands P02 | 11 min | 3 tasks | 6 files |
 | Phase 070-magellan-core-quality P04 | 3 min | 3 tasks | 3 files |
 | Phase 070-magellan-core-quality P03 | 8 min | 2 tasks | 3 files |
 | Phase 069-mirage-storage-trait P04 | 8 min | 3 tasks | 3 files |
@@ -106,6 +107,12 @@ Recent decisions affecting current work:
 - **Phase 69-03**: Support in-place migration with same input/output database path (69-03)
 - **Phase 69-04**: Backend parity tests verify SQLite and native-v2 return identical results (69-04)
 - **Phase 69-04**: Integration tests cover all 15 mirage CLI commands (69-04)
+- **Phase 071-03**: Use static heuristics (loop depth 2^N, dominator factor, early exit penalty) for hot path detection without runtime profiling (071-03)
+- **Phase 071-03**: Distinguish Hotpaths (path-level frequency) from Hotspots (function-level risk) to prevent user confusion (071-03)
+- **Phase 071-03**: Adapt to CfgBlockData structure (no id field) using NodeIndex::new(block_index) for position-based block identification (071-03)
+- **Phase 071-02**: Use git2 crate for repository access instead of calling git CLI for better error handling (071-02)
+- **Phase 071-02**: Incremental path enumeration analyzes only functions in changed files using GraphBackend entity queries (071-02)
+- **Phase 071-02**: Result aggregation pattern with IncrementalPathsResult tracking analyzed/skipped function counts (071-02)
 
 ### Pending Todos
 
@@ -136,8 +143,8 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-02-10 (Phase 070-04: Complete tracing migration)
-Stopped at: Completed 070-04 - Replaced all 8 remaining eprintln! with debug!/warn!/error! macros
+Last session: 2026-02-10 (Phase 071-02: Incremental path analysis)
+Stopped at: Completed 071-02 - Implemented git-based incremental path enumeration with --incremental flag
 Resume file: None - plan complete
 Blockers: None
 
