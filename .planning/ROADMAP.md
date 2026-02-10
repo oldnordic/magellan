@@ -19,7 +19,7 @@ Magellan is a deterministic codebase mapping CLI for local developers. This road
 - ✅ **v2.0 Native V2 Backend Migration** - Phases 46-55 (shipped 2026-02-08)
 - ✅ **v2.1 Backend Parity Completion** - Phases 56-59 (shipped 2026-02-08)
 - ✅ **v2.2 Code Quality & Cross-File Relations** - Phases 60-65 (shipped 2026-02-09)
-- 🔄 **v2.3 Tool Migration & Core Quality** - Phases 66-71 (in planning)
+- 🔄 **v2.3 Tool Migration & Core Quality** - Phases 66-71 (1/6 complete)
 
 ---
 
@@ -64,8 +64,8 @@ Magellan is a deterministic codebase mapping CLI for local developers. This road
 
 **Avoids:** Pitfall #3 - CLI flags not exposed for implemented features
 
-**Plans:** —
-**Status:** Pending
+**Plans:** 1/1 complete
+**Status:** ✅ Complete (shipped 2026-02-10)
 
 ---
 
@@ -274,7 +274,7 @@ Phase 69: Mirage   Phase 70: Magellan
 
 | Phase | Name | Plans | Status |
 |-------|------|-------|--------|
-| 66 | CLI Flag Exposure | — | Pending |
+| 66 | CLI Flag Exposure | 1/1 | ✅ Complete |
 | 67 | llmgrep Watch | — | Pending |
 | 68 | Splice Impact Graph | — | Pending |
 | 69 | Mirage Storage Trait | — | Pending |
