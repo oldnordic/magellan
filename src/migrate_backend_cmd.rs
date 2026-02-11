@@ -1227,10 +1227,14 @@ fn ensure_table_schema(conn: &rusqlite::Connection, table_name: &str) -> Result<
 ///
 /// # Returns
 /// Seconds since UNIX epoch (i64)
+///
+/// # Note
+/// Returns 0 if system clock is set before UNIX epoch (e.g., VM snapshots,
+/// NTP adjustments, manual changes). This prevents panic on backward clock changes.
 fn timestamp() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or(std::time::Duration::from_secs(0))
         .as_secs() as i64
 }
 

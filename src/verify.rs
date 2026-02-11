@@ -163,10 +163,13 @@ fn compute_hash(content: &[u8]) -> String {
 }
 
 /// Get current Unix timestamp in seconds
+///
+/// Returns 0 if system clock is set before UNIX epoch (e.g., VM snapshots,
+/// NTP adjustments, manual changes). This prevents panic on backward clock changes.
 fn now_secs() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or(std::time::Duration::from_secs(0))
         .as_secs() as i64
 }
 
