@@ -6,6 +6,8 @@ use anyhow::Result;
 use magellan::CodeGraph;
 use std::path::PathBuf;
 
+use crate::status_cmd::ExecutionTracker;
+
 /// Run label query command
 /// Usage: magellan label --db <FILE> --label <LABEL> [--list] [--count] [--show-code]
 ///
@@ -35,7 +37,7 @@ pub fn run_label(
         args.push("--show-code".to_string());
     }
 
-    let tracker = crate::ExecutionTracker::new(args, None, db_path.to_string_lossy().to_string());
+    let tracker = ExecutionTracker::new(args, None, db_path.to_string_lossy().to_string());
     tracker.start(&graph)?;
 
     // List all labels mode

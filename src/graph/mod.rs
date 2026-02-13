@@ -178,18 +178,33 @@ impl CodeGraph {
 
         // Phase 1: read-only compatibility preflight for existing DB files.
         // This MUST run before any sqlitegraph or Magellan side-table writes occur.
-        // Skip preflight for Native V2 backend (not a SQLite database).
-        #[cfg(not(feature = "native-v2"))]
+        // Skip preflight for Native backends (not SQLite databases).
+        #[cfg(not(any(feature = "native-v2", feature = "native-v3")))]
         {
             db_compat::preflight_sqlitegraph_compat(&db_path_buf)
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?;
         }
 
         // Phase 2: Backend opening (conditional compilation)
-        #[cfg(feature = "native-v2")]
+        // Priority: native-v3 > native-v2 > sqlite (default)
+        
+        #[cfg(feature = "native-v3")]
+        let backend: Rc<dyn GraphBackend> = {
+            use sqlitegraph::backend::native::v3::V3Backend;
+            // Native V3 backend: open if exists, create if not
+            let v3_backend = if db_path_buf.exists() {
+                V3Backend::open(&db_path_buf)?
+            } else {
+                V3Backend::create(&db_path_buf)?
+            };
+            Rc::new(v3_backend)
+        };
+
+        #[cfg(all(feature = "native-v2", not(feature = "native-v3")))]
         let backend: Rc<dyn GraphBackend> = {
             use sqlitegraph::NativeGraphBackend;
-            // Native backend: open if exists, create if not (mirrors SqliteGraph::open behavior)
+            // Native V2 backend (deprecated): open if exists, create if not
+            eprintln!("Warning: native-v2 is deprecated. Use native-v3 instead.");
             let native_graph = if db_path_buf.exists() {
                 NativeGraphBackend::open(&db_path_buf)?
             } else {
@@ -198,7 +213,7 @@ impl CodeGraph {
             Rc::new(native_graph)
         };
 
-        #[cfg(not(feature = "native-v2"))]
+        #[cfg(not(any(feature = "native-v2", feature = "native-v3")))]
         let backend: Rc<dyn GraphBackend> = {
             use sqlitegraph::{SqliteGraph, SqliteGraphBackend};
             let sqlite_graph = SqliteGraph::open(&db_path_buf)?;
@@ -206,8 +221,8 @@ impl CodeGraph {
         };
 
         // Phase 2b: Configure SQLite performance PRAGMAs
-        // SQLite-only configuration (Native V2 backend doesn't use SQLite PRAGMAs)
-        #[cfg(not(feature = "native-v2"))]
+        // SQLite-only configuration (Native backends don't use SQLite PRAGMAs)
+        #[cfg(not(any(feature = "native-v2", feature = "native-v3")))]
         {
             // Note: sqlitegraph 1.0.0 already configures these in from_connection(),
             // but we set them explicitly here to ensure they're applied even if
@@ -265,8 +280,8 @@ impl CodeGraph {
         files.rebuild_file_index()?;
 
         // Phase 3: SQLite-specific side-table initialization (ONLY for SQLite backend)
-        // Native V2 backend uses KV store instead of SQLite side-tables
-        #[cfg(not(feature = "native-v2"))]
+        // Native backends use KV store instead of SQLite side-tables
+        #[cfg(not(any(feature = "native-v2", feature = "native-v3")))]
         let (chunks, execution_log, metrics, needs_backfill) = {
             // Phase 3a: Magellan-owned DB compatibility metadata.
             // MUST run after sqlitegraph open and before any other Magellan side-table writes.
@@ -340,7 +355,7 @@ impl CodeGraph {
         };
 
         // Native V2 backend: KV-based storage for all side tables
-        #[cfg(feature = "native-v2")]
+        #[cfg(all(feature = "native-v2", not(feature = "native-v3")))]
         let (chunks, execution_log, metrics, needs_backfill) = {
             // Native V2 uses KV store instead of SQLite side-tables
             // All side tables use KV storage for persistence
@@ -350,6 +365,54 @@ impl CodeGraph {
                 metrics::MetricsOps::with_kv_backend(Rc::clone(&backend)),
                 false, // No backfill needed for new V2 databases
             )
+        };
+
+        // Native V3 backend: Use SQLite side-tables for now (KV support coming)
+        #[cfg(feature = "native-v3")]
+        let (chunks, execution_log, metrics, needs_backfill) = {
+            // Phase 3a: Magellan-owned DB compatibility metadata.
+            db_compat::ensure_magellan_meta(&db_path_buf)
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+
+            // Open a shared connection for ChunkStore
+            let shared_conn = rusqlite::Connection::open(&db_path_buf).map_err(|e| {
+                anyhow::anyhow!("Failed to open shared connection for ChunkStore: {}", e)
+            })?;
+
+            // Initialize ChunkStore with shared connection
+            let chunks = ChunkStore::with_connection(shared_conn);
+            chunks.ensure_schema()?;
+
+            // Initialize ExecutionLog and ensure schema exists
+            let execution_log = execution_log::ExecutionLog::new(&db_path_buf);
+            execution_log.ensure_schema()?;
+
+            // Initialize MetricsOps
+            let metrics = metrics::MetricsOps::new(&db_path_buf);
+            metrics.ensure_schema()?;
+
+            // Ensure AST nodes schema exists
+            {
+                let ast_conn = rusqlite::Connection::open(&db_path_buf).map_err(|e| {
+                    anyhow::anyhow!("Failed to open connection for AST schema: {}", e)
+                })?;
+                db_compat::ensure_ast_schema(&ast_conn)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            }
+
+            // Ensure CFG schema exists
+            {
+                let cfg_conn = rusqlite::Connection::open(&db_path_buf).map_err(|e| {
+                    anyhow::anyhow!("Failed to open connection for CFG schema: {}", e)
+                })?;
+                db_compat::ensure_cfg_schema(&cfg_conn)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            }
+
+            // No backfill needed for new V3 databases
+            let needs_backfill = false;
+
+            (chunks, execution_log, metrics, needs_backfill)
         };
 
         // Initialize file node cache with capacity of 128 entries
