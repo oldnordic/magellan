@@ -561,14 +561,8 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         // No File node exists, but we still clean up orphaned data.
         // Use auto-commit for orphan cleanup (no transaction needed).
 
-        // Delete chunks
-        let chunk_conn = graph.chunks.connect()?;
-        chunks_deleted = chunk_conn
-            .execute(
-                "DELETE FROM code_chunks WHERE file_path = ?1",
-                rusqlite::params![path],
-            )
-            .map_err(|e| anyhow::anyhow!("Failed to delete code chunks: {}", e))?;
+        // Delete chunks using SideTables (works with both SQLite and V3)
+        chunks_deleted = graph.side_tables.delete_chunks_for_file(path)?;
         assert_eq!(
             chunks_deleted, expected_chunks,
             "Code chunk deletion count mismatch (no file) for '{}': expected {}, got {}",
@@ -808,16 +802,12 @@ pub mod test_helpers {
             // Explicit edge cleanup for deleted IDs.
             deleted_entity_ids.sort_unstable();
             deleted_entity_ids.dedup();
-            let conn = graph.chunks.connect()?;
-            let edges_deleted = delete_edges_touching_entities(&conn, &deleted_entity_ids)?;
+            // TODO: V3 backend needs edge cleanup support
+            let _ = deleted_entity_ids;
+            let edges_deleted = 0;
 
-            // Delete code chunks
-            chunks_deleted = conn
-                .execute(
-                    "DELETE FROM code_chunks WHERE file_path = ?1",
-                    rusqlite::params![path],
-                )
-                .map_err(|e| anyhow::anyhow!("Failed to delete code chunks: {}", e))?;
+            // Delete code chunks using SideTables
+            chunks_deleted = graph.side_tables.delete_chunks_for_file(path)?;
 
             // Remove from in-memory index after all deletions complete
             graph.files.file_index.remove(path);
@@ -849,13 +839,7 @@ pub mod test_helpers {
             })
         } else {
             // No File node exists - handle orphan cleanup path.
-            let conn = graph.chunks.connect()?;
-            chunks_deleted = conn
-                .execute(
-                    "DELETE FROM code_chunks WHERE file_path = ?1",
-                    rusqlite::params![path],
-                )
-                .map_err(|e| anyhow::anyhow!("Failed to delete code chunks: {}", e))?;
+            chunks_deleted = graph.side_tables.delete_chunks_for_file(path)?;
 
             references_deleted = graph.references.delete_references_in_file(path)?;
             calls_deleted = graph.calls.delete_calls_in_file(path)?;
