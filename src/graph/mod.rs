@@ -52,6 +52,7 @@ mod schema;
 mod symbol_index;
 mod symbols;
 pub mod validation;
+pub mod side_tables;
 
 // Re-export small public types from ops.
 pub use ops::{DeleteResult, ReconcileOutcome};
