@@ -6,10 +6,8 @@
 
 use tree_sitter::{Node, Tree};
 
-use crate::graph::ast_node::{is_structural_kind, AstNode, kinds};
 
-#[cfg(feature = "native-v2")]
-use sqlitegraph::SnapshotId;
+use crate::graph::ast_node::{is_structural_kind, AstNode, kinds};
 
 /// Extract AST nodes from a tree-sitter tree
 ///
@@ -184,77 +182,6 @@ impl<'a> AstExtractor<'a> {
     }
 }
 
-/// Store AST nodes in KV store (Native V2 backend)
-///
-/// This function stores a vector of AST nodes in the KV store using the
-/// file_id as the key. The nodes are JSON-encoded for persistence.
-///
-/// # Arguments
-/// * `backend` - Graph backend (must be Native V2 for KV operations)
-/// * `file_id` - File ID (u64) to use as key component
-/// * `nodes` - Slice of AST nodes to store
-///
-/// # Returns
-/// `Ok(())` if storage succeeded, `Err` otherwise
-///
-/// # Example
-/// ```ignore
-/// use crate::graph::ast_extractor::store_ast_nodes_kv;
-/// store_ast_nodes_kv(backend, file_id, &nodes)?;
-/// ```
-#[cfg(feature = "native-v2")]
-pub fn store_ast_nodes_kv(
-    backend: Rc<dyn sqlitegraph::GraphBackend>,
-    file_id: u64,
-    nodes: &[AstNode],
-) -> Result<()> {
-    use crate::kv::keys::ast_nodes_key;
-    use crate::kv::encoding::encode_ast_nodes;
-    use sqlitegraph::backend::KvValue;
-
-    let key = ast_nodes_key(file_id);
-    let encoded = encode_ast_nodes(nodes)?;
-    backend.kv_set(key, KvValue::Bytes(encoded), None)?;
-    Ok(())
-}
-
-/// Retrieve AST nodes from KV store (Native V2 backend)
-///
-/// This function retrieves AST nodes for a file from the KV store.
-/// Returns an empty vector if no nodes are found.
-///
-/// # Arguments
-/// * `backend` - Graph backend (must be Native V2 for KV operations)
-/// * `file_id` - File ID (u64) to retrieve nodes for
-///
-/// # Returns
-/// `Ok(Vec<AstNode>)` containing the AST nodes, or empty vector if not found
-///
-/// # Example
-/// ```ignore
-/// use crate::graph::ast_extractor::get_ast_nodes_kv;
-/// let nodes = get_ast_nodes_kv(backend, file_id)?;
-/// ```
-#[cfg(feature = "native-v2")]
-pub fn get_ast_nodes_kv(
-    backend: &dyn sqlitegraph::GraphBackend,
-    file_id: u64,
-) -> Result<Vec<AstNode>> {
-    use crate::kv::keys::ast_nodes_key;
-    use crate::kv::encoding::decode_ast_nodes;
-    use sqlitegraph::backend::KvValue;
-
-    let key = ast_nodes_key(file_id);
-    let snapshot = SnapshotId::current();
-
-    match backend.kv_get(snapshot, &key)? {
-        Some(KvValue::Bytes(data)) => {
-            decode_ast_nodes(&data)
-        }
-        _ => Ok(vec![]),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -358,61 +285,4 @@ mod tests {
         assert_eq!(language_from_path("unknown.xyz"), None);
     }
 
-    #[cfg(feature = "native-v2")]
-    #[test]
-    fn test_ast_storage_kv_roundtrip() {
-        use sqlitegraph::NativeGraphBackend;
-
-        // Create a test backend with temporary file
-        let temp_dir = std::env::temp_dir();
-        let unique_id = format!("magellan_test_{}", std::process::id());
-        let db_path = temp_dir.join(unique_id);
-        let backend: Rc<dyn sqlitegraph::GraphBackend> = Rc::new(
-            NativeGraphBackend::new(&db_path).unwrap()
-        );
-
-        // Create test AST nodes
-        let nodes = vec![
-            AstNode::new(Some(1), "IfExpression", 100, 250),
-            AstNode::new(Some(2), "Block", 110, 240),
-            AstNode::new(None, "FunctionItem", 50, 300),
-        ];
-
-        // Store nodes in KV
-        store_ast_nodes_kv(Rc::clone(&backend), 42, &nodes)
-            .expect("store_ast_nodes_kv should succeed");
-
-        // Retrieve nodes from KV
-        let retrieved = get_ast_nodes_kv(&*backend, 42)
-            .expect("get_ast_nodes_kv should succeed");
-
-        // Verify we got the same nodes back
-        assert_eq!(retrieved.len(), nodes.len());
-        assert_eq!(retrieved[0].kind, "IfExpression");
-        assert_eq!(retrieved[1].kind, "Block");
-        assert_eq!(retrieved[2].kind, "FunctionItem");
-        assert_eq!(retrieved[0].byte_start, 100);
-        assert_eq!(retrieved[0].byte_end, 250);
-    }
-
-    #[cfg(feature = "native-v2")]
-    #[test]
-    fn test_ast_storage_kv_empty() {
-        use sqlitegraph::NativeGraphBackend;
-
-        // Create a test backend with temporary file
-        let temp_dir = std::env::temp_dir();
-        let unique_id = format!("magellan_test_{}", std::process::id());
-        let db_path = temp_dir.join(unique_id);
-        let backend: Rc<dyn sqlitegraph::GraphBackend> = Rc::new(
-            NativeGraphBackend::new(&db_path).unwrap()
-        );
-
-        // Query non-existent file
-        let retrieved = get_ast_nodes_kv(&*backend, 999)
-            .expect("get_ast_nodes_kv should succeed");
-
-        // Should return empty vector
-        assert!(retrieved.is_empty());
-    }
 }

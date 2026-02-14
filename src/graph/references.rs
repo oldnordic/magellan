@@ -448,7 +448,7 @@ impl ReferenceOps {
     }
 }
 
-#[cfg(all(test, not(feature = "native-v2")))]
+#[cfg(test)]
 mod tests {
     use crate::graph::schema::SymbolNode;
     use sqlitegraph::{GraphBackend, SnapshotId};

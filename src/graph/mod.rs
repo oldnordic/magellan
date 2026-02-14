@@ -76,6 +76,8 @@ use sqlitegraph::GraphBackend;
 use std::collections::HashMap;
 use std::path::Path;
 use std::rc::Rc;
+#[cfg(feature = "native-v3")]
+use std::sync::Arc;
 
 use crate::generation::{ChunkStore, CodeChunk};
 use crate::references::{CallFact, ReferenceFact};
@@ -188,7 +190,7 @@ impl CodeGraph {
         // - sqlite-backend (default): Stable SQLite backend
         
         #[cfg(feature = "native-v3")]
-        let backend: Rc<dyn GraphBackend> = {
+        let (backend, v3_backend_arc): (Rc<dyn GraphBackend>, Option<Arc<sqlitegraph::backend::native::v3::V3Backend>>) = {
             use sqlitegraph::backend::native::v3::V3Backend;
             // Native V3 backend: open if exists, create if not
             let v3_backend = if db_path_buf.exists() {
@@ -197,7 +199,13 @@ impl CodeGraph {
                 V3Backend::create(&db_path_buf)?
             };
             eprintln!("Using V3 backend: {:?}", db_path_buf);
-            Rc::new(v3_backend)
+            // Create Rc<dyn GraphBackend> for graph operations
+            let v3_rc: Rc<dyn GraphBackend> = Rc::new(v3_backend);
+            // Create Arc from the Rc for side tables (they share the same allocation)
+            // Note: This requires V3Backend to be wrapped in a way that allows Arc conversion
+            // For now, we create a separate Arc by reopening the backend
+            let v3_arc = Arc::new(V3Backend::open(&db_path_buf)?);
+            (v3_rc, Some(v3_arc))
         };
 
         #[cfg(all(not(feature = "native-v3"), feature = "sqlite-backend"))]
@@ -345,50 +353,26 @@ impl CodeGraph {
             (chunks, execution_log, metrics, needs_backfill)
         };
 
-        // V3 backend: Use SQLite side-tables for now (KV support coming)
+        // V3 backend: Use V3 KV store for side-tables (NO SQLITE!)
+        // All side tables (chunks, execution_log, metrics) use the V3 KV store
         #[cfg(feature = "native-v3")]
         let (chunks, execution_log, metrics, needs_backfill) = {
-            // V3 uses a separate SQLite file for side-tables (suffix .sqlite)
-            let sqlite_path = db_path_buf.with_extension("sqlite");
+            use side_tables::v3_impl::V3SideTables;
             
-            // Phase 3a: Magellan-owned DB compatibility metadata.
-            db_compat::ensure_magellan_meta(&sqlite_path)
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-
-            // Open a shared connection for ChunkStore
-            let shared_conn = rusqlite::Connection::open(&sqlite_path).map_err(|e| {
-                anyhow::anyhow!("Failed to open shared connection for ChunkStore: {}", e)
-            })?;
-
-            // Initialize ChunkStore with shared connection
-            let chunks = ChunkStore::with_connection(shared_conn);
-            chunks.ensure_schema()?;
-
-            // Initialize ExecutionLog and ensure schema exists
-            let execution_log = execution_log::ExecutionLog::new(&sqlite_path);
-            execution_log.ensure_schema()?;
-
-            // Initialize MetricsOps
-            let metrics = metrics::MetricsOps::new(&sqlite_path);
-            metrics.ensure_schema()?;
-
-            // Ensure AST nodes schema exists
-            {
-                let ast_conn = rusqlite::Connection::open(&sqlite_path).map_err(|e| {
-                    anyhow::anyhow!("Failed to open connection for AST schema: {}", e)
-                })?;
-                db_compat::ensure_ast_schema(&ast_conn)
-                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-            }
-
-            // Ensure CFG schema exists
-            {
-                let cfg_conn = rusqlite::Connection::open(&sqlite_path).map_err(|e| {
-                    anyhow::anyhow!("Failed to open connection for CFG schema: {}", e)
-                })?;
-                db_compat::ensure_cfg_schema(&cfg_conn)
-                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-            }
+            // Get the Arc<V3Backend> for side tables
+            let v3_arc = v3_backend_arc.expect("V3 backend should be initialized");
+            
+            // Create V3 side tables using KV store (no SQLite!)
+            let side_tables: Arc<dyn side_tables::SideTables> = Arc::new(V3SideTables::new(v3_arc));
+            
+            // Create ChunkStore with SideTables backend
+            let chunks = ChunkStore::with_side_tables(side_tables.clone());
+            
+            // Create ExecutionLog with SideTables backend
+            let execution_log = execution_log::ExecutionLog::with_side_tables(side_tables.clone());
+            
+            // Create MetricsOps with SideTables backend  
+            let metrics = metrics::MetricsOps::with_side_tables(side_tables);
 
             // No backfill needed for new V3 databases
             let needs_backfill = false;

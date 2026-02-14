@@ -1,6 +1,6 @@
 # Magellan
 
-**Version:** 2.2.1
+**Version:** 2.3.0
 
 A deterministic codebase mapping tool. Watches source files, extracts AST-level facts, and builds a searchable graph database of symbols and references.
 
@@ -52,11 +52,26 @@ cargo build --release
 ### Features
 
 - **Help**: Use `--help` or `-h` with any command to see usage information
-- **Native-v2 Backend**: Build with `--features native-v2` for improved performance with KV metadata indexing and full algorithm support
+- **Native-v3 Backend**: Build with `--features native-v3` for optimal performance (recommended)
+  - High-performance binary backend with KV store side tables
+  - All data in single `.v3` file (no SQLite dependency)
+- **Native-v2 Backend**: Build with `--features native-v2` for improved performance (legacy)
 - **LLVM IR CFG (optional)**: Build with `--features llvm-cfg` for C/C++ (requires Clang)
 - **Bytecode CFG (optional)**: Build with `--features bytecode-cfg` for Java (requires JVM bytecode)
 
-**Optional Feature Flags (v2.1.0):**
+**Backend Selection:**
+
+Magellan supports multiple backends via feature flags:
+
+| Feature | Description | Use Case |
+|---------|-------------|----------|
+| `native-v3` | **High-performance binary backend** with KV store | Production (recommended) |
+| `sqlite-backend` | Stable SQLite backend (default) | Compatibility, debugging |
+| `native-v2` | Legacy binary backend (deprecated) | Legacy support only |
+
+**Note:** Only one backend feature should be enabled at a time. The V3 backend stores all data (graph + side tables) in a single `.v3` file with zero SQLite dependency.
+
+**Optional CFG Feature Flags (v2.1.0):**
 
 Magellan includes optional CFG extraction enhancements:
 

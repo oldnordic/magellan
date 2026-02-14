@@ -1,6 +1,6 @@
 //! Tests for graph module
 
-#[cfg(all(test, not(feature = "native-v2")))]
+#[cfg(test)]
 mod tests {
 
     #[test]
@@ -75,7 +75,7 @@ mod tests {
     }
 }
 
-#[cfg(all(test, not(feature = "native-v2")))]
+#[cfg(test)]
 mod pragma_tests {
     use tempfile::TempDir;
 

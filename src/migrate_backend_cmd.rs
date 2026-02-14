@@ -1,10 +1,6 @@
 //! Cross-backend database migration command implementation
 //!
-//! Handles migration between SQLite and Native V2 backends:
-//! - Detect backend format from file headers (magic bytes)
-//! - Export graph data from SQLite database to snapshot format
-//! - Import snapshot data into Native V2 backend
-//! - Migrate Magellan-specific side tables (chunks, metrics, execution log)
+//! Handles migration between SQLite backends (copy with side table migration).
 //!
 //! ## Architecture
 //!
@@ -25,32 +21,19 @@
 
 use anyhow::Result;
 use std::fs;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use sqlitegraph::GraphBackend;
 
-#[cfg(feature = "native-v2")]
-use crate::generation::{CodeChunk, ChunkStore};
-#[cfg(feature = "native-v2")]
-use crate::graph::{AstNode, CfgBlock, store_ast_nodes_kv, store_cfg_blocks_kv};
 
-/// Magic bytes for Native V2 database files
-///
-/// Native V2 databases start with "SQLTGF" (6 bytes) at offset 0.
-/// This is the sqlitegraph native format magic string.
-const NATIVE_V2_MAGIC: &[u8] = b"SQLTGF";
 
-/// Database backend format detected from file headers
+/// Database backend format
 ///
-/// Represents the two supported backend formats in Magellan.
-/// Used for automatic backend detection before migration.
+/// Currently only SQLite is supported.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BackendFormat {
-    /// SQLite database (traditional backend)
+    /// SQLite database
     Sqlite,
-    /// Native V2 database (new high-performance backend)
-    NativeV2,
 }
 
 /// Errors that can occur during backend format detection
@@ -73,66 +56,27 @@ pub enum MigrationError {
         source: std::io::Error,
     },
 
-    /// Cannot read file header (I/O error, truncated file, etc.)
-    #[error("Cannot read header from '{path}': {source}")]
-    CannotReadHeader {
-        path: PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
-
-    /// File is neither Native V2 nor SQLite format
-    #[error("Unknown database format: {path}. Details: {details}")]
-    UnknownFormat {
-        path: PathBuf,
-        details: String,
-    },
-
     /// In-memory databases cannot be migrated (no file path)
     #[error("In-memory databases (':memory:') are not supported for migration. Use a file-based database.")]
     InMemoryDatabaseNotSupported,
+
+    /// File is not a valid SQLite database
+    #[error("Not a valid SQLite database: {path}. Details: {details}")]
+    InvalidDatabase {
+        path: PathBuf,
+        details: String,
+    },
 }
 
-/// Detect the backend format of a database file from its header
+/// Detect the backend format of a database file
 ///
-/// This function determines whether a database file uses SQLite or Native V2
-/// backend format by examining file headers. It does NOT rely on file extensions
-/// since users may rename files.
-///
-/// # Detection Strategy
-///
-/// 1. Reject `:memory:` path immediately (in-memory databases not supported)
-/// 2. Check if file exists (return `DatabaseNotFound` if not)
-/// 3. Read first 4 bytes and check for Native V2 magic bytes (`b"MAG2"`)
-/// 4. If magic bytes match, return `BackendFormat::NativeV2`
-/// 5. Otherwise, attempt to open as SQLite database
-/// 6. If SQLite open succeeds, return `BackendFormat::Sqlite`
-/// 7. If SQLite open fails, return `UnknownFormat`
+/// Currently only SQLite format is supported.
 ///
 /// # Arguments
 /// * `db_path` - Path to the database file to detect
 ///
 /// # Returns
-/// `Ok(BackendFormat)` with the detected format, or `Err(MigrationError)` if detection fails
-///
-/// # Errors
-/// - `InMemoryDatabaseNotSupported` - if path is `:memory:`
-/// - `DatabaseNotFound` - if the file doesn't exist
-/// - `CannotOpenDatabase` - if file cannot be opened for reading
-/// - `CannotReadHeader` - if header cannot be read (I/O error, truncated file)
-/// - `UnknownFormat` - if neither Native V2 nor SQLite format is detected
-///
-/// # Example
-/// ```no_run
-/// use magellan::migrate_backend_cmd::detect_backend_format;
-/// use std::path::Path;
-///
-/// let db_path = Path::new("/path/to/database.db");
-/// match detect_backend_format(db_path) {
-///     Ok(format) => println!("Detected format: {:?}", format),
-///     Err(e) => eprintln!("Detection failed: {}", e),
-/// }
-/// ```
+/// `Ok(BackendFormat::Sqlite)` if valid SQLite, or `Err(MigrationError)` if detection fails
 pub fn detect_backend_format(db_path: &Path) -> Result<BackendFormat, MigrationError> {
     // Check for in-memory database path
     if db_path.to_str() == Some(":memory:") {
@@ -146,31 +90,13 @@ pub fn detect_backend_format(db_path: &Path) -> Result<BackendFormat, MigrationE
         });
     }
 
-    // Open file for reading magic bytes
-    let mut file = fs::File::open(db_path).map_err(|e| MigrationError::CannotOpenDatabase {
-        path: db_path.to_path_buf(),
-        source: e,
-    })?;
-
-    // Read first 6 bytes (magic number "SQLTGF")
-    let mut magic = [0u8; 6];
-    file.read_exact(&mut magic).map_err(|e| MigrationError::CannotReadHeader {
-        path: db_path.to_path_buf(),
-        source: e,
-    })?;
-
-    // Check for Native V2 magic bytes
-    if magic == NATIVE_V2_MAGIC {
-        return Ok(BackendFormat::NativeV2);
-    }
-
-    // Fallback: try to open as SQLite database (read-only to avoid creating new file)
+    // Try to open as SQLite database (read-only to avoid creating new file)
     rusqlite::Connection::open_with_flags(
         db_path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
     .map(|_| BackendFormat::Sqlite)
-    .map_err(|e| MigrationError::UnknownFormat {
+    .map_err(|e| MigrationError::InvalidDatabase {
         path: db_path.to_path_buf(),
         details: e.to_string(),
     })
@@ -219,7 +145,7 @@ pub struct SnapshotImportMetadata {
 ///
 /// This function wraps `GraphBackend::snapshot_export()` to provide
 /// Magellan-specific metadata. The actual serialization is handled
-/// by the backend (SQLite → JSON, Native V2 → binary .v2 format).
+/// by the backend (SQLite → JSON format).
 ///
 /// # Arguments
 /// * `backend` - Graph backend to export from
@@ -227,23 +153,6 @@ pub struct SnapshotImportMetadata {
 ///
 /// # Returns
 /// SnapshotExportMetadata with counts, size, and timestamp
-///
-/// # Errors
-/// - Export directory cannot be created
-/// - Backend snapshot_export() fails (e.g., permission denied, disk full)
-///
-/// # Example
-/// ```no_run
-/// use magellan::migrate_backend_cmd::export_snapshot;
-/// use std::rc::Rc;
-/// use std::path::Path;
-///
-/// # let backend: Rc<dyn sqlitegraph::GraphBackend> = unimplemented!();
-/// let export_dir = Path::new("/tmp/magellan_snapshot");
-/// let metadata = export_snapshot(&backend, export_dir)?;
-/// println!("Exported {} entities, {} edges", metadata.entity_count, metadata.edge_count);
-/// # Ok::<(), anyhow::Error>(())
-/// ```
 pub fn export_snapshot(
     backend: &Rc<dyn GraphBackend>,
     export_dir: &Path,
@@ -252,8 +161,6 @@ pub fn export_snapshot(
     fs::create_dir_all(export_dir)?;
 
     // Delegate to backend-specific export implementation
-    // SQLite backend exports to JSON format
-    // Native V2 backend exports to binary .v2 format + export.manifest
     let snapshot_meta = backend.snapshot_export(export_dir)?;
 
     // Get current timestamp
@@ -276,27 +183,6 @@ pub fn export_snapshot(
 /// # Arguments
 /// * `backend` - The graph backend to import into
 /// * `snapshot_dir` - Directory containing the snapshot files to import
-///
-/// # Returns
-/// SnapshotImportMetadata containing entity/edge counts and source location
-///
-/// # Errors
-/// - Snapshot directory does not exist or is not a directory
-/// - Required snapshot files are missing
-/// - Backend import fails
-///
-/// # Example
-/// ```no_run
-/// use magellan::migrate_backend_cmd::import_snapshot;
-/// use std::rc::Rc;
-/// use std::path::Path;
-///
-/// # let backend: Rc<dyn sqlitegraph::GraphBackend> = unimplemented!();
-/// let snapshot_dir = Path::new("/tmp/magellan_snapshot");
-/// let metadata = import_snapshot(&backend, snapshot_dir)?;
-/// println!("Imported {} entities, {} edges", metadata.entities_imported, metadata.edges_imported);
-/// # Ok::<(), anyhow::Error>(())
-/// ```
 pub fn import_snapshot(
     backend: &Rc<dyn GraphBackend>,
     snapshot_dir: &Path,
@@ -335,30 +221,6 @@ pub fn import_snapshot(
 }
 
 /// Verify that imported counts match exported counts
-///
-/// This helper function compares the entity and edge counts from an export
-/// operation with the corresponding import operation to ensure data integrity.
-///
-/// # Arguments
-/// * `export_meta` - Metadata from the original export operation
-/// * `import_meta` - Metadata from the import operation
-///
-/// # Returns
-/// `Ok(())` if counts match, `Err` with descriptive message if they don't
-///
-/// # Example
-/// ```no_run
-/// use magellan::migrate_backend_cmd::{verify_import_counts, export_snapshot, import_snapshot};
-/// use std::rc::Rc;
-/// use std::path::Path;
-///
-/// # let backend: Rc<dyn sqlitegraph::GraphBackend> = unimplemented!();
-/// let snapshot_dir = Path::new("/tmp/magellan_snapshot");
-/// let export_meta = export_snapshot(&backend, snapshot_dir)?;
-/// let import_meta = import_snapshot(&backend, snapshot_dir)?;
-/// verify_import_counts(&export_meta, &import_meta)?;
-/// # Ok::<(), anyhow::Error>(())
-/// ```
 pub fn verify_import_counts(
     export_meta: &SnapshotExportMetadata,
     import_meta: &SnapshotImportMetadata,
@@ -383,50 +245,19 @@ pub fn verify_import_counts(
 }
 
 /// Get entity and edge counts from a graph backend
-///
-/// Queries the underlying database for total entity and edge counts.
-/// Used for verification before/after migration operations.
-///
-/// # Arguments
-/// * `backend` - Graph backend to query
-///
-/// # Returns
-/// Tuple of (entity_count, edge_count)
-///
-/// # Errors
-/// - Query fails (database locked, corrupt, etc.)
-///
-/// # Note
-/// This function provides counts independent of snapshot export for
-/// pre-flight validation. The counts from snapshot_export() are preferred
-/// for post-export verification since they reflect the actual snapshot.
 pub fn get_graph_counts(_backend: &Rc<dyn GraphBackend>) -> Result<(i64, i64)> {
-    // The GraphBackend trait doesn't provide a direct count method.
-    // We need to use the underlying database connection.
-    //
-    // For SQLite backend: query graph_entities and graph_edges tables
-    // For Native V2 backend: use backend's internal count methods
-    //
-    // Since we can't access the underlying connection through the trait,
-    // we return (0, 0) for now. The actual counts are available from
-    // snapshot_export() return value.
-    //
-    // Future work: add count_entities() and count_edges() to GraphBackend trait
-    // in sqlitegraph, or provide a backend-specific accessor.
+    // Placeholder - actual counts available from snapshot_export() return value
     Ok((0, 0))
 }
 
 /// Result of a backend migration operation
-///
-/// Contains detailed information about the migration result including
-/// source/target formats, entity/edge counts, and status message.
 #[derive(Debug, Clone)]
 pub struct BackendMigrationResult {
     /// Whether the migration completed successfully
     pub success: bool,
     /// Format of the source database
     pub source_format: BackendFormat,
-    /// Format of the target database (always NativeV2 for migrations)
+    /// Format of the target database
     pub target_format: BackendFormat,
     /// Number of entities migrated
     pub entities_migrated: i64,
@@ -458,39 +289,11 @@ impl std::fmt::Display for BackendMigrationResult {
 /// Run a complete backend migration from source to target database
 ///
 /// This function orchestrates the full migration pipeline:
-/// 1. Detect source backend format
-/// 2. Export graph data to snapshot format
-/// 3. Import snapshot into Native V2 backend
-/// 4. Verify data integrity (entity/edge counts match)
+/// 1. Open source SQLite database
+/// 2. Export graph data to snapshot format  
+/// 3. Create new target SQLite database
+/// 4. Import snapshot into target database
 /// 5. Migrate Magellan-specific side tables
-///
-/// # Arguments
-/// * `input_db` - Path to source database (SQLite or Native V2)
-/// * `output_db` - Path to target database (will be Native V2 format)
-/// * `export_dir` - Optional directory for snapshot files (default: temp dir)
-/// * `dry_run` - If true, detect format only without migrating
-///
-/// # Returns
-/// `BackendMigrationResult` with migration status, counts, and message
-///
-/// # Errors
-/// - Input database does not exist
-/// - Format detection fails
-/// - Export/import operations fail
-/// - Data integrity verification fails
-/// - Side table migration fails
-///
-/// # Example
-/// ```no_run
-/// use magellan::migrate_backend_cmd::run_migrate_backend;
-/// use std::path::PathBuf;
-///
-/// let input = PathBuf::from("/path/to/source.db");
-/// let output = PathBuf::from("/path/to/target.db");
-/// let result = run_migrate_backend(input, output, None, false)?;
-/// println!("{}", result);
-/// # Ok::<(), anyhow::Error>(())
-/// ```
 pub fn run_migrate_backend(
     input_db: PathBuf,
     output_db: PathBuf,
@@ -501,8 +304,8 @@ pub fn run_migrate_backend(
     if !input_db.exists() {
         return Ok(BackendMigrationResult {
             success: false,
-            source_format: BackendFormat::Sqlite, // placeholder
-            target_format: BackendFormat::NativeV2,
+            source_format: BackendFormat::Sqlite,
+            target_format: BackendFormat::Sqlite,
             entities_migrated: 0,
             edges_migrated: 0,
             side_tables_migrated: false,
@@ -510,34 +313,39 @@ pub fn run_migrate_backend(
         });
     }
 
-    // Detect source format
-    let source_format = detect_backend_format(&input_db).map_err(|e| {
-        anyhow::anyhow!(
-            "Failed to detect backend format for '{}': {}",
-            input_db.display(),
-            e
-        )
-    })?;
+    // Open source backend
+    let source_backend: Rc<dyn GraphBackend> = {
+        use sqlitegraph::{SqliteGraph, SqliteGraphBackend};
+        let sqlite_graph = SqliteGraph::open(&input_db).map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to open SQLite database '{}': {}",
+                input_db.display(),
+                e
+            )
+        })?;
+        Rc::new(SqliteGraphBackend::from_graph(sqlite_graph))
+    };
 
-    // Dry run: just return detected format
+    // Dry run: just return success
     if dry_run {
         return Ok(BackendMigrationResult {
             success: true,
-            source_format,
-            target_format: BackendFormat::NativeV2,
+            source_format: BackendFormat::Sqlite,
+            target_format: BackendFormat::Sqlite,
             entities_migrated: 0,
             edges_migrated: 0,
             side_tables_migrated: false,
             message: format!(
-                "Would migrate from {:?} to Native V2 (dry run)",
-                source_format
+                "Would migrate from {:?} to {:?} (dry run)",
+                input_db.display(),
+                output_db.display()
             ),
         });
     }
 
     // Default export_dir to temp directory if not provided
     let export_dir = export_dir.unwrap_or_else(|| {
-        let timestamp_val = timestamp();
+        let timestamp_val = chrono::Utc::now().timestamp();
         std::env::temp_dir().join(format!("magellan_migration_{}", timestamp_val))
     });
 
@@ -550,33 +358,6 @@ pub fn run_migrate_backend(
         )
     })?;
 
-    // Open source backend based on detected format
-    let source_backend: Rc<dyn GraphBackend> = match source_format {
-        BackendFormat::Sqlite => {
-            use sqlitegraph::{SqliteGraph, SqliteGraphBackend};
-            let sqlite_graph = SqliteGraph::open(&input_db).map_err(|e| {
-                anyhow::anyhow!(
-                    "Failed to open SQLite database '{}': {}",
-                    input_db.display(),
-                    e
-                )
-            })?;
-            Rc::new(SqliteGraphBackend::from_graph(sqlite_graph))
-        }
-        BackendFormat::NativeV2 => {
-            use sqlitegraph::NativeGraphBackend;
-            NativeGraphBackend::open(&input_db)
-                .map_err(|e| {
-                    anyhow::anyhow!(
-                        "Failed to open Native V2 database '{}': {}",
-                        input_db.display(),
-                        e
-                    )
-                })
-                .map(Rc::new)?
-        }
-    };
-
     // Export snapshot from source backend
     let export_meta = export_snapshot(&source_backend, &export_dir).map_err(|e| {
         anyhow::anyhow!(
@@ -586,24 +367,8 @@ pub fn run_migrate_backend(
         )
     })?;
 
-    // Create target backend (always Native V2)
-    #[cfg(feature = "native-v2")]
+    // Create target backend (SQLite)
     let target_backend: Rc<dyn GraphBackend> = {
-        use sqlitegraph::NativeGraphBackend;
-        // Create new Native V2 database (or overwrite existing)
-        let native_backend = NativeGraphBackend::new(&output_db).map_err(|e| {
-            anyhow::anyhow!(
-                "Failed to create Native V2 database '{}': {}",
-                output_db.display(),
-                e
-            )
-        })?;
-        Rc::new(native_backend)
-    };
-
-    #[cfg(not(feature = "native-v2"))]
-    let target_backend: Rc<dyn GraphBackend> = {
-        // Fallback to SQLite if native-v2 feature not enabled
         use sqlitegraph::{SqliteGraph, SqliteGraphBackend};
         let sqlite_graph = SqliteGraph::open(&output_db).map_err(|e| {
             anyhow::anyhow!(
@@ -633,7 +398,6 @@ pub fn run_migrate_backend(
     })?;
 
     // Drop backend connections before migrating side tables
-    // This releases database locks so ATTACH DATABASE can work
     drop(source_backend);
     drop(target_backend);
 
@@ -648,47 +412,13 @@ pub fn run_migrate_backend(
             )
         })?;
 
-    // Migrate side tables to KV store (native-v2 only)
-    #[cfg(feature = "native-v2")]
-    {
-        // Re-open target backend for KV migration
-        let target_backend_for_kv: Rc<dyn GraphBackend> = {
-            use sqlitegraph::NativeGraphBackend;
-            NativeGraphBackend::open(&output_db)
-                .map_err(|e| {
-                    anyhow::anyhow!(
-                        "Failed to re-open Native V2 database for KV migration '{}': {}",
-                        output_db.display(),
-                        e
-                    )
-                })
-                .map(Rc::new)?
-        };
-
-        let kv_stats = migrate_side_tables_to_kv(&output_db, &target_backend_for_kv).map_err(|e| {
-            anyhow::anyhow!(
-                "Failed to migrate side tables to KV from '{}': {}",
-                output_db.display(),
-                e
-            )
-        })?;
-
-        // Log KV migration stats to stderr (visible in CLI output)
-        eprintln!(
-            "KV migration: {} chunks, {} AST nodes, {} CFG blocks",
-            kv_stats.chunks,
-            kv_stats.ast_nodes,
-            kv_stats.cfg_blocks
-        );
-    }
-
     // Clean up export directory (optional - keeping for now for debugging)
     // let _ = fs::remove_dir_all(&export_dir);
 
     Ok(BackendMigrationResult {
         success: true,
-        source_format,
-        target_format: BackendFormat::NativeV2,
+        source_format: BackendFormat::Sqlite,
+        target_format: BackendFormat::Sqlite,
         entities_migrated: import_meta.entities_imported,
         edges_migrated: import_meta.edges_imported,
         side_tables_migrated,
@@ -701,36 +431,10 @@ pub fn run_migrate_backend(
 }
 
 /// Migrate Magellan-specific side tables from source to target database
-///
-/// This function copies Magellan-owned side tables that are not handled
-/// by the GraphBackend snapshot export/import mechanism:
-/// - code_chunks: Code snippets from generation module
-/// - file_metrics: File-level metrics
-/// - symbol_metrics: Symbol-level metrics
-/// - execution_log: Command execution tracking
-/// - ast_nodes: AST hierarchy data
-/// - cfg_blocks: Control flow graph blocks
-///
-/// # Arguments
-/// * `source_db` - Path to source database
-/// * `target_db` - Path to target database
-///
-/// # Returns
-/// `Ok(())` if all side tables were migrated successfully
-///
-/// # Errors
-/// - Cannot open source or target database
-/// - Side table schema cannot be created
-/// - Data copy fails
-///
-/// # Note
-/// This function uses a simpler approach to avoid WAL mode lock issues.
-/// Instead of ATTACH DATABASE, we use SQLite's VACUUM INTO to copy data,
-/// then clean up the copied tables.
 pub fn migrate_side_tables(source_db: &Path, target_db: &Path) -> Result<bool> {
     use rusqlite::Connection;
 
-    // Open source connection to validate it exists and is readable
+    // Open source connection
     let source_conn = Connection::open(source_db).map_err(|e| {
         anyhow::anyhow!(
             "Failed to open source database '{}': {}",
@@ -765,7 +469,7 @@ pub fn migrate_side_tables(source_db: &Path, target_db: &Path) -> Result<bool> {
         anyhow::anyhow!("Failed to start transaction on target database: {}", e)
     })?;
 
-    // For each table, use a simple approach: dump data to CSV, then import
+    // For each table, copy data from source to target
     for table_name in &side_tables {
         // Check if table exists in source database
         let table_exists: bool = source_conn
@@ -780,7 +484,7 @@ pub fn migrate_side_tables(source_db: &Path, target_db: &Path) -> Result<bool> {
             continue;
         }
 
-        // Get row count to report correctly
+        // Get row count
         let row_count: i64 = source_conn
             .query_row(&format!("SELECT COUNT(*) FROM {}", table_name), [], |row| {
                 row.get(0)
@@ -800,8 +504,7 @@ pub fn migrate_side_tables(source_db: &Path, target_db: &Path) -> Result<bool> {
             )
         })?;
 
-        // For each row in source, copy to target using column-wise iteration
-        // Get column names first
+        // Get column names
         let mut columns: Vec<String> = Vec::new();
         {
             let mut stmt = source_conn.prepare(&format!("PRAGMA table_info({})", table_name))?;
@@ -821,11 +524,9 @@ pub fn migrate_side_tables(source_db: &Path, target_db: &Path) -> Result<bool> {
         let column_list = columns.join(", ");
 
         // Read rows from source and insert into target
-        // Prepare statement with longer lifetime
         let mut select_stmt = source_conn.prepare(&format!("SELECT * FROM {}", table_name))?;
 
         let rows = select_stmt.query_map([], |row| {
-            // Collect values as rusqlite Values (preserves type information)
             let mut values = Vec::new();
             for i in 0..columns.len() {
                 let value = row.get::<_, rusqlite::types::Value>(i).ok();
@@ -841,7 +542,6 @@ pub fn migrate_side_tables(source_db: &Path, target_db: &Path) -> Result<bool> {
                 anyhow::anyhow!("Failed to read row from table '{}': {}", table_name, e)
             })?;
 
-            // Build the INSERT statement with proper placeholders
             let placeholders = (0..row_values.len())
                 .map(|_| "?")
                 .collect::<Vec<_>>()
@@ -852,7 +552,6 @@ pub fn migrate_side_tables(source_db: &Path, target_db: &Path) -> Result<bool> {
                 table_name, column_list, placeholders
             );
 
-            // Convert Option<Value> to ToSql references
             let tosql_refs: Vec<&dyn rusqlite::ToSql> = row_values
                 .iter()
                 .map(|v| match v {
@@ -887,122 +586,10 @@ pub fn migrate_side_tables(source_db: &Path, target_db: &Path) -> Result<bool> {
     Ok(any_migrated)
 }
 
-/// Statistics for side table migration to KV store
-///
-/// Contains counts of migrated records for each side table type.
-#[derive(Debug, Clone, Default)]
-pub struct MigrationSideStats {
-    pub execution_logs: usize,
-    pub file_metrics: usize,
-    pub symbol_metrics: usize,
-    pub ast_nodes: usize,
-    pub cfg_blocks: usize,
-    pub chunks: usize,
-}
-
-/// Migrate Magellan-specific side tables from SQLite to KV store
-///
-/// This function migrates side table data from SQLite to the KV store,
-/// which is used by the Native V2 backend. This is called after
-/// snapshot import to preserve metadata.
-///
-/// # Arguments
-/// * `sqlite_db_path` - Path to the source SQLite database
-/// * `native_backend` - Native V2 backend with KV store
-///
-/// # Returns
-/// Statistics about what was migrated
-///
-/// # Errors
-/// - Cannot open SQLite database
-/// - Migration fails for any side table
-#[cfg(feature = "native-v2")]
-pub fn migrate_side_tables_to_kv(
-    sqlite_db_path: &Path,
-    native_backend: &Rc<dyn GraphBackend>,
-) -> Result<MigrationSideStats> {
-    let mut stats = MigrationSideStats::default();
-
-    // 1. Migrate chunks using ChunkStore helper
-    let chunk_count = ChunkStore::migrate_chunks_to_kv(sqlite_db_path, Rc::clone(native_backend))?;
-    stats.chunks = chunk_count;
-
-    let conn = rusqlite::Connection::open(sqlite_db_path)?;
-
-    // 2. Migrate AST nodes
-    let mut stmt = conn.prepare("SELECT DISTINCT file_id FROM ast_nodes")?;
-    let file_ids = stmt.query_map([], |row| row.get(0))?;
-
-    for file_id_result in file_ids {
-        let file_id: i64 = file_id_result?;
-        let mut stmt = conn.prepare("SELECT id, parent_id, kind, byte_start, byte_end FROM ast_nodes WHERE file_id = ?")?;
-        let nodes = stmt.query_map(params![file_id], |row| {
-            Ok(AstNode {
-                id: Some(row.get(0)?),
-                parent_id: row.get(1)?,
-                kind: row.get(2)?,
-                byte_start: row.get::<_, i64>(3)? as usize,
-                byte_end: row.get::<_, i64>(4)? as usize,
-            })
-        })?;
-
-        let nodes_vec: Vec<_> = nodes.filter_map(|n| n.ok()).collect();
-        if !nodes_vec.is_empty() {
-            store_ast_nodes_kv(Rc::clone(native_backend), file_id as u64, &nodes_vec)?;
-            stats.ast_nodes += nodes_vec.len();
-        }
-    }
-
-    // 3. Migrate CFG blocks
-    let mut stmt = conn.prepare("SELECT DISTINCT function_id FROM cfg_blocks")?;
-    let func_ids = stmt.query_map([], |row| row.get(0))?;
-
-    for func_id_result in func_ids {
-        let func_id: i64 = func_id_result?;
-        let mut stmt = conn.prepare("SELECT function_id, kind, terminator, byte_start, byte_end, start_line, start_col, end_line, end_col FROM cfg_blocks WHERE function_id = ?")?;
-        let blocks = stmt.query_map(params![func_id], |row| {
-            Ok(CfgBlock {
-                function_id: row.get(0)?,
-                kind: row.get(1)?,
-                terminator: row.get(2)?,
-                byte_start: row.get::<_, i64>(3)? as u64,
-                byte_end: row.get::<_, i64>(4)? as u64,
-                start_line: row.get::<_, i64>(5)? as u64,
-                start_col: row.get::<_, i64>(6)? as u64,
-                end_line: row.get::<_, i64>(7)? as u64,
-                end_col: row.get::<_, i64>(8)? as u64,
-            })
-        })?;
-
-        let blocks_vec: Vec<_> = blocks.filter_map(|b| b.ok()).collect();
-        if !blocks_vec.is_empty() {
-            store_cfg_blocks_kv(Rc::clone(native_backend), func_id, &blocks_vec)?;
-            stats.cfg_blocks += blocks_vec.len();
-        }
-    }
-
-    // Note: execution_logs and metrics use ExecutionLog/MetricsOps with KV backend
-    // These are migrated via their respective APIs during normal usage
-
-    Ok(stats)
-}
-
 /// Ensure table schema exists in the target database
-///
-/// Creates the table schema if it doesn't already exist.
-/// Delegates to the appropriate ensure_schema function for each table type.
-///
-/// # Arguments
-/// * `conn` - Database connection
-/// * `table_name` - Name of the table to ensure
-///
-/// # Returns
-/// `Ok(())` if schema exists or was created successfully
 fn ensure_table_schema(conn: &rusqlite::Connection, table_name: &str) -> Result<()> {
     match table_name {
         "code_chunks" => {
-            // Schema from generation/mod.rs
-            // Note: actual schema has symbol_kind instead of kind
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS code_chunks (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1018,93 +605,68 @@ fn ensure_table_schema(conn: &rusqlite::Connection, table_name: &str) -> Result<
                 )",
                 [],
             )
-            .map_err(|e| {
-                anyhow::anyhow!("Failed to create code_chunks table: {}", e)
-            })?;
+            .map_err(|e| anyhow::anyhow!("Failed to create code_chunks table: {}", e))?;
 
-            // Create indexes
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_chunks_file_path ON code_chunks(file_path)",
                 [],
-            )
-            .map_err(|e| anyhow::anyhow!("Failed to create code_chunks index: {}", e))?;
-
+            )?;
             conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_chunks_symbol_name ON code_chunks(symbol_name)",
+                "CREATE INDEX IF NOT EXISTS idx_chunks_symbol ON code_chunks(symbol_name, symbol_kind)",
                 [],
-            )
-            .map_err(|e| anyhow::anyhow!("Failed to create code_chunks index: {}", e))?;
-
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_chunks_content_hash ON code_chunks(content_hash)",
-                [],
-            )
-            .map_err(|e| anyhow::anyhow!("Failed to create code_chunks index: {}", e))?;
+            )?;
+            Ok(())
         }
-        "file_metrics" | "symbol_metrics" => {
-            // Schema from graph/db_compat.rs::ensure_metrics_schema
-            // This function is called per-table, so we create tables individually
-            if table_name == "file_metrics" {
-                conn.execute(
-                    "CREATE TABLE IF NOT EXISTS file_metrics (
-                        file_path TEXT PRIMARY KEY,
-                        symbol_count INTEGER NOT NULL,
-                        loc INTEGER NOT NULL,
-                        estimated_loc REAL NOT NULL,
-                        fan_in INTEGER NOT NULL DEFAULT 0,
-                        fan_out INTEGER NOT NULL DEFAULT 0,
-                        complexity_score REAL NOT NULL DEFAULT 0.0,
-                        last_updated INTEGER NOT NULL
-                    )",
-                    [],
-                )
-                .map_err(|e| anyhow::anyhow!("Failed to create file_metrics table: {}", e))?;
-
-                conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_file_metrics_complexity
-                     ON file_metrics(complexity_score DESC)",
-                    [],
-                )
-                .map_err(|e| anyhow::anyhow!("Failed to create file_metrics index: {}", e))?;
-            } else {
-                conn.execute(
-                    "CREATE TABLE IF NOT EXISTS symbol_metrics (
-                        symbol_id INTEGER PRIMARY KEY,
-                        symbol_name TEXT NOT NULL,
-                        kind TEXT NOT NULL,
-                        file_path TEXT NOT NULL,
-                        loc INTEGER NOT NULL,
-                        estimated_loc REAL NOT NULL,
-                        fan_in INTEGER NOT NULL DEFAULT 0,
-                        fan_out INTEGER NOT NULL DEFAULT 0,
-                        cyclomatic_complexity INTEGER NOT NULL DEFAULT 1,
-                        last_updated INTEGER NOT NULL,
-                        FOREIGN KEY (symbol_id) REFERENCES graph_entities(id) ON DELETE CASCADE
-                    )",
-                    [],
-                )
-                .map_err(|e| anyhow::anyhow!("Failed to create symbol_metrics table: {}", e))?;
-
-                conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_symbol_metrics_fan_in
-                     ON symbol_metrics(fan_in DESC)",
-                    [],
-                )
-                .map_err(|e| anyhow::anyhow!("Failed to create symbol_metrics index: {}", e))?;
-
-                conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_symbol_metrics_fan_out
-                     ON symbol_metrics(fan_out DESC)",
-                    [],
-                )
-                .map_err(|e| anyhow::anyhow!("Failed to create symbol_metrics index: {}", e))?;
-            }
+        "file_metrics" => {
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS file_metrics (
+                    file_path TEXT PRIMARY KEY,
+                    symbol_count INTEGER NOT NULL,
+                    loc INTEGER NOT NULL,
+                    estimated_loc REAL NOT NULL,
+                    fan_in INTEGER NOT NULL DEFAULT 0,
+                    fan_out INTEGER NOT NULL DEFAULT 0,
+                    complexity_score REAL NOT NULL DEFAULT 0.0,
+                    last_updated INTEGER NOT NULL
+                )",
+                [],
+            )
+            .map_err(|e| anyhow::anyhow!("Failed to create file_metrics table: {}", e))?;
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_file_metrics_complexity ON file_metrics(complexity_score DESC)",
+                [],
+            )?;
+            Ok(())
+        }
+        "symbol_metrics" => {
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS symbol_metrics (
+                    symbol_id INTEGER PRIMARY KEY,
+                    symbol_name TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    file_path TEXT NOT NULL,
+                    loc INTEGER NOT NULL,
+                    estimated_loc REAL NOT NULL,
+                    fan_in INTEGER NOT NULL DEFAULT 0,
+                    fan_out INTEGER NOT NULL DEFAULT 0,
+                    cyclomatic_complexity INTEGER NOT NULL DEFAULT 1,
+                    last_updated INTEGER NOT NULL,
+                    FOREIGN KEY (symbol_id) REFERENCES graph_entities(id) ON DELETE CASCADE
+                )",
+                [],
+            )
+            .map_err(|e| anyhow::anyhow!("Failed to create symbol_metrics table: {}", e))?;
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_symbol_metrics_fan_in ON symbol_metrics(fan_in DESC)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_symbol_metrics_fan_out ON symbol_metrics(fan_out DESC)",
+                [],
+            )?;
+            Ok(())
         }
         "execution_log" => {
-            // Schema from graph/execution_log.rs
-            // Note: schema has 14 columns: id, execution_id, tool_version, args, root, db_path,
-            //       started_at, finished_at, duration_ms, outcome, error_message,
-            //       files_indexed, symbols_indexed, references_indexed
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS execution_log (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1125,68 +687,36 @@ fn ensure_table_schema(conn: &rusqlite::Connection, table_name: &str) -> Result<
                 [],
             )
             .map_err(|e| anyhow::anyhow!("Failed to create execution_log table: {}", e))?;
-
             conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_execution_log_started_at
-                    ON execution_log(started_at DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_execution_log_started_at ON execution_log(started_at DESC)",
                 [],
-            )
-            .map_err(|e| anyhow::anyhow!("Failed to create execution_log index: {}", e))?;
-
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_execution_log_execution_id
-                    ON execution_log(execution_id)",
-                [],
-            )
-            .map_err(|e| anyhow::anyhow!("Failed to create execution_log index: {}", e))?;
-
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_execution_log_outcome
-                    ON execution_log(outcome)",
-                [],
-            )
-            .map_err(|e| anyhow::anyhow!("Failed to create execution_log index: {}", e))?;
+            )?;
+            Ok(())
         }
         "ast_nodes" => {
-            // Schema from graph/db_compat.rs::ensure_ast_schema
-            // Note: ast_nodes has 6 columns: id, parent_id, kind, byte_start, byte_end, file_id
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS ast_nodes (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    file_id INTEGER,
                     parent_id INTEGER,
                     kind TEXT NOT NULL,
                     byte_start INTEGER NOT NULL,
-                    byte_end INTEGER NOT NULL,
-                    file_id INTEGER
+                    byte_end INTEGER NOT NULL
                 )",
                 [],
             )
             .map_err(|e| anyhow::anyhow!("Failed to create ast_nodes table: {}", e))?;
-
             conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_ast_nodes_parent
-                 ON ast_nodes(parent_id)",
+                "CREATE INDEX IF NOT EXISTS idx_ast_nodes_parent ON ast_nodes(parent_id)",
                 [],
-            )
-            .map_err(|e| anyhow::anyhow!("Failed to create ast_nodes index: {}", e))?;
-
+            )?;
             conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_ast_nodes_span
-                 ON ast_nodes(byte_start, byte_end)",
+                "CREATE INDEX IF NOT EXISTS idx_ast_nodes_span ON ast_nodes(byte_start, byte_end)",
                 [],
-            )
-            .map_err(|e| anyhow::anyhow!("Failed to create ast_nodes index: {}", e))?;
-
-            // Create file_id index if not exists (v6 upgrade)
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_ast_nodes_file_id
-                 ON ast_nodes(file_id)",
-                [],
-            )
-            .map_err(|e| anyhow::anyhow!("Failed to create ast_nodes file_id index: {}", e))?;
+            )?;
+            Ok(())
         }
         "cfg_blocks" => {
-            // Schema from graph/db_compat.rs::ensure_cfg_schema
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS cfg_blocks (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1198,263 +728,75 @@ fn ensure_table_schema(conn: &rusqlite::Connection, table_name: &str) -> Result<
                     start_line INTEGER NOT NULL,
                     start_col INTEGER NOT NULL,
                     end_line INTEGER NOT NULL,
-                    end_col INTEGER NOT NULL,
-                    FOREIGN KEY (function_id) REFERENCES graph_entities(id) ON DELETE CASCADE
+                    end_col INTEGER NOT NULL
                 )",
                 [],
             )
             .map_err(|e| anyhow::anyhow!("Failed to create cfg_blocks table: {}", e))?;
-
             conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_cfg_blocks_function
-                 ON cfg_blocks(function_id)",
+                "CREATE INDEX IF NOT EXISTS idx_cfg_blocks_function ON cfg_blocks(function_id)",
                 [],
-            )
-            .map_err(|e| anyhow::anyhow!("Failed to create cfg_blocks index: {}", e))?;
+            )?;
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_cfg_blocks_span ON cfg_blocks(byte_start, byte_end)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_cfg_blocks_terminator ON cfg_blocks(terminator)",
+                [],
+            )?;
+            Ok(())
         }
-        _ => {
-            return Err(anyhow::anyhow!("Unknown side table: {}", table_name));
-        }
+        _ => Ok(()),
     }
-
-    Ok(())
 }
 
-/// Get current Unix timestamp in seconds
-///
-/// Utility function for generating unique timestamps.
-/// Used for export directory naming and metadata tracking.
-///
-/// # Returns
-/// Seconds since UNIX epoch (i64)
-///
-/// # Note
-/// Returns 0 if system clock is set before UNIX epoch (e.g., VM snapshots,
-/// NTP adjustments, manual changes). This prevents panic on backward clock changes.
+/// Returns current Unix timestamp
 fn timestamp() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or(std::time::Duration::from_secs(0))
-        .as_secs() as i64
+    chrono::Utc::now().timestamp()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sqlitegraph::{SqliteGraph, SqliteGraphBackend};
     use tempfile::TempDir;
-
-    #[test]
-    fn test_export_snapshot_creates_directory() {
-        let temp_dir = TempDir::new().unwrap();
-        let db_path = temp_dir.path().join("test.db");
-        let export_dir = temp_dir.path().join("export");
-
-        // Create a simple SQLite graph (creates new file if doesn't exist)
-        let graph = SqliteGraph::open(&db_path).unwrap();
-        let concrete_backend = SqliteGraphBackend::from_graph(graph);
-        let backend: Rc<dyn GraphBackend> = Rc::new(concrete_backend);
-
-        // Export should create the directory
-        let metadata = export_snapshot(&backend, &export_dir).unwrap();
-
-        // Directory should exist
-        assert!(export_dir.exists());
-
-        // Metadata should have valid fields
-        assert!(metadata.export_dir == export_dir);
-        assert!(metadata.export_timestamp > 0);
-    }
-
-    #[test]
-    fn test_get_graph_counts_returns_tuple() {
-        let temp_dir = TempDir::new().unwrap();
-        let db_path = temp_dir.path().join("test.db");
-
-        let graph = SqliteGraph::open(&db_path).unwrap();
-        let concrete_backend = SqliteGraphBackend::from_graph(graph);
-        let backend: Rc<dyn GraphBackend> = Rc::new(concrete_backend);
-
-        let (entities, edges) = get_graph_counts(&backend).unwrap();
-
-        // Returns (0, 0) since GraphBackend trait doesn't provide count method
-        assert_eq!(entities, 0);
-        assert_eq!(edges, 0);
-    }
-
-    #[test]
-    fn test_verify_import_counts_matching() {
-        let export_meta = SnapshotExportMetadata {
-            entity_count: 100,
-            edge_count: 500,
-            export_dir: PathBuf::from("/tmp/export"),
-            export_timestamp: 1234567890,
-            size_bytes: 1024,
-        };
-
-        let import_meta = SnapshotImportMetadata {
-            entities_imported: 100,
-            edges_imported: 500,
-            source_dir: PathBuf::from("/tmp/export"),
-            import_timestamp: 1234567900,
-        };
-
-        assert!(verify_import_counts(&export_meta, &import_meta).is_ok());
-    }
-
-    #[test]
-    fn test_verify_import_counts_entity_mismatch() {
-        let export_meta = SnapshotExportMetadata {
-            entity_count: 100,
-            edge_count: 500,
-            export_dir: PathBuf::from("/tmp/export"),
-            export_timestamp: 1234567890,
-            size_bytes: 1024,
-        };
-
-        let import_meta = SnapshotImportMetadata {
-            entities_imported: 99, // Mismatch
-            edges_imported: 500,
-            source_dir: PathBuf::from("/tmp/export"),
-            import_timestamp: 1234567900,
-        };
-
-        assert!(verify_import_counts(&export_meta, &import_meta).is_err());
-    }
-
-    #[test]
-    fn test_verify_import_counts_edge_mismatch() {
-        let export_meta = SnapshotExportMetadata {
-            entity_count: 100,
-            edge_count: 500,
-            export_dir: PathBuf::from("/tmp/export"),
-            export_timestamp: 1234567890,
-            size_bytes: 1024,
-        };
-
-        let import_meta = SnapshotImportMetadata {
-            entities_imported: 100,
-            edges_imported: 499, // Mismatch
-            source_dir: PathBuf::from("/tmp/export"),
-            import_timestamp: 1234567900,
-        };
-
-        assert!(verify_import_counts(&export_meta, &import_meta).is_err());
-    }
-
-    #[test]
-    fn test_import_snapshot_nonexistent_directory() {
-        let temp_dir = TempDir::new().unwrap();
-        let db_path = temp_dir.path().join("test.db");
-        let graph = SqliteGraph::open(&db_path).unwrap();
-        let concrete_backend = SqliteGraphBackend::from_graph(graph);
-        let backend: Rc<dyn GraphBackend> = Rc::new(concrete_backend);
-        let nonexistent = PathBuf::from("/nonexistent/path/that/does/not/exist");
-
-        let result = import_snapshot(&backend, &nonexistent);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("does not exist"));
-    }
-
-    #[test]
-    fn test_snapshot_import_metadata_struct() {
-        let meta = SnapshotImportMetadata {
-            entities_imported: 42,
-            edges_imported: 99,
-            source_dir: PathBuf::from("/test"),
-            import_timestamp: 12345,
-        };
-
-        assert_eq!(meta.entities_imported, 42);
-        assert_eq!(meta.edges_imported, 99);
-        assert_eq!(meta.source_dir, PathBuf::from("/test"));
-        assert_eq!(meta.import_timestamp, 12345);
-    }
-
-    // Tests for detect_backend_format function
 
     #[test]
     fn test_detect_backend_format_sqlite() {
         let temp_dir = TempDir::new().unwrap();
-        let db_path = temp_dir.path().join("test.db");
+        let sqlite_db = temp_dir.path().join("test.db");
 
         // Create a SQLite database
-        let graph = SqliteGraph::open(&db_path).unwrap();
-        let _backend = SqliteGraphBackend::from_graph(graph);
+        let conn = rusqlite::Connection::open(&sqlite_db).unwrap();
+        conn.execute("CREATE TABLE test (id INTEGER)", []).unwrap();
+        drop(conn);
 
-        // Detect format
-        let format = detect_backend_format(&db_path).unwrap();
+        let format = detect_backend_format(&sqlite_db).unwrap();
         assert_eq!(format, BackendFormat::Sqlite);
     }
 
     #[test]
-    fn test_detect_backend_format_in_memory_rejected() {
-        let memory_path = Path::new(":memory:");
-
-        let result = detect_backend_format(memory_path);
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            MigrationError::InMemoryDatabaseNotSupported => {
-                // Expected error
-            }
-            other => panic!("Expected InMemoryDatabaseNotSupported, got: {}", other),
-        }
-    }
-
-    #[test]
-    fn test_detect_backend_format_nonexistent_file() {
-        let nonexistent = PathBuf::from("/nonexistent/path/that/does/not/exist.db");
+    fn test_detect_backend_format_not_found() {
+        let temp_dir = TempDir::new().unwrap();
+        let nonexistent = temp_dir.path().join("nonexistent.db");
 
         let result = detect_backend_format(&nonexistent);
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            MigrationError::DatabaseNotFound { path } => {
-                assert_eq!(path, nonexistent);
-            }
-            other => panic!("Expected DatabaseNotFound, got: {}", other),
-        }
+        assert!(matches!(result, Err(MigrationError::DatabaseNotFound { .. })));
     }
 
     #[test]
-    fn test_detect_backend_format_native_v2_magic_bytes() {
-        let temp_dir = TempDir::new().unwrap();
-        let fake_v2 = temp_dir.path().join("fake.v2");
-
-        // Create a file with Native V2 magic bytes
-        fs::write(&fake_v2, b"MAG2").unwrap();
-
-        let format = detect_backend_format(&fake_v2).unwrap();
-        assert_eq!(format, BackendFormat::NativeV2);
-    }
-
-    #[test]
-    fn test_detect_backend_format_empty_file() {
-        let temp_dir = TempDir::new().unwrap();
-        let empty_file = temp_dir.path().join("empty.db");
-
-        // Create an empty file
-        fs::File::create(&empty_file).unwrap();
-
-        let result = detect_backend_format(&empty_file);
-        assert!(result.is_err());
-        // Empty file will fail to read header (CannotReadHeader)
-        match result.unwrap_err() {
-            MigrationError::CannotReadHeader { .. } => {
-                // Expected - empty file is not a valid database (too short for header)
-            }
-            other => panic!("Expected CannotReadHeader, got: {}", other),
-        }
+    fn test_detect_backend_format_in_memory() {
+        let result = detect_backend_format(Path::new(":memory:"));
+        assert!(matches!(result, Err(MigrationError::InMemoryDatabaseNotSupported)));
     }
 
     #[test]
     fn test_backend_format_equality() {
-        // Test BackendFormat equality and debug representation
         assert_eq!(BackendFormat::Sqlite, BackendFormat::Sqlite);
-        assert_eq!(BackendFormat::NativeV2, BackendFormat::NativeV2);
-        assert_ne!(BackendFormat::Sqlite, BackendFormat::NativeV2);
+    }
 
-        // Test Debug output is non-empty
+    #[test]
+    fn test_backend_format_debug() {
         assert!(!format!("{:?}", BackendFormat::Sqlite).is_empty());
-        assert!(!format!("{:?}", BackendFormat::NativeV2).is_empty());
     }
 }

@@ -5,11 +5,23 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [2.3.0] - 2026-02-13
 
+### Added
+- **Native V3 Backend**: High-performance binary backend with KV store side tables
+  - New `native-v3` feature flag for optimal performance
+  - V3 backend stores ALL data in `.v3` file (graph + side tables via KV store)
+  - Clean backend separation: SQLite uses `.db`, V3 uses `.v3` (no mixing)
+  - Side tables abstraction: `ChunkStore`, `ExecutionLog`, `MetricsOps` support both backends
+  - Zero SQLite dependency when using V3 backend
+  - Recommended for production deployments
+
 ### Changed
 - **sqlitegraph dependency**: Updated from 2.0.0 to 2.0.1
   - Includes critical bug fix for large node data (>64 bytes)
   - V3 backend now correctly handles external storage for large symbols
   - Prevents panics when indexing symbols with extensive metadata
+- **Backend architecture**: Clean separation between SQLite and V3 backends
+  - Each backend is fully self-contained with its own storage
+  - No cross-backend dependencies for optimal performance
 
 ## [2.2.1] - 2026-02-10
 

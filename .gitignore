@@ -19,6 +19,10 @@ Thumbs.db
 *.db-journal
 *.db-shm
 *.db-wal
+*.v3
+*.v3-journal
+*.v3-shm
+*.v3-wal
 
 # Test databases
 test*.db

@@ -28,13 +28,6 @@
 //!
 //! See MANUAL.md for architecture details.
 
-// Pub/Sub event receiver for Native V2 backend (feature-gated)
-#[cfg(feature = "native-v2")]
-pub mod pubsub_receiver;
-
-#[cfg(feature = "native-v2")]
-pub use pubsub_receiver::PubSubEventReceiver;
-
 use anyhow::Result;
 use notify::RecursiveMode;
 use notify_debouncer_mini::new_debouncer;
@@ -106,8 +99,7 @@ impl Default for WatcherConfig {
 /// debounce window are collected, de-duplicated, sorted, and emitted as a
 /// single WatcherBatch.
 ///
-/// With native-v2 feature, can also receive graph mutation events via pub/sub
-/// for reactive cache invalidation.
+
 pub struct FileSystemWatcher {
     /// Watcher thread handle (wrapped in ManuallyDrop for custom Drop/shutdown logic)
     _watcher_thread: ManuallyDrop<thread::JoinHandle<()>>,
@@ -118,10 +110,7 @@ pub struct FileSystemWatcher {
     /// Legacy compatibility: current index into pending batch
     /// Thread-safe: wrapped in Arc<Mutex<T>> for concurrent access
     legacy_pending_index: Arc<Mutex<usize>>,
-    /// Pub/sub event receiver (feature-gated to native-v2)
-    /// Uses Box for size erasure since PubSubEventReceiver contains JoinHandle
-    #[cfg(feature = "native-v2")]
-    _pubsub_receiver: Option<Box<PubSubEventReceiver>>,
+
 }
 
 impl FileSystemWatcher {
@@ -149,75 +138,15 @@ impl FileSystemWatcher {
             }
         });
 
-        // Initialize _pubsub_receiver field differently based on feature flag
-        #[cfg(feature = "native-v2")]
-        let _pubsub_receiver = None;
-
         Ok(Self {
             _watcher_thread: ManuallyDrop::new(thread),
             batch_receiver: batch_rx,
             legacy_pending_batch: Arc::new(Mutex::new(None)),
             legacy_pending_index: Arc::new(Mutex::new(0)),
-            #[cfg(feature = "native-v2")]
-            _pubsub_receiver,
         })
     }
 
-    /// Create a new watcher with pub/sub support for Native V2 backend.
-    ///
-    /// # Arguments
-    /// * `path` - Directory to watch recursively
-    /// * `config` - Watcher configuration
-    /// * `shutdown` - AtomicBool for graceful shutdown
-    /// * `backend` - Thread-safe graph backend for pub/sub subscription (must be Native V2)
-    /// * `cache_sender` - Channel to send file paths for cache invalidation
-    ///
-    /// # Returns
-    /// A watcher that receives both filesystem and pub/sub events
-    ///
-    /// # Errors
-    /// Returns Ok even if pub/sub subscription fails (graceful degradation).
-    /// The watcher will continue with filesystem-only watching in that case.
-    #[cfg(feature = "native-v2")]
-    pub fn with_pubsub(
-        path: PathBuf,
-        config: WatcherConfig,
-        shutdown: Arc<AtomicBool>,
-        backend: Arc<dyn sqlitegraph::GraphBackend + Send + Sync>,
-        cache_sender: mpsc::Sender<String>,
-    ) -> Result<Self> {
-        let (batch_tx, batch_rx) = mpsc::channel();
 
-        // Ensure root_path is set to the watched directory for validation
-        let config = WatcherConfig {
-            root_path: path.clone(),
-            ..config
-        };
-
-        // Create pub/sub event receiver with graceful degradation
-        // Pub/sub file paths are sent directly to cache_sender (main thread receives via pubsub_cache_rx)
-        let _pubsub_receiver = match PubSubEventReceiver::new(backend, cache_sender) {
-            Ok(receiver) => Some(Box::new(receiver)),
-            Err(e) => {
-                eprintln!("Warning: Failed to create pub/sub receiver: {:?}. Continuing with filesystem-only watching.", e);
-                None
-            }
-        };
-
-        let thread = thread::spawn(move || {
-            if let Err(e) = run_watcher(path, batch_tx, config, shutdown) {
-                eprintln!("Watcher error: {:?}", e);
-            }
-        });
-
-        Ok(Self {
-            _watcher_thread: ManuallyDrop::new(thread),
-            batch_receiver: batch_rx,
-            legacy_pending_batch: Arc::new(Mutex::new(None)),
-            legacy_pending_index: Arc::new(Mutex::new(0)),
-            _pubsub_receiver,
-        })
-    }
 
     /// Receive the next batch, blocking until available.
     ///
@@ -418,11 +347,6 @@ impl FileSystemWatcher {
 
 impl Drop for FileSystemWatcher {
     fn drop(&mut self) {
-        #[cfg(feature = "native-v2")]
-        if let Some(pubsub) = self._pubsub_receiver.take() {
-            // Call shutdown on the pub/sub receiver to join its thread
-            pubsub.shutdown();
-        }
         // SAFETY: Drop is running, we can safely extract the JoinHandle
         // and drop it without running its destructor (thread should be shutting down)
         let _thread = unsafe { ManuallyDrop::take(&mut self._watcher_thread) };

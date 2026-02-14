@@ -435,9 +435,6 @@ impl CodeGraph {
     ///
     /// Uses raw SQL to query the graph_labels table directly.
     ///
-    /// # Feature Availability
-    /// Only available with SQLite backend (not native-v2)
-    #[cfg(not(feature = "native-v2"))]
     pub fn get_entities_by_label(&self, label: &str) -> Result<Vec<i64>> {
         let conn = self.chunks.connect()?;
 
@@ -456,9 +453,6 @@ impl CodeGraph {
 
     /// Get all entity IDs that have all of the specified labels (AND semantics)
     ///
-    /// # Feature Availability
-    /// Only available with SQLite backend (not native-v2)
-    #[cfg(not(feature = "native-v2"))]
     pub fn get_entities_by_labels(&self, labels: &[&str]) -> Result<Vec<i64>> {
         if labels.is_empty() {
             return Ok(Vec::new());
@@ -502,9 +496,6 @@ impl CodeGraph {
 
     /// Get all labels currently in use
     ///
-    /// # Feature Availability
-    /// Only available with SQLite backend (not native-v2)
-    #[cfg(not(feature = "native-v2"))]
     pub fn get_all_labels(&self) -> Result<Vec<String>> {
         let conn = self.chunks.connect()?;
 
@@ -523,9 +514,6 @@ impl CodeGraph {
 
     /// Get count of entities with a specific label
     ///
-    /// # Feature Availability
-    /// Only available with SQLite backend (not native-v2)
-    #[cfg(not(feature = "native-v2"))]
     pub fn count_entities_by_label(&self, label: &str) -> Result<usize> {
         let conn = self.chunks.connect()?;
 
@@ -542,9 +530,6 @@ impl CodeGraph {
 
     /// Get symbols by label with full metadata
     ///
-    /// # Feature Availability
-    /// Only available with SQLite backend (not native-v2)
-    #[cfg(not(feature = "native-v2"))]
     pub fn get_symbols_by_label(&self, label: &str) -> Result<Vec<SymbolQueryResult>> {
         let entity_ids = self.get_entities_by_label(label)?;
         let mut results = Vec::new();
@@ -585,9 +570,6 @@ impl CodeGraph {
 
     /// Get symbols by multiple labels (AND semantics) with full metadata
     ///
-    /// # Feature Availability
-    /// Only available with SQLite backend (not native-v2)
-    #[cfg(not(feature = "native-v2"))]
     pub fn get_symbols_by_labels(&self, labels: &[&str]) -> Result<Vec<SymbolQueryResult>> {
         let entity_ids = self.get_entities_by_labels(labels)?;
         let mut results = Vec::new();
@@ -626,34 +608,7 @@ impl CodeGraph {
         Ok(results)
     }
 
-    /// Store a label for an entity using KV or SQL backend.
-    ///
-    /// Labels are used for categorizing entities (language, kind, etc.).
-    /// When using native-v2 backend, labels are stored in KV store.
-    /// For SQLite backend, labels would be stored in graph_labels table.
-    ///
-    /// # Arguments
-    /// * `entity_id` - The entity ID to label
-    /// * `label` - Label name (e.g., "rust", "fn", "struct")
-    ///
-    /// # Returns
-    /// Result<()> indicating success or failure
-    #[cfg(feature = "native-v2")]
-    pub fn store_entity_label(&mut self, entity_id: i64, label: &str) -> Result<()> {
-        use crate::kv::{store_label};
-        use sqlitegraph::backend::KvValue;
 
-        if self.chunks.has_kv_backend() {
-            // Store in KV: label:{label_name} -> entity_id
-            // For now, store a single entity_id per label
-            // Future: support multiple entities per label with Vec<i64>
-            let backend = std::rc::Rc::clone(&self.symbols.backend);
-            store_label(backend, label, KvValue::Integer(entity_id))?;
-        }
-        // TODO: SQL fallback for non-KV backends would INSERT into graph_labels
-
-        Ok(())
-    }
 }
 
 /// Get all symbols matching a display FQN (ambiguity detection)
@@ -841,7 +796,7 @@ pub fn collision_groups(
     Ok(results)
 }
 
-#[cfg(all(test, not(feature = "native-v2")))]
+#[cfg(test)]
 mod tests {
     use crate::graph::query::{
         collision_groups, find_by_symbol_id, get_ambiguous_candidates,
@@ -884,7 +839,6 @@ fn bar() {
     }
 
     #[test]
-    #[cfg(not(feature = "native-v2"))]
     fn test_find_by_symbol_id_returns_none_for_nonexistent() {
         let temp_dir = tempfile::TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");
@@ -904,7 +858,6 @@ fn bar() {
     }
 
     #[test]
-    #[cfg(not(feature = "native-v2"))]
     fn test_find_by_symbol_id_returns_symbol_when_found() {
         let temp_dir = tempfile::TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");
@@ -948,7 +901,6 @@ fn test_function() -> i32 {
     }
 
     #[test]
-    #[cfg(not(feature = "native-v2"))]
     fn test_get_ambiguous_candidates_empty_for_no_match() {
         let temp_dir = tempfile::TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");
@@ -967,7 +919,6 @@ fn test_function() -> i32 {
     }
 
     #[test]
-    #[cfg(not(feature = "native-v2"))]
     fn test_get_ambiguous_candidates_single_result() {
         let temp_dir = tempfile::TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");
@@ -1024,7 +975,6 @@ fn test_function() -> i32 {
     }
 
     #[test]
-    #[cfg(not(feature = "native-v2"))]
     fn test_get_ambiguous_candidates_multiple_results() {
         let temp_dir = tempfile::TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");
@@ -1090,7 +1040,6 @@ fn test_function() -> i32 {
     }
 
     #[test]
-    #[cfg(not(feature = "native-v2"))]
     fn test_collision_groups_for_fqn() {
         let temp_dir = tempfile::TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");

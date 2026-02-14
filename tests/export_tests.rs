@@ -605,46 +605,4 @@ fn test_symbol_export_has_new_fields() {
     }
 }
 
-/// Test that export includes KV metadata when using native-v2 backend
-#[test]
-#[cfg(feature = "native-v2")]
-fn test_export_includes_kv_metadata() {
-    let temp_dir = tempfile::TempDir::new().unwrap();
-    let db_path = temp_dir.path().join("test.db");
 
-    // Create graph with native-v2
-    let mut graph = CodeGraph::open(&db_path).unwrap();
-
-    // Index a file
-    let source = b"fn main() { println!(\"hello\"); }";
-    graph.index_file("test.rs", source).unwrap();
-
-    // Export to JSON
-    let export_json = graph.export_json().unwrap();
-
-    // Parse and verify KV metadata included
-    let export: serde_json::Value = serde_json::from_str(&export_json).unwrap();
-
-    // Verify code_chunks_kv exists
-    assert!(
-        export.get("code_chunks_kv").is_some(),
-        "Export should include KV chunks field"
-    );
-
-    // Verify ast_nodes_kv exists
-    assert!(
-        export.get("ast_nodes_kv").is_some(),
-        "Export should include KV AST nodes field"
-    );
-
-    // Verify call_edges_kv exists
-    assert!(
-        export.get("call_edges_kv").is_some(),
-        "Export should include KV call edges field"
-    );
-
-    // Verify code_chunks_kv is an array (may be empty)
-    if let Some(chunks) = export.get("code_chunks_kv") {
-        assert!(chunks.is_array(), "code_chunks_kv should be an array");
-    }
-}

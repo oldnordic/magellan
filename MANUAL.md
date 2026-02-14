@@ -1,6 +1,6 @@
 # Magellan Operator Manual
 
-**Version 2.2.1** | *Last Updated: 2026-02-10*
+**Version 2.3.0** | *Last Updated: 2026-02-12*
 
 Comprehensive instructions for operating Magellan.
 
@@ -20,6 +20,8 @@ Comprehensive instructions for operating Magellan.
 10. [Troubleshooting](#10-troubleshooting)
 11. [Security Best Practices](#11-security-best-practices)
 12. [Architecture](#architecture)
+    - [Backend Architecture](#backend-architecture-v230)
+    - [Threading Model](#threading-model-v17)
 13. [Exit Codes](#exit-codes)
 
 ---
@@ -49,7 +51,33 @@ sudo cp target/release/magellan /usr/local/bin/
 sudo chmod +x /usr/local/bin/magellan
 ```
 
-### 1.3 Optional Feature Flags (v2.1.0)
+### 1.3 Feature Flags
+
+#### Backend Selection (v2.3.0)
+
+Magellan supports multiple storage backends via feature flags:
+
+| Feature | Description | File Extension | Use Case |
+|---------|-------------|----------------|----------|
+| `native-v3` | **High-performance binary backend** with KV store | `.v3` | Production (recommended) |
+| `sqlite-backend` | Stable SQLite backend (default) | `.db` | Compatibility, debugging |
+| `native-v2` | Legacy binary backend (deprecated) | `.v3` | Legacy support only |
+
+**Important:**
+- Only one backend feature should be enabled at build time
+- V3 backend stores ALL data (graph + side tables) in a single `.v3` file
+- V3 backend has zero SQLite dependency for optimal performance
+- Database files are **not** compatible between backends (`.db` ≠ `.v3`)
+
+```bash
+# Build with V3 backend (recommended for production)
+cargo build --release --features native-v3
+
+# Build with SQLite backend (default)
+cargo build --release --features sqlite-backend
+```
+
+#### Optional CFG Features (v2.1.0)
 
 Magellan includes optional CFG extraction enhancements:
 
@@ -67,8 +95,8 @@ cargo build --release --features llvm-cfg
 # Build with bytecode CFG support (Java)
 cargo build --release --features bytecode-cfg
 
-# Build with both optional features
-cargo build --release --features llvm-cfg,bytecode-cfg
+# Build with V3 + LLVM CFG
+cargo build --release --features native-v3,llvm-cfg
 ```
 
 **Current Status:** The optional features add infrastructure only. Full LLVM IR and bytecode CFG implementation is planned for future releases. See `docs/CFG_LIMITATIONS.md` for details on AST-based CFG capabilities and limitations.
@@ -1943,6 +1971,48 @@ magellan export --db /var/cache/mag/app.db | grep -v "sqlite"
 ---
 
 ## Architecture
+
+### Backend Architecture (v2.3.0)
+
+Magellan supports multiple storage backends with clean separation:
+
+#### SQLite Backend (Default)
+- **File Extension:** `.db`
+- **Storage:** SQLite database with relational tables
+- **Side Tables:** SQLite tables for chunks, metrics, execution log
+- **Use Case:** Compatibility, debugging, stable deployments
+- **Performance:** Good performance with WAL mode
+
+#### Native V3 Backend (Recommended)
+- **File Extension:** `.v3`
+- **Storage:** High-performance binary format
+- **Side Tables:** KV store (key-value) within the same `.v3` file
+- **Use Case:** Production deployments requiring maximum performance
+- **Performance:** Optimal performance with zero SQLite overhead
+- **Features:**
+  - Single file for all data (graph + metadata)
+  - No SQLite dependency
+  - External storage for large symbols (>64 bytes)
+
+#### Backend Selection Guidelines
+
+| Criteria | SQLite | V3 |
+|----------|--------|-----|
+| Stability | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ |
+| Performance | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
+| File Size | Larger | Compact |
+| Debuggability | Excellent (SQL) | Good |
+| Production Use | Yes | **Recommended** |
+
+**Important:** Database files are **NOT** compatible between backends. You cannot open a `.db` file with the V3 backend or vice versa.
+
+```bash
+# Create V3 database
+magellan watch --root . --db project.v3 --scan-initial
+
+# Create SQLite database  
+magellan watch --root . --db project.db --scan-initial
+```
 
 ### Threading Model (v1.7)
 

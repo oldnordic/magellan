@@ -10,10 +10,6 @@ use crate::status_cmd::ExecutionTracker;
 
 /// Run label query command
 /// Usage: magellan label --db <FILE> --label <LABEL> [--list] [--count] [--show-code]
-///
-/// # Feature Availability
-/// Label queries require SQLite backend (not available with native-v2)
-#[cfg(not(feature = "native-v2"))]
 pub fn run_label(
     db_path: PathBuf,
     labels: Vec<String>,
@@ -126,20 +122,4 @@ pub fn run_label(
     Ok(())
 }
 
-/// Run label query command (native-v2 variant - not supported)
-///
-/// # Feature Availability
-/// Label queries are not supported with native-v2 backend
-#[cfg(feature = "native-v2")]
-pub fn run_label(
-    _db_path: PathBuf,
-    _labels: Vec<String>,
-    _list: bool,
-    _count: bool,
-    _show_code: bool,
-) -> Result<()> {
-    Err(anyhow::anyhow!(
-        "Label queries are not supported with the native-v2 backend. \
-         Label queries depend on SQLite's graph_labels table which doesn't exist in Native V2."
-    ))
-}
+

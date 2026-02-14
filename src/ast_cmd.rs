@@ -233,15 +233,10 @@ fn print_node_tree(graph: &CodeGraph, node: &AstNode, indent: usize) -> Result<(
 mod tests {
     use super::*;
 
-    #[cfg(feature = "native-v2")]
     use magellan::CodeGraph;
-    #[cfg(feature = "native-v2")]
     use tempfile::TempDir;
-    #[cfg(feature = "native-v2")]
     use std::fs::File;
-    #[cfg(feature = "native-v2")]
     use std::io::Write;
-    #[cfg(feature = "native-v2")]
     use std::rc::Rc;
 
     #[test]
@@ -262,28 +257,12 @@ mod tests {
         assert_eq!(node.byte_end, 100);
     }
 
-    /// Test: magellan ast command structure test for Native-V2 backend
+    /// Test: magellan ast command structure test
     ///
     /// This test verifies that the run_ast_command function exists and has the
-    /// correct signature for Native-V2 backend testing.
-    ///
-    /// CODE INSPECTION FINDINGS:
-    /// - get_ast_nodes_by_file() HAS KV support (lines 46-80 in ast_ops.rs)
-    ///   Uses get_file_id_kv() to look up file:path:{path} -> file_id
-    ///   Then uses ast_nodes_key(file_id) to retrieve AST nodes
-    /// - get_ast_node_at_position() LACKS KV support (lines 154-184 in ast_ops.rs)
-    ///   Only has SQLite implementation
-    ///
-    /// LIMITATION DOCUMENTED:
-    /// - magellan ast --file <path> SHOULD work on Native-V2 (KV support exists)
-    /// - magellan ast --file <path> --position <offset> WILL FAIL on Native-V2 (no KV support)
-    ///
-    /// NOTE: Full integration testing requires AST node storage during index_file()
-    /// which is not yet implemented for Native-V2. This test verifies the command
-    /// structure exists and documents the known limitations.
+    /// correct signature.
     ///
     /// The test checks that OutputFormat variants can be constructed (compile-time check).
-    #[cfg(feature = "native-v2")]
     #[test]
     fn test_magellan_ast_command_structure() {
         // Verify OutputFormat variants work (compile-time check)
@@ -304,15 +283,9 @@ mod tests {
         assert!(true);
     }
 
-    /// Test: magellan find-ast command uses KV prefix scan on Native-V2
+    /// Test: magellan find-ast command structure test
     ///
-    /// CODE INSPECTION: get_ast_nodes_by_kind() at lines 197-252 in ast_ops.rs
-    /// uses kv_prefix_scan(b"ast:file:") to get all AST nodes, then filters by kind.
-    /// This confirms KV support exists for kind-based queries.
-    ///
-    /// NOTE: This is a structural test documenting KV support exists.
-    /// Full integration testing requires AST node storage during index_file().
-    #[cfg(feature = "native-v2")]
+    /// This test verifies the find-ast command structure exists.
     #[test]
     fn test_magellan_find_ast_command_structure() {
         // Verify function signatures are compatible
@@ -327,190 +300,8 @@ mod tests {
     // query: "WHERE byte_start <= ?1 AND byte_end > ?1". There is no KV equivalent.
     //
     // This is a known limitation:
-    // - magellan ast --file <path> WORKS on Native-V2 (KV support exists)
-    // - magellan ast --file <path> --position <offset> MAY FAIL on Native-V2 (no KV support)
+
     //
     // Future phase: Add KV support for position-based AST queries if needed.
 
-    /// Test: magellan find-ast command works on Native-V2 backend
-    ///
-    /// This test verifies that the CLI command can find AST nodes by kind
-    /// on a Native-V2 backend. The get_ast_nodes_by_kind() method has
-    /// KV support via kv_prefix_scan() at lines 209-223 in ast_ops.rs.
-    ///
-    /// NOTE: This test stores AST nodes directly in KV store to verify the query path
-    /// (get_ast_nodes_by_kind) works correctly with KV data.
-    #[cfg(feature = "native-v2")]
-    #[test]
-    fn test_magellan_find_ast_command() {
-        use sqlitegraph::backend::KvValue;
-        use magellan::kv::keys::{file_path_key, ast_nodes_key};
-        use magellan::kv::encoding::encode_ast_nodes;
-        use sqlitegraph::{NativeGraphBackend, GraphBackend};
-        use std::rc::Rc;
-
-        let temp_dir = TempDir::new().unwrap();
-        let native_db = temp_dir.path().join("test_find.db");
-
-        // Create Native-V2 backend
-        let backend = Rc::new(NativeGraphBackend::new(&native_db).unwrap()) as Rc<dyn GraphBackend>;
-
-        // Create a file entry (file_id = 1)
-        let file_path = "test.rs";
-        let file_path_kv_key = file_path_key(file_path);
-        backend.kv_set(file_path_kv_key, KvValue::Integer(1), None).unwrap();
-
-        // Create test AST nodes with different kinds
-        let test_nodes = vec![
-            AstNode {
-                id: Some(1),
-                parent_id: None,
-                kind: "function_item".to_string(),
-                byte_start: 0,
-                byte_end: 20,
-            },
-            AstNode {
-                id: Some(2),
-                parent_id: None,
-                kind: "function_item".to_string(),
-                byte_start: 25,
-                byte_end: 45,
-            },
-            AstNode {
-                id: Some(3),
-                parent_id: None,
-                kind: "struct_item".to_string(),
-                byte_start: 50,
-                byte_end: 80,
-            },
-            AstNode {
-                id: Some(4),
-                parent_id: None,
-                kind: "enum_item".to_string(),
-                byte_start: 85,
-                byte_end: 110,
-            },
-        ];
-
-        // Store AST nodes in KV store
-        let ast_key = ast_nodes_key(1);
-        let encoded = encode_ast_nodes(&test_nodes).unwrap();
-        backend.kv_set(ast_key, KvValue::Bytes(encoded), None).unwrap();
-
-        // Verify we can find function items directly
-        let graph = CodeGraph::open(&native_db).unwrap();
-        let fn_nodes = graph.get_ast_nodes_by_kind("function_item").unwrap();
-        assert!(!fn_nodes.is_empty(), "Should find function_item nodes");
-        assert_eq!(fn_nodes.len(), 2, "Should find exactly 2 function_item nodes");
-
-        // Test magellan find-ast command for function_item kind
-        let result = run_find_ast_command(
-            native_db.clone(),
-            "function_item".to_string(),
-            OutputFormat::Human,
-        );
-
-        assert!(result.is_ok(), "magellan find-ast should succeed on Native-V2");
-    }
-
-    /// Test: magellan find-ast command handles multiple node kinds
-    ///
-    /// This test verifies that different AST node kinds can be found
-    /// correctly on the Native-V2 backend using KV prefix scan.
-    #[cfg(feature = "native-v2")]
-    #[test]
-    fn test_magellan_find_ast_multiple_kinds() {
-        use sqlitegraph::backend::KvValue;
-        use magellan::kv::keys::{file_path_key, ast_nodes_key};
-        use magellan::kv::encoding::encode_ast_nodes;
-        use sqlitegraph::{NativeGraphBackend, GraphBackend};
-        use std::rc::Rc;
-
-        let temp_dir = TempDir::new().unwrap();
-        let native_db = temp_dir.path().join("test_kinds.db");
-
-        let backend = Rc::new(NativeGraphBackend::new(&native_db).unwrap()) as Rc<dyn GraphBackend>;
-
-        // Create a file entry (file_id = 1)
-        let file_path = "test.rs";
-        let file_path_kv_key = file_path_key(file_path);
-        backend.kv_set(file_path_kv_key, KvValue::Integer(1), None).unwrap();
-
-        // Create test AST nodes
-        let test_nodes = vec![
-            AstNode {
-                id: Some(1),
-                parent_id: None,
-                kind: "function_item".to_string(),
-                byte_start: 0,
-                byte_end: 30,
-            },
-            AstNode {
-                id: Some(2),
-                parent_id: None,
-                kind: "if_expression".to_string(),
-                byte_start: 10,
-                byte_end: 25,
-            },
-            AstNode {
-                id: Some(3),
-                parent_id: None,
-                kind: "block".to_string(),
-                byte_start: 12,
-                byte_end: 23,
-            },
-        ];
-
-        // Store AST nodes in KV store
-        let ast_key = ast_nodes_key(1);
-        let encoded = encode_ast_nodes(&test_nodes).unwrap();
-        backend.kv_set(ast_key, KvValue::Bytes(encoded), None).unwrap();
-
-        // Verify nodes exist
-        let graph = CodeGraph::open(&native_db).unwrap();
-        let if_nodes = graph.get_ast_nodes_by_kind("if_expression").unwrap();
-        assert!(!if_nodes.is_empty(), "Should find if_expression nodes");
-
-        // Test finding if_expression kind
-        let result = run_find_ast_command(
-            native_db.clone(),
-            "if_expression".to_string(),
-            OutputFormat::Human,
-        );
-
-        assert!(result.is_ok(), "find-ast for if_expression should work");
-
-        // Test JSON output
-        let json_result = run_find_ast_command(
-            native_db.clone(),
-            "block".to_string(),
-            OutputFormat::Json,
-        );
-
-        assert!(json_result.is_ok(), "find-ast JSON output should work");
-    }
-
-    /// Test: magellan find-ast returns empty result for non-existent kind
-    ///
-    /// This test verifies that get_ast_nodes_by_kind() correctly handles the case
-    /// where no AST nodes match the requested kind, returning an empty vector.
-    ///
-    /// NOTE: We test get_ast_nodes_by_kind() directly instead of run_find_ast_command()
-    /// because the CLI command calls std::process::exit(1) when no nodes are found,
-    /// which would terminate the test process.
-    #[cfg(feature = "native-v2")]
-    #[test]
-    fn test_magellan_find_ast_empty_result() {
-        let temp_dir = TempDir::new().unwrap();
-        let native_db = temp_dir.path().join("test_empty.db");
-
-        let _graph = CodeGraph::open(&native_db).unwrap();
-
-        // Search for non-existent kind using the underlying method
-        let graph = CodeGraph::open(&native_db).unwrap();
-        let result = graph.get_ast_nodes_by_kind("nonexistent_kind");
-
-        assert!(result.is_ok(), "get_ast_nodes_by_kind should succeed");
-        assert!(result.unwrap().is_empty(), "Should return empty vector for non-existent kind");
-    }
 }

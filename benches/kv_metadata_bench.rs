@@ -23,13 +23,6 @@ fn benchmark_chunk_operations(c: &mut Criterion) {
             let temp_dir = TempDir::new().unwrap();
             let db_path = temp_dir.path().join("test.db");
 
-            let graph = CodeGraph::open(&db_path).unwrap();
-            let _backend = graph.__backend_for_benchmarks();
-            
-            #[cfg(feature = "native-v2")]
-            let chunk_store = ChunkStore::with_kv_backend(std::rc::Rc::clone(backend));
-            
-            #[cfg(not(feature = "native-v2"))]
             let chunk_store = ChunkStore::new(&db_path);
 
             for i in 0..100 {
@@ -54,13 +47,6 @@ fn benchmark_chunk_operations(c: &mut Criterion) {
 
             // Store chunks first
             {
-                let graph = CodeGraph::open(&db_path).unwrap();
-                let _backend = graph.__backend_for_benchmarks();
-                
-                #[cfg(feature = "native-v2")]
-                let chunk_store = ChunkStore::with_kv_backend(std::rc::Rc::clone(backend));
-                
-                #[cfg(not(feature = "native-v2"))]
                 let chunk_store = ChunkStore::new(&db_path);
 
                 for i in 0..100 {
@@ -77,7 +63,6 @@ fn benchmark_chunk_operations(c: &mut Criterion) {
             }
 
             // Retrieve chunks
-            let _graph = CodeGraph::open(&db_path).unwrap();
             let chunk_store = ChunkStore::new(&db_path);
             
             for i in 0..100 {
@@ -98,13 +83,6 @@ fn benchmark_execution_log_ops(c: &mut Criterion) {
             let temp_dir = TempDir::new().unwrap();
             let db_path = temp_dir.path().join("test.db");
 
-            let graph = CodeGraph::open(&db_path).unwrap();
-            let _backend = graph.__backend_for_benchmarks();
-            
-            #[cfg(feature = "native-v2")]
-            let execution_log = ExecutionLog::with_kv_backend(std::rc::Rc::clone(backend));
-            
-            #[cfg(not(feature = "native-v2"))]
             let execution_log = ExecutionLog::new(&db_path);
 
             let args = vec!["scan".to_string()];
@@ -129,13 +107,6 @@ fn benchmark_metrics_ops(c: &mut Criterion) {
             let temp_dir = TempDir::new().unwrap();
             let db_path = temp_dir.path().join("test.db");
 
-            let graph = CodeGraph::open(&db_path).unwrap();
-            let _backend = graph.__backend_for_benchmarks();
-            
-            #[cfg(feature = "native-v2")]
-            let metrics = MetricsOps::with_kv_backend(std::rc::Rc::clone(backend));
-            
-            #[cfg(not(feature = "native-v2"))]
             let metrics = MetricsOps::new(&db_path);
 
             for i in 0..100 {
@@ -182,13 +153,7 @@ pub fn helper() {
             // Index file (creates graph entities/edges)
             black_box(graph.index_file("test.rs", source_code.as_bytes())).unwrap();
 
-            let _backend = graph.__backend_for_benchmarks();
-
             // Store chunks
-            #[cfg(feature = "native-v2")]
-            let chunk_store = ChunkStore::with_kv_backend(std::rc::Rc::clone(backend));
-            
-            #[cfg(not(feature = "native-v2"))]
             let chunk_store = ChunkStore::new(&db_path);
 
             let chunk = CodeChunk::new(
@@ -202,10 +167,6 @@ pub fn helper() {
             chunk_store.store_chunk(&chunk).unwrap();
 
             // Log execution
-            #[cfg(feature = "native-v2")]
-            let execution_log = ExecutionLog::with_kv_backend(std::rc::Rc::clone(backend));
-            
-            #[cfg(not(feature = "native-v2"))]
             let execution_log = ExecutionLog::new(&db_path);
 
             let args = vec!["scan".to_string()];
@@ -213,10 +174,6 @@ pub fn helper() {
             execution_log.finish_execution("scan", "success", None, 2, 5, 10).unwrap();
 
             // Store metrics
-            #[cfg(feature = "native-v2")]
-            let metrics = MetricsOps::with_kv_backend(std::rc::Rc::clone(backend));
-            
-            #[cfg(not(feature = "native-v2"))]
             let metrics = MetricsOps::new(&db_path);
 
             let file_metrics = FileMetrics {

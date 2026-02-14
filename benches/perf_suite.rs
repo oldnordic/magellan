@@ -204,22 +204,6 @@ fn benchmark_b3_symbol_lookup(c: &mut Criterion) {
         })
     });
 
-    // Perf: KV O(1) lookup (if native-v2 feature enabled)
-    #[cfg(feature = "native-v2")]
-    group.bench_function("kv_lookup", |b| {
-        use magellan::kv;
-        let backend: &std::rc::Rc<dyn sqlitegraph::GraphBackend> = graph.__backend_for_benchmarks();
-        b.iter(|| {
-            for name in &test_names {
-                let fqn = format!("test.rs::{}", name);
-                let _result = black_box(kv::lookup_symbol_by_fqn(
-                    backend,
-                    black_box(&fqn),
-                ));
-            }
-        })
-    });
-
     group.finish();
 }
 

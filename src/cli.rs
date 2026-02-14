@@ -59,7 +59,7 @@ pub fn print_usage() {
     eprintln!("  label           Query symbols by label (language, kind, etc.)");
     eprintln!("  collisions      List ambiguous symbol groups for a chosen field");
     eprintln!("  migrate         Upgrade database to current schema version");
-    eprintln!("  migrate-backend Migrate database between backend formats (SQLite -> Native V2)");
+    eprintln!("  migrate-backend Migrate database between SQLite backends");
     eprintln!("  verify          Verify database vs filesystem");
     eprintln!("  ast             Query AST nodes for a file");
     eprintln!("  find-ast        Find AST nodes by kind");
@@ -178,8 +178,8 @@ pub fn print_usage() {
     eprintln!("  --output <FORMAT>   Output format: human (default), json (compact), or pretty (formatted)");
     eprintln!();
     eprintln!("Backend migration arguments:");
-    eprintln!("  --input <DB>        Path to input database (SQLite or Native V2)");
-    eprintln!("  --output <DB>       Path to output database (will be Native V2 format)");
+    eprintln!("  --input <DB>        Path to input database (SQLite)");
+    eprintln!("  --output <DB>       Path to output database (SQLite)");
     eprintln!("  --export-dir <DIR>  Directory for snapshot files (default: temp dir)");
     eprintln!("  --dry-run           Show what would be migrated without doing it");
     eprintln!();

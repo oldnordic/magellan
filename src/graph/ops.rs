@@ -179,17 +179,7 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
         indexed_symbols.push((fact.clone(), symbol_id.as_i64()));
     }
 
-    // Step 4.5: Populate KV indexes for O(1) symbol lookups
-    // Only available with native-v2 backend (KV store is native-only)
-    #[cfg(feature = "native-v2")]
-    {
-        let backend = Rc::clone(&graph.files.backend);
-        crate::kv::populate_symbol_index(
-            backend,
-            file_id.as_i64() as u64,
-            &indexed_symbols,
-        )?;
-    }
+
 
     // Step 5: Extract and store code chunks for each symbol
     // Use safe UTF-8 extraction to handle multi-byte characters that tree-sitter may split
@@ -485,17 +475,7 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         let mut symbol_ids_sorted = symbol_ids;
         symbol_ids_sorted.sort_unstable();
 
-        // Invalidate KV indexes before deleting symbols
-        // Only available with native-v2 backend (KV store is native-only)
-        #[cfg(feature = "native-v2")]
-        {
-            let backend: &dyn GraphBackend = &*graph.files.backend;
-            crate::kv::invalidate_file_index(
-                backend,
-                file_id.as_i64() as u64,
-                &symbol_ids_sorted,
-            )?;
-        }
+
 
         // Delete each symbol node (sqlitegraph deletes edges touching entity).
         for symbol_id in &symbol_ids_sorted {
@@ -539,42 +519,7 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
             path, expected_calls, calls_deleted
         );
 
-        // Delete call edges from KV for symbols in this file (native-v2 only)
-        #[cfg(feature = "native-v2")]
-        {
-            if graph.chunks.has_kv_backend() {
-                use crate::kv::keys::{calls_from_key, calls_key, calls_to_key};
-                use sqlitegraph::SnapshotId;
-                let backend = &graph.files.backend;
-                let snapshot = SnapshotId::current();
 
-                // Delete call edge KV entries for each symbol in this file
-                for &sym_id in &symbol_ids_sorted {
-                    let sym_u64 = sym_id as u64;
-
-                    // Delete "from" edges (this symbol calling others)
-                    let from_prefix = calls_from_key(sym_u64);
-                    let from_entries = backend.kv_prefix_scan(snapshot, &from_prefix).unwrap_or_default();
-                    for (key, _) in from_entries {
-                        let _ = backend.kv_delete(&key);
-                    }
-
-                    // Delete "to" edges (other symbols calling this one)
-                    let to_prefix = calls_to_key(sym_u64);
-                    let to_entries = backend.kv_prefix_scan(snapshot, &to_prefix).unwrap_or_default();
-                    for (key, _) in to_entries {
-                        let _ = backend.kv_delete(&key);
-                    }
-
-                    // Delete specific edge keys where this symbol is caller
-                    let edge_prefix = format!("calls:{}:", sym_u64).into_bytes();
-                    let edge_entries = backend.kv_prefix_scan(snapshot, &edge_prefix).unwrap_or_default();
-                    for (key, _) in edge_entries {
-                        let _ = backend.kv_delete(&key);
-                    }
-                }
-            }
-        }
 
         // Explicit edge cleanup for deleted IDs (symbols + file) to ensure no rows remain.
         deleted_entity_ids.sort_unstable();
@@ -596,19 +541,6 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
             "Code chunk deletion count mismatch for '{}': expected {}, got {}",
             path, expected_chunks, chunks_deleted
         );
-
-        // Delete AST nodes for this file
-        // v6: Use file_id for per-file deletion
-        #[cfg(feature = "native-v2")]
-        {
-            if graph.chunks.has_kv_backend() {
-                use crate::kv::keys::ast_nodes_key;
-                let backend = &graph.files.backend;
-                let key = ast_nodes_key(file_id.as_i64() as u64);
-                // Try KV deletion first, ignore error if key doesn't exist
-                let _ = backend.kv_delete(&key);
-            }
-        }
 
         ast_nodes_deleted = conn
             .execute(
@@ -675,25 +607,6 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
             "Call deletion count mismatch (no file) for '{}': expected {}, got {}",
             path, expected_calls, calls_deleted
         );
-
-        // Delete AST nodes
-        // No file node exists, so we can't do per-file deletion via file_id.
-        // This is a cleanup for orphaned data - delete all nodes (v5 behavior).
-        // After reindex with v6, new nodes will have file_id and this won't happen.
-        #[cfg(feature = "native-v2")]
-        {
-            if graph.chunks.has_kv_backend() {
-                use sqlitegraph::SnapshotId;
-                let backend = &graph.files.backend;
-                let snapshot = SnapshotId::current();
-                // Delete all AST nodes via prefix scan
-                if let Ok(entries) = backend.kv_prefix_scan(snapshot, b"ast:file:") {
-                    for (key, _) in entries {
-                        let _ = backend.kv_delete(&key);
-                    }
-                }
-            }
-        }
 
         let chunk_conn = graph.chunks.connect()?;
         ast_nodes_deleted = chunk_conn
@@ -1009,17 +922,6 @@ pub fn insert_ast_nodes(graph: &mut CodeGraph, file_id: i64, nodes: Vec<crate::g
         return Ok(0);
     }
 
-    #[cfg(feature = "native-v2")]
-    {
-        // Check if we have KV backend (Native V2)
-        if graph.chunks.has_kv_backend() {
-            use crate::graph::ast_extractor::store_ast_nodes_kv;
-            let backend = &graph.files.backend;
-            store_ast_nodes_kv(std::rc::Rc::clone(backend), file_id as u64, &nodes)?;
-            return Ok(nodes.len());
-        }
-    }
-
     use rusqlite::params;
     let conn = graph.chunks.connect()?;
 
@@ -1071,7 +973,7 @@ pub fn insert_ast_nodes(graph: &mut CodeGraph, file_id: i64, nodes: Vec<crate::g
     Ok(nodes.len())
 }
 
-#[cfg(all(test, not(feature = "native-v2")))]
+#[cfg(test)]
 mod tests {
     #[test]
     fn test_ast_nodes_indexed_with_file() {
@@ -1110,34 +1012,6 @@ mod tests {
 /// Used to verify deletion completeness.
 /// v6: Uses file_id to efficiently count AST nodes per file.
 fn count_ast_nodes_for_file(graph: &CodeGraph, path: &str) -> usize {
-    #[cfg(feature = "native-v2")]
-    {
-        // Use KV store for Native V2 backend
-        if graph.chunks.has_kv_backend() {
-            use sqlitegraph::{SnapshotId, backend::KvValue};
-            use crate::kv::keys::ast_nodes_key;
-            use crate::kv::encoding::decode_ast_nodes;
-
-            // Get file_id from file_index (immutable access)
-            let file_id = match graph.files.file_index.get(path) {
-                Some(id) => id.as_i64() as u64,
-                None => return 0, // No file node, no AST nodes to count
-            };
-
-            let backend = &graph.files.backend;
-            let snapshot = SnapshotId::current();
-            let key = ast_nodes_key(file_id);
-
-            if let Ok(Some(KvValue::Bytes(data))) = backend.kv_get(snapshot, &key) {
-                if let Ok(nodes) = decode_ast_nodes::<crate::graph::ast_node::AstNode>(&data) {
-                    return nodes.len();
-                }
-            }
-            return 0;
-        }
-    }
-
-    // SQLite fallback
     use rusqlite::params;
 
     // First, get the file_id by looking up in the file_index

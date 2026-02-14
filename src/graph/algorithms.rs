@@ -15,17 +15,10 @@
 //! For call graph algorithms (reachability, dead code detection, SCC), we filter
 //! to **CALLS** edges only to traverse the call graph structure.
 //!
-//! # Clustered Adjacency (native-v2-perf feature)
+//! # Clustered Adjacency
 //!
-//! When the `native-v2-perf` feature is enabled, Magellan uses sqlitegraph's
-//! clustered adjacency storage for ~10x graph traversal performance improvement.
-//! The clustering is automatically enabled by the `v2_experimental` feature in
-//! sqlitegraph and requires no code changes in this module.
-//!
-//! **Note:** This module currently uses `SqliteGraphBackend` directly for algorithm
-//! functions (reachability, SCC, path enumeration). Full Native V2 backend support
-//! for algorithms requires trait extension or conditional compilation (future work).
-//! Benchmarks in Phase 48-04 will validate clustered adjacency performance.
+//! Magellan uses sqlitegraph's clustered adjacency storage for ~10x graph
+//! traversal performance improvement when available.
 //!
 //! # Entity IDs vs Symbol IDs
 //!
@@ -83,10 +76,9 @@ use super::CodeGraph;
 ///
 /// This is a temporary workaround until algorithm methods are added to GraphBackend trait.
 /// For SQLite backend, this extracts the concrete SqliteGraphBackend and calls .graph().
-/// For Native V2 backend, this returns an error.
 fn get_sqlite_graph(backend: &Rc<dyn GraphBackend>) -> Result<&sqlitegraph::graph::SqliteGraph, anyhow::Error> {
     // Use unsafe downcasting as temporary workaround
-    // This is safe because we know the backend is SqliteGraphBackend when not using native-v2 feature
+    // This is safe because we know the backend is SqliteGraphBackend
     unsafe {
         // Get the raw pointer from the Rc
         let ptr = Rc::as_ptr(backend);
@@ -1158,7 +1150,7 @@ impl CodeGraph {
     }
 }
 
-#[cfg(all(test, not(feature = "native-v2")))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::CodeGraph;

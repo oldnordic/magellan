@@ -228,11 +228,7 @@ impl CallOps {
                     // CALLS edge: Call node -> callee Symbol
                     self.insert_calls_edge(call_id, NodeId::from(callee_id))?;
 
-                    // Store call edge in KV for O(1) lookups (native-v2 only)
-                    #[cfg(feature = "native-v2")]
-                    {
-                        self.insert_call_edge_kv(caller_id as u64, callee_id as u64, &call)?;
-                    }
+
                 }
             }
         }
@@ -420,43 +416,5 @@ impl CallOps {
         })
     }
 
-    /// Store a call edge in the KV store for O(1) lookups.
-    ///
-    /// This creates three KV entries:
-    /// - `calls:{caller}:{callee}` - Specific edge for existence check
-    /// - `calls:from:{caller}:{callee}` - Index for "who calls X" queries
-    /// - `calls:to:{callee}:{caller}` - Index for "X calls whom" queries
-    ///
-    /// # Arguments
-    /// * `caller_id` - The symbol ID making the call (u64)
-    /// * `callee_id` - The symbol ID being called (u64)
-    /// * `call` - CallFact containing call metadata
-    #[cfg(feature = "native-v2")]
-    fn insert_call_edge_kv(&self, caller_id: u64, callee_id: u64, call: &CallFact) -> Result<()> {
-        use crate::kv::keys::{calls_from_key, calls_key, calls_to_key};
-        use sqlitegraph::backend::KvValue;
 
-        // Store the specific edge (existence check)
-        let edge_key = calls_key(caller_id, callee_id);
-        let edge_value = serde_json::json!({
-            "caller": call.caller,
-            "callee": call.callee,
-            "file": call.file_path.to_string_lossy().to_string(),
-            "byte_start": call.byte_start,
-            "byte_end": call.byte_end,
-        });
-        self.backend.kv_set(edge_key, KvValue::Json(edge_value), None)?;
-
-        // Store in from-index (this symbol calls these others)
-        let from_key = calls_from_key(caller_id);
-        let from_value = serde_json::json!({"callee": callee_id});
-        self.backend.kv_set(from_key, KvValue::Json(from_value), None)?;
-
-        // Store in to-index (other symbols call this one)
-        let to_key = calls_to_key(callee_id);
-        let to_value = serde_json::json!({"caller": caller_id});
-        self.backend.kv_set(to_key, KvValue::Json(to_value), None)?;
-
-        Ok(())
-    }
 }
