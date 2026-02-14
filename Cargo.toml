@@ -23,6 +23,18 @@ exclude = [
     "CONTEXT_*.md",
     "MAGELLAN_CONTEXT.md",
     "opencode.json",
+    # Internal dev files
+    "BUILD_WARNINGS_*.md",
+    "CLIPPY_*.md",
+    "COMPILATION_ERROR_*.md",
+    "CONTEXT_LOGICGRAPH_*.md",
+    "TEST-*-RESULTS.md",
+    "PLAN_*_MIGRATION.md",
+    # Backup and temp files
+    "*.bak",
+    "*.checkpoint",
+    "*.wal",
+    ".splice_graph.*",
 ]
 
 [[bin]]
