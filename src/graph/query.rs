@@ -719,7 +719,7 @@ pub fn collision_groups(
             if node.kind == "Symbol" {
                 if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data.clone()) {
                     let field_value = match field {
-                        CollisionField::Fqn => symbol_node.canonical_fqn.clone(),
+                        CollisionField::Fqn => symbol_node.fqn.clone(),
                         CollisionField::DisplayFqn => symbol_node.display_fqn.clone(),
                         CollisionField::CanonicalFqn => symbol_node.canonical_fqn.clone(),
                     };
@@ -760,13 +760,30 @@ pub fn collision_groups(
         let count = candidates.len();
         let collision_candidates: Vec<CollisionCandidate> = candidates
             .into_iter()
-            .map(|(entity_id, node, file_path)| CollisionCandidate {
-                entity_id,
-                symbol_id: node.symbol_id,
-                canonical_fqn: node.canonical_fqn,
-                display_fqn: node.display_fqn,
-                name: node.name,
-                file_path,
+            .map(|(entity_id, symbol_node, file_path)| {
+                // For V3 backend, file_path might be None, so extract from canonical_fqn
+                let final_file_path = file_path.or_else(|| {
+                    symbol_node.canonical_fqn.as_ref().and_then(|fqn| {
+                        // Parse format: crate_name::file_path::kind name
+                        // Extract the file path between the first and last ::
+                        let parts: Vec<&str> = fqn.split("::").collect();
+                        if parts.len() >= 3 {
+                            // Join all parts except first and last
+                            Some(parts[1..parts.len()-1].join("::"))
+                        } else {
+                            None
+                        }
+                    })
+                });
+                
+                CollisionCandidate {
+                    entity_id,
+                    symbol_id: symbol_node.symbol_id,
+                    canonical_fqn: symbol_node.canonical_fqn,
+                    display_fqn: symbol_node.display_fqn,
+                    name: symbol_node.name,
+                    file_path: final_file_path,
+                }
             })
             .collect();
         
@@ -1056,7 +1073,27 @@ fn test_function() -> i32 {
         graph.index_file(&path1, &source1).unwrap();
         graph.index_file(&path2, &source2).unwrap();
 
+        // Debug: list all symbols and their canonical_fqn
+        let entity_ids = graph.files.backend.entity_ids().unwrap();
+        let snapshot = SnapshotId::current();
+        eprintln!("DEBUG: Total entities: {}", entity_ids.len());
+        
+        for entity_id in entity_ids {
+            if let Ok(node) = graph.files.backend.get_node(snapshot, entity_id) {
+                if node.kind == "Symbol" {
+                    if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data.clone()) {
+                        eprintln!("DEBUG: Symbol: name={:?}, canonical_fqn={:?}, display_fqn={:?}",
+                            symbol_node.name, symbol_node.canonical_fqn, symbol_node.display_fqn);
+                    }
+                }
+            }
+        }
+
         let groups = collision_groups(&mut graph, CollisionField::Fqn, 10).unwrap();
+        eprintln!("DEBUG: Found {} collision groups", groups.len());
+        for group in &groups {
+            eprintln!("DEBUG: Group: value={}, count={}", group.value, group.count);
+        }
 
         let collide_group = groups
             .iter()
