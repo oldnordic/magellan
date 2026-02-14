@@ -32,7 +32,7 @@ Magellan can be used standalone, but its primary purpose is to enable downstream
 10. [Troubleshooting](#10-troubleshooting)
 11. [Security Best Practices](#11-security-best-practices)
 12. [Architecture](#architecture)
-    - [Backend Architecture](#backend-architecture-v231)
+    - [Backend Architecture](#backend-architecture-v240)
     - [Threading Model](#threading-model-v17)
 13. [Exit Codes](#exit-codes)
 
@@ -65,7 +65,7 @@ sudo chmod +x /usr/local/bin/magellan
 
 ### 1.3 Feature Flags
 
-#### Backend Selection (v2.3.1)
+#### Backend Selection (v2.4.0)
 
 Magellan supports multiple storage backends via feature flags:
 
@@ -1984,16 +1984,17 @@ magellan export --db /var/cache/mag/app.db | grep -v "sqlite"
 
 ## Architecture
 
-### Backend Architecture (v2.3.1)
+### Backend Architecture (v2.4.0)
 
-Magellan supports multiple storage backends with clean separation:
+Magellan supports multiple storage backends with clean separation and full feature parity:
 
 #### SQLite Backend (Default)
 - **File Extension:** `.db`
 - **Storage:** SQLite database with relational tables
-- **Side Tables:** SQLite tables for chunks, metrics, execution log
+- **Side Tables:** SQLite tables for chunks, metrics, execution log, AST nodes
 - **Use Case:** Compatibility, debugging, stable deployments
 - **Performance:** Good performance with WAL mode
+- **Status:** Feature-complete, frozen (bug fixes only)
 
 #### Native V3 Backend (Recommended)
 - **File Extension:** `.v3`
@@ -2005,6 +2006,21 @@ Magellan supports multiple storage backends with clean separation:
   - Single file for all data (graph + metadata)
   - No SQLite dependency
   - External storage for large symbols (>64 bytes)
+  - Full feature parity with SQLite backend (v2.4.0)
+
+#### Feature Parity Matrix (v2.4.0)
+
+| Feature | SQLite | V3 |
+|---------|--------|-----|
+| Graph operations (nodes/edges) | ✓ | ✓ |
+| Symbol indexing/querying | ✓ | ✓ |
+| Call graph traversal | ✓ | ✓ |
+| AST nodes storage/query | ✓ | ✓ |
+| Code chunks storage | ✓ | ✓ |
+| Execution logging | ✓ | ✓ |
+| File/symbol metrics computation | ✓ | ✓ |
+| Graph algorithms (cycles, dead code, etc.) | ✓ | ✓ |
+| Hotspots query | ✓ | ✓ |
 
 #### Backend Selection Guidelines
 
@@ -2015,6 +2031,7 @@ Magellan supports multiple storage backends with clean separation:
 | File Size | Larger | Compact |
 | Debuggability | Excellent (SQL) | Good |
 | Production Use | Yes | **Recommended** |
+| New Features | Frozen | Active development |
 
 **Important:** Database files are **NOT** compatible between backends. You cannot open a `.db` file with the V3 backend or vice versa.
 

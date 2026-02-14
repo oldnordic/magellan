@@ -25,6 +25,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub mod backfill;
 pub mod compute;
+pub mod compute_v3;
 pub mod schema;
 
 pub use backfill::BackfillResult;
@@ -377,6 +378,52 @@ impl MetricsOps {
                 side_tables.get_hotspots(limit, min_loc, min_fan_in, min_fan_out)
             }
         }
+    }
+}
+
+impl MetricsOps {
+    /// Compute metrics for a file using V3 graph backend
+    ///
+    /// This is a V3-specific method that uses graph traversal APIs instead of SQL.
+    /// It's separate from the SQLite-based `compute_for_file` to keep both backends working.
+    ///
+    /// # Arguments
+    /// * `backend` - Graph backend for traversing entities and edges
+    /// * `file_path` - Path to the file
+    /// * `source` - File contents as bytes
+    /// * `symbol_facts` - Vector of SymbolNode data for all symbols in the file
+    pub fn compute_for_file_v3(
+        &self,
+        backend: std::rc::Rc<dyn sqlitegraph::GraphBackend>,
+        file_path: &str,
+        source: &[u8],
+        symbol_facts: &[crate::graph::schema::SymbolNode],
+    ) -> anyhow::Result<()> {
+        use compute_v3::V3MetricsCompute;
+        use std::sync::Arc;
+
+        let v3_compute = V3MetricsCompute::new(backend);
+
+        // Create storage callbacks that use SideTables
+        let store_fn = |metrics: &FileMetrics| -> anyhow::Result<()> {
+            match &self.backend {
+                MetricsOpsBackend::SideTables(side_tables) => {
+                    side_tables.store_file_metrics(metrics)
+                }
+                _ => Err(anyhow::anyhow!("V3 compute called with non-V3 backend")),
+            }
+        };
+
+        let store_symbol_fn = |metrics: &SymbolMetrics| -> anyhow::Result<()> {
+            match &self.backend {
+                MetricsOpsBackend::SideTables(side_tables) => {
+                    side_tables.store_symbol_metrics(metrics)
+                }
+                _ => Err(anyhow::anyhow!("V3 compute called with non-V3 backend")),
+            }
+        };
+
+        v3_compute.compute_for_file(file_path, source, symbol_facts, store_fn, store_symbol_fn)
     }
 }
 

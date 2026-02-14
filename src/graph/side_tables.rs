@@ -1072,10 +1072,30 @@ pub mod v3_impl {
             }
         }
 
-        fn list_executions(&self, _limit: Option<usize>) -> Result<Vec<ExecutionRecord>> {
-            // V3 doesn't have kv_scan, so we can't efficiently list all executions
-            // For now, return empty (would need to implement prefix scan in sqlitegraph)
-            Ok(vec![])
+        fn list_executions(&self, limit: Option<usize>) -> Result<Vec<ExecutionRecord>> {
+            let snapshot = SnapshotId::current();
+            let prefix = b"exec:";
+            
+            let results = self.backend.kv_prefix_scan_v3(snapshot, prefix);
+            let mut executions: Vec<ExecutionRecord> = results
+                .into_iter()
+                .filter_map(|(_, value)| {
+                    if let KvValue::Bytes(data) = value {
+                        serde_json::from_slice::<ExecutionRecord>(&data).ok()
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            
+            // Sort by started_at descending (most recent first)
+            executions.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+            
+            if let Some(limit) = limit {
+                executions.truncate(limit);
+            }
+            
+            Ok(executions)
         }
 
         fn store_file_metrics(&self, metrics: &FileMetrics) -> Result<()> {
@@ -1125,21 +1145,59 @@ pub mod v3_impl {
             let file_key = Self::file_metrics_key(file_path);
             self.backend.kv_delete_v3(&file_key);
             
-            // Note: Symbol metrics for this file would need a scan to find
-            // For now, we just return 0 since V3 doesn't have prefix scan
-            Ok(0)
+            // Delete symbol metrics for this file using prefix scan
+            let snapshot = SnapshotId::current();
+            let prefix = format!("symbol_metrics:file:{}", file_path).into_bytes();
+            let symbols = self.backend.kv_prefix_scan_v3(snapshot, &prefix);
+            
+            let mut count = 0;
+            for (key, _) in symbols {
+                self.backend.kv_delete_v3(&key);
+                count += 1;
+            }
+            
+            Ok(count)
         }
 
         fn get_hotspots(
             &self,
-            _limit: Option<u32>,
-            _min_loc: Option<i64>,
-            _min_fan_in: Option<i64>,
-            _min_fan_out: Option<i64>,
+            limit: Option<u32>,
+            min_loc: Option<i64>,
+            min_fan_in: Option<i64>,
+            min_fan_out: Option<i64>,
         ) -> Result<Vec<FileMetrics>> {
-            // V3 doesn't have kv_scan, so we can't efficiently list all files
-            // For now, return empty (would need to implement prefix scan in sqlitegraph)
-            Ok(vec![])
+            let snapshot = SnapshotId::current();
+            let prefix = b"file_metrics:";
+            
+            let results = self.backend.kv_prefix_scan_v3(snapshot, prefix);
+            let mut metrics: Vec<FileMetrics> = results
+                .into_iter()
+                .filter_map(|(_, value)| {
+                    if let KvValue::Bytes(data) = value {
+                        serde_json::from_slice::<FileMetrics>(&data).ok()
+                    } else {
+                        None
+                    }
+                })
+                .filter(|m| {
+                    min_loc.map_or(true, |min| m.loc >= min)
+                        && min_fan_in.map_or(true, |min| m.fan_in >= min)
+                        && min_fan_out.map_or(true, |min| m.fan_out >= min)
+                })
+                .collect();
+            
+            // Sort by complexity score descending
+            metrics.sort_by(|a, b| {
+                b.complexity_score
+                    .partial_cmp(&a.complexity_score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            
+            if let Some(limit) = limit {
+                metrics.truncate(limit as usize);
+            }
+            
+            Ok(metrics)
         }
         
         // ===== Code Chunk Methods =====
@@ -1224,10 +1282,22 @@ pub mod v3_impl {
         }
         
         fn get_all_chunks(&self) -> Result<Vec<CodeChunk>> {
-            // V3 doesn't have kv_scan, so we can't efficiently list all chunks
-            // For now, return empty (would need prefix scan in sqlitegraph)
-            // TODO: Implement prefix scan in sqlitegraph V3 backend
-            Ok(vec![])
+            let snapshot = SnapshotId::current();
+            let prefix = b"chunk:";
+            
+            let results = self.backend.kv_prefix_scan_v3(snapshot, prefix);
+            let chunks: Vec<CodeChunk> = results
+                .into_iter()
+                .filter_map(|(_, value)| {
+                    if let KvValue::Bytes(data) = value {
+                        serde_json::from_slice::<CodeChunk>(&data).ok()
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            
+            Ok(chunks)
         }
         
         // ===== AST Node Methods =====
@@ -1256,51 +1326,153 @@ pub mod v3_impl {
         }
         
         fn get_ast_node(&self, node_id: i64) -> Result<Option<crate::graph::AstNode>> {
-            // V3 doesn't have efficient reverse lookup without scanning
-            // For now, return None - would need prefix scan or secondary index
-            let _ = node_id; // suppress unused warning
+            // Need to scan all AST nodes to find matching ID
+            let snapshot = SnapshotId::current();
+            let prefix = b"ast:file:";
+            
+            let results = self.backend.kv_prefix_scan_v3(snapshot, prefix);
+            for (_, value) in results {
+                if let KvValue::Bytes(data) = value {
+                    if let Ok(node) = serde_json::from_slice::<crate::graph::AstNode>(&data) {
+                        if node.id == Some(node_id) {
+                            return Ok(Some(node));
+                        }
+                    }
+                }
+            }
+            
             Ok(None)
         }
         
         fn get_ast_nodes_by_file(&self, file_id: i64) -> Result<Vec<crate::graph::AstNode>> {
-            // V3 doesn't have prefix scan yet - would need implementation
-            // For now, return empty - sqlitegraph needs prefix scan support
-            let _ = file_id; // suppress unused warning
-            Ok(vec![])
+            let snapshot = SnapshotId::current();
+            let prefix = format!("ast:file:{}", file_id).into_bytes();
+            
+            let results = self.backend.kv_prefix_scan_v3(snapshot, &prefix);
+            let mut nodes: Vec<crate::graph::AstNode> = results
+                .into_iter()
+                .filter_map(|(_, value)| {
+                    if let KvValue::Bytes(data) = value {
+                        serde_json::from_slice::<crate::graph::AstNode>(&data).ok()
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            
+            // Sort by byte_start for consistent ordering
+            nodes.sort_by_key(|n| n.byte_start);
+            
+            Ok(nodes)
         }
         
         fn get_all_ast_nodes(&self) -> Result<Vec<crate::graph::AstNode>> {
-            // V3 doesn't have prefix scan yet
-            Ok(vec![])
+            let snapshot = SnapshotId::current();
+            let prefix = b"ast:file:";
+            
+            let results = self.backend.kv_prefix_scan_v3(snapshot, prefix);
+            let mut nodes: Vec<crate::graph::AstNode> = results
+                .into_iter()
+                .filter_map(|(_, value)| {
+                    if let KvValue::Bytes(data) = value {
+                        serde_json::from_slice::<crate::graph::AstNode>(&data).ok()
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            
+            // Sort by byte_start for consistent ordering
+            nodes.sort_by_key(|n| n.byte_start);
+            
+            Ok(nodes)
         }
         
         fn get_ast_nodes_by_kind(&self, kind: &str) -> Result<Vec<crate::graph::AstNode>> {
-            // V3 doesn't have prefix scan yet
-            let _ = kind; // suppress unused warning
-            Ok(vec![])
+            let snapshot = SnapshotId::current();
+            let prefix = format!("ast:kind:{}", kind).into_bytes();
+            
+            let results = self.backend.kv_prefix_scan_v3(snapshot, &prefix);
+            let mut nodes: Vec<crate::graph::AstNode> = results
+                .into_iter()
+                .filter_map(|(_, value)| {
+                    if let KvValue::Bytes(data) = value {
+                        serde_json::from_slice::<crate::graph::AstNode>(&data).ok()
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            
+            // Sort by byte_start for consistent ordering
+            nodes.sort_by_key(|n| n.byte_start);
+            
+            Ok(nodes)
         }
         
         fn get_ast_children(&self, parent_id: i64) -> Result<Vec<crate::graph::AstNode>> {
-            // Would need parent_id index - not implemented yet
-            let _ = parent_id; // suppress unused warning
-            Ok(vec![])
+            // Need to scan all AST nodes and filter by parent_id
+            let snapshot = SnapshotId::current();
+            let prefix = b"ast:file:";
+            
+            let results = self.backend.kv_prefix_scan_v3(snapshot, prefix);
+            let mut nodes: Vec<crate::graph::AstNode> = results
+                .into_iter()
+                .filter_map(|(_, value)| {
+                    if let KvValue::Bytes(data) = value {
+                        serde_json::from_slice::<crate::graph::AstNode>(&data).ok()
+                    } else {
+                        None
+                    }
+                })
+                .filter(|n| n.parent_id == Some(parent_id))
+                .collect();
+            
+            // Sort by byte_start for consistent ordering
+            nodes.sort_by_key(|n| n.byte_start);
+            
+            Ok(nodes)
         }
         
         fn count_ast_nodes(&self) -> Result<usize> {
-            // V3 doesn't have prefix scan for counting
-            Ok(0)
+            let snapshot = SnapshotId::current();
+            let prefix = b"ast:file:";
+            
+            let results = self.backend.kv_prefix_scan_v3(snapshot, prefix);
+            Ok(results.len())
         }
         
         fn count_ast_nodes_for_file(&self, file_id: i64) -> Result<usize> {
-            // V3 doesn't have prefix scan for counting by file
-            let _ = file_id; // suppress unused warning
-            Ok(0)
+            let snapshot = SnapshotId::current();
+            let prefix = format!("ast:file:{}", file_id).into_bytes();
+            
+            let results = self.backend.kv_prefix_scan_v3(snapshot, &prefix);
+            Ok(results.len())
         }
         
         fn delete_ast_nodes_for_file(&self, file_id: i64) -> Result<usize> {
-            // Would need prefix scan to find all nodes for file
-            let _ = file_id; // suppress unused warning
-            Ok(0)
+            let snapshot = SnapshotId::current();
+            let prefix = format!("ast:file:{}", file_id).into_bytes();
+            
+            // Find all nodes for this file
+            let results = self.backend.kv_prefix_scan_v3(snapshot, &prefix);
+            let mut count = 0;
+            
+            for (key, value) in results {
+                // Delete the file-indexed entry
+                self.backend.kv_delete_v3(&key);
+                
+                // Also delete the kind-indexed entry if we can parse the node
+                if let KvValue::Bytes(data) = value {
+                    if let Ok(node) = serde_json::from_slice::<crate::graph::AstNode>(&data) {
+                        let kind_key = format!("ast:kind:{}:{}", node.kind, node.id.unwrap_or(0)).into_bytes();
+                        self.backend.kv_delete_v3(&kind_key);
+                    }
+                }
+                count += 1;
+            }
+            
+            Ok(count)
         }
     }
 }

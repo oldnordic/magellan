@@ -4,6 +4,7 @@
 
 use anyhow::Result;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use sqlitegraph::{GraphBackend, SnapshotId};
 
@@ -335,9 +336,25 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
         })
         .collect();
 
-    if let Err(e) = graph.metrics.compute_for_file(path, source, &symbol_nodes) {
-        // Metrics computation failure shouldn't block indexing
-        eprintln!("Warning: Failed to compute metrics for '{}': {}", path, e);
+    // Compute metrics using backend-specific method
+    #[cfg(feature = "native-v3")]
+    {
+        // V3 backend: use graph traversal API
+        if let Err(e) = graph.metrics.compute_for_file_v3(
+            Rc::clone(&graph.calls.backend),
+            path,
+            source,
+            &symbol_nodes,
+        ) {
+            eprintln!("Warning: Failed to compute metrics for '{}': {}", path, e);
+        }
+    }
+    #[cfg(not(feature = "native-v3"))]
+    {
+        // SQLite backend: use SQL queries
+        if let Err(e) = graph.metrics.compute_for_file(path, source, &symbol_nodes) {
+            eprintln!("Warning: Failed to compute metrics for '{}': {}", path, e);
+        }
     }
 
     // Invalidate cache for this file since it was just modified

@@ -3,6 +3,41 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.0] - 2026-02-14
+
+### Added
+- **V3 Backend: Full Metrics Computation**
+  - New `compute_v3.rs` module with graph-traversal based metrics
+  - File-level metrics: fan-in, fan-out, LOC, complexity via `entity_ids()` + `neighbors()` APIs
+  - Symbol-level metrics: per-symbol fan-in/fan-out using graph backend
+  - Cross-file edge counting without SQL queries
+  - Complexity score calculation identical to SQLite backend
+
+- **V3 Backend: Complete Side Tables Implementation**
+  - `get_ast_nodes_by_file()` - prefix scan on `ast:file:{id}` keys
+  - `get_all_ast_nodes()` - prefix scan on `ast:file:` keys  
+  - `get_ast_nodes_by_kind()` - prefix scan on `ast:kind:{kind}` keys
+  - `get_ast_children()` - scan + filter by parent_id
+  - `count_ast_nodes()` / `count_ast_nodes_for_file()` - prefix scan counting
+  - `delete_ast_nodes_for_file()` - prefix scan + delete both file and kind indexes
+  - `list_executions()` - prefix scan on `exec:` keys with sorting
+  - `get_hotspots()` - prefix scan + filter + sort by complexity
+  - `delete_metrics_for_file()` - prefix scan to find symbol metrics
+  - `get_all_chunks()` - prefix scan on `chunk:` keys
+  - All methods use sqlitegraph 2.0.3's new `kv_prefix_scan_v3()` API
+
+### Changed
+- **sqlitegraph dependency**: Updated from 2.0.2 to 2.0.3
+  - Required for `kv_prefix_scan_v3()` method on V3Backend
+  - Enables efficient prefix-based KV queries for side tables
+
+### Architecture
+- **Backend Separation Principle** documented in AGENTS.md
+  - SQLite backend frozen (bug fixes only)
+  - V3 backend gets all new features
+  - Independent implementations via `#[cfg]` dispatch
+  - No forced common abstractions between backends
+
 ## [2.3.1] - 2026-02-14
 
 ### Fixed

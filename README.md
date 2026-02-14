@@ -1,6 +1,6 @@
 # Magellan
 
-**Version:** 2.3.1
+**Version:** 2.4.0
 
 A deterministic codebase mapping tool. Watches source files, extracts AST-level facts, and builds a searchable graph database of symbols and references.
 
@@ -37,6 +37,23 @@ While Magellan can be used standalone, it is designed as infrastructure. The gra
 - No config files
 - No web APIs or network services
 - No automatic database cleanup
+
+## Backend Feature Parity (v2.4.0)
+
+Magellan has two storage backends with full feature parity:
+
+| Feature | SQLite Backend | V3 Backend |
+|---------|---------------|------------|
+| Graph operations (nodes/edges) | ✓ | ✓ |
+| Symbol indexing/querying | ✓ | ✓ |
+| Call graph traversal | ✓ | ✓ |
+| AST nodes storage/query | ✓ | ✓ |
+| Code chunks storage | ✓ | ✓ |
+| Execution logging | ✓ | ✓ |
+| File/symbol metrics | ✓ | ✓ |
+| Graph algorithms (cycles, dead code, etc.) | ✓ | ✓ |
+
+**Recommendation:** Use V3 backend (`--features native-v3`) for production - it's faster and has zero SQLite dependency.
 
 ## Installation
 
