@@ -255,32 +255,26 @@ pub fn symbol_id_by_name(graph: &mut CodeGraph, path: &str, name: &str) -> Resul
 /// Option<SymbolNode> if found, None if not found
 ///
 /// # Note
-/// SymbolId is the primary key for symbol identity. This function performs
-/// a direct SQL query on the symbol_id field in graph_entities.data JSON.
+/// SymbolId is the primary key for symbol identity. This function uses
+/// the GraphBackend trait to work with both SQLite and V3 backends.
 pub fn find_by_symbol_id(graph: &mut CodeGraph, symbol_id: &str) -> Result<Option<SymbolNode>> {
-    let conn = graph.chunks.connect()?;
-
-    // Query graph_entities for Symbol kind with matching symbol_id in JSON data
-    let mut stmt = conn
-        .prepare_cached(
-            "SELECT data FROM graph_entities
-         WHERE kind = 'Symbol'
-         AND json_extract(data, '$.symbol_id') = ?1",
-        )
-        .map_err(|e| anyhow::anyhow!("Failed to prepare SymbolId query: {}", e))?;
-
-    match stmt.query_row(params![symbol_id], |row| {
-        let data: String = row.get(0)?;
-        serde_json::from_str(&data).map_err(|e| {
-            rusqlite::Error::ToSqlConversionFailure(
-                Box::new(e) as Box<dyn std::error::Error + Send + Sync>
-            )
-        })
-    }) {
-        Ok(node) => Ok(Some(node)),
-        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-        Err(e) => Err(anyhow::anyhow!("Failed to query SymbolId: {}", e)),
+    // Use GraphBackend trait instead of direct SQL for V3 compatibility
+    let entity_ids = graph.calls.backend.entity_ids()?;
+    let snapshot = SnapshotId::current();
+    
+    for entity_id in entity_ids {
+        if let Ok(node) = graph.calls.backend.get_node(snapshot, entity_id) {
+            if node.kind == "Symbol" {
+                if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data.clone()) {
+                    if symbol_node.symbol_id.as_deref() == Some(symbol_id) {
+                        return Ok(Some(symbol_node));
+                    }
+                }
+            }
+        }
     }
+    
+    Ok(None)
 }
 
 /// Index references for a file into the graph
@@ -628,33 +622,26 @@ pub fn get_ambiguous_candidates(
     graph: &mut CodeGraph,
     display_fqn: &str,
 ) -> Result<Vec<(i64, SymbolNode)>> {
-    let conn = graph.chunks.connect()?;
-
-    // Query all Symbol nodes with matching display_fqn
-    let mut stmt = conn
-        .prepare_cached(
-            "SELECT id, data FROM graph_entities
-         WHERE kind = 'Symbol'
-         AND json_extract(data, '$.display_fqn') = ?1
-         ORDER BY id",
-        )
-        .map_err(|e| anyhow::anyhow!("Failed to prepare ambiguity query: {}", e))?;
-
-    let candidates = stmt
-        .query_map(params![display_fqn], |row| {
-            let id: i64 = row.get(0)?;
-            let data: String = row.get(1)?;
-            let node: SymbolNode = serde_json::from_str(&data).map_err(|e| {
-                rusqlite::Error::ToSqlConversionFailure(
-                    Box::new(e) as Box<dyn std::error::Error + Send + Sync>
-                )
-            })?;
-            Ok((id, node))
-        })
-        .map_err(|e| anyhow::anyhow!("Failed to execute ambiguity query: {}", e))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| anyhow::anyhow!("Failed to collect ambiguity results: {}", e))?;
-
+    // Use GraphBackend trait instead of direct SQL for V3 compatibility
+    let entity_ids = graph.calls.backend.entity_ids()?;
+    let snapshot = SnapshotId::current();
+    let mut candidates = Vec::new();
+    
+    for entity_id in entity_ids {
+        if let Ok(node) = graph.calls.backend.get_node(snapshot, entity_id) {
+            if node.kind == "Symbol" {
+                if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data.clone()) {
+                    if symbol_node.display_fqn.as_deref() == Some(display_fqn) {
+                        candidates.push((entity_id, symbol_node));
+                    }
+                }
+            }
+        }
+    }
+    
+    // Sort by ID for deterministic ordering (matches SQL ORDER BY id)
+    candidates.sort_by_key(|(id, _)| *id);
+    
     Ok(candidates)
 }
 
@@ -719,77 +706,75 @@ pub fn collision_groups(
     field: CollisionField,
     limit: usize,
 ) -> Result<Vec<CollisionGroup>> {
-    let conn = graph.chunks.connect()?;
-    let field_path = field.json_path();
-
-    let limit_i64 = i64::try_from(limit).unwrap_or(i64::MAX);
-    let sql = format!(
-        "SELECT json_extract(data, '{field_path}') AS value, COUNT(*) AS c
-         FROM graph_entities
-         WHERE kind = 'Symbol'
-         AND json_extract(data, '{field_path}') IS NOT NULL
-         GROUP BY value
-         HAVING c > 1
-         ORDER BY c DESC, value ASC
-         LIMIT ?1"
-    );
-
-    let mut stmt = conn
-        .prepare_cached(&sql)
-        .map_err(|e| anyhow::anyhow!("Failed to prepare collision group query: {}", e))?;
-
-    let groups = stmt
-        .query_map(params![limit_i64], |row| {
-            let value: String = row.get(0)?;
-            let count: i64 = row.get(1)?;
-            Ok((value, count as usize))
-        })
-        .map_err(|e| anyhow::anyhow!("Failed to execute collision group query: {}", e))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| anyhow::anyhow!("Failed to collect collision group results: {}", e))?;
-
-    let candidates_sql = format!(
-        "SELECT id, file_path, data
-         FROM graph_entities
-         WHERE kind = 'Symbol'
-         AND json_extract(data, '{field_path}') = ?1
-         ORDER BY id"
-    );
-
-    let mut candidates_stmt = conn
-        .prepare_cached(&candidates_sql)
-        .map_err(|e| anyhow::anyhow!("Failed to prepare collision candidates query: {}", e))?;
-
+    // Use GraphBackend trait instead of direct SQL for V3 compatibility
+    let entity_ids = graph.calls.backend.entity_ids()?;
+    let snapshot = SnapshotId::current();
+    
+    // Collect all symbols and group by field value
+    let mut groups: std::collections::HashMap<String, Vec<(i64, SymbolNode, Option<String>)>> = 
+        std::collections::HashMap::new();
+    
+    for entity_id in entity_ids {
+        if let Ok(node) = graph.calls.backend.get_node(snapshot, entity_id) {
+            if node.kind == "Symbol" {
+                if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data.clone()) {
+                    let field_value = match field {
+                        CollisionField::Fqn => symbol_node.canonical_fqn.clone(),
+                        CollisionField::DisplayFqn => symbol_node.display_fqn.clone(),
+                        CollisionField::CanonicalFqn => symbol_node.canonical_fqn.clone(),
+                    };
+                    
+                    if let Some(value) = field_value {
+                        groups.entry(value).or_default().push((
+                            entity_id,
+                            symbol_node,
+                            node.file_path.clone(),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    
+    // Filter to only groups with count > 1, sort by count desc, then value asc
+    let mut collision_groups: Vec<(String, Vec<(i64, SymbolNode, Option<String>)>)> = groups
+        .into_iter()
+        .filter(|(_, candidates)| candidates.len() > 1)
+        .collect();
+    
+    collision_groups.sort_by(|a, b| {
+        let count_cmp = b.1.len().cmp(&a.1.len());
+        if count_cmp != std::cmp::Ordering::Equal {
+            count_cmp
+        } else {
+            a.0.cmp(&b.0)
+        }
+    });
+    
+    // Apply limit
+    collision_groups.truncate(limit);
+    
+    // Build CollisionGroup results
     let mut results = Vec::new();
-    for (value, count) in groups {
-        let candidates = candidates_stmt
-            .query_map(params![value], |row| {
-                let entity_id: i64 = row.get(0)?;
-                let file_path: Option<String> = row.get(1)?;
-                let data: String = row.get(2)?;
-                let node: SymbolNode = serde_json::from_str(&data).map_err(|e| {
-                    rusqlite::Error::ToSqlConversionFailure(
-                        Box::new(e) as Box<dyn std::error::Error + Send + Sync>
-                    )
-                })?;
-                Ok(CollisionCandidate {
-                    entity_id,
-                    symbol_id: node.symbol_id,
-                    canonical_fqn: node.canonical_fqn,
-                    display_fqn: node.display_fqn,
-                    name: node.name,
-                    file_path,
-                })
+    for (value, candidates) in collision_groups {
+        let count = candidates.len();
+        let collision_candidates: Vec<CollisionCandidate> = candidates
+            .into_iter()
+            .map(|(entity_id, node, file_path)| CollisionCandidate {
+                entity_id,
+                symbol_id: node.symbol_id,
+                canonical_fqn: node.canonical_fqn,
+                display_fqn: node.display_fqn,
+                name: node.name,
+                file_path,
             })
-            .map_err(|e| anyhow::anyhow!("Failed to execute collision candidates query: {}", e))?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| anyhow::anyhow!("Failed to collect collision candidates: {}", e))?;
-
+            .collect();
+        
         results.push(CollisionGroup {
             field: field.as_str().to_string(),
             value,
             count,
-            candidates,
+            candidates: collision_candidates,
         });
     }
 
@@ -840,12 +825,14 @@ fn bar() {
 
     #[test]
     fn test_find_by_symbol_id_returns_none_for_nonexistent() {
-        let temp_dir = tempfile::TempDir::new().unwrap();
-        let db_path = temp_dir.path().join("test.db");
+        // Use persistent temp directory for V3 backend
+        let temp_dir = std::env::temp_dir().join(format!("magellan_query_test_{}", std::process::id()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let db_path = temp_dir.join("test.db");
         let mut graph = crate::CodeGraph::open(&db_path).unwrap();
 
         // Index a dummy file first to ensure schema is initialized
-        let test_file = temp_dir.path().join("dummy.rs");
+        let test_file = temp_dir.join("dummy.rs");
         std::fs::write(&test_file, "fn dummy() {}").unwrap();
         let path_str = test_file.to_string_lossy().to_string();
         let source = std::fs::read(&test_file).unwrap();
@@ -859,12 +846,14 @@ fn bar() {
 
     #[test]
     fn test_find_by_symbol_id_returns_symbol_when_found() {
-        let temp_dir = tempfile::TempDir::new().unwrap();
-        let db_path = temp_dir.path().join("test.db");
+        // Use persistent temp directory for V3 backend
+        let temp_dir = std::env::temp_dir().join(format!("magellan_query_test2_{}", std::process::id()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let db_path = temp_dir.join("test.db");
         let mut graph = crate::CodeGraph::open(&db_path).unwrap();
 
         // Create a test file with a symbol
-        let test_file = temp_dir.path().join("test.rs");
+        let test_file = temp_dir.join("test.rs");
         std::fs::write(
             &test_file,
             r#"
@@ -902,12 +891,14 @@ fn test_function() -> i32 {
 
     #[test]
     fn test_get_ambiguous_candidates_empty_for_no_match() {
-        let temp_dir = tempfile::TempDir::new().unwrap();
-        let db_path = temp_dir.path().join("test.db");
+        // Use persistent temp directory for V3 backend
+        let temp_dir = std::env::temp_dir().join(format!("magellan_query_test3_{}", std::process::id()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let db_path = temp_dir.join("test.db");
         let mut graph = crate::CodeGraph::open(&db_path).unwrap();
 
         // Index a dummy file first to ensure schema is initialized
-        let test_file = temp_dir.path().join("dummy.rs");
+        let test_file = temp_dir.join("dummy.rs");
         std::fs::write(&test_file, "fn dummy() {}").unwrap();
         let path_str = test_file.to_string_lossy().to_string();
         let source = std::fs::read(&test_file).unwrap();
@@ -920,12 +911,14 @@ fn test_function() -> i32 {
 
     #[test]
     fn test_get_ambiguous_candidates_single_result() {
-        let temp_dir = tempfile::TempDir::new().unwrap();
-        let db_path = temp_dir.path().join("test.db");
+        // Use persistent temp directory for V3 backend
+        let temp_dir = std::env::temp_dir().join(format!("magellan_query_test4_{}", std::process::id()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let db_path = temp_dir.join("test.db");
         let mut graph = crate::CodeGraph::open(&db_path).unwrap();
 
         // Create a test file with a symbol
-        let test_file = temp_dir.path().join("test.rs");
+        let test_file = temp_dir.join("test.rs");
         std::fs::write(
             &test_file,
             r#"fn unique_function() {}
@@ -976,12 +969,14 @@ fn test_function() -> i32 {
 
     #[test]
     fn test_get_ambiguous_candidates_multiple_results() {
-        let temp_dir = tempfile::TempDir::new().unwrap();
-        let db_path = temp_dir.path().join("test.db");
+        // Use persistent temp directory for V3 backend
+        let temp_dir = std::env::temp_dir().join(format!("magellan_query_test5_{}", std::process::id()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let db_path = temp_dir.join("test.db");
         let mut graph = crate::CodeGraph::open(&db_path).unwrap();
 
         // Create two files with symbols having the same name (ambiguous display_fqn)
-        let file1 = temp_dir.path().join("file1.rs");
+        let file1 = temp_dir.join("file1.rs");
         std::fs::write(
             &file1,
             r#"fn common_name() {}
@@ -989,7 +984,7 @@ fn test_function() -> i32 {
         )
         .unwrap();
 
-        let file2 = temp_dir.path().join("file2.rs");
+        let file2 = temp_dir.join("file2.rs");
         std::fs::write(
             &file2,
             r#"fn common_name() {}
@@ -1041,14 +1036,16 @@ fn test_function() -> i32 {
 
     #[test]
     fn test_collision_groups_for_fqn() {
-        let temp_dir = tempfile::TempDir::new().unwrap();
-        let db_path = temp_dir.path().join("test.db");
+        // Use persistent temp directory for V3 backend
+        let temp_dir = std::env::temp_dir().join(format!("magellan_query_test6_{}", std::process::id()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let db_path = temp_dir.join("test.db");
         let mut graph = crate::CodeGraph::open(&db_path).unwrap();
 
-        let file1 = temp_dir.path().join("file1.rs");
+        let file1 = temp_dir.join("file1.rs");
         std::fs::write(&file1, "fn collide() {}\n").unwrap();
 
-        let file2 = temp_dir.path().join("file2.rs");
+        let file2 = temp_dir.join("file2.rs");
         std::fs::write(&file2, "fn collide() {}\n").unwrap();
 
         let path1 = file1.to_string_lossy().to_string();
