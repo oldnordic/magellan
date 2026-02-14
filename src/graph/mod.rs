@@ -856,4 +856,95 @@ impl CodeGraph {
     pub fn __backend_for_watcher(&self) -> &std::rc::Rc<dyn sqlitegraph::GraphBackend> {
         &self.files.backend
     }
+
+    // ===== V3-Exclusive KV Operations =====
+    // These methods are ONLY available with the V3 backend.
+    // They will return None or error when using SQLite backend.
+
+    /// KV prefix scan - V3 exclusive
+    ///
+    /// Returns all KV entries with keys starting with the given prefix.
+    /// Only available with V3 backend (SQLite returns empty vec).
+    ///
+    /// # Arguments
+    /// * `prefix` - Key prefix to search for
+    ///
+    /// # Returns
+    /// Vector of (key, value) tuples
+    #[cfg(feature = "native-v3")]
+    pub fn kv_prefix_scan(&self, prefix: &[u8]) -> Vec<(Vec<u8>, sqlitegraph::backend::native::v3::KvValue)> {
+        use side_tables::v3_impl::V3SideTables;
+        
+        // Try to downcast side_tables to V3SideTables
+        if let Some(v3_tables) = self.side_tables.as_any().downcast_ref::<V3SideTables>() {
+            v3_tables.kv_prefix_scan(prefix)
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// FQN completion - V3 exclusive
+    ///
+    /// Returns all fully-qualified names starting with the given prefix.
+    /// Only available with V3 backend (SQLite returns empty vec).
+    ///
+    /// # Arguments
+    /// * `prefix` - FQN prefix to complete
+    /// * `limit` - Maximum number of results
+    ///
+    /// # Returns
+    /// Vector of matching FQNs
+    #[cfg(feature = "native-v3")]
+    pub fn complete_fqn(&self, prefix: &str, limit: usize) -> Vec<String> {
+        use side_tables::v3_impl::V3SideTables;
+        
+        if let Some(v3_tables) = self.side_tables.as_any().downcast_ref::<V3SideTables>() {
+            v3_tables.complete_fqn(prefix, limit)
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Lookup symbol by FQN - V3 exclusive
+    ///
+    /// Returns symbol ID for the given fully-qualified name.
+    /// Only available with V3 backend (SQLite returns None).
+    ///
+    /// # Arguments
+    /// * `fqn` - Fully-qualified name to lookup
+    ///
+    /// # Returns
+    /// Some(symbol_id) if found, None otherwise
+    #[cfg(feature = "native-v3")]
+    pub fn lookup_symbol_by_fqn(&self, fqn: &str) -> Option<i64> {
+        use side_tables::v3_impl::V3SideTables;
+        
+        if let Some(v3_tables) = self.side_tables.as_any().downcast_ref::<V3SideTables>() {
+            v3_tables.lookup_symbol_by_fqn(fqn)
+        } else {
+            None
+        }
+    }
+
+    /// Get symbols by label - V3 exclusive (KV-based)
+    ///
+    /// Returns all symbol IDs with the given label using KV store prefix scan.
+    /// Only available with V3 backend (SQLite returns empty vec).
+    /// This is faster than the SQL-based version for V3 databases.
+    ///
+    /// # Arguments
+    /// * `label` - Label name (e.g., "test", "entry_point")
+    ///
+    /// # Returns
+    /// Vector of symbol IDs
+    #[cfg(feature = "native-v3")]
+    pub fn get_symbols_by_label_kv(&self, label: &str) -> Vec<i64> {
+        use side_tables::v3_impl::V3SideTables;
+        
+        if let Some(v3_tables) = self.side_tables.as_any().downcast_ref::<V3SideTables>() {
+            v3_tables.get_symbols_by_label(label)
+        } else {
+            Vec::new()
+        }
+    }
 }

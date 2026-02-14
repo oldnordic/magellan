@@ -3,6 +3,21 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.2] - 2026-02-14
+
+### Added
+- **V3 KV Operations for llmgrep Integration**
+  - `V3SideTables::kv_prefix_scan()` - prefix scan on KV store
+  - `V3SideTables::kv_get()` - exact key lookup
+  - `V3SideTables::lookup_symbol_by_fqn()` - FQN to symbol ID resolution
+  - `V3SideTables::get_symbols_by_label()` - label-based symbol lookup
+  - `V3SideTables::complete_fqn()` - FQN completion for autocomplete
+  - `CodeGraph::kv_prefix_scan()` - expose to external users
+  - `CodeGraph::complete_fqn()` - FQN completion API
+  - `CodeGraph::lookup_symbol_by_fqn()` - symbol lookup by FQN
+  - `CodeGraph::get_symbols_by_label_kv()` - KV-based label search
+  - Added `SideTables::as_any()` for downcasting to concrete types
+
 ## [2.4.1] - 2026-02-14
 
 ### Changed

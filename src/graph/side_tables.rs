@@ -147,6 +147,12 @@ pub trait SideTables: Send + Sync {
     
     /// Delete all AST nodes for a file (returns count deleted)
     fn delete_ast_nodes_for_file(&self, file_id: i64) -> Result<usize>;
+    
+    /// Convert to Any for downcasting
+    ///
+    /// This allows downcasting to concrete backend types (e.g., V3SideTables)
+    /// for backend-specific operations.
+    fn as_any(&self) -> &dyn std::any::Any;
 }
 
 // =============================================================================
@@ -912,6 +918,10 @@ pub mod sqlite_impl {
             )?;
             Ok(affected)
         }
+        
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
     }
 }
 
@@ -954,6 +964,114 @@ pub mod v3_impl {
         /// Key format: chunk:{chunk_id}
         fn chunk_key(chunk_id: i64) -> Vec<u8> {
             format!("chunk:{}", chunk_id).into_bytes()
+        }
+
+        // ===== V3-Exclusive KV Operations =====
+        // These methods are NOT part of the SideTables trait but are
+        // available only on V3SideTables for llmgrep integration.
+
+        /// KV prefix scan - returns all keys starting with prefix
+        /// 
+        /// # Arguments
+        /// * `prefix` - Key prefix to search for
+        /// 
+        /// # Returns
+        /// Vector of (key, value) tuples where key starts with prefix
+        pub fn kv_prefix_scan(&self, prefix: &[u8]) -> Vec<(Vec<u8>, KvValue)> {
+            let snapshot = SnapshotId::current();
+            self.backend.kv_prefix_scan_v3(snapshot, prefix)
+        }
+
+        /// KV get - retrieve value by exact key
+        /// 
+        /// # Arguments
+        /// * `key` - Exact key to lookup
+        /// 
+        /// # Returns
+        /// Some(value) if key exists, None otherwise
+        pub fn kv_get(&self, key: &[u8]) -> Option<KvValue> {
+            let snapshot = SnapshotId::current();
+            self.backend.kv_get_v3(snapshot, key)
+        }
+
+        /// Symbol lookup by FQN using KV store
+        /// 
+        /// Key format: `sym:fqn:{fqn}`
+        /// 
+        /// # Arguments
+        /// * `fqn` - Fully qualified name to lookup
+        /// 
+        /// # Returns
+        /// Some(symbol_id) if found, None otherwise
+        pub fn lookup_symbol_by_fqn(&self, fqn: &str) -> Option<i64> {
+            let key = format!("sym:fqn:{}", fqn);
+            match self.kv_get(key.as_bytes()) {
+                Some(KvValue::Integer(id)) => Some(id),
+                Some(KvValue::Bytes(bytes)) => {
+                    // Try to parse as i64 from bytes
+                    if bytes.len() == 8 {
+                        Some(i64::from_le_bytes([
+                            bytes[0], bytes[1], bytes[2], bytes[3],
+                            bytes[4], bytes[5], bytes[6], bytes[7],
+                        ]))
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            }
+        }
+
+        /// Get all symbols with a given label
+        /// 
+        /// Key format: `label:{label}:{symbol_id}`
+        /// 
+        /// # Arguments
+        /// * `label` - Label name (e.g., "test", "entry_point")
+        /// 
+        /// # Returns
+        /// Vector of symbol IDs that have this label
+        pub fn get_symbols_by_label(&self, label: &str) -> Vec<i64> {
+            let prefix = format!("label:{label}:");
+            let results = self.kv_prefix_scan(prefix.as_bytes());
+            
+            results
+                .into_iter()
+                .filter_map(|(_, value)| {
+                    // Parse symbol_id from the end of the key or value
+                    match value {
+                        KvValue::Integer(id) => Some(id),
+                        _ => None,
+                    }
+                })
+                .collect()
+        }
+
+        /// FQN completion - get all FQNs starting with prefix
+        /// 
+        /// Key format: `sym:fqn:{fqn}`
+        /// 
+        /// # Arguments
+        /// * `prefix` - FQN prefix to complete
+        /// * `limit` - Maximum number of results
+        /// 
+        /// # Returns
+        /// Vector of matching FQNs
+        pub fn complete_fqn(&self, prefix: &str, limit: usize) -> Vec<String> {
+            let key_prefix = format!("sym:fqn:{}", prefix);
+            let results = self.kv_prefix_scan(key_prefix.as_bytes());
+            
+            results
+                .into_iter()
+                .take(limit)
+                .filter_map(|(key, _)| {
+                    // Strip "sym:fqn:" prefix from key
+                    String::from_utf8(key)
+                        .ok()
+                        .map(|s| s.strip_prefix("sym:fqn:").map(String::from))
+                        .flatten()
+                })
+                .collect()
         }
     }
 
@@ -1473,6 +1591,10 @@ pub mod v3_impl {
             }
             
             Ok(count)
+        }
+        
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
         }
     }
 }
