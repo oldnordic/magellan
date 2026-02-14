@@ -1,8 +1,20 @@
 # Magellan Operator Manual
 
-**Version 2.3.0** | *Last Updated: 2026-02-12*
+**Version 2.3.1** | *Last Updated: 2026-02-14*
 
 Comprehensive instructions for operating Magellan.
+
+## What is Magellan?
+
+Magellan is **infrastructure for code intelligence**. It was built to serve as the foundation for the Code Intelligence ecosystem:
+
+| Tool | Purpose | Relationship to Magellan |
+|------|---------|-------------------------|
+| **LLMGrep** | Semantic code search via natural language | Queries Magellan's symbol graph for context retrieval |
+| **Mirage** | AI-powered code navigation | Uses Magellan's AST database for precise code understanding |
+| **Splice** | Intelligent refactoring engine | Leverages Magellan's call graph for safe transformations |
+
+Magellan can be used standalone, but its primary purpose is to enable downstream tools to answer complex codebase questions with millisecond latency — even on multi-million line repositories.
 
 ---
 
@@ -20,7 +32,7 @@ Comprehensive instructions for operating Magellan.
 10. [Troubleshooting](#10-troubleshooting)
 11. [Security Best Practices](#11-security-best-practices)
 12. [Architecture](#architecture)
-    - [Backend Architecture](#backend-architecture-v230)
+    - [Backend Architecture](#backend-architecture-v231)
     - [Threading Model](#threading-model-v17)
 13. [Exit Codes](#exit-codes)
 
@@ -53,7 +65,7 @@ sudo chmod +x /usr/local/bin/magellan
 
 ### 1.3 Feature Flags
 
-#### Backend Selection (v2.3.0)
+#### Backend Selection (v2.3.1)
 
 Magellan supports multiple storage backends via feature flags:
 
@@ -1972,7 +1984,7 @@ magellan export --db /var/cache/mag/app.db | grep -v "sqlite"
 
 ## Architecture
 
-### Backend Architecture (v2.3.0)
+### Backend Architecture (v2.3.1)
 
 Magellan supports multiple storage backends with clean separation:
 

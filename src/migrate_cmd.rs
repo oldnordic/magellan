@@ -15,7 +15,8 @@ use std::path::{Path, PathBuf};
 /// v4: BLAKE3-based SymbolId, canonical_fqn, display_fqn
 /// v5: AST nodes table for hierarchy storage
 /// v6: AST nodes file_id column for per-file tracking
-pub const MAGELLAN_SCHEMA_VERSION: i64 = 6;
+/// v7: CFG blocks table for control flow graph storage
+pub const MAGELLAN_SCHEMA_VERSION: i64 = 7;
 
 /// Migration result summary
 #[derive(Debug, Clone)]
@@ -229,6 +230,40 @@ fn migrate_from_version(tx: &Transaction, old_version: i64) -> Result<()> {
         tx.execute(
             "CREATE INDEX IF NOT EXISTS idx_ast_nodes_file_id
              ON ast_nodes(file_id)",
+            [],
+        )?;
+    }
+
+    if old_version < 7 {
+        // v6 -> v7: Add cfg_blocks table for control flow graph storage
+        tx.execute(
+            "CREATE TABLE IF NOT EXISTS cfg_blocks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                function_id INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                terminator TEXT NOT NULL,
+                byte_start INTEGER NOT NULL,
+                byte_end INTEGER NOT NULL,
+                start_line INTEGER NOT NULL,
+                start_col INTEGER NOT NULL,
+                end_line INTEGER NOT NULL,
+                end_col INTEGER NOT NULL,
+                FOREIGN KEY (function_id) REFERENCES graph_entities(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+
+        // Index for function-based queries
+        tx.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cfg_blocks_function
+             ON cfg_blocks(function_id)",
+            [],
+        )?;
+
+        // Index for span-based position queries
+        tx.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cfg_blocks_span
+             ON cfg_blocks(byte_start, byte_end)",
             [],
         )?;
     }

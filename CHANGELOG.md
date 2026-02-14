@@ -3,6 +3,19 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.1] - 2026-02-14
+
+### Fixed
+- **File Delete Event Handling**: Fixed watcher not emitting events for deleted files
+  - Root cause: `FileFilter::should_skip()` returned `NotAFile` for deleted paths
+  - The watcher was incorrectly filtering out deleted files before emitting events
+  - Fixed by treating `SkipReason::NotAFile` as a potential delete event (not a skip)
+  - Indexer can now properly reconcile file deletions in real-time
+
+### Documentation
+- **README.md**: Added clear statement of purpose — Magellan is the foundation of the Code Intelligence ecosystem (LLMGrep, Mirage, Splice)
+- **MANUAL.md**: Updated to emphasize infrastructure role and downstream tool relationships
+
 ## [2.3.0] - 2026-02-13
 
 ### Added

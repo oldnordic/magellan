@@ -362,15 +362,35 @@ impl Parser {
                 // Extract module name and push to scope
                 if let Some(name) = Self::extract_name_static(node, source) {
                     scope_stack.push(&name);
-                    if let Some(fact) = Self::extract_symbol_with_fqn_static(
-                        node,
-                        source,
-                        file_path,
-                        scope_stack,
-                        crate_name,
-                    ) {
-                        facts.push(fact);
-                    }
+                    
+                    // Create symbol fact for the module directly (extract_symbol_with_fqn_static skips mod_item)
+                    let symbol_kind = SymbolKind::Module;
+                    let normalized_kind = symbol_kind.normalized_key().to_string();
+                    let fqn = scope_stack.fqn_for_symbol(&name);
+                    let builder = FqnBuilder::new(
+                        crate_name.to_string(),
+                        file_path.to_string_lossy().to_string(),
+                        ScopeSeparator::DoubleColon,
+                    );
+                    let canonical_fqn = builder.canonical(scope_stack, symbol_kind.clone(), &name);
+                    let display_fqn = builder.display(scope_stack, symbol_kind.clone(), &name);
+                    
+                    facts.push(SymbolFact {
+                        file_path: file_path.clone(),
+                        kind: symbol_kind,
+                        kind_normalized: normalized_kind,
+                        name: Some(name),
+                        fqn: Some(fqn),
+                        canonical_fqn: Some(canonical_fqn),
+                        display_fqn: Some(display_fqn),
+                        byte_start: node.start_byte(),
+                        byte_end: node.end_byte(),
+                        start_line: node.start_position().row + 1,
+                        start_col: node.start_position().column,
+                        end_line: node.end_position().row + 1,
+                        end_col: node.end_position().column,
+                    });
+                    
                     // Recurse into children (they're in this module's scope)
                     let mut cursor = node.walk();
                     for child in node.children(&mut cursor) {
@@ -411,15 +431,35 @@ impl Parser {
             "trait_item" => {
                 if let Some(name) = Self::extract_name_static(node, source) {
                     scope_stack.push(&name);
-                    if let Some(fact) = Self::extract_symbol_with_fqn_static(
-                        node,
-                        source,
-                        file_path,
-                        scope_stack,
-                        crate_name,
-                    ) {
-                        facts.push(fact);
-                    }
+                    
+                    // Create symbol fact for the trait directly (extract_symbol_with_fqn_static skips trait_item)
+                    let symbol_kind = SymbolKind::Interface; // Traits map to Interface
+                    let normalized_kind = symbol_kind.normalized_key().to_string();
+                    let fqn = scope_stack.fqn_for_symbol(&name);
+                    let builder = FqnBuilder::new(
+                        crate_name.to_string(),
+                        file_path.to_string_lossy().to_string(),
+                        ScopeSeparator::DoubleColon,
+                    );
+                    let canonical_fqn = builder.canonical(scope_stack, symbol_kind.clone(), &name);
+                    let display_fqn = builder.display(scope_stack, symbol_kind.clone(), &name);
+                    
+                    facts.push(SymbolFact {
+                        file_path: file_path.clone(),
+                        kind: symbol_kind,
+                        kind_normalized: normalized_kind,
+                        name: Some(name),
+                        fqn: Some(fqn),
+                        canonical_fqn: Some(canonical_fqn),
+                        display_fqn: Some(display_fqn),
+                        byte_start: node.start_byte(),
+                        byte_end: node.end_byte(),
+                        start_line: node.start_position().row + 1,
+                        start_col: node.start_position().column,
+                        end_line: node.end_position().row + 1,
+                        end_col: node.end_position().column,
+                    });
+                    
                     let mut cursor = node.walk();
                     for child in node.children(&mut cursor) {
                         Self::walk_tree_with_scope_static(
@@ -569,15 +609,35 @@ impl Parser {
                 // Extract module name and push to scope
                 if let Some(name) = self.extract_name(node, source) {
                     scope_stack.push(&name);
-                    if let Some(fact) = self.extract_symbol_with_fqn(
-                        node,
-                        source,
-                        file_path,
-                        scope_stack,
-                        crate_name,
-                    ) {
-                        facts.push(fact);
-                    }
+                    
+                    // Create symbol fact for the module directly (extract_symbol_with_fqn skips mod_item)
+                    let symbol_kind = SymbolKind::Module;
+                    let normalized_kind = symbol_kind.normalized_key().to_string();
+                    let fqn = scope_stack.fqn_for_symbol(&name);
+                    let builder = FqnBuilder::new(
+                        crate_name.to_string(),
+                        file_path.to_string_lossy().to_string(),
+                        ScopeSeparator::DoubleColon,
+                    );
+                    let canonical_fqn = builder.canonical(scope_stack, symbol_kind.clone(), &name);
+                    let display_fqn = builder.display(scope_stack, symbol_kind.clone(), &name);
+                    
+                    facts.push(SymbolFact {
+                        file_path: file_path.clone(),
+                        kind: symbol_kind,
+                        kind_normalized: normalized_kind,
+                        name: Some(name),
+                        fqn: Some(fqn),
+                        canonical_fqn: Some(canonical_fqn),
+                        display_fqn: Some(display_fqn),
+                        byte_start: node.start_byte(),
+                        byte_end: node.end_byte(),
+                        start_line: node.start_position().row + 1,
+                        start_col: node.start_position().column,
+                        end_line: node.end_position().row + 1,
+                        end_col: node.end_position().column,
+                    });
+                    
                     // Recurse into children (they're in this module's scope)
                     let mut cursor = node.walk();
                     for child in node.children(&mut cursor) {
@@ -618,15 +678,35 @@ impl Parser {
             "trait_item" => {
                 if let Some(name) = self.extract_name(node, source) {
                     scope_stack.push(&name);
-                    if let Some(fact) = self.extract_symbol_with_fqn(
-                        node,
-                        source,
-                        file_path,
-                        scope_stack,
-                        crate_name,
-                    ) {
-                        facts.push(fact);
-                    }
+                    
+                    // Create symbol fact for the trait directly (extract_symbol_with_fqn skips trait_item)
+                    let symbol_kind = SymbolKind::Interface; // Traits map to Interface
+                    let normalized_kind = symbol_kind.normalized_key().to_string();
+                    let fqn = scope_stack.fqn_for_symbol(&name);
+                    let builder = FqnBuilder::new(
+                        crate_name.to_string(),
+                        file_path.to_string_lossy().to_string(),
+                        ScopeSeparator::DoubleColon,
+                    );
+                    let canonical_fqn = builder.canonical(scope_stack, symbol_kind.clone(), &name);
+                    let display_fqn = builder.display(scope_stack, symbol_kind.clone(), &name);
+                    
+                    facts.push(SymbolFact {
+                        file_path: file_path.clone(),
+                        kind: symbol_kind,
+                        kind_normalized: normalized_kind,
+                        name: Some(name),
+                        fqn: Some(fqn),
+                        canonical_fqn: Some(canonical_fqn),
+                        display_fqn: Some(display_fqn),
+                        byte_start: node.start_byte(),
+                        byte_end: node.end_byte(),
+                        start_line: node.start_position().row + 1,
+                        start_col: node.start_position().column,
+                        end_line: node.end_position().row + 1,
+                        end_col: node.end_position().column,
+                    });
+                    
                     let mut cursor = node.walk();
                     for child in node.children(&mut cursor) {
                         self.walk_tree_with_scope(

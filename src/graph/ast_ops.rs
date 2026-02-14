@@ -57,10 +57,26 @@ impl CodeGraph {
         _file_path: &str,
         position: usize,
     ) -> Result<Option<AstNode>> {
-        // TODO: Implement position-based lookup in SideTables
-        // For now, return None for V3 backend
-        let _ = position; // suppress unused warning
-        Ok(None)
+        // Get all nodes and find the smallest one containing the position
+        let all_nodes = self.side_tables.get_all_ast_nodes()?;
+        
+        // Filter nodes where position is within [byte_start, byte_end)
+        let containing_nodes: Vec<_> = all_nodes
+            .into_iter()
+            .filter(|n| n.byte_start <= position && position < n.byte_end)
+            .collect();
+        
+        if containing_nodes.is_empty() {
+            return Ok(None);
+        }
+        
+        // Find the smallest node (most specific match)
+        // The node with the smallest span (byte_end - byte_start)
+        let smallest = containing_nodes
+            .into_iter()
+            .min_by_key(|n| n.byte_end - n.byte_start);
+        
+        Ok(smallest)
     }
 
     /// Get all AST nodes of a specific kind
@@ -87,8 +103,7 @@ impl CodeGraph {
     /// For V3 backend, this returns empty until prefix scan is implemented.
     pub fn get_ast_roots(&self) -> Result<Vec<AstNode>> {
         // Get all nodes and filter for roots (parent_id IS NULL)
-        // TODO: Optimize with dedicated SideTables method when V3 has prefix scan
-        let all_nodes = self.side_tables.get_ast_nodes_by_file(0)?;
+        let all_nodes = self.side_tables.get_all_ast_nodes()?;
         Ok(all_nodes.into_iter().filter(|n| n.parent_id.is_none()).collect())
     }
 

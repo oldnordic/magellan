@@ -27,6 +27,25 @@ use crate::{CodeGraph, FileEvent, FileSystemWatcher, WatcherConfig};
 
 use sqlitegraph::GraphBackend;
 
+/// Reconcile files that exist in DB but not on filesystem.
+/// 
+/// This handles the case where files were deleted while the indexer wasn't running.
+/// It scans all File nodes in the database and deletes any whose path doesn't exist
+/// on the filesystem.
+fn reconcile_deleted_files(graph: &mut CodeGraph, root_path: &std::path::Path) -> Result<()> {
+    let file_nodes = graph.all_file_nodes()?;
+    
+    for (path, _file_node) in file_nodes {
+        let file_path = std::path::Path::new(&path);
+        // Only check files within our watched root
+        if file_path.starts_with(root_path) && !file_path.exists() {
+            let _ = graph.delete_file(&path);
+        }
+    }
+    
+    Ok(())
+}
+
 /// Handle a single file event, updating the graph appropriately.
 ///
 /// # Arguments
@@ -117,6 +136,10 @@ pub fn run_indexer_n(root_path: PathBuf, db_path: PathBuf, max_events: usize) ->
 
     // Open graph
     let mut graph = CodeGraph::open(&db_path)?;
+    
+    // Reconcile: Check for files that exist in DB but not on filesystem
+    // This handles the case where files were deleted while indexer wasn't running
+    reconcile_deleted_files(&mut graph, &root_path)?;
 
     // Process up to max_events events.
     //

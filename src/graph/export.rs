@@ -613,16 +613,16 @@ pub fn export_json(graph: &mut CodeGraph) -> Result<String> {
         .sort_by(|a, b| (&a.file, &a.referenced_symbol).cmp(&(&b.file, &b.referenced_symbol)));
     calls.sort_by(|a, b| (&a.file, &a.caller, &a.callee).cmp(&(&b.file, &b.caller, &b.callee)));
 
-    let mut export_data = serde_json::json!({
-        "version": "2.0.0",
-        "files": files,
-        "symbols": symbols,
-        "references": references,
-        "calls": calls,
-        "collisions": collisions,
-    });
+    let export = GraphExport {
+        version: "2.0.0".to_string(),
+        files,
+        symbols,
+        references,
+        calls,
+        collisions,
+    };
 
-    Ok(serde_json::to_string_pretty(&export_data)?)
+    Ok(serde_json::to_string_pretty(&export)?)
 }
 
 /// Stream all graph data to JSON format with reduced memory footprint

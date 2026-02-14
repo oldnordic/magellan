@@ -130,6 +130,9 @@ pub trait SideTables: Send + Sync {
     /// Get all AST nodes for a file
     fn get_ast_nodes_by_file(&self, file_id: i64) -> Result<Vec<crate::graph::AstNode>>;
     
+    /// Get all AST nodes (for finding roots)
+    fn get_all_ast_nodes(&self) -> Result<Vec<crate::graph::AstNode>>;
+    
     /// Get AST nodes by kind (e.g., "if_expression")
     fn get_ast_nodes_by_kind(&self, kind: &str) -> Result<Vec<crate::graph::AstNode>>;
     
@@ -823,6 +826,26 @@ pub mod sqlite_impl {
             Ok(nodes)
         }
         
+        fn get_all_ast_nodes(&self) -> Result<Vec<crate::graph::AstNode>> {
+            let conn = self.conn.lock().unwrap();
+            let mut stmt = conn.prepare(
+                "SELECT id, parent_id, kind, byte_start, byte_end
+                 FROM ast_nodes ORDER BY byte_start",
+            )?;
+            let nodes = stmt
+                .query_map([], |row| {
+                    Ok(crate::graph::AstNode {
+                        id: Some(row.get(0)?),
+                        parent_id: row.get(1)?,
+                        kind: row.get(2)?,
+                        byte_start: row.get::<_, i64>(3)? as usize,
+                        byte_end: row.get::<_, i64>(4)? as usize,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(nodes)
+        }
+        
         fn get_ast_nodes_by_kind(&self, kind: &str) -> Result<Vec<crate::graph::AstNode>> {
             let conn = self.conn.lock().unwrap();
             let mut stmt = conn.prepare(
@@ -1243,6 +1266,11 @@ pub mod v3_impl {
             // V3 doesn't have prefix scan yet - would need implementation
             // For now, return empty - sqlitegraph needs prefix scan support
             let _ = file_id; // suppress unused warning
+            Ok(vec![])
+        }
+        
+        fn get_all_ast_nodes(&self) -> Result<Vec<crate::graph::AstNode>> {
+            // V3 doesn't have prefix scan yet
             Ok(vec![])
         }
         

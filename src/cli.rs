@@ -17,7 +17,7 @@ pub fn print_usage() {
     eprintln!();
     eprintln!("  magellan watch --root <DIR> --db <FILE> [--debounce-ms <N>] [--watch-only] [--validate] [--validate-only]");
     eprintln!(
-        "  magellan export --db <FILE> [--format json|jsonl|csv|scip] [--output <PATH>] [--minify]"
+        "  magellan export --db <FILE> [--format json|jsonl|csv|scip|dot] [--output <PATH>] [--minify] [--cluster]"
     );
     eprintln!("  magellan status --db <FILE>");
     eprintln!("  magellan query --db <FILE> --file <PATH> [--kind <KIND>]");
@@ -562,9 +562,10 @@ where
                             "jsonl" => ExportFormat::JsonL,
                             "csv" => ExportFormat::Csv,
                             "scip" => ExportFormat::Scip,
+                            "dot" => ExportFormat::Dot,
                             _ => {
                                 return Err(anyhow::anyhow!(
-                                    "Invalid format: {}. Must be json, jsonl, csv, or scip",
+                                    "Invalid format: {}. Must be json, jsonl, csv, scip, or dot",
                                     args[i + 1]
                                 ))
                             }
@@ -615,7 +616,7 @@ where
                         };
                         i += 2;
                     }
-                    "--filter-file" => {
+                    "--filter-file" | "--file" => {
                         if i + 1 >= args.len() {
                             return Err(anyhow::anyhow!("--filter-file requires an argument"));
                         }
@@ -628,6 +629,10 @@ where
                         }
                         filters.kind = Some(args[i + 1].clone());
                         i += 2;
+                    }
+                    "--cluster" => {
+                        filters.cluster = true;
+                        i += 1;
                     }
                     _ => {
                         return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
@@ -800,11 +805,9 @@ where
                         context_lines = args[i + 1].parse().map_err(|_| {
                             anyhow::anyhow!("Invalid context lines: {}. Must be a number", args[i + 1])
                         })?;
+                        // Cap context lines at 100 maximum
                         if context_lines > 100 {
-                            return Err(anyhow::anyhow!(
-                                "Invalid context lines: {}. Maximum is 100",
-                                context_lines
-                            ));
+                            context_lines = 100;
                         }
                         i += 2;
                     }
@@ -881,7 +884,7 @@ where
                         path = Some(PathBuf::from(&args[i + 1]));
                         i += 2;
                     }
-                    "--glob" => {
+                    "--glob" | "--list-glob" => {
                         if i + 1 >= args.len() {
                             return Err(anyhow::anyhow!("--glob requires an argument"));
                         }
@@ -950,11 +953,9 @@ where
                         context_lines = args[i + 1].parse().map_err(|_| {
                             anyhow::anyhow!("Invalid context lines: {}. Must be a number", args[i + 1])
                         })?;
+                        // Cap context lines at 100 maximum
                         if context_lines > 100 {
-                            return Err(anyhow::anyhow!(
-                                "Invalid context lines: {}. Maximum is 100",
-                                context_lines
-                            ));
+                            context_lines = 100;
                         }
                         i += 2;
                     }
@@ -1084,11 +1085,9 @@ where
                         context_lines = args[i + 1].parse().map_err(|_| {
                             anyhow::anyhow!("Invalid context lines: {}. Must be a number", args[i + 1])
                         })?;
+                        // Cap context lines at 100 maximum
                         if context_lines > 100 {
-                            return Err(anyhow::anyhow!(
-                                "Invalid context lines: {}. Maximum is 100",
-                                context_lines
-                            ));
+                            context_lines = 100;
                         }
                         i += 2;
                     }
@@ -1186,11 +1185,9 @@ where
                         context_lines = args[i + 1].parse().map_err(|_| {
                             anyhow::anyhow!("Invalid context lines: {}. Must be a number", args[i + 1])
                         })?;
+                        // Cap context lines at 100 maximum
                         if context_lines > 100 {
-                            return Err(anyhow::anyhow!(
-                                "Invalid context lines: {}. Maximum is 100",
-                                context_lines
-                            ));
+                            context_lines = 100;
                         }
                         i += 2;
                     }

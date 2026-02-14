@@ -1,8 +1,18 @@
 # Magellan
 
-**Version:** 2.3.0
+**Version:** 2.3.1
 
 A deterministic codebase mapping tool. Watches source files, extracts AST-level facts, and builds a searchable graph database of symbols and references.
+
+## Purpose
+
+**Magellan is the foundation of the Code Intelligence ecosystem.** It was built specifically to power:
+
+- **[LLMGrep](https://github.com/oldnordic/llmgrep)** — Semantic code search using natural language queries against indexed codebases
+- **[Mirage](https://github.com/oldnordic/mirage)** — AI-powered code navigation and comprehension assistant
+- **[Splice](https://github.com/oldnordic/splice)** — Intelligent code refactoring and transformation engine
+
+While Magellan can be used standalone, it is designed as infrastructure. The graph database it builds enables downstream tools to answer questions like "find all callers of this function" or "what code depends on this symbol" with millisecond latency on multi-million line codebases.
 
 ## What Magellan Does
 

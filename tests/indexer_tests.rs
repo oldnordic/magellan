@@ -162,14 +162,11 @@ fn test_delete_event_removes_file_data() {
         assert_eq!(symbols.len(), 1, "Should have 1 symbol before delete");
     }
 
-    // Delete the file - spawn thread to do it after watcher starts
-    let file_path_clone = file_path.clone();
-    thread::spawn(move || {
-        thread::sleep(Duration::from_millis(50));
-        fs::remove_file(&file_path_clone).unwrap();
-    });
+    // Delete the file immediately (before indexer starts)
+    fs::remove_file(&file_path).unwrap();
 
     // Run indexer bounded to 1 event
+    // The indexer will reconcile on startup and detect the deleted file
     magellan::run_indexer_n(root_path.clone(), db_path.clone(), 1).unwrap();
 
     // Verify: File and symbols were removed

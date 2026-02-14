@@ -99,44 +99,42 @@ pub fn ensure_magellan_meta(db_path: &Path) -> Result<(), DbCompatError> {
         Some((found_magellan, found_sqlitegraph)) => {
             // Check if we need to upgrade magellan schema
             if found_magellan != MAGELLAN_SCHEMA_VERSION {
-                // For v4 -> v5, we can do a lightweight migration here
-                // since this is just adding a table, not changing core schema
-                if found_magellan == 4 && MAGELLAN_SCHEMA_VERSION == 5 {
-                    // Create ast_nodes table
-                    ensure_ast_schema(&conn)?;
-
-                    // Update version
+                // Handle multi-version migration step by step
+                let target_version = MAGELLAN_SCHEMA_VERSION;
+                let mut current_version = found_magellan;
+                
+                while current_version < target_version {
+                    match current_version {
+                        4 => {
+                            // v4 -> v5: Create ast_nodes table
+                            ensure_ast_schema(&conn)?;
+                            current_version = 5;
+                        }
+                        5 => {
+                            // v5 -> v6: Add file_id column to ast_nodes
+                            ensure_ast_schema(&conn)?;
+                            current_version = 6;
+                        }
+                        6 => {
+                            // v6 -> v7: Add cfg_blocks table
+                            ensure_cfg_schema(&conn)?;
+                            current_version = 7;
+                        }
+                        _ => {
+                            return Err(DbCompatError::MagellanSchemaMismatch {
+                                path: db_path.to_path_buf(),
+                                found: found_magellan,
+                                expected: MAGELLAN_SCHEMA_VERSION,
+                            });
+                        }
+                    }
+                    
+                    // Update version after each step
                     conn.execute(
                         "UPDATE magellan_meta SET magellan_schema_version = ?1 WHERE id = 1",
-                        params![MAGELLAN_SCHEMA_VERSION],
+                        params![current_version],
                     )
                     .map_err(|e| map_sqlite_query_err(db_path, e))?;
-                } else if found_magellan == 5 && MAGELLAN_SCHEMA_VERSION == 6 {
-                    // For v5 -> v6, add file_id column to ast_nodes
-                    ensure_ast_schema(&conn)?;
-
-                    // Update version
-                    conn.execute(
-                        "UPDATE magellan_meta SET magellan_schema_version = ?1 WHERE id = 1",
-                        params![MAGELLAN_SCHEMA_VERSION],
-                    )
-                    .map_err(|e| map_sqlite_query_err(db_path, e))?;
-                } else if found_magellan == 6 && MAGELLAN_SCHEMA_VERSION == 7 {
-                    // For v6 -> v7, add cfg_blocks table
-                    ensure_cfg_schema(&conn)?;
-
-                    // Update version
-                    conn.execute(
-                        "UPDATE magellan_meta SET magellan_schema_version = ?1 WHERE id = 1",
-                        params![MAGELLAN_SCHEMA_VERSION],
-                    )
-                    .map_err(|e| map_sqlite_query_err(db_path, e))?;
-                } else {
-                    return Err(DbCompatError::MagellanSchemaMismatch {
-                        path: db_path.to_path_buf(),
-                        found: found_magellan,
-                        expected: MAGELLAN_SCHEMA_VERSION,
-                    });
                 }
             }
 

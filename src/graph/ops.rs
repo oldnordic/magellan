@@ -529,9 +529,15 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         // This works with both SQLite and V3 backends.
         chunks_deleted = graph.chunks.delete_chunks_for_file(path)?;
         
-        // TODO: V3 backend needs AST nodes and CFG blocks support
-        // For now, set these to 0 for V3 backend
-        ast_nodes_deleted = 0;
+        // Delete AST nodes using SideTables (works with both SQLite and V3)
+        let file_id_for_ast = graph.files.file_index.get(path).map(|id| id.as_i64()).unwrap_or(0);
+        ast_nodes_deleted = if file_id_for_ast > 0 {
+            graph.side_tables.delete_ast_nodes_for_file(file_id_for_ast)?
+        } else {
+            0
+        };
+        
+        // TODO: V3 backend needs CFG blocks support
         cfg_blocks_deleted = 0;
         let edges_deleted = 0;
 
@@ -585,9 +591,15 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
             path, expected_calls, calls_deleted
         );
 
-        // TODO: V3 backend needs AST nodes and CFG blocks support
-        // For now, skip these deletions for V3 backend
-        ast_nodes_deleted = 0;
+        // Delete AST nodes using SideTables (even if no file node, clean up orphaned data)
+        let file_id_for_ast = graph.files.file_index.get(path).map(|id| id.as_i64()).unwrap_or(0);
+        ast_nodes_deleted = if file_id_for_ast > 0 {
+            graph.side_tables.delete_ast_nodes_for_file(file_id_for_ast)?
+        } else {
+            0
+        };
+        
+        // TODO: V3 backend needs CFG blocks support
         cfg_blocks_deleted = 0;
 
         // Invalidate cache for this file (even if no file node existed)
@@ -735,7 +747,9 @@ pub mod test_helpers {
 
             // Verification point after symbols deleted
             if verify_at == Some(FailPoint::AfterSymbolsDeleted) {
-                // Note: We don't remove from file_index here since file still exists
+                // NOTE: sqlitegraph doesn't support rollback/restore of deleted entities.
+                // The tests that expect rollback behavior need to be updated.
+                // For now, we keep file_index consistent (file not deleted yet)
                 return Ok(DeleteResult {
                     symbols_deleted,
                     references_deleted: 0,
@@ -753,6 +767,8 @@ pub mod test_helpers {
                 .backend
                 .delete_entity(file_id.as_i64())?;
             deleted_entity_ids.push(file_id.as_i64());
+            // Remove from file_index immediately to keep in-memory state consistent
+            graph.files.file_index.remove(path);
 
             // Delete references in this file.
             references_deleted = graph.references.delete_references_in_file(path)?;

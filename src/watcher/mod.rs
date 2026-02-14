@@ -41,6 +41,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
+use crate::diagnostics::SkipReason;
 use crate::graph::filter::FileFilter;
 
 /// Deterministic batch of dirty file paths.
@@ -455,10 +456,17 @@ fn extract_dirty_paths(
         // Apply gitignore filter if enabled
         // This checks .gitignore patterns and internal ignores (target/, node_modules/, etc.)
         if let Some(f) = filter {
-            if f.should_skip(path).is_some() {
-                // Path is ignored by gitignore, skip without logging
-                // (would be too noisy to log every ignored file)
-                continue;
+            match f.should_skip(path) {
+                None => {} // Path is not skipped, continue processing
+                Some(SkipReason::NotAFile) => {
+                    // File doesn't exist on disk - this could be a delete event
+                    // or a temporary file. Still report it so the indexer can
+                    // reconcile deletions.
+                }
+                Some(_) => {
+                    // Path is ignored by gitignore or other reasons, skip it
+                    continue;
+                }
             }
         }
 
@@ -488,8 +496,12 @@ fn extract_dirty_paths(
                 );
             }
             Err(crate::validation::PathValidationError::CannotCanonicalize(_)) => {
-                // Path doesn't exist or can't be accessed - skip
-                // This is normal for files that are deleted
+                // Path doesn't exist or can't be accessed
+                // This happens for deleted files - still report them so the indexer
+                // can reconcile the deletion
+                let normalized = crate::validation::normalize_path(path)
+                    .unwrap_or_else(|_| path.to_string_lossy().to_string());
+                dirty_paths.insert(PathBuf::from(normalized));
             }
         }
     }

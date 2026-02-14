@@ -70,11 +70,16 @@ fn test_trait_definition() {
     let source = b"trait MyTrait { fn method(&self); }";
     let facts = parser.extract_symbols(PathBuf::from("test.rs"), source);
 
-    assert_eq!(facts.len(), 1, "Should extract one trait");
-    let fact = &facts[0];
-
-    assert_eq!(fact.kind, SymbolKind::Interface); // Rust trait → Interface (language-agnostic)
-    assert_eq!(fact.name, Some("MyTrait".to_string()));
+    // Should extract trait + method inside it
+    assert!(facts.len() >= 1, "Should extract at least the trait");
+    
+    // Find the trait
+    let traits: Vec<_> = facts
+        .iter()
+        .filter(|f| f.kind == SymbolKind::Interface)
+        .collect();
+    assert_eq!(traits.len(), 1, "Should extract exactly one trait");
+    assert_eq!(traits[0].name, Some("MyTrait".to_string()));
 }
 
 #[test]
@@ -96,19 +101,20 @@ fn test_impl_block() {
     let source = b"impl MyStruct { fn method(&self) {} }";
     let facts = parser.extract_symbols(PathBuf::from("test.rs"), source);
 
-    // impl block + method inside
+    // Should extract method inside impl block (impl block itself is not a symbol)
     assert!(
         facts.len() >= 1,
-        "Should extract at least impl block or method"
+        "Should extract at least the method inside impl"
     );
 
-    // Find the method
+    // Find the method (functions inside impl are extracted as Function)
     let methods: Vec<_> = facts
         .iter()
-        .filter(|f| f.kind == SymbolKind::Unknown || f.kind == SymbolKind::Method)
+        .filter(|f| f.kind == SymbolKind::Function)
         .collect();
 
     assert!(!methods.is_empty(), "Should find method inside impl block");
+    assert_eq!(methods[0].name, Some("method".to_string()));
 }
 
 #[test]
