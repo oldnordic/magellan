@@ -1164,8 +1164,11 @@ mod tests {
     ///
     /// Returns the CodeGraph and symbol IDs for main and unused_function
     fn create_test_graph() -> Result<(CodeGraph, String, String)> {
-        let temp_dir = tempfile::TempDir::new()?;
-        let db_path = temp_dir.path().join("test.db");
+        // Use a persistent temp directory that won't be deleted
+        // This is necessary for V3 backend which needs files to remain accessible
+        let temp_dir = std::env::temp_dir().join(format!("magellan_test_{}", std::process::id()));
+        std::fs::create_dir_all(&temp_dir)?;
+        let db_path = temp_dir.join("test.db");
 
         let source = r#"
 fn main() {
@@ -1192,7 +1195,7 @@ fn unused_function() {
 
         let mut graph = CodeGraph::open(&db_path)?;
         // Index the file - use a temporary file path
-        let test_file = temp_dir.path().join("test.rs");
+        let test_file = temp_dir.join("test.rs");
         std::fs::write(&test_file, source)?;
         let path_str = test_file.to_string_lossy().to_string();
         let source_bytes = std::fs::read(&test_file)?;
@@ -1258,19 +1261,26 @@ fn unused_function() {
 
         // Get all symbols and verify we can query them
         let entity_ids = graph.calls.backend.entity_ids().unwrap();
+        eprintln!("Total entities: {}", entity_ids.len());
         let snapshot = SnapshotId::current();
         let mut found_symbols = 0;
 
-        for entity_id in entity_ids {
-            if let Ok(node) = graph.calls.backend.get_node(snapshot, entity_id) {
-                if node.kind == "Symbol" {
-                    found_symbols += 1;
+        for entity_id in &entity_ids {
+            match graph.calls.backend.get_node(snapshot, *entity_id) {
+                Ok(node) => {
+                    eprintln!("  Entity {}: kind={}", entity_id, node.kind);
+                    if node.kind == "Symbol" {
+                        found_symbols += 1;
+                    }
+                }
+                Err(e) => {
+                    eprintln!("  Entity {}: ERROR getting node: {:?}", entity_id, e);
                 }
             }
         }
 
         // We should have found at least some symbols
-        assert!(found_symbols > 0, "Should find Symbol entities in test graph");
+        assert!(found_symbols > 0, "Should find Symbol entities in test graph, got {} symbols from {} entities", found_symbols, entity_ids.len());
     }
 
     #[test]

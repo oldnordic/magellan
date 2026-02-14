@@ -102,14 +102,17 @@ impl MetricsOps {
     }
 
     /// Open a connection to the database (SQLite backend only)
+    /// Get a SQLite connection for metrics operations.
     ///
-    /// # Panics
-    /// Panics if called when using SideTables backend.
+    /// Returns an error when using SideTables backend (V3) since metrics
+    /// computation uses direct SQL that hasn't been migrated to SideTables yet.
     fn connect(&self) -> Result<rusqlite::Connection, rusqlite::Error> {
         match &self.backend {
             MetricsOpsBackend::Sqlite(path) => rusqlite::Connection::open(path),
             MetricsOpsBackend::SideTables(_) => {
-                panic!("connect() is not available when using SideTables backend")
+                Err(rusqlite::Error::InvalidParameterName(
+                    "Metrics not available with V3 backend".to_string()
+                ))
             }
         }
     }

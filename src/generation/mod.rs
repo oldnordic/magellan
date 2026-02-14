@@ -360,39 +360,53 @@ impl ChunkStore {
 
     /// Store multiple code chunks in a transaction.
     pub fn store_chunks(&self, chunks: &[CodeChunk]) -> Result<Vec<i64>> {
-        self.with_connection_mut(|conn| {
-            let tx = conn
-                .unchecked_transaction()
-                .map_err(|e| anyhow::anyhow!("Failed to start transaction: {}", e))?;
-
-            let mut ids = Vec::new();
-
-            for chunk in chunks {
-                tx.execute(
-                    "INSERT OR REPLACE INTO code_chunks
-                        (file_path, byte_start, byte_end, content, content_hash, symbol_name, symbol_kind, created_at)
-                        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                    params![
-                        chunk.file_path,
-                        chunk.byte_start as i64,
-                        chunk.byte_end as i64,
-                        chunk.content,
-                        chunk.content_hash,
-                        chunk.symbol_name,
-                        chunk.symbol_kind,
-                        chunk.created_at,
-                    ],
-                )
-                .map_err(|e| anyhow::anyhow!("Failed to store code chunk: {}", e))?;
-
-                ids.push(tx.last_insert_rowid());
+        match &self.backend {
+            ChunkStoreBackend::SideTables(tables) => {
+                // V3 backend: use SideTables trait method
+                let mut ids = Vec::new();
+                for chunk in chunks {
+                    let id = tables.store_chunk(chunk)?;
+                    ids.push(id);
+                }
+                Ok(ids)
             }
+            _ => {
+                // SQLite backend: use direct connection
+                self.with_connection_mut(|conn| {
+                    let tx = conn
+                        .unchecked_transaction()
+                        .map_err(|e| anyhow::anyhow!("Failed to start transaction: {}", e))?;
 
-            tx.commit()
-                .map_err(|e| anyhow::anyhow!("Failed to commit transaction: {}", e))?;
+                    let mut ids = Vec::new();
 
-            Ok(ids)
-        })
+                    for chunk in chunks {
+                        tx.execute(
+                            "INSERT OR REPLACE INTO code_chunks
+                                (file_path, byte_start, byte_end, content, content_hash, symbol_name, symbol_kind, created_at)
+                                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                            params![
+                                chunk.file_path,
+                                chunk.byte_start as i64,
+                                chunk.byte_end as i64,
+                                chunk.content,
+                                chunk.content_hash,
+                                chunk.symbol_name,
+                                chunk.symbol_kind,
+                                chunk.created_at,
+                            ],
+                        )
+                        .map_err(|e| anyhow::anyhow!("Failed to store code chunk: {}", e))?;
+
+                        ids.push(tx.last_insert_rowid());
+                    }
+
+                    tx.commit()
+                        .map_err(|e| anyhow::anyhow!("Failed to commit transaction: {}", e))?;
+
+                    Ok(ids)
+                })
+            }
+        }
     }
 
     /// Get a code chunk by file path and byte span.
@@ -402,73 +416,87 @@ impl ChunkStore {
         byte_start: usize,
         byte_end: usize,
     ) -> Result<Option<CodeChunk>> {
-        self.with_conn(|conn| {
-            let mut stmt = conn
-                .prepare_cached(
-                    "SELECT id, file_path, byte_start, byte_end, content, content_hash,
-                            symbol_name, symbol_kind, created_at
-                     FROM code_chunks
-                     WHERE file_path = ?1 AND byte_start = ?2 AND byte_end = ?3",
-                )
-                .map_err(|e| anyhow::anyhow!("Failed to prepare query: {}", e))?;
+        match &self.backend {
+            ChunkStoreBackend::SideTables(tables) => {
+                tables.get_chunk_by_span(file_path, byte_start, byte_end)
+            }
+            _ => {
+                self.with_conn(|conn| {
+                    let mut stmt = conn
+                        .prepare_cached(
+                            "SELECT id, file_path, byte_start, byte_end, content, content_hash,
+                                    symbol_name, symbol_kind, created_at
+                             FROM code_chunks
+                             WHERE file_path = ?1 AND byte_start = ?2 AND byte_end = ?3",
+                        )
+                        .map_err(|e| anyhow::anyhow!("Failed to prepare query: {}", e))?;
 
-            let result = stmt
-                .query_row(
-                    params![file_path, byte_start as i64, byte_end as i64],
-                    |row: &rusqlite::Row| {
-                        Ok(CodeChunk {
-                            id: Some(row.get(0)?),
-                            file_path: row.get(1)?,
-                            byte_start: row.get::<_, i64>(2)? as usize,
-                            byte_end: row.get::<_, i64>(3)? as usize,
-                            content: row.get(4)?,
-                            content_hash: row.get(5)?,
-                            symbol_name: row.get(6)?,
-                            symbol_kind: row.get(7)?,
-                            created_at: row.get(8)?,
-                        })
-                    },
-                )
-                .optional()
-                .map_err(|e| anyhow::anyhow!("Failed to query code chunk: {}", e))?;
+                    let result = stmt
+                        .query_row(
+                            params![file_path, byte_start as i64, byte_end as i64],
+                            |row: &rusqlite::Row| {
+                                Ok(CodeChunk {
+                                    id: Some(row.get(0)?),
+                                    file_path: row.get(1)?,
+                                    byte_start: row.get::<_, i64>(2)? as usize,
+                                    byte_end: row.get::<_, i64>(3)? as usize,
+                                    content: row.get(4)?,
+                                    content_hash: row.get(5)?,
+                                    symbol_name: row.get(6)?,
+                                    symbol_kind: row.get(7)?,
+                                    created_at: row.get(8)?,
+                                })
+                            },
+                        )
+                        .optional()
+                        .map_err(|e| anyhow::anyhow!("Failed to query code chunk: {}", e))?;
 
-            Ok(result)
-        })
+                    Ok(result)
+                })
+            }
+        }
     }
 
     /// Get all code chunks for a specific file.
     pub fn get_chunks_for_file(&self, file_path: &str) -> Result<Vec<CodeChunk>> {
-        self.with_conn(|conn| {
-            let mut stmt = conn
-                .prepare_cached(
-                    "SELECT id, file_path, byte_start, byte_end, content, content_hash,
-                            symbol_name, symbol_kind, created_at
-                     FROM code_chunks
-                     WHERE file_path = ?1
-                     ORDER BY byte_start",
-                )
-                .map_err(|e| anyhow::anyhow!("Failed to prepare query: {}", e))?;
+        match &self.backend {
+            ChunkStoreBackend::SideTables(tables) => {
+                tables.get_chunks_for_file(file_path)
+            }
+            _ => {
+                self.with_conn(|conn| {
+                    let mut stmt = conn
+                        .prepare_cached(
+                            "SELECT id, file_path, byte_start, byte_end, content, content_hash,
+                                    symbol_name, symbol_kind, created_at
+                             FROM code_chunks
+                             WHERE file_path = ?1
+                             ORDER BY byte_start",
+                        )
+                        .map_err(|e| anyhow::anyhow!("Failed to prepare query: {}", e))?;
 
-            let chunks = stmt
-                .query_map(params![file_path], |row: &rusqlite::Row| {
-                    Ok(CodeChunk {
-                        id: Some(row.get(0)?),
-                        file_path: row.get(1)?,
-                        byte_start: row.get::<_, i64>(2)? as usize,
-                        byte_end: row.get::<_, i64>(3)? as usize,
-                        content: row.get(4)?,
-                        content_hash: row.get(5)?,
-                        symbol_name: row.get(6)?,
-                        symbol_kind: row.get(7)?,
-                        created_at: row.get(8)?,
-                    })
+                    let chunks = stmt
+                        .query_map(params![file_path], |row: &rusqlite::Row| {
+                            Ok(CodeChunk {
+                                id: Some(row.get(0)?),
+                                file_path: row.get(1)?,
+                                byte_start: row.get::<_, i64>(2)? as usize,
+                                byte_end: row.get::<_, i64>(3)? as usize,
+                                content: row.get(4)?,
+                                content_hash: row.get(5)?,
+                                symbol_name: row.get(6)?,
+                                symbol_kind: row.get(7)?,
+                                created_at: row.get(8)?,
+                            })
+                        })
+                        .map_err(|e| anyhow::anyhow!("Failed to query code chunks: {}", e))?
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(|e| anyhow::anyhow!("Failed to collect chunks: {}", e))?;
+
+                    Ok(chunks)
                 })
-                .map_err(|e| anyhow::anyhow!("Failed to query code chunks: {}", e))?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|e| anyhow::anyhow!("Failed to collect chunks: {}", e))?;
-
-            Ok(chunks)
-        })
+            }
+        }
     }
 
     /// Get code chunks for a specific symbol in a file.
@@ -477,37 +505,44 @@ impl ChunkStore {
         file_path: &str,
         symbol_name: &str,
     ) -> Result<Vec<CodeChunk>> {
-        self.with_conn(|conn| {
-            let mut stmt = conn
-                .prepare_cached(
-                    "SELECT id, file_path, byte_start, byte_end, content, content_hash,
-                            symbol_name, symbol_kind, created_at
-                     FROM code_chunks
-                     WHERE file_path = ?1 AND symbol_name = ?2
-                     ORDER BY byte_start",
-                )
-                .map_err(|e| anyhow::anyhow!("Failed to prepare query: {}", e))?;
+        match &self.backend {
+            ChunkStoreBackend::SideTables(tables) => {
+                tables.get_chunks_by_symbol(file_path, symbol_name)
+            }
+            _ => {
+                self.with_conn(|conn| {
+                    let mut stmt = conn
+                        .prepare_cached(
+                            "SELECT id, file_path, byte_start, byte_end, content, content_hash,
+                                    symbol_name, symbol_kind, created_at
+                             FROM code_chunks
+                             WHERE file_path = ?1 AND symbol_name = ?2
+                             ORDER BY byte_start",
+                        )
+                        .map_err(|e| anyhow::anyhow!("Failed to prepare query: {}", e))?;
 
-            let chunks = stmt
-                .query_map(params![file_path, symbol_name], |row: &rusqlite::Row| {
-                    Ok(CodeChunk {
-                        id: Some(row.get(0)?),
-                        file_path: row.get(1)?,
-                        byte_start: row.get::<_, i64>(2)? as usize,
-                        byte_end: row.get::<_, i64>(3)? as usize,
-                        content: row.get(4)?,
-                        content_hash: row.get(5)?,
-                        symbol_name: row.get(6)?,
-                        symbol_kind: row.get(7)?,
-                        created_at: row.get(8)?,
-                    })
+                    let chunks = stmt
+                        .query_map(params![file_path, symbol_name], |row: &rusqlite::Row| {
+                            Ok(CodeChunk {
+                                id: Some(row.get(0)?),
+                                file_path: row.get(1)?,
+                                byte_start: row.get::<_, i64>(2)? as usize,
+                                byte_end: row.get::<_, i64>(3)? as usize,
+                                content: row.get(4)?,
+                                content_hash: row.get(5)?,
+                                symbol_name: row.get(6)?,
+                                symbol_kind: row.get(7)?,
+                                created_at: row.get(8)?,
+                            })
+                        })
+                        .map_err(|e| anyhow::anyhow!("Failed to query code chunks: {}", e))?
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(|e| anyhow::anyhow!("Failed to collect chunks: {}", e))?;
+
+                    Ok(chunks)
                 })
-                .map_err(|e| anyhow::anyhow!("Failed to query code chunks: {}", e))?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|e| anyhow::anyhow!("Failed to collect chunks: {}", e))?;
-
-            Ok(chunks)
-        })
+            }
+        }
     }
 
     /// Delete all code chunks for a specific file.
@@ -567,36 +602,44 @@ impl ChunkStore {
     /// Get all code chunks from storage.
     ///
     /// For SQLite, queries the code_chunks table.
+    /// For V3, uses SideTables trait method.
     pub fn get_all_chunks(&self) -> Result<Vec<CodeChunk>> {
-        self.with_conn(|conn| {
-            let mut stmt = conn.prepare_cached(
-                "SELECT id, file_path, byte_start, byte_end, content, content_hash,
-                        symbol_name, symbol_kind, created_at
-                 FROM code_chunks
-                 ORDER BY file_path, byte_start"
-            )
-            .map_err(|e| anyhow::anyhow!("Failed to prepare query: {}", e))?;
+        match &self.backend {
+            ChunkStoreBackend::SideTables(tables) => {
+                tables.get_all_chunks()
+            }
+            _ => {
+                self.with_conn(|conn| {
+                    let mut stmt = conn.prepare_cached(
+                        "SELECT id, file_path, byte_start, byte_end, content, content_hash,
+                                symbol_name, symbol_kind, created_at
+                         FROM code_chunks
+                         ORDER BY file_path, byte_start"
+                    )
+                    .map_err(|e| anyhow::anyhow!("Failed to prepare query: {}", e))?;
 
-            let chunks = stmt
-                .query_map([], |row: &rusqlite::Row| {
-                    Ok(CodeChunk {
-                        id: Some(row.get(0)?),
-                        file_path: row.get(1)?,
-                        byte_start: row.get::<_, i64>(2)? as usize,
-                        byte_end: row.get::<_, i64>(3)? as usize,
-                        content: row.get(4)?,
-                        content_hash: row.get(5)?,
-                        symbol_name: row.get(6)?,
-                        symbol_kind: row.get(7)?,
-                        created_at: row.get(8)?,
-                    })
+                    let chunks = stmt
+                        .query_map([], |row: &rusqlite::Row| {
+                            Ok(CodeChunk {
+                                id: Some(row.get(0)?),
+                                file_path: row.get(1)?,
+                                byte_start: row.get::<_, i64>(2)? as usize,
+                                byte_end: row.get::<_, i64>(3)? as usize,
+                                content: row.get(4)?,
+                                content_hash: row.get(5)?,
+                                symbol_name: row.get(6)?,
+                                symbol_kind: row.get(7)?,
+                                created_at: row.get(8)?,
+                            })
+                        })
+                        .map_err(|e| anyhow::anyhow!("Failed to query code chunks: {}", e))?
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(|e| anyhow::anyhow!("Failed to collect chunks: {}", e))?;
+
+                    Ok(chunks)
                 })
-                .map_err(|e| anyhow::anyhow!("Failed to query code chunks: {}", e))?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|e| anyhow::anyhow!("Failed to collect chunks: {}", e))?;
-
-            Ok(chunks)
-        })
+            }
+        }
     }
 
     /// Check if this ChunkStore is using KV backend
@@ -608,37 +651,49 @@ impl ChunkStore {
 
     /// Get chunks by symbol kind (e.g., "fn", "struct").
     pub fn get_chunks_by_kind(&self, symbol_kind: &str) -> Result<Vec<CodeChunk>> {
-        self.with_conn(|conn| {
-            let mut stmt = conn
-                .prepare_cached(
-                    "SELECT id, file_path, byte_start, byte_end, content, content_hash,
-                            symbol_name, symbol_kind, created_at
-                     FROM code_chunks
-                     WHERE symbol_kind = ?1
-                     ORDER BY file_path, byte_start",
-                )
-                .map_err(|e| anyhow::anyhow!("Failed to prepare query: {}", e))?;
+        match &self.backend {
+            ChunkStoreBackend::SideTables(_) => {
+                // V3 backend: filter from all chunks
+                let all_chunks = self.get_all_chunks()?;
+                Ok(all_chunks
+                    .into_iter()
+                    .filter(|c| c.symbol_kind.as_ref() == Some(&symbol_kind.to_string()))
+                    .collect())
+            }
+            _ => {
+                self.with_conn(|conn| {
+                    let mut stmt = conn
+                        .prepare_cached(
+                            "SELECT id, file_path, byte_start, byte_end, content, content_hash,
+                                    symbol_name, symbol_kind, created_at
+                             FROM code_chunks
+                             WHERE symbol_kind = ?1
+                             ORDER BY file_path, byte_start",
+                        )
+                        .map_err(|e| anyhow::anyhow!("Failed to prepare query: {}", e))?;
 
-            let chunks = stmt
-                .query_map(params![symbol_kind], |row: &rusqlite::Row| {
-                    Ok(CodeChunk {
-                        id: Some(row.get(0)?),
-                        file_path: row.get(1)?,
-                        byte_start: row.get::<_, i64>(2)? as usize,
-                        byte_end: row.get::<_, i64>(3)? as usize,
-                        content: row.get(4)?,
-                        content_hash: row.get(5)?,
-                        symbol_name: row.get(6)?,
-                        symbol_kind: row.get(7)?,
-                        created_at: row.get(8)?,
-                    })
+                    let chunks = stmt
+                        .query_map(params![symbol_kind], |row: &rusqlite::Row| {
+                            Ok(CodeChunk {
+                                id: Some(row.get(0)?),
+                                file_path: row.get(1)?,
+                                byte_start: row.get::<_, i64>(2)? as usize,
+                                byte_end: row.get::<_, i64>(3)? as usize,
+                                content: row.get(4)?,
+                                content_hash: row.get(5)?,
+                                symbol_name: row.get(6)?,
+                                symbol_kind: row.get(7)?,
+                                created_at: row.get(8)?,
+                            })
+                        })
+                        .map_err(|e| anyhow::anyhow!("Failed to query code chunks: {}", e))?
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(|e| anyhow::anyhow!("Failed to collect chunks: {}", e))?;
+
+                    Ok(chunks)
                 })
-                .map_err(|e| anyhow::anyhow!("Failed to query code chunks: {}", e))?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|e| anyhow::anyhow!("Failed to collect chunks: {}", e))?;
-
-            Ok(chunks)
-        })
+            }
+        }
     }
 
 
