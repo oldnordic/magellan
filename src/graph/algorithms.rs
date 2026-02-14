@@ -339,7 +339,7 @@ impl CodeGraph {
     ///
     /// # Returns
     /// SymbolInfo with metadata from the symbol node
-    fn symbol_by_entity_id(&self, entity_id: i64) -> Result<SymbolInfo> {
+    pub fn symbol_by_entity_id(&self, entity_id: i64) -> Result<SymbolInfo> {
         let snapshot = SnapshotId::current();
         let node = self
             .calls

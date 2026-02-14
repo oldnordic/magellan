@@ -947,4 +947,29 @@ impl CodeGraph {
             Vec::new()
         }
     }
+
+    /// Get symbol node by entity ID
+    ///
+    /// Returns the full SymbolNode data for a given entity ID.
+    /// Works with both SQLite and V3 backends.
+    ///
+    /// # Arguments
+    /// * `entity_id` - The entity ID to look up
+    ///
+    /// # Returns
+    /// Some(SymbolNode) if found and is a Symbol, None otherwise
+    pub fn get_symbol_by_entity_id(&self, entity_id: i64) -> Option<SymbolNode> {
+        use sqlitegraph::SnapshotId;
+        
+        let snapshot = SnapshotId::current();
+        match self.files.backend.get_node(snapshot, entity_id) {
+            Ok(node) => {
+                if node.kind != "Symbol" {
+                    return None;
+                }
+                serde_json::from_value(node.data).ok()
+            }
+            Err(_) => None,
+        }
+    }
 }

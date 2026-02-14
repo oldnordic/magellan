@@ -3,6 +3,14 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.3] - 2026-02-14
+
+### Added
+- **Symbol lookup by entity ID**
+  - `CodeGraph::get_symbol_by_entity_id()` - returns full SymbolNode for given entity ID
+  - Made `symbol_by_entity_id()` public in algorithms module
+  - Enables llmgrep to resolve symbol IDs to full symbol details
+
 ## [2.4.2] - 2026-02-14
 
 ### Added
