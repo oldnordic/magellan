@@ -65,7 +65,7 @@ pub use ops::test_helpers;
 
 // Re-export symbol ID generation function
 pub use symbols::generate_symbol_id;
-#[cfg(all(test, not(feature = "native-v2")))]
+#[cfg(all(test, not(feature = "native-v3")))]
 mod ast_tests;
 #[cfg(test)]
 mod tests;
@@ -86,13 +86,9 @@ pub use algorithms::{
     SliceResult, SliceStatistics, Supernode, SymbolInfo,
 };
 pub use ast_extractor::{extract_ast_nodes, language_from_path, normalize_node_kind};
-#[cfg(feature = "native-v2")]
-pub use ast_extractor::{store_ast_nodes_kv, get_ast_nodes_kv};
 pub use ast_node::{AstNode, AstNodeWithText, is_structural_kind};
 // Re-export CFG types for public API
 pub use cfg_extractor::{BlockKind, CfgExtractor, TerminatorKind};
-#[cfg(feature = "native-v2")]
-pub use cfg_extractor::{store_cfg_blocks_kv, get_cfg_blocks_kv};
 pub use cfg_ops::CfgOps;
 
 #[cfg(feature = "bytecode-cfg")]
@@ -178,15 +174,17 @@ impl CodeGraph {
 
         // Phase 1: read-only compatibility preflight for existing DB files.
         // This MUST run before any sqlitegraph or Magellan side-table writes occur.
-        // Skip preflight for Native backends (not SQLite databases).
-        #[cfg(not(any(feature = "native-v2", feature = "native-v3")))]
+        // Skip preflight for V3 backend (not a SQLite database).
+        #[cfg(not(feature = "native-v3"))]
         {
             db_compat::preflight_sqlitegraph_compat(&db_path_buf)
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?;
         }
 
         // Phase 2: Backend opening (conditional compilation)
-        // Priority: native-v3 > native-v2 > sqlite (default)
+        // Select backend based on feature flags:
+        // - native-v3: High-performance native binary backend
+        // - sqlite-backend (default): Stable SQLite backend
         
         #[cfg(feature = "native-v3")]
         let backend: Rc<dyn GraphBackend> = {
@@ -197,32 +195,24 @@ impl CodeGraph {
             } else {
                 V3Backend::create(&db_path_buf)?
             };
+            eprintln!("Using V3 backend: {:?}", db_path_buf);
             Rc::new(v3_backend)
         };
 
-        #[cfg(all(feature = "native-v2", not(feature = "native-v3")))]
-        let backend: Rc<dyn GraphBackend> = {
-            use sqlitegraph::NativeGraphBackend;
-            // Native V2 backend (deprecated): open if exists, create if not
-            eprintln!("Warning: native-v2 is deprecated. Use native-v3 instead.");
-            let native_graph = if db_path_buf.exists() {
-                NativeGraphBackend::open(&db_path_buf)?
-            } else {
-                NativeGraphBackend::new(&db_path_buf)?
-            };
-            Rc::new(native_graph)
-        };
-
-        #[cfg(not(any(feature = "native-v2", feature = "native-v3")))]
+        #[cfg(all(not(feature = "native-v3"), feature = "sqlite-backend"))]
         let backend: Rc<dyn GraphBackend> = {
             use sqlitegraph::{SqliteGraph, SqliteGraphBackend};
             let sqlite_graph = SqliteGraph::open(&db_path_buf)?;
+            eprintln!("Using SQLite backend: {:?}", db_path_buf);
             Rc::new(SqliteGraphBackend::from_graph(sqlite_graph))
         };
 
+        #[cfg(all(not(feature = "native-v3"), not(feature = "sqlite-backend")))]
+        compile_error!("Either 'native-v3' or 'sqlite-backend' feature must be enabled");
+
         // Phase 2b: Configure SQLite performance PRAGMAs
-        // SQLite-only configuration (Native backends don't use SQLite PRAGMAs)
-        #[cfg(not(any(feature = "native-v2", feature = "native-v3")))]
+        // SQLite-only configuration (V3 backend doesn't use SQLite)
+        #[cfg(all(not(feature = "native-v3"), feature = "sqlite-backend"))]
         {
             // Note: sqlitegraph 1.0.0 already configures these in from_connection(),
             // but we set them explicitly here to ensure they're applied even if
@@ -280,8 +270,8 @@ impl CodeGraph {
         files.rebuild_file_index()?;
 
         // Phase 3: SQLite-specific side-table initialization (ONLY for SQLite backend)
-        // Native backends use KV store instead of SQLite side-tables
-        #[cfg(not(any(feature = "native-v2", feature = "native-v3")))]
+        // V3 backend also uses SQLite side-tables for now (KV support coming)
+        #[cfg(not(feature = "native-v3"))]
         let (chunks, execution_log, metrics, needs_backfill) = {
             // Phase 3a: Magellan-owned DB compatibility metadata.
             // MUST run after sqlitegraph open and before any other Magellan side-table writes.
@@ -354,28 +344,18 @@ impl CodeGraph {
             (chunks, execution_log, metrics, needs_backfill)
         };
 
-        // Native V2 backend: KV-based storage for all side tables
-        #[cfg(all(feature = "native-v2", not(feature = "native-v3")))]
-        let (chunks, execution_log, metrics, needs_backfill) = {
-            // Native V2 uses KV store instead of SQLite side-tables
-            // All side tables use KV storage for persistence
-            (
-                ChunkStore::with_kv_backend(Rc::clone(&backend)),
-                execution_log::ExecutionLog::with_kv_backend(Rc::clone(&backend)),
-                metrics::MetricsOps::with_kv_backend(Rc::clone(&backend)),
-                false, // No backfill needed for new V2 databases
-            )
-        };
-
-        // Native V3 backend: Use SQLite side-tables for now (KV support coming)
+        // V3 backend: Use SQLite side-tables for now (KV support coming)
         #[cfg(feature = "native-v3")]
         let (chunks, execution_log, metrics, needs_backfill) = {
+            // V3 uses a separate SQLite file for side-tables (suffix .sqlite)
+            let sqlite_path = db_path_buf.with_extension("sqlite");
+            
             // Phase 3a: Magellan-owned DB compatibility metadata.
-            db_compat::ensure_magellan_meta(&db_path_buf)
+            db_compat::ensure_magellan_meta(&sqlite_path)
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
             // Open a shared connection for ChunkStore
-            let shared_conn = rusqlite::Connection::open(&db_path_buf).map_err(|e| {
+            let shared_conn = rusqlite::Connection::open(&sqlite_path).map_err(|e| {
                 anyhow::anyhow!("Failed to open shared connection for ChunkStore: {}", e)
             })?;
 
@@ -384,16 +364,16 @@ impl CodeGraph {
             chunks.ensure_schema()?;
 
             // Initialize ExecutionLog and ensure schema exists
-            let execution_log = execution_log::ExecutionLog::new(&db_path_buf);
+            let execution_log = execution_log::ExecutionLog::new(&sqlite_path);
             execution_log.ensure_schema()?;
 
             // Initialize MetricsOps
-            let metrics = metrics::MetricsOps::new(&db_path_buf);
+            let metrics = metrics::MetricsOps::new(&sqlite_path);
             metrics.ensure_schema()?;
 
             // Ensure AST nodes schema exists
             {
-                let ast_conn = rusqlite::Connection::open(&db_path_buf).map_err(|e| {
+                let ast_conn = rusqlite::Connection::open(&sqlite_path).map_err(|e| {
                     anyhow::anyhow!("Failed to open connection for AST schema: {}", e)
                 })?;
                 db_compat::ensure_ast_schema(&ast_conn)
@@ -402,7 +382,7 @@ impl CodeGraph {
 
             // Ensure CFG schema exists
             {
-                let cfg_conn = rusqlite::Connection::open(&db_path_buf).map_err(|e| {
+                let cfg_conn = rusqlite::Connection::open(&sqlite_path).map_err(|e| {
                     anyhow::anyhow!("Failed to open connection for CFG schema: {}", e)
                 })?;
                 db_compat::ensure_cfg_schema(&cfg_conn)
@@ -873,18 +853,13 @@ impl CodeGraph {
         &self.files.backend
     }
 
-    /// Get backend for pub/sub event subscription (Native V2 only).
+    /// Get backend reference.
     ///
-    /// This method provides access to the underlying graph backend for
-    /// creating pub/sub event subscriptions in FileSystemWatcher.
+    /// This method provides access to the underlying graph backend.
     ///
     /// # WARNING
-    /// This is internal API for watcher integration only. Direct backend access
-    /// bypasses CodeGraph's transactional and caching layers.
-    ///
-    /// # Feature Availability
-    /// Only available with `native-v2` feature (pub/sub is Native V2 specific).
-    #[cfg(feature = "native-v2")]
+    /// This is internal API. Direct backend access bypasses CodeGraph's
+    /// transactional and caching layers.
     #[doc(hidden)]
     pub fn __backend_for_watcher(&self) -> &std::rc::Rc<dyn sqlitegraph::GraphBackend> {
         &self.files.backend

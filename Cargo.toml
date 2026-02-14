@@ -35,13 +35,22 @@ harness = false
 path = "benches/perf_suite.rs"
 
 [features]
-default = []
-# Native V3 backend (recommended)
+# Default: SQLite backend (stable, widely compatible)
+default = ["sqlite-backend"]
+
+# SQLite backend (stable, uses SQLite for storage)
+# Use this for compatibility and stability
+sqlite-backend = ["sqlitegraph/sqlite-backend"]
+
+# Native V3 backend (recommended for performance)
 # 10-20x faster traversals, unlimited capacity, B+Tree storage
+# Uses native binary format instead of SQLite
 native-v3 = ["sqlitegraph/native-v3"]
+
 # Optional LLVM IR-based CFG extraction for C/C++ (requires clang)
 # This is an OPTIONAL enhancement - AST-based CFG works without it
 llvm-cfg = ["dep:inkwell", "dep:which"]
+
 # Optional Java bytecode-based CFG extraction (requires Java bytecode library)
 # This is an OPTIONAL enhancement - AST-based CFG works without it
 bytecode-cfg = ["dep:java_asm"]

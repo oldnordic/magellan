@@ -13,32 +13,29 @@
 //!
 //! # Feature Flags
 //!
-//! ## Native V2 Backend
+//! ## Backend Selection (Choose One)
 //!
-//! - **`native-v2`**: Enable Native V2 backend with KV store and WAL transactions
-//!   - Uses sqlitegraph's native file-based backend (no SQLite dependency)
-//!   - Provides in-memory KV store for O(1) symbol lookups
-//!   - Includes WAL (Write-Ahead Log) for crash recovery and transaction isolation
-//!   - Production-ready and fully tested
+//! Magellan supports two storage backends via sqlitegraph:
 //!
-//! - **`native-v2-perf`**: Enable clustered adjacency for 10x traversal performance
-//!   - Implies `native-v2`
-//!   - Uses `sqlitegraph/v2_experimental` feature for clustered adjacency storage
-//!   - Provides ~10x performance improvement for graph traversal algorithms
-//!   - **Experimental**: Benchmark before making default (Phase 48)
-//!   - Enables A/B performance testing in Phase 48-04 benchmarks
+//! ### SQLite Backend (Default)
+//! - **`sqlite-backend`**: Stable SQLite-based storage
+//!   - Widely compatible, well-tested
+//!   - Use for maximum compatibility
+//!
+//! ### Native V3 Backend (Recommended)
+//! - **`native-v3`**: High-performance native binary storage
+//!   - 10-20× faster traversals than SQLite
+//!   - Unlimited capacity, B+Tree indexing
+//!   - Production-ready with sqlitegraph v2.0.1+
 //!
 //! ### Feature Selection
 //!
 //! ```toml
 //! # Default: SQLite backend
-//! magellan = "2.1.0"
+//! magellan = "2.3.0"
 //!
-//! # Native V2 backend (production-ready)
-//! magellan = { version = "2.1.0", features = ["native-v2"] }
-//!
-//! # Native V2 + clustered adjacency (experimental)
-//! magellan = { version = "2.1.0", features = ["native-v2-perf"] }
+//! # Native V3 backend (recommended for performance)
+//! magellan = { version = "2.3.0", default-features = false, features = ["native-v3"] }
 //! ```
 //!
 //! ## Optional Features
@@ -53,6 +50,7 @@ pub mod generation;
 pub mod graph;
 pub mod indexer;
 pub mod ingest;
+
 pub mod migrate_backend_cmd;
 pub mod migrate_cmd;
 
@@ -64,9 +62,7 @@ pub mod validation;
 pub mod verify;
 pub mod watcher;
 
-// KV index module (only available with native-v2 feature)
-#[cfg(feature = "native-v2")]
-pub mod kv;
+
 
 pub use common::{
     detect_language_from_path, extract_context_safe, extract_symbol_content_safe, format_symbol_kind,
