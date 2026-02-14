@@ -3,6 +3,15 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.1] - 2026-02-14
+
+### Changed
+- **README.md**: Complete rewrite - concise format with links to detailed docs
+  - Reduced from ~1000 lines to ~100 lines
+  - Clear structure: purpose, features, quick start, backends, languages
+  - Links to MANUAL.md for full command reference
+  - Better onboarding for new users
+
 ## [2.4.0] - 2026-02-14
 
 ### Added
