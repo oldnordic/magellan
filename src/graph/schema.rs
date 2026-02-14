@@ -243,14 +243,23 @@ impl ModulePathCache {
                 continue;
             }
 
-            let file_path = node.file_path.as_deref().unwrap_or("");
+            // Get file_path from node.file_path or extract from FileNode data
+            let file_path = node.file_path.clone().or_else(|| {
+                // For V3 backend, file_path might not be set directly
+                // Extract from FileNode data
+                serde_json::from_value::<FileNode>(node.data.clone())
+                    .ok()
+                    .map(|file_node| file_node.path)
+            });
+            
+            let file_path_str = file_path.as_deref().unwrap_or("");
 
             // Build module path from file path
             // For Rust: src/foo/bar.rs -> crate::foo::bar
             // For Rust: src/foo/mod.rs -> crate::foo
             // For Rust: src/lib.rs -> crate
-            if file_path.ends_with(".rs") {
-                let module_path = Self::file_path_to_module_path(file_path);
+            if file_path_str.ends_with(".rs") {
+                let module_path = Self::file_path_to_module_path(file_path_str);
                 cache.insert(module_path, entity_id);
             }
         }
