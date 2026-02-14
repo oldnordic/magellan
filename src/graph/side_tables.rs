@@ -118,6 +118,32 @@ pub trait SideTables: Send + Sync {
     
     /// Get all chunks
     fn get_all_chunks(&self) -> Result<Vec<CodeChunk>>;
+    
+    // ===== AST Node Methods =====
+    
+    /// Store an AST node, return node ID
+    fn store_ast_node(&self, node: &crate::graph::AstNode, file_id: i64) -> Result<i64>;
+    
+    /// Get AST node by ID
+    fn get_ast_node(&self, node_id: i64) -> Result<Option<crate::graph::AstNode>>;
+    
+    /// Get all AST nodes for a file
+    fn get_ast_nodes_by_file(&self, file_id: i64) -> Result<Vec<crate::graph::AstNode>>;
+    
+    /// Get AST nodes by kind (e.g., "if_expression")
+    fn get_ast_nodes_by_kind(&self, kind: &str) -> Result<Vec<crate::graph::AstNode>>;
+    
+    /// Get children of an AST node
+    fn get_ast_children(&self, parent_id: i64) -> Result<Vec<crate::graph::AstNode>>;
+    
+    /// Count all AST nodes
+    fn count_ast_nodes(&self) -> Result<usize>;
+    
+    /// Count AST nodes for a specific file
+    fn count_ast_nodes_for_file(&self, file_id: i64) -> Result<usize>;
+    
+    /// Delete all AST nodes for a file (returns count deleted)
+    fn delete_ast_nodes_for_file(&self, file_id: i64) -> Result<usize>;
 }
 
 // =============================================================================
@@ -737,6 +763,132 @@ pub mod sqlite_impl {
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(chunks)
         }
+        
+        // ===== AST Node Methods =====
+        
+        fn store_ast_node(&self, node: &crate::graph::AstNode, file_id: i64) -> Result<i64> {
+            let conn = self.conn.lock().unwrap();
+            conn.execute(
+                "INSERT INTO ast_nodes (parent_id, kind, byte_start, byte_end, file_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    node.parent_id,
+                    node.kind,
+                    node.byte_start as i64,
+                    node.byte_end as i64,
+                    file_id,
+                ],
+            )?;
+            Ok(conn.last_insert_rowid())
+        }
+        
+        fn get_ast_node(&self, node_id: i64) -> Result<Option<crate::graph::AstNode>> {
+            let conn = self.conn.lock().unwrap();
+            let result = conn
+                .query_row(
+                    "SELECT id, parent_id, kind, byte_start, byte_end 
+                     FROM ast_nodes WHERE id = ?1",
+                    params![node_id],
+                    |row| {
+                        Ok(crate::graph::AstNode {
+                            id: Some(row.get(0)?),
+                            parent_id: row.get(1)?,
+                            kind: row.get(2)?,
+                            byte_start: row.get::<_, i64>(3)? as usize,
+                            byte_end: row.get::<_, i64>(4)? as usize,
+                        })
+                    },
+                )
+                .optional()?;
+            Ok(result)
+        }
+        
+        fn get_ast_nodes_by_file(&self, file_id: i64) -> Result<Vec<crate::graph::AstNode>> {
+            let conn = self.conn.lock().unwrap();
+            let mut stmt = conn.prepare(
+                "SELECT id, parent_id, kind, byte_start, byte_end
+                 FROM ast_nodes WHERE file_id = ?1 ORDER BY byte_start",
+            )?;
+            let nodes = stmt
+                .query_map(params![file_id], |row| {
+                    Ok(crate::graph::AstNode {
+                        id: Some(row.get(0)?),
+                        parent_id: row.get(1)?,
+                        kind: row.get(2)?,
+                        byte_start: row.get::<_, i64>(3)? as usize,
+                        byte_end: row.get::<_, i64>(4)? as usize,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(nodes)
+        }
+        
+        fn get_ast_nodes_by_kind(&self, kind: &str) -> Result<Vec<crate::graph::AstNode>> {
+            let conn = self.conn.lock().unwrap();
+            let mut stmt = conn.prepare(
+                "SELECT id, parent_id, kind, byte_start, byte_end
+                 FROM ast_nodes WHERE kind = ?1 ORDER BY byte_start",
+            )?;
+            let nodes = stmt
+                .query_map(params![kind], |row| {
+                    Ok(crate::graph::AstNode {
+                        id: Some(row.get(0)?),
+                        parent_id: row.get(1)?,
+                        kind: row.get(2)?,
+                        byte_start: row.get::<_, i64>(3)? as usize,
+                        byte_end: row.get::<_, i64>(4)? as usize,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(nodes)
+        }
+        
+        fn get_ast_children(&self, parent_id: i64) -> Result<Vec<crate::graph::AstNode>> {
+            let conn = self.conn.lock().unwrap();
+            let mut stmt = conn.prepare(
+                "SELECT id, parent_id, kind, byte_start, byte_end
+                 FROM ast_nodes WHERE parent_id = ?1 ORDER BY byte_start",
+            )?;
+            let nodes = stmt
+                .query_map(params![parent_id], |row| {
+                    Ok(crate::graph::AstNode {
+                        id: Some(row.get(0)?),
+                        parent_id: row.get(1)?,
+                        kind: row.get(2)?,
+                        byte_start: row.get::<_, i64>(3)? as usize,
+                        byte_end: row.get::<_, i64>(4)? as usize,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(nodes)
+        }
+        
+        fn count_ast_nodes(&self) -> Result<usize> {
+            let conn = self.conn.lock().unwrap();
+            let count: i64 = conn
+                .query_row("SELECT COUNT(*) FROM ast_nodes", [], |row| row.get(0))?;
+            Ok(count as usize)
+        }
+        
+        fn count_ast_nodes_for_file(&self, file_id: i64) -> Result<usize> {
+            let conn = self.conn.lock().unwrap();
+            let count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM ast_nodes WHERE file_id = ?1",
+                    params![file_id],
+                    |row| row.get(0),
+                )?;
+            Ok(count as usize)
+        }
+        
+        fn delete_ast_nodes_for_file(&self, file_id: i64) -> Result<usize> {
+            let conn = self.conn.lock().unwrap();
+            let affected = conn.execute(
+                "DELETE FROM ast_nodes WHERE file_id = ?1",
+                params![file_id],
+            )?;
+            Ok(affected)
+        }
     }
 }
 
@@ -1053,6 +1205,74 @@ pub mod v3_impl {
             // For now, return empty (would need prefix scan in sqlitegraph)
             // TODO: Implement prefix scan in sqlitegraph V3 backend
             Ok(vec![])
+        }
+        
+        // ===== AST Node Methods =====
+        
+        fn store_ast_node(&self, node: &crate::graph::AstNode, file_id: i64) -> Result<i64> {
+            let node_id = node.id.unwrap_or_else(|| {
+                // Generate unique ID
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis() as i64;
+                let random = std::process::id() as i64;
+                (now << 16) | (random & 0xFFFF)
+            });
+            
+            // Store with file_id prefix for file-based queries
+            let file_key = format!("ast:file:{}:{}", file_id, node_id);
+            let kind_key = format!("ast:kind:{}:{}", node.kind, node_id);
+            
+            let data = serde_json::to_vec(node)?;
+            
+            self.backend.kv_set_v3(file_key.into_bytes(), KvValue::Bytes(data.clone()), None);
+            self.backend.kv_set_v3(kind_key.into_bytes(), KvValue::Bytes(data), None);
+            
+            Ok(node_id)
+        }
+        
+        fn get_ast_node(&self, node_id: i64) -> Result<Option<crate::graph::AstNode>> {
+            // V3 doesn't have efficient reverse lookup without scanning
+            // For now, return None - would need prefix scan or secondary index
+            let _ = node_id; // suppress unused warning
+            Ok(None)
+        }
+        
+        fn get_ast_nodes_by_file(&self, file_id: i64) -> Result<Vec<crate::graph::AstNode>> {
+            // V3 doesn't have prefix scan yet - would need implementation
+            // For now, return empty - sqlitegraph needs prefix scan support
+            let _ = file_id; // suppress unused warning
+            Ok(vec![])
+        }
+        
+        fn get_ast_nodes_by_kind(&self, kind: &str) -> Result<Vec<crate::graph::AstNode>> {
+            // V3 doesn't have prefix scan yet
+            let _ = kind; // suppress unused warning
+            Ok(vec![])
+        }
+        
+        fn get_ast_children(&self, parent_id: i64) -> Result<Vec<crate::graph::AstNode>> {
+            // Would need parent_id index - not implemented yet
+            let _ = parent_id; // suppress unused warning
+            Ok(vec![])
+        }
+        
+        fn count_ast_nodes(&self) -> Result<usize> {
+            // V3 doesn't have prefix scan for counting
+            Ok(0)
+        }
+        
+        fn count_ast_nodes_for_file(&self, file_id: i64) -> Result<usize> {
+            // V3 doesn't have prefix scan for counting by file
+            let _ = file_id; // suppress unused warning
+            Ok(0)
+        }
+        
+        fn delete_ast_nodes_for_file(&self, file_id: i64) -> Result<usize> {
+            // Would need prefix scan to find all nodes for file
+            let _ = file_id; // suppress unused warning
+            Ok(0)
         }
     }
 }

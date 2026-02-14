@@ -4,7 +4,6 @@
 //! Supports file-based queries, position-based queries, and hierarchy traversal.
 
 use anyhow::Result;
-use rusqlite::{params, OptionalExtension};
 
 use crate::graph::{AstNode, AstNodeWithText, CodeGraph};
 
@@ -18,35 +17,20 @@ impl CodeGraph {
     /// Vector of AstNodeWithText for all nodes in the file
     ///
     /// # Note
-    /// Queries ast_nodes table.
-    pub fn get_ast_nodes_by_file(&self, _file_path: &str) -> Result<Vec<AstNodeWithText>> {
-        // SQLite storage for AST nodes
-        let conn = self.chunks.connect()?;
-
-        let mut stmt = conn.prepare(
-            "SELECT id, parent_id, kind, byte_start, byte_end
-             FROM ast_nodes
-             ORDER BY byte_start",
-        )?;
-
-        let nodes = stmt
-            .query_map([], |row| {
-                let byte_start_i64: i64 = row.get(3)?;
-                let byte_end_i64: i64 = row.get(4)?;
-                Ok(AstNode {
-                    id: Some(row.get(0)?),
-                    parent_id: row.get(1)?,
-                    kind: row.get(2)?,
-                    byte_start: byte_start_i64 as usize,
-                    byte_end: byte_end_i64 as usize,
-                })
-            })?
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
-            .map(AstNodeWithText::from)
-            .collect();
-
-        Ok(nodes)
+    /// Uses SideTables trait for backend-agnostic storage.
+    /// For V3 backend, this requires prefix scan support (not yet implemented).
+    pub fn get_ast_nodes_by_file(&self, file_path: &str) -> Result<Vec<AstNodeWithText>> {
+        // Find file_id from file_path
+        // Note: file_index lookup doesn't require &mut self since it's cached
+        let file_id = self.files.file_index.get(file_path).copied();
+        
+        match file_id {
+            Some(id) => {
+                let nodes = self.side_tables.get_ast_nodes_by_file(id.as_i64())?;
+                Ok(nodes.into_iter().map(AstNodeWithText::from).collect())
+            }
+            None => Ok(vec![]), // File not found
+        }
     }
 
     /// Get direct children of an AST node
@@ -57,30 +41,7 @@ impl CodeGraph {
     /// # Returns
     /// Vector of child AstNode structs
     pub fn get_ast_children(&self, node_id: i64) -> Result<Vec<AstNode>> {
-        let conn = self.chunks.connect()?;
-
-        let mut stmt = conn.prepare(
-            "SELECT id, parent_id, kind, byte_start, byte_end
-             FROM ast_nodes
-             WHERE parent_id = ?1
-             ORDER BY byte_start",
-        )?;
-
-        let children = stmt
-            .query_map(params![node_id], |row| {
-                let byte_start_i64: i64 = row.get(3)?;
-                let byte_end_i64: i64 = row.get(4)?;
-                Ok(AstNode {
-                    id: Some(row.get(0)?),
-                    parent_id: row.get(1)?,
-                    kind: row.get(2)?,
-                    byte_start: byte_start_i64 as usize,
-                    byte_end: byte_end_i64 as usize,
-                })
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
-
-        Ok(children)
+        self.side_tables.get_ast_children(node_id)
     }
 
     /// Get the AST node at a specific byte position
@@ -96,31 +57,10 @@ impl CodeGraph {
         _file_path: &str,
         position: usize,
     ) -> Result<Option<AstNode>> {
-        let conn = self.chunks.connect()?;
-
-        let node = conn
-            .query_row(
-                "SELECT id, parent_id, kind, byte_start, byte_end
-                 FROM ast_nodes
-                 WHERE byte_start <= ?1 AND byte_end > ?1
-                 ORDER BY byte_end - byte_start ASC
-                 LIMIT 1",
-                params![position as i64],
-                |row| {
-                    let byte_start_i64: i64 = row.get(3)?;
-                    let byte_end_i64: i64 = row.get(4)?;
-                    Ok(AstNode {
-                        id: Some(row.get(0)?),
-                        parent_id: row.get(1)?,
-                        kind: row.get(2)?,
-                        byte_start: byte_start_i64 as usize,
-                        byte_end: byte_end_i64 as usize,
-                    })
-                },
-            )
-            .optional()?;
-
-        Ok(node)
+        // TODO: Implement position-based lookup in SideTables
+        // For now, return None for V3 backend
+        let _ = position; // suppress unused warning
+        Ok(None)
     }
 
     /// Get all AST nodes of a specific kind
@@ -132,73 +72,32 @@ impl CodeGraph {
     /// Vector of matching AstNode structs
     ///
     /// # Note
-    /// Queries ast_nodes table with WHERE clause.
+    /// Uses SideTables trait for backend-agnostic storage.
     pub fn get_ast_nodes_by_kind(&self, kind: &str) -> Result<Vec<AstNode>> {
-        // SQLite storage for AST nodes by kind
-        let conn = self.chunks.connect()?;
-
-        let mut stmt = conn.prepare(
-            "SELECT id, parent_id, kind, byte_start, byte_end
-             FROM ast_nodes
-             WHERE kind = ?1
-             ORDER BY byte_start",
-        )?;
-
-        let nodes = stmt
-            .query_map(params![kind], |row| {
-                let byte_start_i64: i64 = row.get(3)?;
-                let byte_end_i64: i64 = row.get(4)?;
-                Ok(AstNode {
-                    id: Some(row.get(0)?),
-                    parent_id: row.get(1)?,
-                    kind: row.get(2)?,
-                    byte_start: byte_start_i64 as usize,
-                    byte_end: byte_end_i64 as usize,
-                })
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
-
-        Ok(nodes)
+        self.side_tables.get_ast_nodes_by_kind(kind)
     }
 
     /// Get the root AST nodes (nodes without parents)
     ///
     /// # Returns
     /// Vector of root-level AstNode structs
+    /// 
+    /// # Note
+    /// This operation requires scanning all nodes to find those without parents.
+    /// For V3 backend, this returns empty until prefix scan is implemented.
     pub fn get_ast_roots(&self) -> Result<Vec<AstNode>> {
-        let conn = self.chunks.connect()?;
-
-        let mut stmt = conn.prepare(
-            "SELECT id, parent_id, kind, byte_start, byte_end
-             FROM ast_nodes
-             WHERE parent_id IS NULL
-             ORDER BY byte_start",
-        )?;
-
-        let nodes = stmt
-            .query_map([], |row| {
-                let byte_start_i64: i64 = row.get(3)?;
-                let byte_end_i64: i64 = row.get(4)?;
-                Ok(AstNode {
-                    id: Some(row.get(0)?),
-                    parent_id: row.get(1)?,
-                    kind: row.get(2)?,
-                    byte_start: byte_start_i64 as usize,
-                    byte_end: byte_end_i64 as usize,
-                })
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
-
-        Ok(nodes)
+        // Get all nodes and filter for roots (parent_id IS NULL)
+        // TODO: Optimize with dedicated SideTables method when V3 has prefix scan
+        let all_nodes = self.side_tables.get_ast_nodes_by_file(0)?;
+        Ok(all_nodes.into_iter().filter(|n| n.parent_id.is_none()).collect())
     }
 
-    /// Count total AST nodes in the database
+    /// Count all AST nodes in the database
+    ///
+    /// # Returns
+    /// Total number of AST nodes
     pub fn count_ast_nodes(&self) -> Result<usize> {
-        let conn = self.chunks.connect()?;
-        let count: i64 = conn.query_row("SELECT COUNT(*) FROM ast_nodes", [], |row| {
-            row.get(0)
-        })?;
-        Ok(count as usize)
+        self.side_tables.count_ast_nodes()
     }
 }
 

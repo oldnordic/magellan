@@ -76,7 +76,6 @@ use sqlitegraph::GraphBackend;
 use std::collections::HashMap;
 use std::path::Path;
 use std::rc::Rc;
-#[cfg(feature = "native-v3")]
 use std::sync::Arc;
 
 use crate::generation::{ChunkStore, CodeChunk};
@@ -161,6 +160,9 @@ pub struct CodeGraph {
 
     /// CFG block operations module
     pub cfg_ops: cfg_ops::CfgOps,
+    
+    /// Side tables for backend-agnostic storage (chunks, AST, metrics, etc.)
+    side_tables: Arc<dyn side_tables::SideTables>,
 }
 
 impl CodeGraph {
@@ -281,11 +283,15 @@ impl CodeGraph {
         // Phase 3: SQLite-specific side-table initialization (ONLY for SQLite backend)
         // V3 backend also uses SQLite side-tables for now (KV support coming)
         #[cfg(not(feature = "native-v3"))]
-        let (chunks, execution_log, metrics, needs_backfill) = {
+        let (side_tables, chunks, execution_log, metrics, needs_backfill) = {
             // Phase 3a: Magellan-owned DB compatibility metadata.
             // MUST run after sqlitegraph open and before any other Magellan side-table writes.
             db_compat::ensure_magellan_meta(&db_path_buf)
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+
+            // Create SQLite side tables
+            let side_tables: Arc<dyn side_tables::SideTables> = 
+                Arc::new(side_tables::sqlite_impl::SqliteSideTables::open(&db_path_buf)?);
 
             // Open a shared connection for ChunkStore to enable transactional operations
             // This allows chunk operations to participate in transactions with graph operations
@@ -350,13 +356,13 @@ impl CodeGraph {
                 metric_count == 0 && symbol_count > 0
             };
 
-            (chunks, execution_log, metrics, needs_backfill)
+            (side_tables, chunks, execution_log, metrics, needs_backfill)
         };
 
         // V3 backend: Use V3 KV store for side-tables (NO SQLITE!)
         // All side tables (chunks, execution_log, metrics) use the V3 KV store
         #[cfg(feature = "native-v3")]
-        let (chunks, execution_log, metrics, needs_backfill) = {
+        let (side_tables, chunks, execution_log, metrics, needs_backfill) = {
             use side_tables::v3_impl::V3SideTables;
             
             // Get the Arc<V3Backend> for side tables
@@ -372,12 +378,12 @@ impl CodeGraph {
             let execution_log = execution_log::ExecutionLog::with_side_tables(side_tables.clone());
             
             // Create MetricsOps with SideTables backend  
-            let metrics = metrics::MetricsOps::with_side_tables(side_tables);
+            let metrics = metrics::MetricsOps::with_side_tables(side_tables.clone());
 
             // No backfill needed for new V3 databases
             let needs_backfill = false;
 
-            (chunks, execution_log, metrics, needs_backfill)
+            (side_tables, chunks, execution_log, metrics, needs_backfill)
         };
 
         // Initialize file node cache with capacity of 128 entries
@@ -413,6 +419,7 @@ impl CodeGraph {
             metrics,
             file_node_cache,
             cfg_ops: cfg_ops::CfgOps::new(ChunkStore::new(&db_path_buf)),
+            side_tables,
         };
 
         // Build module index for path resolution
