@@ -22,7 +22,7 @@
 use anyhow::Result;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
+use std::sync::Arc;
 use sqlitegraph::GraphBackend;
 
 
@@ -154,7 +154,7 @@ pub struct SnapshotImportMetadata {
 /// # Returns
 /// SnapshotExportMetadata with counts, size, and timestamp
 pub fn export_snapshot(
-    backend: &Rc<dyn GraphBackend>,
+    backend: &Arc<dyn GraphBackend>,
     export_dir: &Path,
 ) -> Result<SnapshotExportMetadata> {
     // Create export directory if it doesn't exist
@@ -184,7 +184,7 @@ pub fn export_snapshot(
 /// * `backend` - The graph backend to import into
 /// * `snapshot_dir` - Directory containing the snapshot files to import
 pub fn import_snapshot(
-    backend: &Rc<dyn GraphBackend>,
+    backend: &Arc<dyn GraphBackend>,
     snapshot_dir: &Path,
 ) -> Result<SnapshotImportMetadata> {
     // Verify snapshot_dir exists
@@ -245,7 +245,7 @@ pub fn verify_import_counts(
 }
 
 /// Get entity and edge counts from a graph backend
-pub fn get_graph_counts(_backend: &Rc<dyn GraphBackend>) -> Result<(i64, i64)> {
+pub fn get_graph_counts(_backend: &Arc<dyn GraphBackend>) -> Result<(i64, i64)> {
     // Placeholder - actual counts available from snapshot_export() return value
     Ok((0, 0))
 }
@@ -314,7 +314,7 @@ pub fn run_migrate_backend(
     }
 
     // Open source backend
-    let source_backend: Rc<dyn GraphBackend> = {
+    let source_backend: Arc<dyn GraphBackend> = {
         use sqlitegraph::{SqliteGraph, SqliteGraphBackend};
         let sqlite_graph = SqliteGraph::open(&input_db).map_err(|e| {
             anyhow::anyhow!(
@@ -323,7 +323,7 @@ pub fn run_migrate_backend(
                 e
             )
         })?;
-        Rc::new(SqliteGraphBackend::from_graph(sqlite_graph))
+        Arc::new(SqliteGraphBackend::from_graph(sqlite_graph))
     };
 
     // Dry run: just return success
@@ -368,7 +368,7 @@ pub fn run_migrate_backend(
     })?;
 
     // Create target backend (SQLite)
-    let target_backend: Rc<dyn GraphBackend> = {
+    let target_backend: Arc<dyn GraphBackend> = {
         use sqlitegraph::{SqliteGraph, SqliteGraphBackend};
         let sqlite_graph = SqliteGraph::open(&output_db).map_err(|e| {
             anyhow::anyhow!(
@@ -377,7 +377,7 @@ pub fn run_migrate_backend(
                 e
             )
         })?;
-        Rc::new(SqliteGraphBackend::from_graph(sqlite_graph))
+        Arc::new(SqliteGraphBackend::from_graph(sqlite_graph))
     };
 
     // Import snapshot into target backend

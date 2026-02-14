@@ -237,7 +237,7 @@ mod tests {
     use tempfile::TempDir;
     use std::fs::File;
     use std::io::Write;
-    use std::rc::Rc;
+    use std::sync::Arc;
 
     #[test]
     fn test_print_node_tree_basic() {

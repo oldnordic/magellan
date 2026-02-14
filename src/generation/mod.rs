@@ -566,17 +566,22 @@ impl ChunkStore {
 
     /// Count total code chunks stored.
     pub fn count_chunks(&self) -> Result<usize> {
-        self.with_conn(|conn| {
-            let count: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM code_chunks",
-                    [],
-                    |row: &rusqlite::Row| row.get(0),
-                )
-                .map_err(|e| anyhow::anyhow!("Failed to count chunks: {}", e))?;
+        match &self.backend {
+            ChunkStoreBackend::SideTables(tables) => {
+                tables.count_chunks()
+            }
+            _ => self.with_conn(|conn| {
+                let count: i64 = conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM code_chunks",
+                        [],
+                        |row: &rusqlite::Row| row.get(0),
+                    )
+                    .map_err(|e| anyhow::anyhow!("Failed to count chunks: {}", e))?;
 
-            Ok(count as usize)
-        })
+                Ok(count as usize)
+            })
+        }
     }
 
     /// Count code chunks for a specific file.

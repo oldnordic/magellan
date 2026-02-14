@@ -5,7 +5,7 @@
 
 use anyhow::Result;
 use sqlitegraph::{GraphBackend, SnapshotId, GraphEntity};
-use std::rc::Rc;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::schema::{FileMetrics, SymbolMetrics};
@@ -13,12 +13,12 @@ use crate::graph::schema::SymbolNode;
 
 /// V3 metrics computation using graph backend
 pub struct V3MetricsCompute {
-    backend: Rc<dyn GraphBackend>,
+    backend: Arc<dyn GraphBackend>,
 }
 
 impl V3MetricsCompute {
     /// Create a new V3 metrics computation instance
-    pub fn new(backend: Rc<dyn GraphBackend>) -> Self {
+    pub fn new(backend: Arc<dyn GraphBackend>) -> Self {
         Self { backend }
     }
 

@@ -31,7 +31,7 @@ use sha2::{Digest, Sha256};
 use sqlitegraph::{
     BackendDirection, EdgeSpec, GraphBackend, NeighborQuery, NodeId, NodeSpec, SnapshotId,
 };
-use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::detect_language;
 use crate::graph::schema::SymbolNode;
@@ -198,7 +198,7 @@ fn generate_span_id(file_path: &str, byte_start: usize, byte_end: usize) -> Stri
 
 /// Symbol operations for CodeGraph
 pub struct SymbolOps {
-    pub backend: Rc<dyn GraphBackend>,
+    pub backend: Arc<dyn GraphBackend>,
 }
 
 impl SymbolOps {

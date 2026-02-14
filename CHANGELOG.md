@@ -3,6 +3,15 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.4] - 2026-02-14
+
+### Fixed
+- **V3 Backend Data Persistence**
+  - Changed `Rc<dyn GraphBackend>` to `Arc<dyn GraphBackend>` for thread safety
+  - Fixed double-open of V3Backend that caused data loss on database reopen
+  - Now shares single V3Backend instance between graph operations and side tables
+  - Requires sqlitegraph 2.0.4+ for proper V3 backend data flushing
+
 ## [2.4.3] - 2026-02-14
 
 ### Added

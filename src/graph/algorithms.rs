@@ -66,7 +66,7 @@ use ahash::AHashSet;
 use rusqlite::params;
 use sqlitegraph::{algo, GraphBackend, SnapshotId, SqliteGraphBackend};
 use std::collections::{HashMap, HashSet};
-use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::graph::schema::SymbolNode;
 
@@ -76,12 +76,12 @@ use super::CodeGraph;
 ///
 /// This is a temporary workaround until algorithm methods are added to GraphBackend trait.
 /// For SQLite backend, this extracts the concrete SqliteGraphBackend and calls .graph().
-fn get_sqlite_graph(backend: &Rc<dyn GraphBackend>) -> Result<&sqlitegraph::graph::SqliteGraph, anyhow::Error> {
+fn get_sqlite_graph(backend: &Arc<dyn GraphBackend>) -> Result<&sqlitegraph::graph::SqliteGraph, anyhow::Error> {
     // Use unsafe downcasting as temporary workaround
     // This is safe because we know the backend is SqliteGraphBackend
     unsafe {
         // Get the raw pointer from the Rc
-        let ptr = Rc::as_ptr(backend);
+        let ptr = Arc::as_ptr(backend);
         // Reinterpret as SqliteGraphBackend pointer
         let concrete = (ptr as *const SqliteGraphBackend).as_ref()
             .ok_or_else(|| anyhow::anyhow!("Null backend pointer"))?;

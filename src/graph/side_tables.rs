@@ -119,6 +119,9 @@ pub trait SideTables: Send + Sync {
     /// Get all chunks
     fn get_all_chunks(&self) -> Result<Vec<CodeChunk>>;
     
+    /// Count all chunks
+    fn count_chunks(&self) -> Result<usize>;
+    
     // ===== AST Node Methods =====
     
     /// Store an AST node, return node ID
@@ -773,6 +776,16 @@ pub mod sqlite_impl {
             Ok(chunks)
         }
         
+        fn count_chunks(&self) -> Result<usize> {
+            let conn = self.conn.lock().unwrap();
+            let count: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM code_chunks",
+                [],
+                |row| row.get(0),
+            )?;
+            Ok(count as usize)
+        }
+        
         // ===== AST Node Methods =====
         
         fn store_ast_node(&self, node: &crate::graph::AstNode, file_id: i64) -> Result<i64> {
@@ -1416,6 +1429,15 @@ pub mod v3_impl {
                 .collect();
             
             Ok(chunks)
+        }
+        
+        fn count_chunks(&self) -> Result<usize> {
+            // Use prefix scan to count all chunk keys
+            let snapshot = SnapshotId::current();
+            let prefix = b"chunk:";
+            
+            let results = self.backend.kv_prefix_scan_v3(snapshot, prefix);
+            Ok(results.len())
         }
         
         // ===== AST Node Methods =====

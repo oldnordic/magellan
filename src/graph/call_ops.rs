@@ -8,7 +8,7 @@ use sqlitegraph::{
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::graph::schema::CallNode;
 use crate::ingest::c::CParser;
@@ -22,7 +22,7 @@ use crate::references::CallFact;
 
 /// Call operations for CodeGraph
 pub struct CallOps {
-    pub backend: Rc<dyn GraphBackend>,
+    pub backend: Arc<dyn GraphBackend>,
 }
 
 impl CallOps {

@@ -224,7 +224,7 @@ impl ModulePathCache {
     ///
     /// Scans all File nodes and extracts module declarations
     /// to build path -> file_id mappings.
-    pub fn build_from_index(backend: &std::rc::Rc<dyn sqlitegraph::GraphBackend>) -> Self {
+    pub fn build_from_index(backend: &std::sync::Arc<dyn sqlitegraph::GraphBackend>) -> Self {
         let mut cache = Self::new();
 
         let snapshot = sqlitegraph::SnapshotId::current();

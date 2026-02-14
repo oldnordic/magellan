@@ -75,7 +75,6 @@ use anyhow::Result;
 use sqlitegraph::GraphBackend;
 use std::collections::HashMap;
 use std::path::Path;
-use std::rc::Rc;
 use std::sync::Arc;
 
 use crate::generation::{ChunkStore, CodeChunk};
@@ -192,7 +191,7 @@ impl CodeGraph {
         // - sqlite-backend (default): Stable SQLite backend
         
         #[cfg(feature = "native-v3")]
-        let (backend, v3_backend_arc): (Rc<dyn GraphBackend>, Option<Arc<sqlitegraph::backend::native::v3::V3Backend>>) = {
+        let (backend, v3_backend_arc): (Arc<dyn GraphBackend>, Option<Arc<sqlitegraph::backend::native::v3::V3Backend>>) = {
             use sqlitegraph::backend::native::v3::V3Backend;
             // Native V3 backend: open if exists, create if not
             let v3_backend = if db_path_buf.exists() {
@@ -201,21 +200,20 @@ impl CodeGraph {
                 V3Backend::create(&db_path_buf)?
             };
             eprintln!("Using V3 backend: {:?}", db_path_buf);
-            // Create Rc<dyn GraphBackend> for graph operations
-            let v3_rc: Rc<dyn GraphBackend> = Rc::new(v3_backend);
-            // Create Arc from the Rc for side tables (they share the same allocation)
-            // Note: This requires V3Backend to be wrapped in a way that allows Arc conversion
-            // For now, we create a separate Arc by reopening the backend
-            let v3_arc = Arc::new(V3Backend::open(&db_path_buf)?);
-            (v3_rc, Some(v3_arc))
+            // Create Arc<V3Backend> for side tables
+            let v3_arc: Arc<V3Backend> = Arc::new(v3_backend);
+            // Use Arc clone for graph operations - this is the SAME backend instance
+            // We use Arc instead of Rc for thread safety and to avoid double-open issues
+            let backend: Arc<dyn GraphBackend> = Arc::clone(&v3_arc) as Arc<dyn GraphBackend>;
+            (backend, Some(v3_arc))
         };
 
         #[cfg(all(not(feature = "native-v3"), feature = "sqlite-backend"))]
-        let backend: Rc<dyn GraphBackend> = {
+        let backend: Arc<dyn GraphBackend> = {
             use sqlitegraph::{SqliteGraph, SqliteGraphBackend};
             let sqlite_graph = SqliteGraph::open(&db_path_buf)?;
             eprintln!("Using SQLite backend: {:?}", db_path_buf);
-            Rc::new(SqliteGraphBackend::from_graph(sqlite_graph))
+            Arc::new(SqliteGraphBackend::from_graph(sqlite_graph))
         };
 
         #[cfg(all(not(feature = "native-v3"), not(feature = "sqlite-backend")))]
@@ -273,7 +271,7 @@ impl CodeGraph {
         // Build initial file_index from database (eager initialization)
         let file_index = HashMap::new();
         let mut files = files::FileOps {
-            backend: Rc::clone(&backend),
+            backend: Arc::clone(&backend),
             file_index,
         };
 
@@ -395,23 +393,23 @@ impl CodeGraph {
             .unwrap_or_else(|| Path::new("."))
             .to_path_buf();
         let module_resolver = module_resolver::ModuleResolver::new(
-            Rc::clone(&backend),
+            Arc::clone(&backend),
             project_root,
         );
 
         let mut graph = Self {
             files,
             symbols: symbols::SymbolOps {
-                backend: Rc::clone(&backend),
+                backend: Arc::clone(&backend),
             },
             references: references::ReferenceOps {
-                backend: Rc::clone(&backend),
+                backend: Arc::clone(&backend),
             },
             calls: call_ops::CallOps {
-                backend: Rc::clone(&backend),
+                backend: Arc::clone(&backend),
             },
             imports: imports::ImportOps {
-                backend: Rc::clone(&backend),
+                backend: Arc::clone(&backend),
             },
             module_resolver,
             chunks,
@@ -841,7 +839,7 @@ impl CodeGraph {
     /// This is for benchmarking only. Direct backend access bypasses CodeGraph's
     /// transactional and caching layers.
     #[doc(hidden)]
-    pub fn __backend_for_benchmarks(&self) -> &std::rc::Rc<dyn sqlitegraph::GraphBackend> {
+    pub fn __backend_for_benchmarks(&self) -> &std::sync::Arc<dyn sqlitegraph::GraphBackend> {
         &self.files.backend
     }
 
@@ -853,7 +851,7 @@ impl CodeGraph {
     /// This is internal API. Direct backend access bypasses CodeGraph's
     /// transactional and caching layers.
     #[doc(hidden)]
-    pub fn __backend_for_watcher(&self) -> &std::rc::Rc<dyn sqlitegraph::GraphBackend> {
+    pub fn __backend_for_watcher(&self) -> &std::sync::Arc<dyn sqlitegraph::GraphBackend> {
         &self.files.backend
     }
 

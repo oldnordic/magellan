@@ -5,7 +5,7 @@
 use anyhow::Result;
 use sqlitegraph::GraphBackend;
 use std::path::PathBuf;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::graph::schema::ModulePathCache;
 
@@ -18,7 +18,7 @@ use crate::graph::schema::ModulePathCache;
 /// - Plain paths (relative to current module or extern crate)
 pub struct ModuleResolver {
     /// Graph backend for querying file nodes
-    backend: Rc<dyn GraphBackend>,
+    backend: Arc<dyn GraphBackend>,
     /// Module path cache for O(1) lookups
     cache: ModulePathCache,
     /// Project root path (for resolving relative file paths)
@@ -27,7 +27,7 @@ pub struct ModuleResolver {
 
 impl ModuleResolver {
     /// Create a new module resolver
-    pub fn new(backend: Rc<dyn GraphBackend>, project_root: PathBuf) -> Self {
+    pub fn new(backend: Arc<dyn GraphBackend>, project_root: PathBuf) -> Self {
         let cache = ModulePathCache::new();
         Self {
             backend,

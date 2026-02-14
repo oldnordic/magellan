@@ -7,14 +7,14 @@ use sqlitegraph::{
     BackendDirection, EdgeSpec, GraphBackend, NeighborQuery, NodeSpec, SnapshotId,
 };
 use std::path::PathBuf;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::graph::schema::ImportNode;
 use crate::ingest::ImportFact;
 
 /// Import operations for CodeGraph
 pub struct ImportOps {
-    pub backend: Rc<dyn GraphBackend>,
+    pub backend: Arc<dyn GraphBackend>,
 }
 
 impl ImportOps {

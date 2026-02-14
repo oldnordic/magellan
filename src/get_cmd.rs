@@ -5,7 +5,7 @@
 use anyhow::Result;
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
+use std::sync::Arc;
 
 // Use the library items through the magellan library
 use magellan::common::detect_language_from_path;

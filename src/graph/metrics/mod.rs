@@ -394,7 +394,7 @@ impl MetricsOps {
     /// * `symbol_facts` - Vector of SymbolNode data for all symbols in the file
     pub fn compute_for_file_v3(
         &self,
-        backend: std::rc::Rc<dyn sqlitegraph::GraphBackend>,
+        backend: std::sync::Arc<dyn sqlitegraph::GraphBackend>,
         file_path: &str,
         source: &[u8],
         symbol_facts: &[crate::graph::schema::SymbolNode],

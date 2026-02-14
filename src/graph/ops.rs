@@ -4,7 +4,7 @@
 
 use anyhow::Result;
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
+use std::sync::Arc;
 
 use sqlitegraph::{GraphBackend, SnapshotId};
 
@@ -341,7 +341,7 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
     {
         // V3 backend: use graph traversal API
         if let Err(e) = graph.metrics.compute_for_file_v3(
-            Rc::clone(&graph.calls.backend),
+            Arc::clone(&graph.calls.backend),
             path,
             source,
             &symbol_nodes,

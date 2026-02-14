@@ -24,7 +24,7 @@ use anyhow::Result;
 use sha2::{Digest, Sha256};
 use sqlitegraph::{GraphBackend, NodeId, NodeSpec, SnapshotId};
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::graph::schema::FileNode;
@@ -34,7 +34,7 @@ use crate::ingest::{SymbolFact, SymbolKind};
 
 /// File operations for CodeGraph
 pub struct FileOps {
-    pub backend: Rc<dyn GraphBackend>,
+    pub backend: Arc<dyn GraphBackend>,
     pub file_index: HashMap<String, NodeId>,
 }
 
