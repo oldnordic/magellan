@@ -229,7 +229,9 @@ impl ChunkStore {
                 rusqlite::Connection::open(path)
             }
             ChunkStoreBackend::SideTables(_) => {
-                panic!("connect() is not available when using SideTables backend")
+                Err(rusqlite::Error::InvalidParameterName(
+                    "SQLite connection not available with V3 backend".to_string()
+                ))
             }
         }
     }
@@ -256,7 +258,7 @@ impl ChunkStore {
                 Ok(result)
             }
             ChunkStoreBackend::SideTables(_) => {
-                panic!("with_conn() is not available when using SideTables backend. Use SideTables trait methods directly.")
+                Err(anyhow::anyhow!("SQLite operations not available with V3 backend. Use SideTables trait methods."))
             }
         }
     }
@@ -282,7 +284,7 @@ impl ChunkStore {
                 Ok(result)
             }
             ChunkStoreBackend::SideTables(_) => {
-                panic!("with_connection_mut() is not available when using SideTables backend")
+                Err(anyhow::anyhow!("SQLite operations not available with V3 backend. Use SideTables trait methods."))
             }
         }
     }
@@ -510,16 +512,21 @@ impl ChunkStore {
 
     /// Delete all code chunks for a specific file.
     pub fn delete_chunks_for_file(&self, file_path: &str) -> Result<usize> {
-        self.with_connection_mut(|conn| {
-            let affected = conn
-                .execute(
-                    "DELETE FROM code_chunks WHERE file_path = ?1",
-                    params![file_path],
-                )
-                .map_err(|e| anyhow::anyhow!("Failed to delete code chunks: {}", e))?;
+        match &self.backend {
+            ChunkStoreBackend::SideTables(tables) => {
+                tables.delete_chunks_for_file(file_path)
+            }
+            _ => self.with_connection_mut(|conn| {
+                let affected = conn
+                    .execute(
+                        "DELETE FROM code_chunks WHERE file_path = ?1",
+                        params![file_path],
+                    )
+                    .map_err(|e| anyhow::anyhow!("Failed to delete code chunks: {}", e))?;
 
-            Ok(affected)
-        })
+                Ok(affected)
+            })
+        }
     }
 
     /// Count total code chunks stored.
@@ -539,17 +546,22 @@ impl ChunkStore {
 
     /// Count code chunks for a specific file.
     pub fn count_chunks_for_file(&self, file_path: &str) -> Result<usize> {
-        self.with_conn(|conn| {
-            let count: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM code_chunks WHERE file_path = ?1",
-                    params![file_path],
-                    |row: &rusqlite::Row| row.get(0),
-                )
-                .map_err(|e| anyhow::anyhow!("Failed to count chunks for file: {}", e))?;
+        match &self.backend {
+            ChunkStoreBackend::SideTables(tables) => {
+                tables.count_chunks_for_file(file_path)
+            }
+            _ => self.with_conn(|conn| {
+                let count: i64 = conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM code_chunks WHERE file_path = ?1",
+                        params![file_path],
+                        |row: &rusqlite::Row| row.get(0),
+                    )
+                    .map_err(|e| anyhow::anyhow!("Failed to count chunks for file: {}", e))?;
 
-            Ok(count as usize)
-        })
+                Ok(count as usize)
+            })
+        }
     }
 
     /// Get all code chunks from storage.

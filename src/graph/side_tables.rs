@@ -87,6 +87,37 @@ pub trait SideTables: Send + Sync {
         min_fan_in: Option<i64>,
         min_fan_out: Option<i64>,
     ) -> Result<Vec<FileMetrics>>;
+    
+    // ===== Code Chunk Methods =====
+    
+    /// Store a code chunk
+    fn store_chunk(&self, chunk: &CodeChunk) -> Result<i64>;
+    
+    /// Get a code chunk by ID
+    fn get_chunk(&self, chunk_id: i64) -> Result<Option<CodeChunk>>;
+    
+    /// Get a code chunk by file path and byte span
+    fn get_chunk_by_span(
+        &self,
+        file_path: &str,
+        byte_start: usize,
+        byte_end: usize,
+    ) -> Result<Option<CodeChunk>>;
+    
+    /// Get all chunks for a file
+    fn get_chunks_for_file(&self, file_path: &str) -> Result<Vec<CodeChunk>>;
+    
+    /// Count chunks for a file
+    fn count_chunks_for_file(&self, file_path: &str) -> Result<usize>;
+    
+    /// Delete all chunks for a file
+    fn delete_chunks_for_file(&self, file_path: &str) -> Result<usize>;
+    
+    /// Get chunks by symbol name
+    fn get_chunks_by_symbol(&self, file_path: &str, symbol_name: &str) -> Result<Vec<CodeChunk>>;
+    
+    /// Get all chunks
+    fn get_all_chunks(&self) -> Result<Vec<CodeChunk>>;
 }
 
 // =============================================================================
@@ -530,6 +561,182 @@ pub mod sqlite_impl {
 
             Ok(results)
         }
+        
+        // ===== Code Chunk Methods =====
+        
+        fn store_chunk(&self, chunk: &CodeChunk) -> Result<i64> {
+            let conn = self.conn.lock().unwrap();
+            conn.execute(
+                "INSERT OR REPLACE INTO code_chunks
+                    (file_path, byte_start, byte_end, content, content_hash, symbol_name, symbol_kind, created_at)
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    chunk.file_path,
+                    chunk.byte_start as i64,
+                    chunk.byte_end as i64,
+                    chunk.content,
+                    chunk.content_hash,
+                    chunk.symbol_name,
+                    chunk.symbol_kind,
+                    chunk.created_at,
+                ],
+            )?;
+            Ok(conn.last_insert_rowid())
+        }
+        
+        fn get_chunk(&self, chunk_id: i64) -> Result<Option<CodeChunk>> {
+            let conn = self.conn.lock().unwrap();
+            let result = conn
+                .query_row(
+                    "SELECT id, file_path, byte_start, byte_end, content, content_hash,
+                            symbol_name, symbol_kind, created_at
+                     FROM code_chunks WHERE id = ?1",
+                    params![chunk_id],
+                    |row| {
+                        Ok(CodeChunk {
+                            id: Some(row.get(0)?),
+                            file_path: row.get(1)?,
+                            byte_start: row.get::<_, i64>(2)? as usize,
+                            byte_end: row.get::<_, i64>(3)? as usize,
+                            content: row.get(4)?,
+                            content_hash: row.get(5)?,
+                            symbol_name: row.get(6)?,
+                            symbol_kind: row.get(7)?,
+                            created_at: row.get(8)?,
+                        })
+                    },
+                )
+                .optional()?;
+            Ok(result)
+        }
+        
+        fn get_chunk_by_span(
+            &self,
+            file_path: &str,
+            byte_start: usize,
+            byte_end: usize,
+        ) -> Result<Option<CodeChunk>> {
+            let conn = self.conn.lock().unwrap();
+            let result = conn
+                .query_row(
+                    "SELECT id, file_path, byte_start, byte_end, content, content_hash,
+                            symbol_name, symbol_kind, created_at
+                     FROM code_chunks WHERE file_path = ?1 AND byte_start = ?2 AND byte_end = ?3",
+                    params![file_path, byte_start as i64, byte_end as i64],
+                    |row| {
+                        Ok(CodeChunk {
+                            id: Some(row.get(0)?),
+                            file_path: row.get(1)?,
+                            byte_start: row.get::<_, i64>(2)? as usize,
+                            byte_end: row.get::<_, i64>(3)? as usize,
+                            content: row.get(4)?,
+                            content_hash: row.get(5)?,
+                            symbol_name: row.get(6)?,
+                            symbol_kind: row.get(7)?,
+                            created_at: row.get(8)?,
+                        })
+                    },
+                )
+                .optional()?;
+            Ok(result)
+        }
+        
+        fn get_chunks_for_file(&self, file_path: &str) -> Result<Vec<CodeChunk>> {
+            let conn = self.conn.lock().unwrap();
+            let mut stmt = conn.prepare(
+                "SELECT id, file_path, byte_start, byte_end, content, content_hash,
+                        symbol_name, symbol_kind, created_at
+                 FROM code_chunks WHERE file_path = ?1 ORDER BY byte_start",
+            )?;
+            let chunks = stmt
+                .query_map(params![file_path], |row| {
+                    Ok(CodeChunk {
+                        id: Some(row.get(0)?),
+                        file_path: row.get(1)?,
+                        byte_start: row.get::<_, i64>(2)? as usize,
+                        byte_end: row.get::<_, i64>(3)? as usize,
+                        content: row.get(4)?,
+                        content_hash: row.get(5)?,
+                        symbol_name: row.get(6)?,
+                        symbol_kind: row.get(7)?,
+                        created_at: row.get(8)?,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(chunks)
+        }
+        
+        fn count_chunks_for_file(&self, file_path: &str) -> Result<usize> {
+            let conn = self.conn.lock().unwrap();
+            let count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM code_chunks WHERE file_path = ?1",
+                    params![file_path],
+                    |row| row.get(0),
+                )?;
+            Ok(count as usize)
+        }
+        
+        fn delete_chunks_for_file(&self, file_path: &str) -> Result<usize> {
+            let conn = self.conn.lock().unwrap();
+            let affected = conn.execute(
+                "DELETE FROM code_chunks WHERE file_path = ?1",
+                params![file_path],
+            )?;
+            Ok(affected)
+        }
+        
+        fn get_chunks_by_symbol(&self, file_path: &str, symbol_name: &str) -> Result<Vec<CodeChunk>> {
+            let conn = self.conn.lock().unwrap();
+            let mut stmt = conn.prepare(
+                "SELECT id, file_path, byte_start, byte_end, content, content_hash,
+                        symbol_name, symbol_kind, created_at
+                 FROM code_chunks 
+                 WHERE file_path = ?1 AND symbol_name = ?2
+                 ORDER BY byte_start",
+            )?;
+            let chunks = stmt
+                .query_map(params![file_path, symbol_name], |row| {
+                    Ok(CodeChunk {
+                        id: Some(row.get(0)?),
+                        file_path: row.get(1)?,
+                        byte_start: row.get::<_, i64>(2)? as usize,
+                        byte_end: row.get::<_, i64>(3)? as usize,
+                        content: row.get(4)?,
+                        content_hash: row.get(5)?,
+                        symbol_name: row.get(6)?,
+                        symbol_kind: row.get(7)?,
+                        created_at: row.get(8)?,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(chunks)
+        }
+        
+        fn get_all_chunks(&self) -> Result<Vec<CodeChunk>> {
+            let conn = self.conn.lock().unwrap();
+            let mut stmt = conn.prepare(
+                "SELECT id, file_path, byte_start, byte_end, content, content_hash,
+                        symbol_name, symbol_kind, created_at
+                 FROM code_chunks ORDER BY file_path, byte_start",
+            )?;
+            let chunks = stmt
+                .query_map([], |row| {
+                    Ok(CodeChunk {
+                        id: Some(row.get(0)?),
+                        file_path: row.get(1)?,
+                        byte_start: row.get::<_, i64>(2)? as usize,
+                        byte_end: row.get::<_, i64>(3)? as usize,
+                        content: row.get(4)?,
+                        content_hash: row.get(5)?,
+                        symbol_name: row.get(6)?,
+                        symbol_kind: row.get(7)?,
+                        created_at: row.get(8)?,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(chunks)
+        }
     }
 }
 
@@ -567,6 +774,11 @@ pub mod v3_impl {
         /// Key format: symbol_metrics:{symbol_id}
         fn symbol_metrics_key(symbol_id: i64) -> Vec<u8> {
             format!("symbol_metrics:{}", symbol_id).into_bytes()
+        }
+        
+        /// Key format: chunk:{chunk_id}
+        fn chunk_key(chunk_id: i64) -> Vec<u8> {
+            format!("chunk:{}", chunk_id).into_bytes()
         }
     }
 
@@ -752,6 +964,94 @@ pub mod v3_impl {
         ) -> Result<Vec<FileMetrics>> {
             // V3 doesn't have kv_scan, so we can't efficiently list all files
             // For now, return empty (would need to implement prefix scan in sqlitegraph)
+            Ok(vec![])
+        }
+        
+        // ===== Code Chunk Methods =====
+        
+        fn store_chunk(&self, chunk: &CodeChunk) -> Result<i64> {
+            let chunk_id = chunk.id.unwrap_or_else(|| {
+                // Generate ID from timestamp + random component
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis() as i64;
+                let random = std::process::id() as i64;
+                (now << 16) | (random & 0xFFFF)
+            });
+            
+            let key = Self::chunk_key(chunk_id);
+            let data = serde_json::to_vec(chunk)?;
+            
+            self.backend.kv_set_v3(key, KvValue::Bytes(data), None);
+            Ok(chunk_id)
+        }
+        
+        fn get_chunk(&self, chunk_id: i64) -> Result<Option<CodeChunk>> {
+            let key = Self::chunk_key(chunk_id);
+            let snapshot = SnapshotId::current();
+            
+            match self.backend.kv_get_v3(snapshot, &key) {
+                Some(KvValue::Bytes(data)) => {
+                    let chunk: CodeChunk = serde_json::from_slice(&data)?;
+                    Ok(Some(chunk))
+                }
+                _ => Ok(None),
+            }
+        }
+        
+        fn get_chunk_by_span(
+            &self,
+            file_path: &str,
+            byte_start: usize,
+            byte_end: usize,
+        ) -> Result<Option<CodeChunk>> {
+            // For V3, we need to scan all chunks to find matching span
+            // This is inefficient but works for now
+            let all_chunks = self.get_all_chunks()?;
+            Ok(all_chunks.into_iter().find(|c| {
+                c.file_path == file_path && c.byte_start == byte_start && c.byte_end == byte_end
+            }))
+        }
+        
+        fn get_chunks_for_file(&self, file_path: &str) -> Result<Vec<CodeChunk>> {
+            let all_chunks = self.get_all_chunks()?;
+            Ok(all_chunks.into_iter().filter(|c| c.file_path == file_path).collect())
+        }
+        
+        fn count_chunks_for_file(&self, file_path: &str) -> Result<usize> {
+            self.get_chunks_for_file(file_path).map(|v| v.len())
+        }
+        
+        fn delete_chunks_for_file(&self, file_path: &str) -> Result<usize> {
+            let chunks = self.get_chunks_for_file(file_path)?;
+            let count = chunks.len();
+            
+            for chunk in chunks {
+                if let Some(id) = chunk.id {
+                    let key = Self::chunk_key(id);
+                    self.backend.kv_delete_v3(&key);
+                }
+            }
+            
+            Ok(count)
+        }
+        
+        fn get_chunks_by_symbol(&self, file_path: &str, symbol_name: &str) -> Result<Vec<CodeChunk>> {
+            let all_chunks = self.get_all_chunks()?;
+            Ok(all_chunks
+                .into_iter()
+                .filter(|c| {
+                    c.file_path == file_path && 
+                    c.symbol_name.as_ref() == Some(&symbol_name.to_string())
+                })
+                .collect())
+        }
+        
+        fn get_all_chunks(&self) -> Result<Vec<CodeChunk>> {
+            // V3 doesn't have kv_scan, so we can't efficiently list all chunks
+            // For now, return empty (would need prefix scan in sqlitegraph)
+            // TODO: Implement prefix scan in sqlitegraph V3 backend
             Ok(vec![])
         }
     }
