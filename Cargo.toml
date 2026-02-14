@@ -36,9 +36,7 @@ path = "benches/perf_suite.rs"
 
 [features]
 default = []
-native-v2 = ["sqlitegraph/native-v2"]
-native-v2-perf = ["sqlitegraph/v2_experimental", "native-v2"]
-# Native V3 backend (recommended for new projects)
+# Native V3 backend (recommended)
 # 10-20x faster traversals, unlimited capacity, B+Tree storage
 native-v3 = ["sqlitegraph/native-v3"]
 # Optional LLVM IR-based CFG extraction for C/C++ (requires clang)
@@ -69,7 +67,7 @@ hex = "0.4"
 uuid = { version = "1.0", features = ["serde", "v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 signal-hook = "0.3"
-sqlitegraph = { version = "2.0.0", default-features = false }
+sqlitegraph = { version = "2.0.1", default-features = false }
 walkdir = "2.5"
 globset = "0.4"
 ignore = "0.4.25"

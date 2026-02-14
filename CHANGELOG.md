@@ -3,6 +3,14 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2026-02-13
+
+### Changed
+- **sqlitegraph dependency**: Updated from 2.0.0 to 2.0.1
+  - Includes critical bug fix for large node data (>64 bytes)
+  - V3 backend now correctly handles external storage for large symbols
+  - Prevents panics when indexing symbols with extensive metadata
+
 ## [2.2.1] - 2026-02-10
 
 ### Fixed
