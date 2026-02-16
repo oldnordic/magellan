@@ -101,7 +101,7 @@ pub use export::{ExportConfig, ExportFormat};
 pub use execution_log::ExecutionLog;
 pub use freshness::{check_freshness, FreshnessStatus, STALE_THRESHOLD_SECS};
 pub use metrics::MetricsOps;
-pub use schema::{CallNode, CfgBlock, CfgEdge, FileNode, ReferenceNode, SymbolNode};
+pub use schema::{CallNode, CfgBlock, CfgEdge, CrossFileRef, FileNode, ReferenceNode, SymbolNode};
 
 /// Progress callback for scan_directory
 ///

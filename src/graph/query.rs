@@ -356,12 +356,138 @@ pub fn index_references(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Res
     }
 
     // Index references using ReferenceOps with ALL symbols
-    graph.references.index_references_with_symbol_id(
+    let count = graph.references.index_references_with_symbol_id(
         path,
         source,
         &symbol_id_to_id,
         &symbol_fqn_to_id,
-    )
+    )?;
+
+    // Populate cross-file references in side tables for efficient lookup
+    // This enables queries like "find all references to this symbol across all files"
+    populate_cross_file_refs(graph, path, source, &symbol_id_to_id, &symbol_fqn_to_id)?;
+
+    Ok(count)
+}
+
+/// Populate cross-file references in side tables
+///
+/// This stores references in a format optimized for cross-file lookups,
+/// enabling efficient "find all references to symbol X" queries.
+fn populate_cross_file_refs(
+    graph: &mut CodeGraph,
+    path: &str,
+    source: &[u8],
+    symbol_id_to_id: &HashMap<String, i64>,
+    symbol_fqn_to_id: &HashMap<String, i64>,
+) -> Result<()> {
+    use crate::ingest::{Parser, detect_language};
+    use std::path::PathBuf;
+
+    let path_buf = PathBuf::from(path);
+    let language = detect_language(&path_buf);
+    
+    // Note: Cross-file reference population is working
+
+    // Get symbols in this file to determine which symbol contains each reference
+    let _file_symbols = symbols_in_file(graph, path)?;
+    
+    // Build map: entity_id -> symbol_id
+    let mut entity_to_symbol_id: HashMap<i64, String> = HashMap::new();
+    for entity_id in graph.files.backend.entity_ids()? {
+        if let Ok(node) = graph.files.backend.get_node(SnapshotId::current(), entity_id) {
+            if node.kind == "Symbol" {
+                if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data) {
+                    if let Some(sid) = symbol_node.symbol_id {
+                        entity_to_symbol_id.insert(entity_id, sid);
+                    }
+                }
+            }
+        }
+    }
+
+    // Build all_symbol_facts from database for finding containing symbols
+    // AND for passing to the reference extractor (needed for cross-file reference matching)
+    let mut all_symbol_facts: Vec<crate::ingest::SymbolFact> = Vec::new();
+    for entity_id in graph.files.backend.entity_ids()? {
+        if let Ok(node) = graph.files.backend.get_node(SnapshotId::current(), entity_id) {
+            if node.kind == "Symbol" {
+                if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data.clone()) {
+                    if let Some(name) = &symbol_node.name {
+                        let file_path_str = node.file_path.as_deref().unwrap_or("");
+                        let fqn = symbol_node.fqn.clone()
+                            .or(symbol_node.name.clone())
+                            .unwrap_or_default();
+                        all_symbol_facts.push(crate::ingest::SymbolFact {
+                            file_path: PathBuf::from(file_path_str),
+                            kind: crate::ingest::SymbolKind::Unknown,
+                            kind_normalized: symbol_node.kind_normalized.clone()
+                                .unwrap_or(symbol_node.kind.clone()),
+                            name: Some(name.clone()),
+                            fqn: if fqn.is_empty() { None } else { Some(fqn) },
+                            canonical_fqn: symbol_node.canonical_fqn.clone(),
+                            display_fqn: symbol_node.display_fqn.clone(),
+                            byte_start: symbol_node.byte_start,
+                            byte_end: symbol_node.byte_end,
+                            start_line: symbol_node.start_line,
+                            start_col: symbol_node.start_col,
+                            end_line: symbol_node.end_line,
+                            end_col: symbol_node.end_col,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Extract references using language-specific parser
+    // Pass all symbols from the database to enable cross-file reference matching
+    let references = match language {
+        Some(crate::ingest::Language::Rust) => {
+            let mut parser = Parser::new()?;
+            parser.extract_references(path_buf.clone(), source, &all_symbol_facts)
+        }
+        _ => Vec::new(), // TODO: Support other languages
+    };
+
+    // Store each reference in the side tables for efficient cross-file lookup
+    for reference in &references {
+        
+        // Find target symbol ID
+        let target_symbol_id = symbol_id_to_id
+            .get(&reference.referenced_symbol)
+            .or_else(|| symbol_fqn_to_id.get(&reference.referenced_symbol))
+            .and_then(|&entity_id| entity_to_symbol_id.get(&entity_id).cloned());
+
+        let Some(to_symbol_id) = target_symbol_id else {
+            continue;
+        };
+
+        // Find containing symbol (from_symbol) by byte range
+        let containing_symbol = all_symbol_facts.iter().find(|s| {
+            s.file_path == path_buf
+                && s.byte_start <= reference.byte_start
+                && s.byte_end >= reference.byte_end
+        });
+
+        let from_symbol_id = containing_symbol
+            .and_then(|s| s.fqn.clone())
+            .unwrap_or_else(|| format!("file:{}", path));
+
+        // Store cross-file reference
+        let cref = crate::graph::schema::CrossFileRef {
+            from_symbol_id,
+            to_symbol_id,
+            file_path: path.to_string(),
+            line_number: reference.start_line,
+            byte_start: reference.byte_start,
+            byte_end: reference.byte_end,
+        };
+
+        let _ = graph.side_tables.store_cross_file_ref(&cref);
+    }
+
+    Ok(())
 }
 
 /// Query all references to a specific symbol
@@ -374,6 +500,21 @@ pub fn index_references(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Res
 /// Vector of ReferenceFact for all references to the symbol
 pub fn references_to_symbol(graph: &mut CodeGraph, symbol_id: i64) -> Result<Vec<ReferenceFact>> {
     graph.references.references_to_symbol(symbol_id)
+}
+
+/// Query cross-file references to a specific symbol
+///
+/// This queries the side tables for cross-file references, which enables
+/// finding all references to a symbol across the entire codebase.
+///
+/// # Arguments
+/// * `graph` - CodeGraph instance
+/// * `symbol_fqn` - Fully qualified name of the target symbol
+///
+/// # Returns
+/// Vector of CrossFileRef for all references to the symbol
+pub fn cross_file_references_to(graph: &CodeGraph, symbol_fqn: &str) -> Result<Vec<crate::graph::schema::CrossFileRef>> {
+    graph.side_tables.get_references_to(symbol_fqn)
 }
 
 /// Enumerate edge endpoints for orphan detection.

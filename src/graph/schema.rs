@@ -71,6 +71,26 @@ pub struct ReferenceNode {
     pub end_col: u64,
 }
 
+/// Cross-file reference entry for efficient lookup
+///
+/// Stored separately from ReferenceNode to enable efficient cross-file
+/// reference queries without traversing the entire graph.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CrossFileRef {
+    /// Symbol ID of the referencing symbol (source)
+    pub from_symbol_id: String,
+    /// Symbol ID of the referenced symbol (target)
+    pub to_symbol_id: String,
+    /// File path where the reference occurs
+    pub file_path: String,
+    /// Line number where the reference occurs (1-indexed)
+    pub line_number: usize,
+    /// Byte start position
+    pub byte_start: usize,
+    /// Byte end position
+    pub byte_end: usize,
+}
+
 /// Call node payload stored in sqlitegraph
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CallNode {

@@ -3,6 +3,16 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.5] - 2026-02-16
+
+### Fixed
+- **V3 Backend Node Persistence**
+  - Updated to sqlitegraph 2.0.5 which fixes critical V3 backend persistence bug
+  - V3 databases now properly persist and reload nodes across process restarts
+  - Root cause was in sqlitegraph: NodeStore maintained stale root_page_id after B-tree inserts
+  - Previously: databases appeared to save but nodes were lost on reopen
+  - Now: full persistence working - create, close, reopen, query all work correctly
+
 ## [2.4.4] - 2026-02-14
 
 ### Fixed

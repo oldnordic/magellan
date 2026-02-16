@@ -1340,9 +1340,9 @@ checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
 
 [[package]]
 name = "sqlitegraph"
-version = "2.0.4"
+version = "2.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6dfad947c623dc8d973875e2b64ac2200575b45a25923c35f83dd0f64e2bb2a"
+checksum = "d3e7374b16056a5a6f19ca5b4ffca5162bde9887ded0f0b7ec87dc0130e8fca9"
 dependencies = [
  "ahash",
  "arc-swap",

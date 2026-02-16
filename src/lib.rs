@@ -71,7 +71,8 @@ pub use common::{
 pub use diagnostics::{DiagnosticStage, SkipReason, WatchDiagnostic};
 pub use generation::{ChunkStore, CodeChunk};
 pub use graph::filter::FileFilter;
-pub use graph::query::SymbolQueryResult;
+pub use graph::query::{cross_file_references_to, SymbolQueryResult};
+pub use graph::CrossFileRef;
 pub use graph::scan::ScanResult;
 pub use graph::test_helpers::{delete_file_facts_with_injection, FailPoint};
 pub use graph::{

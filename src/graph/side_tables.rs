@@ -150,6 +150,44 @@ pub trait SideTables: Send + Sync {
     
     /// Delete all AST nodes for a file (returns count deleted)
     fn delete_ast_nodes_for_file(&self, file_id: i64) -> Result<usize>;
+
+    // ===== Cross-File Reference Methods =====
+
+    /// Store a cross-file reference
+    ///
+    /// # Arguments
+    /// * `cref` - The cross-file reference to store
+    fn store_cross_file_ref(&self, cref: &crate::graph::schema::CrossFileRef) -> Result<()>;
+
+    /// Get all references to a specific symbol (by target symbol ID)
+    ///
+    /// # Arguments
+    /// * `to_symbol_id` - The target symbol ID
+    ///
+    /// # Returns
+    /// Vector of cross-file references where `to_symbol_id` is the target
+    fn get_references_to(&self, to_symbol_id: &str) -> Result<Vec<crate::graph::schema::CrossFileRef>>;
+
+    /// Get all references from a specific symbol (by source symbol ID)
+    ///
+    /// # Arguments
+    /// * `from_symbol_id` - The source symbol ID
+    ///
+    /// # Returns
+    /// Vector of cross-file references where `from_symbol_id` is the source
+    fn get_references_from(&self, from_symbol_id: &str) -> Result<Vec<crate::graph::schema::CrossFileRef>>;
+
+    /// Delete all cross-file references for a file
+    ///
+    /// # Arguments
+    /// * `file_path` - The file path to delete references for
+    ///
+    /// # Returns
+    /// Number of references deleted
+    fn delete_cross_file_refs_for_file(&self, file_path: &str) -> Result<usize>;
+
+    /// Count total cross-file references
+    fn count_cross_file_refs(&self) -> Result<usize>;
     
     /// Convert to Any for downcasting
     ///
@@ -253,6 +291,32 @@ pub mod sqlite_impl {
             )?;
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_symbol_metrics_file_path ON symbol_metrics(file_path)",
+                [],
+            )?;
+
+            // Cross-file references table
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS cross_file_refs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    from_symbol_id TEXT NOT NULL,
+                    to_symbol_id TEXT NOT NULL,
+                    file_path TEXT NOT NULL,
+                    line_number INTEGER NOT NULL,
+                    byte_start INTEGER NOT NULL,
+                    byte_end INTEGER NOT NULL
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_cross_file_refs_to ON cross_file_refs(to_symbol_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_cross_file_refs_from ON cross_file_refs(from_symbol_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_cross_file_refs_file ON cross_file_refs(file_path)",
                 [],
             )?;
 
@@ -931,7 +995,92 @@ pub mod sqlite_impl {
             )?;
             Ok(affected)
         }
-        
+
+        // ===== Cross-File Reference Methods =====
+
+        fn store_cross_file_ref(&self, cref: &crate::graph::schema::CrossFileRef) -> Result<()> {
+            let conn = self.conn.lock().unwrap();
+            conn.execute(
+                "INSERT INTO cross_file_refs
+                    (from_symbol_id, to_symbol_id, file_path, line_number, byte_start, byte_end)
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    cref.from_symbol_id,
+                    cref.to_symbol_id,
+                    cref.file_path,
+                    cref.line_number as i64,
+                    cref.byte_start as i64,
+                    cref.byte_end as i64,
+                ],
+            )?;
+            Ok(())
+        }
+
+        fn get_references_to(&self, to_symbol_id: &str) -> Result<Vec<crate::graph::schema::CrossFileRef>> {
+            let conn = self.conn.lock().unwrap();
+            let mut stmt = conn.prepare(
+                "SELECT from_symbol_id, to_symbol_id, file_path, line_number, byte_start, byte_end
+                 FROM cross_file_refs WHERE to_symbol_id = ?1"
+            )?;
+            let rows = stmt.query_map(params![to_symbol_id], |row| {
+                Ok(crate::graph::schema::CrossFileRef {
+                    from_symbol_id: row.get(0)?,
+                    to_symbol_id: row.get(1)?,
+                    file_path: row.get(2)?,
+                    line_number: row.get::<_, i64>(3)? as usize,
+                    byte_start: row.get::<_, i64>(4)? as usize,
+                    byte_end: row.get::<_, i64>(5)? as usize,
+                })
+            })?;
+            let mut results = Vec::new();
+            for row in rows {
+                results.push(row?);
+            }
+            Ok(results)
+        }
+
+        fn get_references_from(&self, from_symbol_id: &str) -> Result<Vec<crate::graph::schema::CrossFileRef>> {
+            let conn = self.conn.lock().unwrap();
+            let mut stmt = conn.prepare(
+                "SELECT from_symbol_id, to_symbol_id, file_path, line_number, byte_start, byte_end
+                 FROM cross_file_refs WHERE from_symbol_id = ?1"
+            )?;
+            let rows = stmt.query_map(params![from_symbol_id], |row| {
+                Ok(crate::graph::schema::CrossFileRef {
+                    from_symbol_id: row.get(0)?,
+                    to_symbol_id: row.get(1)?,
+                    file_path: row.get(2)?,
+                    line_number: row.get::<_, i64>(3)? as usize,
+                    byte_start: row.get::<_, i64>(4)? as usize,
+                    byte_end: row.get::<_, i64>(5)? as usize,
+                })
+            })?;
+            let mut results = Vec::new();
+            for row in rows {
+                results.push(row?);
+            }
+            Ok(results)
+        }
+
+        fn delete_cross_file_refs_for_file(&self, file_path: &str) -> Result<usize> {
+            let conn = self.conn.lock().unwrap();
+            let affected = conn.execute(
+                "DELETE FROM cross_file_refs WHERE file_path = ?1",
+                params![file_path],
+            )?;
+            Ok(affected)
+        }
+
+        fn count_cross_file_refs(&self) -> Result<usize> {
+            let conn = self.conn.lock().unwrap();
+            let count: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM cross_file_refs",
+                [],
+                |row| row.get(0),
+            )?;
+            Ok(count as usize)
+        }
+
         fn as_any(&self) -> &dyn std::any::Any {
             self
         }
@@ -1614,7 +1763,102 @@ pub mod v3_impl {
             
             Ok(count)
         }
-        
+
+        // ===== Cross-File Reference Methods =====
+
+        fn store_cross_file_ref(&self, cref: &crate::graph::schema::CrossFileRef) -> Result<()> {
+            // Key format: cref:to:{to_symbol_id}:{from_symbol_id}
+            let key = format!("cref:to:{}:{}", cref.to_symbol_id, cref.from_symbol_id).into_bytes();
+            let value = serde_json::to_vec(cref)?;
+            self.backend.kv_set_v3(key, KvValue::Bytes(value), None);
+            
+            // Also store reverse lookup: cref:from:{from_symbol_id}:{to_symbol_id}
+            let reverse_key = format!("cref:from:{}:{}", cref.from_symbol_id, cref.to_symbol_id).into_bytes();
+            self.backend.kv_set_v3(reverse_key, KvValue::Bytes(vec![]), None);
+            
+            // Store file index: cref:file:{file_path}:{to_symbol_id}:{from_symbol_id}
+            let file_key = format!("cref:file:{}:{}:{}", cref.file_path, cref.to_symbol_id, cref.from_symbol_id).into_bytes();
+            self.backend.kv_set_v3(file_key, KvValue::Bytes(vec![]), None);
+            
+            Ok(())
+        }
+
+        fn get_references_to(&self, to_symbol_id: &str) -> Result<Vec<crate::graph::schema::CrossFileRef>> {
+            let snapshot = SnapshotId::current();
+            let prefix = format!("cref:to:{to_symbol_id}:").into_bytes();
+            let results = self.backend.kv_prefix_scan_v3(snapshot, &prefix);
+            
+            let mut refs = Vec::new();
+            for (_, value) in results {
+                if let KvValue::Bytes(data) = value {
+                    if let Ok(cref) = serde_json::from_slice::<crate::graph::schema::CrossFileRef>(&data) {
+                        refs.push(cref);
+                    }
+                }
+            }
+            Ok(refs)
+        }
+
+        fn get_references_from(&self, from_symbol_id: &str) -> Result<Vec<crate::graph::schema::CrossFileRef>> {
+            let snapshot = SnapshotId::current();
+            let prefix = format!("cref:from:{from_symbol_id}:").into_bytes();
+            let results = self.backend.kv_prefix_scan_v3(snapshot, &prefix);
+            
+            let mut refs = Vec::new();
+            for (key, _) in results {
+                // Extract to_symbol_id from key: cref:from:{from_symbol_id}:{to_symbol_id}
+                let key_str = String::from_utf8_lossy(&key);
+                if let Some(to_symbol_id) = key_str.split(':').nth(3) {
+                    // Now lookup the full reference using to: lookup
+                    let to_refs = self.get_references_to(to_symbol_id)?;
+                    for cref in to_refs {
+                        if cref.from_symbol_id == from_symbol_id {
+                            refs.push(cref);
+                        }
+                    }
+                }
+            }
+            Ok(refs)
+        }
+
+        fn delete_cross_file_refs_for_file(&self, file_path: &str) -> Result<usize> {
+            let snapshot = SnapshotId::current();
+            let prefix = format!("cref:file:{file_path}:").into_bytes();
+            let results = self.backend.kv_prefix_scan_v3(snapshot, &prefix);
+            
+            let mut count = 0;
+            for (file_key, _) in results {
+                // Parse file key: cref:file:{file_path}:{to_symbol_id}:{from_symbol_id}
+                let key_str = String::from_utf8_lossy(&file_key);
+                let parts: Vec<&str> = key_str.split(':').collect();
+                if parts.len() >= 5 {
+                    let to_symbol_id = parts[3];
+                    let from_symbol_id = parts[4];
+                    
+                    // Delete the to: entry (contains full data)
+                    let to_key = format!("cref:to:{to_symbol_id}:{from_symbol_id}").into_bytes();
+                    self.backend.kv_delete_v3(&to_key);
+                    
+                    // Delete the from: entry
+                    let from_key = format!("cref:from:{from_symbol_id}:{to_symbol_id}").into_bytes();
+                    self.backend.kv_delete_v3(&from_key);
+                    
+                    // Delete the file: entry
+                    self.backend.kv_delete_v3(&file_key);
+                    
+                    count += 1;
+                }
+            }
+            Ok(count)
+        }
+
+        fn count_cross_file_refs(&self) -> Result<usize> {
+            let snapshot = SnapshotId::current();
+            let prefix = b"cref:to:";
+            let results = self.backend.kv_prefix_scan_v3(snapshot, prefix);
+            Ok(results.len())
+        }
+
         fn as_any(&self) -> &dyn std::any::Any {
             self
         }
