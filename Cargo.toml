@@ -1,6 +1,6 @@
 [package]
 name = "magellan"
-version = "2.4.5"
+version = "2.4.6"
 edition = "2021"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/oldnordic/magellan"
@@ -49,6 +49,7 @@ path = "benches/perf_suite.rs"
 [features]
 # Default: SQLite backend (stable, widely compatible)
 default = ["sqlite-backend"]
+# native-v3 disabled to avoid format conflicts - use only sqlite-backend for now
 
 # SQLite backend (stable, uses SQLite for storage)
 # Use this for compatibility and stability
@@ -88,7 +89,7 @@ hex = "0.4"
 uuid = { version = "1.0", features = ["serde", "v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 signal-hook = "0.3"
-sqlitegraph = { version = "2.0.5", default-features = false }
+sqlitegraph = { version = "2.0.7", default-features = false }
 walkdir = "2.5"
 globset = "0.4"
 ignore = "0.4.25"
