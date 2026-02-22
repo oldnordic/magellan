@@ -51,8 +51,11 @@ impl CfgOps {
 
     /// Insert CFG blocks into database
     ///
-    /// Uses bulk insert for efficiency.
+    /// Uses bulk insert for efficiency. Computes cfg_hash for each block
+    /// to enable cache invalidation in downstream tools (e.g., Mirage).
     fn insert_cfg_blocks(&self, blocks: &[CfgBlock]) -> Result<usize> {
+        use sha2::{Digest, Sha256};
+        
         let conn = self.chunks.connect()?;
 
         let tx = conn.unchecked_transaction()?;
@@ -62,11 +65,21 @@ impl CfgOps {
                     function_id, kind, terminator,
                     byte_start, byte_end,
                     start_line, start_col,
-                    end_line, end_col
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                    end_line, end_col,
+                    cfg_hash
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             )?;
 
             for block in blocks {
+                // Compute hash from block data for cache invalidation
+                let mut hasher = Sha256::new();
+                hasher.update(block.function_id.to_le_bytes());
+                hasher.update(&block.kind);
+                hasher.update(&block.terminator);
+                hasher.update(block.byte_start.to_le_bytes());
+                hasher.update(block.byte_end.to_le_bytes());
+                let cfg_hash = format!("{:x}", hasher.finalize())[..16].to_string();
+
                 stmt.execute(params![
                     block.function_id,
                     block.kind,
@@ -77,6 +90,7 @@ impl CfgOps {
                     block.start_col,
                     block.end_line,
                     block.end_col,
+                    cfg_hash,
                 ])?;
             }
         }

@@ -304,6 +304,7 @@ pub fn ensure_cfg_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatErro
             start_col INTEGER NOT NULL,
             end_line INTEGER NOT NULL,
             end_col INTEGER NOT NULL,
+            cfg_hash TEXT,
             FOREIGN KEY (function_id) REFERENCES graph_entities(id) ON DELETE CASCADE
         )",
         [],
@@ -330,6 +331,14 @@ pub fn ensure_cfg_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatErro
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_cfg_blocks_terminator
          ON cfg_blocks(terminator)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    // Index for hash-based cache lookups
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_cfg_blocks_hash
+         ON cfg_blocks(cfg_hash)",
         [],
     )
     .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;

@@ -143,7 +143,8 @@ impl ChunkStore {
                 start_line INTEGER NOT NULL,
                 start_col INTEGER NOT NULL,
                 end_line INTEGER NOT NULL,
-                end_col INTEGER NOT NULL
+                end_col INTEGER NOT NULL,
+                cfg_hash TEXT
             )",
             [],
         ).expect("Failed to create cfg_blocks table in ChunkStore stub");
@@ -188,6 +189,11 @@ impl ChunkStore {
             "CREATE INDEX IF NOT EXISTS idx_cfg_blocks_span ON cfg_blocks(byte_start, byte_end)",
             [],
         ).expect("Failed to create cfg_blocks span index");
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cfg_blocks_hash ON cfg_blocks(cfg_hash)",
+            [],
+        ).expect("Failed to create cfg_blocks hash index");
 
         Self {
             backend: ChunkStoreBackend::Owned(db_path),

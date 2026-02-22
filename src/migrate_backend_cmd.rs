@@ -728,7 +728,8 @@ fn ensure_table_schema(conn: &rusqlite::Connection, table_name: &str) -> Result<
                     start_line INTEGER NOT NULL,
                     start_col INTEGER NOT NULL,
                     end_line INTEGER NOT NULL,
-                    end_col INTEGER NOT NULL
+                    end_col INTEGER NOT NULL,
+                    cfg_hash TEXT
                 )",
                 [],
             )
@@ -743,6 +744,10 @@ fn ensure_table_schema(conn: &rusqlite::Connection, table_name: &str) -> Result<
             )?;
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_cfg_blocks_terminator ON cfg_blocks(terminator)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_cfg_blocks_hash ON cfg_blocks(cfg_hash)",
                 [],
             )?;
             Ok(())

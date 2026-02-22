@@ -16,7 +16,8 @@ use std::path::{Path, PathBuf};
 /// v5: AST nodes table for hierarchy storage
 /// v6: AST nodes file_id column for per-file tracking
 /// v7: CFG blocks table for control flow graph storage
-pub const MAGELLAN_SCHEMA_VERSION: i64 = 7;
+/// v8: cfg_blocks.cfg_hash column for cache invalidation
+pub const MAGELLAN_SCHEMA_VERSION: i64 = 8;
 
 /// Migration result summary
 #[derive(Debug, Clone)]
@@ -264,6 +265,22 @@ fn migrate_from_version(tx: &Transaction, old_version: i64) -> Result<()> {
         tx.execute(
             "CREATE INDEX IF NOT EXISTS idx_cfg_blocks_span
              ON cfg_blocks(byte_start, byte_end)",
+            [],
+        )?;
+    }
+
+    if old_version < 8 {
+        // v7 -> v8: Add cfg_hash column for cache invalidation
+        // This allows tools like Mirage to detect when CFG structure changes
+        tx.execute(
+            "ALTER TABLE cfg_blocks ADD COLUMN cfg_hash TEXT",
+            [],
+        )?;
+        
+        // Index for hash-based cache lookups
+        tx.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cfg_blocks_hash
+             ON cfg_blocks(cfg_hash)",
             [],
         )?;
     }

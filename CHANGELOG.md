@@ -3,6 +3,14 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.9] - 2026-02-22
+
+### Added
+- **Schema v8:** Added `cfg_hash` column to `cfg_blocks` table
+  - Enables granular cache invalidation for tools like Mirage
+  - Hash computed from block data (function_id, kind, terminator, spans)
+  - Falls back to symbol_id for backward compatibility with v7 databases
+
 ## [2.4.8] - 2026-02-21
 
 ### Added
