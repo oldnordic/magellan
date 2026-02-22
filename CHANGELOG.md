@@ -3,6 +3,14 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.8] - 2026-02-21
+
+### Added
+- Shortened `--help` output. Research shows users ignore help >25 lines.
+  - `--help` / `-h` now shows concise 16-line quick reference
+  - `--help-full` / `-H` shows complete 179-line documentation
+  - Short help includes most common commands with concrete examples
+
 ## [2.4.7] - 2026-02-21
 
 ### Fixed
