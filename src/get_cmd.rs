@@ -5,15 +5,14 @@
 use anyhow::Result;
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 // Use the library items through the magellan library
 use magellan::common::detect_language_from_path;
 use magellan::graph::query;
-use magellan::generation::{ChunkStore, schema::CodeChunk};
+use magellan::generation::schema::CodeChunk;
 use magellan::output::rich::{SpanChecksums, SpanContext};
 use magellan::output::{output_json, JsonResponse, Span, SymbolMatch};
-use magellan::{detect_backend_format, BackendFormat, CodeGraph, generate_execution_id, OutputFormat};
+use magellan::{CodeGraph, generate_execution_id, OutputFormat};
 use serde::{Deserialize, Serialize};
 
 /// Response for get command with rich span data

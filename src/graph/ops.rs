@@ -4,7 +4,6 @@
 
 use anyhow::Result;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use sqlitegraph::{GraphBackend, SnapshotId};
 
@@ -420,7 +419,7 @@ pub fn delete_file(graph: &mut CodeGraph, path: &str) -> Result<DeleteResult> {
 /// # Returns
 /// DeleteResult with detailed counts of deleted entities.
 pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResult> {
-    use crate::graph::schema::delete_edges_touching_entities;
+    
 
     // === PHASE 1: Count items to be deleted (before any deletion) ===
     // These are the expected counts we will verify against.
@@ -697,7 +696,7 @@ fn count_calls_in_file(graph: &CodeGraph, path: &str) -> usize {
 /// to check deletion completeness at various stages.
 pub mod test_helpers {
     use super::*;
-    use crate::graph::schema::delete_edges_touching_entities;
+    
 
     /// Test operations that can be verified during delete.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]

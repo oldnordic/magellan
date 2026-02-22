@@ -184,6 +184,9 @@ impl MetricsOps {
         let fan_in = self.compute_symbol_fan_in(symbol_id)?;
         let fan_out = self.compute_symbol_fan_out(symbol_id)?;
 
+        // Compute cyclomatic complexity from CFG blocks
+        let cyclomatic_complexity = self.compute_cyclomatic_complexity(symbol_id)?;
+
         // Create symbol metrics
         let symbol_name = symbol.name.as_deref().unwrap_or("").to_string();
         let metrics = SymbolMetrics {
@@ -195,7 +198,7 @@ impl MetricsOps {
             estimated_loc,
             fan_in,
             fan_out,
-            cyclomatic_complexity: 1, // Placeholder for Phase 35
+            cyclomatic_complexity,
             last_updated: Self::now_timestamp(),
         };
 
@@ -227,7 +230,7 @@ impl MetricsOps {
         let conn = self.connect()?;
         let count: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM graph_edges WHERE target_id = ?1",
+                "SELECT COUNT(*) FROM graph_edges WHERE to_id = ?1",
                 params![symbol_id],
                 |row| row.get(0),
             )
@@ -243,13 +246,47 @@ impl MetricsOps {
         let conn = self.connect()?;
         let count: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM graph_edges WHERE source_id = ?1",
+                "SELECT COUNT(*) FROM graph_edges WHERE from_id = ?1",
                 params![symbol_id],
                 |row| row.get(0),
             )
             .unwrap_or(0);
 
         Ok(count)
+    }
+
+    /// Compute cyclomatic complexity from CFG blocks
+    ///
+    /// Cyclomatic Complexity = Number of decision points + 1
+    /// 
+    /// Decision points are CFG blocks with terminators that indicate branching:
+    /// - return, continue, break (not fallthrough)
+    ///
+    /// # Arguments
+    /// * `symbol_id` - The entity ID of the symbol (function)
+    ///
+    /// # Returns
+    /// Cyclomatic complexity as i64 (minimum value is 1)
+    fn compute_cyclomatic_complexity(&self, symbol_id: i64) -> Result<i64> {
+        use rusqlite::params;
+
+        let conn = self.connect()?;
+        
+        // Count CFG blocks for this function that have non-fallthrough terminators
+        // These represent decision points (branches)
+        let decision_points: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM cfg_blocks 
+                 WHERE function_id = ?1 
+                 AND terminator != 'fallthrough'",
+                params![symbol_id],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+
+        // Cyclomatic complexity = decision_points + 1
+        // Minimum complexity is 1 (a function with no branches)
+        Ok(decision_points.max(0) + 1)
     }
 
     /// Get current Unix timestamp in seconds
@@ -282,6 +319,139 @@ fn calculate_complexity(loc: i64, fan_in: i64, fan_out: i64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Test that symbol fan-in/fan-out metrics are computed correctly
+    /// This test verifies the fix for the bug where column names were wrong
+    /// (target_id/to_id and source_id/from_id confusion)
+    #[test]
+    fn test_symbol_fan_in_fan_out_computation() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
+
+        // Create a test file with two functions where one calls the other
+        let test_source = r#"
+fn caller_function() {
+    callee_function();
+}
+
+fn callee_function() {
+    println!("called");
+}
+"#;
+
+        // Index the file
+        let file_path = temp_dir.path().join("test.rs");
+        std::fs::write(&file_path, test_source).unwrap();
+        let path_str = file_path.to_string_lossy().to_string();
+        graph.index_file(&path_str, test_source.as_bytes()).unwrap();
+
+        // Get the symbol IDs using symbol_id_by_name
+        let caller_id = graph.symbol_id_by_name(&path_str, "caller_function").unwrap();
+        let callee_id = graph.symbol_id_by_name(&path_str, "callee_function").unwrap();
+        
+        assert!(caller_id.is_some(), "caller_function should be indexed");
+        assert!(callee_id.is_some(), "callee_function should be indexed");
+        
+        let caller_id = caller_id.unwrap();
+        let callee_id = callee_id.unwrap();
+
+        // Get symbol metrics from the metrics field
+        let caller_metrics = graph.metrics.get_symbol_metrics(caller_id).unwrap()
+            .expect("caller_function metrics should exist");
+        let callee_metrics = graph.metrics.get_symbol_metrics(callee_id).unwrap()
+            .expect("callee_function metrics should exist");
+        
+        // callee_function should have fan_in >= 1 (being called by caller_function)
+        assert!(
+            callee_metrics.fan_in >= 1,
+            "callee_function should have fan_in >= 1 (called by caller_function), got {}",
+            callee_metrics.fan_in
+        );
+        
+        // caller_function should have fan_out >= 1 (calling callee_function)
+        assert!(
+            caller_metrics.fan_out >= 1,
+            "caller_function should have fan_out >= 1 (calls callee_function), got {}",
+            caller_metrics.fan_out
+        );
+    }
+
+    /// Test that cyclomatic complexity is computed from CFG data
+    /// Verifies the fix for placeholder complexity=1
+    #[test]
+    fn test_cyclomatic_complexity_from_cfg() {
+        use crate::graph::schema::SymbolNode;
+        
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
+
+        // Create a test file with a function that has multiple branches
+        let test_source = r#"
+fn simple_function() {
+    println!("simple");
+}
+
+fn complex_function(x: i32) {
+    if x > 0 {
+        println!("positive");
+    } else if x < 0 {
+        println!("negative");
+    } else {
+        println!("zero");
+    }
+    
+    for i in 0..x {
+        if i % 2 == 0 {
+            continue;
+        }
+        println!("{}", i);
+    }
+}
+"#;
+
+        // Index the file
+        let file_path = temp_dir.path().join("test.rs");
+        std::fs::write(&file_path, test_source).unwrap();
+        let path_str = file_path.to_string_lossy().to_string();
+        graph.index_file(&path_str, test_source.as_bytes()).unwrap();
+
+        // Get the symbol IDs
+        let simple_id = graph.symbol_id_by_name(&path_str, "simple_function").unwrap();
+        let complex_id = graph.symbol_id_by_name(&path_str, "complex_function").unwrap();
+        
+        assert!(simple_id.is_some(), "simple_function should be indexed");
+        assert!(complex_id.is_some(), "complex_function should be indexed");
+        
+        let simple_id = simple_id.unwrap();
+        let complex_id = complex_id.unwrap();
+
+        // Get symbol metrics
+        let simple_metrics = graph.metrics.get_symbol_metrics(simple_id).unwrap()
+            .expect("simple_function metrics should exist");
+        let complex_metrics = graph.metrics.get_symbol_metrics(complex_id).unwrap()
+            .expect("complex_function metrics should exist");
+        
+        // simple_function has no branches, complexity should be 1
+        assert_eq!(
+            simple_metrics.cyclomatic_complexity, 1,
+            "simple_function should have complexity 1, got {}",
+            simple_metrics.cyclomatic_complexity
+        );
+        
+        // complex_function has:
+        // - if/else if/else (3 branches)
+        // - for loop (1 branch)
+        // - if inside loop (1 branch)
+        // - continue (1 branch)
+        // Total complexity should be > 1
+        assert!(
+            complex_metrics.cyclomatic_complexity > 1,
+            "complex_function should have complexity > 1 (has if/else, for, if, continue), got {}",
+            complex_metrics.cyclomatic_complexity
+        );
+    }
 
     #[test]
     fn test_calculate_complexity() {

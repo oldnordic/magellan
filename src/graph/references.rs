@@ -349,10 +349,10 @@ impl ReferenceOps {
     /// Store cross-file references in side tables for efficient lookup
     fn store_cross_file_refs(
         &self,
-        path: &str,
-        references: &[ReferenceFact],
-        symbol_id_to_id: &HashMap<String, i64>,
-        fqn_to_id: &HashMap<String, i64>,
+        _path: &str,
+        _references: &[ReferenceFact],
+        _symbol_id_to_id: &HashMap<String, i64>,
+        _fqn_to_id: &HashMap<String, i64>,
     ) -> Result<()> {
         // Get access to side tables through the backend
         // This requires the side tables to be accessible from ReferenceOps

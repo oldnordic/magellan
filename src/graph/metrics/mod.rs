@@ -400,7 +400,7 @@ impl MetricsOps {
         symbol_facts: &[crate::graph::schema::SymbolNode],
     ) -> anyhow::Result<()> {
         use compute_v3::V3MetricsCompute;
-        use std::sync::Arc;
+        
 
         let v3_compute = V3MetricsCompute::new(backend);
 

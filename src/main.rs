@@ -29,7 +29,7 @@ use magellan::CodeGraph;
 use std::process::ExitCode;
 
 use cli::{Command, parse_args};
-use status_cmd::{ExecutionTracker, run_status};
+use status_cmd::run_status;
 
 // Re-export for other command modules that use crate::generate_execution_id
 pub use magellan::output::generate_execution_id;

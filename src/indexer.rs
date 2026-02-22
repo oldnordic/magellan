@@ -25,7 +25,6 @@ use crate::{CodeGraph, FileEvent, FileSystemWatcher, WatcherConfig};
 
 
 
-use sqlitegraph::GraphBackend;
 
 /// Reconcile files that exist in DB but not on filesystem.
 /// 

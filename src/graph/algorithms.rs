@@ -76,15 +76,29 @@ use super::CodeGraph;
 ///
 /// This is a temporary workaround until algorithm methods are added to GraphBackend trait.
 /// For SQLite backend, this extracts the concrete SqliteGraphBackend and calls .graph().
+///
+/// # Safety
+/// 
+/// This function uses unsafe pointer casting because the GraphBackend trait doesn't
+/// provide downcasting methods. It's safe as long as:
+/// - The backend is actually a SqliteGraphBackend (not V3 or other backend)
+/// - The Arc hasn't been cloned/reinterpreted
+///
+/// TODO: Remove this when sqlitegraph adds `as_any()` to GraphBackend trait
 fn get_sqlite_graph(backend: &Arc<dyn GraphBackend>) -> Result<&sqlitegraph::graph::SqliteGraph, anyhow::Error> {
-    // Use unsafe downcasting as temporary workaround
-    // This is safe because we know the backend is SqliteGraphBackend
+    // SAFETY: This is a temporary workaround. We use pointer casting to downcast
+    // from Arc<dyn GraphBackend> to Arc<SqliteGraphBackend>. This is safe because:
+    // 1. We only call this when we know the backend is SqliteGraphBackend
+    // 2. The Arc layout is stable for trait objects
+    // 3. We only read, don't modify
     unsafe {
-        // Get the raw pointer from the Rc
         let ptr = Arc::as_ptr(backend);
+        // Double-check pointer is non-null before dereferencing
+        if ptr.is_null() {
+            return Err(anyhow::anyhow!("Null backend pointer"));
+        }
         // Reinterpret as SqliteGraphBackend pointer
-        let concrete = (ptr as *const SqliteGraphBackend).as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Null backend pointer"))?;
+        let concrete = &*(ptr as *const SqliteGraphBackend);
         Ok(concrete.graph())
     }
 }
