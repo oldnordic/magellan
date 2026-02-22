@@ -60,6 +60,10 @@ sqlite-backend = ["sqlitegraph/sqlite-backend"]
 # Uses native binary format instead of SQLite
 native-v3 = ["sqlitegraph/native-v3"]
 
+# Platform support
+# Windows: opt-in feature for Windows builds (analysis-only, reduced functionality)
+windows = []
+
 # Optional LLVM IR-based CFG extraction for C/C++ (requires clang)
 # This is an OPTIONAL enhancement - AST-based CFG works without it
 llvm-cfg = ["dep:inkwell", "dep:which"]
