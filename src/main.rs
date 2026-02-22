@@ -35,15 +35,34 @@ use status_cmd::run_status;
 pub use magellan::output::generate_execution_id;
 
 
-fn print_usage() {
-    cli::print_usage();
+fn print_short_usage() {
+    cli::print_short_usage();
+}
+
+fn print_full_usage() {
+    cli::print_full_usage();
 }
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
 
+    // Handle help flags before parsing
+    if args.len() >= 2 {
+        match args[1].as_str() {
+            "--help" | "-h" => {
+                print_short_usage();
+                return ExitCode::SUCCESS;
+            }
+            "--help-full" | "-H" => {
+                print_full_usage();
+                return ExitCode::SUCCESS;
+            }
+            _ => {}
+        }
+    }
+
     if args.len() < 2 {
-        print_usage();
+        print_short_usage();
         return ExitCode::from(1);
     }
 
@@ -555,7 +574,7 @@ fn main() -> ExitCode {
         }
         Err(e) => {
             eprintln!("Error: {}", e);
-            print_usage();
+            print_short_usage();
             ExitCode::from(1)
         }
     }
