@@ -145,7 +145,20 @@ pub trait SideTables: Send + Sync {
 
     /// Get AST node by ID
     fn get_ast_node(&self, node_id: i64) -> Result<Option<crate::graph::AstNode>>;
-    
+
+    /// Update the parent_id of an AST node
+    ///
+    /// Used after batch insertion to resolve placeholder parent references.
+    ///
+    /// # Arguments
+    /// * `node_id` - The ID of the node to update
+    /// * `new_parent_id` - The new parent ID to set
+    ///
+    /// # Implementation
+    /// - SQLite: Uses UPDATE query for efficient in-place update
+    /// - V3: Deletes and re-inserts the node (KV stores don't support updates)
+    fn update_ast_node_parent(&self, node_id: i64, new_parent_id: i64) -> Result<()>;
+
     /// Get all AST nodes for a file
     fn get_ast_nodes_by_file(&self, file_id: i64) -> Result<Vec<crate::graph::AstNode>>;
     
@@ -918,7 +931,7 @@ pub mod sqlite_impl {
             let conn = self.conn.lock().unwrap();
             let result = conn
                 .query_row(
-                    "SELECT id, parent_id, kind, byte_start, byte_end 
+                    "SELECT id, parent_id, kind, byte_start, byte_end
                      FROM ast_nodes WHERE id = ?1",
                     params![node_id],
                     |row| {
@@ -934,7 +947,16 @@ pub mod sqlite_impl {
                 .optional()?;
             Ok(result)
         }
-        
+
+        fn update_ast_node_parent(&self, node_id: i64, new_parent_id: i64) -> Result<()> {
+            let conn = self.conn.lock().unwrap();
+            conn.execute(
+                "UPDATE ast_nodes SET parent_id = ?1 WHERE id = ?2",
+                params![new_parent_id, node_id],
+            )?;
+            Ok(())
+        }
+
         fn get_ast_nodes_by_file(&self, file_id: i64) -> Result<Vec<crate::graph::AstNode>> {
             let conn = self.conn.lock().unwrap();
             let mut stmt = conn.prepare(
@@ -1697,7 +1719,7 @@ pub mod v3_impl {
             // Need to scan all AST nodes to find matching ID
             let snapshot = SnapshotId::current();
             let prefix = b"ast:file:";
-            
+
             let results = self.backend.kv_prefix_scan_v3(snapshot, prefix);
             for (_, value) in results {
                 if let KvValue::Bytes(data) = value {
@@ -1708,10 +1730,72 @@ pub mod v3_impl {
                     }
                 }
             }
-            
+
             Ok(None)
         }
-        
+
+        fn update_ast_node_parent(&self, node_id: i64, new_parent_id: i64) -> Result<()> {
+            // V3 doesn't support in-place updates, so we need to:
+            // 1. Find the node and its file_id
+            // 2. Delete old KV entries
+            // 3. Update parent_id
+            // 4. Re-insert with updated data
+
+            let snapshot = SnapshotId::current();
+            let prefix = b"ast:file:";
+
+            // Scan to find the node and extract file_id from the key
+            let mut found_node: Option<crate::graph::AstNode> = None;
+            let mut file_id: Option<i64> = None;
+            let mut kind: Option<String> = None;
+
+            let results = self.backend.kv_prefix_scan_v3(snapshot, prefix);
+            for (key, value) in results {
+                if let KvValue::Bytes(data) = value {
+                    if let Ok(node) = serde_json::from_slice::<crate::graph::AstNode>(&data) {
+                        if node.id == Some(node_id) {
+                            // Extract file_id from key format: "ast:file:{file_id}:{node_id}"
+                            let key_str = String::from_utf8_lossy(&key);
+                            if let Some(rest) = key_str.strip_prefix("ast:file:") {
+                                if let Some(node_id_str) = rest.split(':').nth(1) {
+                                    if node_id_str.parse::<i64>() == Ok(node_id) {
+                                        if let Some(file_str) = rest.split(':').next() {
+                                            file_id = file_str.parse::<i64>().ok();
+                                            kind = node.kind.clone().into();
+                                        }
+                                    }
+                                }
+                            }
+                            found_node = Some(node);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if let (Some(mut node), Some(fid), Some(kind_str)) = (found_node, file_id, kind) {
+                // Delete old entries
+                let old_file_key = format!("ast:file:{}:{}", fid, node_id);
+                let old_kind_key = format!("ast:kind:{}:{}", kind_str, node_id);
+                self.backend.kv_delete_v3(old_file_key.into_bytes());
+                self.backend.kv_delete_v3(old_kind_key.into_bytes());
+
+                // Update parent_id and re-insert
+                node.parent_id = Some(new_parent_id);
+
+                let file_key = format!("ast:file:{}:{}", fid, node_id);
+                let kind_key = format!("ast:kind:{}:{}", kind_str, node_id);
+                let data = serde_json::to_vec(&node)?;
+
+                self.backend.kv_set_v3(file_key.into_bytes(), KvValue::Bytes(data.clone()), None);
+                self.backend.kv_set_v3(kind_key.into_bytes(), KvValue::Bytes(data), None);
+
+                Ok(())
+            } else {
+                Err(anyhow::anyhow!("Node {} not found for parent update", node_id))
+            }
+        }
+
         fn get_ast_nodes_by_file(&self, file_id: i64) -> Result<Vec<crate::graph::AstNode>> {
             let snapshot = SnapshotId::current();
             let prefix = format!("ast:file:{}", file_id).into_bytes();

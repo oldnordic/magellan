@@ -12,11 +12,12 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - Results include caller/callee names, file paths, and location (line/column)
   - Data sourced from existing CALLS edges in the graph
 
-- **SideTables trait:** Added batch insert method for AST nodes
-  - `store_ast_nodes_batch()` method for bulk AST node insertion
-  - SQLite backend uses single transaction for all inserts (significant performance improvement)
-  - V3 backend batches KV operations together
-  - Improves `insert_ast_nodes()` performance when inserting multiple nodes
+- **SideTables trait:** Added batch insert and parent update methods for AST nodes
+  - `store_ast_nodes_batch()` method for bulk AST node insertion with transaction support
+  - `update_ast_node_parent()` method for resolving placeholder parent references
+  - SQLite: Uses UPDATE query for efficient in-place parent updates
+  - V3: Uses delete+reinsert approach (required for KV stores)
+  - Proper parent-child relationships now established after batch insertion
 
 ## [2.4.9] - 2026-02-22
 

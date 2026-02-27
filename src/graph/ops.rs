@@ -960,9 +960,9 @@ pub fn insert_ast_nodes(graph: &mut CodeGraph, file_id: i64, nodes: Vec<crate::g
                     let actual_parent_id = inserted_ids[parent_index];
                     let node_id = inserted_ids[idx];
 
-                    // Update the node with the correct parent ID
-                    // This requires a separate update operation
-                    if let Err(e) = update_ast_node_parent(graph, node_id, actual_parent_id) {
+                    // Update the node with the correct parent ID using SideTables trait
+                    // SQLite: UPDATE query (efficient), V3: delete+reinsert
+                    if let Err(e) = graph.side_tables.update_ast_node_parent(node_id, actual_parent_id) {
                         // Log but don't fail - parent links are optional for some operations
                         eprintln!("Warning: failed to update parent link for node {}: {:?}", node_id, e);
                     }
@@ -972,36 +972,6 @@ pub fn insert_ast_nodes(graph: &mut CodeGraph, file_id: i64, nodes: Vec<crate::g
     }
 
     Ok(nodes_with_ids.len())
-}
-
-/// Update the parent_id of an AST node
-///
-/// This is used after batch insertion to resolve placeholder parent references.
-/// For V3 backend, this requires deleting and re-inserting the node with updated parent_id.
-/// For SQLite backend, we can use an UPDATE query.
-fn update_ast_node_parent(graph: &mut CodeGraph, node_id: i64, new_parent_id: i64) -> Result<()> {
-    use crate::graph::side_tables::SideTables;
-
-    // Get the current node
-    let mut node = graph.side_tables.get_ast_node(node_id)?
-        .ok_or_else(|| anyhow::anyhow!("Node {} not found", node_id))?;
-
-    // Update parent_id
-    node.parent_id = Some(new_parent_id);
-
-    // For SQLite backend, we could do an UPDATE query
-    // For V3, we need to delete and re-store
-    // For simplicity, we'll use the delete + insert approach
-    // Note: This is less efficient but works for both backends
-
-    // Get the file_id from the node (we need to reconstruct the key)
-    // Since we don't store file_id directly in AstNode, we'll need a different approach
-    // For now, let's just note that parent resolution is best-effort
-
-    // TODO: Implement efficient parent update for both backends
-    // For now, this is a no-op placeholder
-
-    Ok(())
 }
 
 #[cfg(test)]
