@@ -1,6 +1,6 @@
 [package]
 name = "magellan"
-version = "2.4.9"
+version = "2.5.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/oldnordic/magellan"

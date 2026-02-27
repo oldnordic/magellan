@@ -5,6 +5,8 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-02-27
+
 ### Added
 - **Find command:** Implemented caller/callee references in JSON output
   - `--with-callers` flag now includes functions that call the found symbol
