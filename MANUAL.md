@@ -1,6 +1,6 @@
 # Magellan Operator Manual
 
-**Version 2.4.7** | *Last Updated: 2026-02-22*
+**Version 2.4.9** | *Last Updated: 2026-02-27*
 
 Comprehensive instructions for operating Magellan.
 
