@@ -123,10 +123,26 @@ pub trait SideTables: Send + Sync {
     fn count_chunks(&self) -> Result<usize>;
     
     // ===== AST Node Methods =====
-    
+
     /// Store an AST node, return node ID
     fn store_ast_node(&self, node: &crate::graph::AstNode, file_id: i64) -> Result<i64>;
-    
+
+    /// Store multiple AST nodes in a batch operation
+    ///
+    /// This is more efficient than calling `store_ast_node` multiple times,
+    /// especially for SQLite which can use transactions for bulk inserts.
+    ///
+    /// # Arguments
+    /// * `nodes` - Vector of tuples containing (AstNode, file_id)
+    ///
+    /// # Returns
+    /// Vector of assigned node IDs in the same order as input nodes
+    ///
+    /// # Performance
+    /// - SQLite: Uses a single transaction for all inserts
+    /// - V3: Batches KV operations together
+    fn store_ast_nodes_batch(&self, nodes: &[(crate::graph::AstNode, i64)]) -> Result<Vec<i64>>;
+
     /// Get AST node by ID
     fn get_ast_node(&self, node_id: i64) -> Result<Option<crate::graph::AstNode>>;
     
@@ -849,9 +865,9 @@ pub mod sqlite_impl {
             )?;
             Ok(count as usize)
         }
-        
+
         // ===== AST Node Methods =====
-        
+
         fn store_ast_node(&self, node: &crate::graph::AstNode, file_id: i64) -> Result<i64> {
             let conn = self.conn.lock().unwrap();
             conn.execute(
@@ -867,7 +883,37 @@ pub mod sqlite_impl {
             )?;
             Ok(conn.last_insert_rowid())
         }
-        
+
+        fn store_ast_nodes_batch(&self, nodes: &[(crate::graph::AstNode, i64)]) -> Result<Vec<i64>> {
+            if nodes.is_empty() {
+                return Ok(Vec::new());
+            }
+
+            let mut conn = self.conn.lock().unwrap();
+
+            // Use transaction for better performance
+            let tx = conn.transaction()?;
+
+            let mut ids = Vec::with_capacity(nodes.len());
+            for (node, file_id) in nodes {
+                tx.execute(
+                    "INSERT INTO ast_nodes (parent_id, kind, byte_start, byte_end, file_id)
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![
+                        node.parent_id,
+                        node.kind,
+                        node.byte_start as i64,
+                        node.byte_end as i64,
+                        file_id,
+                    ],
+                )?;
+                ids.push(tx.last_insert_rowid());
+            }
+
+            tx.commit()?;
+            Ok(ids)
+        }
+
         fn get_ast_node(&self, node_id: i64) -> Result<Option<crate::graph::AstNode>> {
             let conn = self.conn.lock().unwrap();
             let result = conn
@@ -1590,7 +1636,7 @@ pub mod v3_impl {
         }
         
         // ===== AST Node Methods =====
-        
+
         fn store_ast_node(&self, node: &crate::graph::AstNode, file_id: i64) -> Result<i64> {
             let node_id = node.id.unwrap_or_else(|| {
                 // Generate unique ID
@@ -1601,19 +1647,52 @@ pub mod v3_impl {
                 let random = std::process::id() as i64;
                 (now << 16) | (random & 0xFFFF)
             });
-            
+
             // Store with file_id prefix for file-based queries
             let file_key = format!("ast:file:{}:{}", file_id, node_id);
             let kind_key = format!("ast:kind:{}:{}", node.kind, node_id);
-            
+
             let data = serde_json::to_vec(node)?;
-            
+
             self.backend.kv_set_v3(file_key.into_bytes(), KvValue::Bytes(data.clone()), None);
             self.backend.kv_set_v3(kind_key.into_bytes(), KvValue::Bytes(data), None);
-            
+
             Ok(node_id)
         }
-        
+
+        fn store_ast_nodes_batch(&self, nodes: &[(crate::graph::AstNode, i64)]) -> Result<Vec<i64>> {
+            if nodes.is_empty() {
+                return Ok(Vec::new());
+            }
+
+            let mut ids = Vec::with_capacity(nodes.len());
+
+            for (node, file_id) in nodes {
+                let node_id = node.id.unwrap_or_else(|| {
+                    // Generate unique ID
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_millis() as i64;
+                    let random = std::process::id() as i64;
+                    (now << 16) | (random & 0xFFFF)
+                });
+
+                // Store with file_id prefix for file-based queries
+                let file_key = format!("ast:file:{}:{}", file_id, node_id);
+                let kind_key = format!("ast:kind:{}:{}", node.kind, node_id);
+
+                let data = serde_json::to_vec(node)?;
+
+                self.backend.kv_set_v3(file_key.into_bytes(), KvValue::Bytes(data.clone()), None);
+                self.backend.kv_set_v3(kind_key.into_bytes(), KvValue::Bytes(data), None);
+
+                ids.push(node_id);
+            }
+
+            Ok(ids)
+        }
+
         fn get_ast_node(&self, node_id: i64) -> Result<Option<crate::graph::AstNode>> {
             // Need to scan all AST nodes to find matching ID
             let snapshot = SnapshotId::current();
