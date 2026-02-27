@@ -7,8 +7,9 @@ use globset::GlobBuilder;
 use magellan::common::{detect_language_from_path, format_symbol_kind, resolve_path};
 use magellan::graph::query;
 use magellan::output::rich::{SpanChecksums, SpanContext};
-use magellan::output::{output_json, FindResponse, JsonResponse, OutputFormat, Span, SymbolMatch};
+use magellan::output::{output_json, FindResponse, JsonResponse, OutputFormat, Span, SymbolMatch, CalleeInfo, CallerInfo};
 use magellan::{CodeGraph, SymbolKind};
+use magellan::references::CallFact;
 use std::path::PathBuf;
 
 /// Represents a found symbol with its file and node ID
@@ -113,6 +114,8 @@ fn find_all_files(graph: &mut CodeGraph, name: &str) -> Result<Vec<FoundSymbol>>
 /// * `ambiguous_name` - Optional display FQN to show all candidates
 /// * `first` - Use first match when ambiguous (deprecated)
 /// * `output_format` - Output format (Human or Json)
+/// * `with_callers` - Include callers of found symbols
+/// * `with_callees` - Include callees of found symbols
 ///
 /// # Displays
 /// Human-readable symbol details or JSON output
@@ -127,8 +130,8 @@ pub fn run_find(
     first: bool,
     output_format: OutputFormat,
     with_context: bool,
-    _with_callers: bool, // TODO: Implement caller references in find output
-    _with_callees: bool, // TODO: Implement callee references in find output
+    with_callers: bool,
+    with_callees: bool,
     with_semantics: bool,
     with_checksums: bool,
     context_lines: usize,
@@ -268,14 +271,15 @@ pub fn run_find(
     if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
         finish_execution("success", None)?;
         return output_json_mode(
+            &mut graph_mut,
             &name,
             results,
             path.as_ref().map(|p| resolve_path(p, &root)),
             &exec_id,
             output_format,
             with_context,
-            false,
-            false,
+            with_callers,
+            with_callees,
             with_semantics,
             with_checksums,
             context_lines,
@@ -329,14 +333,15 @@ pub fn run_find(
 
 /// Output find results in JSON format
 fn output_json_mode(
+    graph: &mut CodeGraph,
     query_name: &str,
     mut results: Vec<FoundSymbol>,
     file_filter: Option<String>,
     exec_id: &str,
     output_format: OutputFormat,
     with_context: bool,
-    _with_callers: bool,
-    _with_callees: bool,
+    with_callers: bool,
+    with_callees: bool,
     with_semantics: bool,
     with_checksums: bool,
     context_lines: usize,
@@ -350,45 +355,84 @@ fn output_json_mode(
     });
 
     // Convert FoundSymbol to SymbolMatch with rich span data
-    let matches: Vec<SymbolMatch> = results
-        .into_iter()
-        .map(|s| {
-            let mut span = Span::new(
-                s.file.clone(),
-                s.byte_start,
-                s.byte_end,
-                s.start_line,
-                s.start_col,
-                s.end_line,
-                s.end_col,
-            );
+    let mut matches = Vec::new();
+    for s in results {
+        let mut span = Span::new(
+            s.file.clone(),
+            s.byte_start,
+            s.byte_end,
+            s.start_line,
+            s.start_col,
+            s.end_line,
+            s.end_col,
+        );
 
-            // Add context if requested
-            if with_context {
-                if let Some(context) =
-                    SpanContext::extract(&s.file, s.start_line, s.end_line, context_lines)
-                {
-                    span = span.with_context(context);
-                }
+        // Add context if requested
+        if with_context {
+            if let Some(context) =
+                SpanContext::extract(&s.file, s.start_line, s.end_line, context_lines)
+            {
+                span = span.with_context(context);
             }
+        }
 
-            // Add semantics if requested
-            if with_semantics {
-                let language = detect_language_from_path(&s.file);
-                span = span.with_semantics_from(s.kind_normalized.clone(), language);
+        // Add semantics if requested
+        if with_semantics {
+            let language = detect_language_from_path(&s.file);
+            span = span.with_semantics_from(s.kind_normalized.clone(), language);
+        }
+
+        // Add checksums if requested
+        if with_checksums {
+            let checksums = SpanChecksums::compute(&s.file, s.byte_start, s.byte_end);
+            span = span.with_checksums(checksums);
+        }
+
+        // Fetch callers if requested
+        let callers = if with_callers {
+            match graph.callers_of_symbol(&s.file, &s.name) {
+                Ok(call_facts) => Some(
+                    call_facts
+                        .into_iter()
+                        .map(|fact| CallerInfo {
+                            name: fact.caller,
+                            file_path: fact.file_path.to_string_lossy().to_string(),
+                            line: fact.start_line,
+                            column: fact.start_col,
+                        })
+                        .collect()
+                ),
+                Err(_) => None,
             }
+        } else {
+            None
+        };
 
-            // Add checksums if requested
-            if with_checksums {
-                let checksums = SpanChecksums::compute(&s.file, s.byte_start, s.byte_end);
-                span = span.with_checksums(checksums);
+        // Fetch callees if requested
+        let callees = if with_callees {
+            match graph.calls_from_symbol(&s.file, &s.name) {
+                Ok(call_facts) => Some(
+                    call_facts
+                        .into_iter()
+                        .map(|fact| CalleeInfo {
+                            name: fact.callee,
+                            file_path: fact.file_path.to_string_lossy().to_string(),
+                        })
+                        .collect()
+                ),
+                Err(_) => None,
             }
+        } else {
+            None
+        };
 
-            // Note: callers/callees population would require symbol_id and graph access
-            // This is a placeholder for future implementation with CallOps
-            SymbolMatch::new(s.name, s.kind_normalized, span, None, s.symbol_id)
-        })
-        .collect();
+        let mut symbol_match = SymbolMatch::new(s.name, s.kind_normalized, span, None, s.symbol_id);
+        symbol_match.callers = callers;
+        symbol_match.callees = callees;
+
+        matches.push(symbol_match);
+    }
+    let matches: Vec<SymbolMatch> = matches;
 
     let response = FindResponse {
         matches,

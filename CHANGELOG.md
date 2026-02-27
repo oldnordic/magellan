@@ -3,6 +3,15 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Find command:** Implemented caller/callee references in JSON output
+  - `--with-callers` flag now includes functions that call the found symbol
+  - `--with-callees` flag now includes functions that the found symbol calls
+  - Results include caller/callee names, file paths, and location (line/column)
+  - Data sourced from existing CALLS edges in the graph
+
 ## [2.4.9] - 2026-02-22
 
 ### Added
