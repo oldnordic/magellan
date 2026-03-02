@@ -3,7 +3,7 @@
 //! Provides summarized, paginated context queries for LLMs.
 
 use anyhow::Result;
-use magellan::context::{build_context_index, get_or_build_context_index, get_project_summary, get_file_context, get_symbol_detail, list_symbols, ListQuery};
+use magellan::context::{build_context_index, get_or_build_context_index, get_file_context, get_symbol_detail, list_symbols, ListQuery};
 use magellan::output::generate_execution_id;
 use magellan::CodeGraph;
 use std::path::PathBuf;

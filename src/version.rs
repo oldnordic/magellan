@@ -15,9 +15,6 @@ pub fn version() -> String {
 }
 
 /// Get the package version (e.g., "2.2.0")
-pub fn package_version() -> &'static str {
-    env!("CARGO_PKG_VERSION")
-}
 
 /// Get the build commit SHA
 ///

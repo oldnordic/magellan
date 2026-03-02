@@ -757,9 +757,6 @@ fn ensure_table_schema(conn: &rusqlite::Connection, table_name: &str) -> Result<
 }
 
 /// Returns current Unix timestamp
-fn timestamp() -> i64 {
-    chrono::Utc::now().timestamp()
-}
 
 #[cfg(test)]
 mod tests {
