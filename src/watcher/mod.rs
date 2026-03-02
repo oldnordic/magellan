@@ -28,6 +28,8 @@
 //!
 //! See MANUAL.md for architecture details.
 
+pub mod async_watcher;
+
 use anyhow::Result;
 use notify::RecursiveMode;
 use notify_debouncer_mini::new_debouncer;
@@ -56,7 +58,7 @@ pub struct WatcherBatch {
 
 impl WatcherBatch {
     /// Create a new batch from a set of paths, sorting them deterministically.
-    fn from_set(paths: BTreeSet<PathBuf>) -> Self {
+    pub fn from_set(paths: BTreeSet<PathBuf>) -> Self {
         Self {
             paths: paths.into_iter().collect(),
         }

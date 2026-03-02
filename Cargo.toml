@@ -1,6 +1,6 @@
 [package]
 name = "magellan"
-version = "2.5.0"
+version = "3.0.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/oldnordic/magellan"
@@ -64,13 +64,19 @@ native-v3 = ["sqlitegraph/native-v3"]
 # Windows: opt-in feature for Windows builds (analysis-only, reduced functionality)
 windows = []
 
+# Web UI server (optional)
+web-ui = ["dep:axum", "dep:tower", "dep:tower-http"]
+
 # Optional LLVM IR-based CFG extraction for C/C++ (requires clang)
 # This is an OPTIONAL enhancement - AST-based CFG works without it
-llvm-cfg = ["dep:inkwell", "dep:which"]
+llvm-cfg = ["dep:inkwell"]
 
 # Optional Java bytecode-based CFG extraction (requires Java bytecode library)
 # This is an OPTIONAL enhancement - AST-based CFG works without it
 bytecode-cfg = ["dep:java_asm"]
+
+# LSP support (Phase 3) - optional feature
+lsp = ["tower-lsp", "lsp-types"]
 
 [dependencies]
 ahash = "0.8"
@@ -78,6 +84,7 @@ notify = "8.2.0"
 notify-debouncer-mini = "0.7.0"
 anyhow = "1.0"
 thiserror = "1.0"
+indicatif = "0.17"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tree-sitter = "0.22"
@@ -107,6 +114,20 @@ camino = "1.2"
 rayon = "1.11"
 tempfile = "3.10"
 
+# Async runtime for watcher (Phase 1)
+tokio = { version = "1", features = ["rt-multi-thread", "fs", "sync", "time", "macros"] }
+tokio-stream = "0.1"
+async-channel = "2"
+
+# Web UI server dependencies (optional, enabled by web-ui feature)
+axum = { version = "0.7", optional = true }
+tower = { version = "0.4", optional = true }
+tower-http = { version = "0.5", features = ["fs", "cors"], optional = true }
+
+# LSP support (Phase 3) - optional dependencies
+tower-lsp = { version = "0.20", optional = true }
+lsp-types = { version = "0.95", optional = true }
+
 # LLVM C API bindings (optional, for llvm-cfg feature)
 [dependencies.inkwell]
 version = "0.5"
@@ -118,7 +139,7 @@ features = ["target-all"]
 # which crate for finding clang in PATH (optional, for llvm-cfg)
 [dependencies.which]
 version = "6"
-optional = true
+optional = false
 
 # Note: llvm-cfg feature requires:
 # - LLVM/Clang installed (matching version to inkwell)

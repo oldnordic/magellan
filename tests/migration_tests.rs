@@ -3,11 +3,11 @@
 use tempfile::TempDir;
 
 #[test]
-fn test_new_database_has_v7_schema() {
+fn test_new_database_has_v8_schema() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
 
-    // Open a new database (should create with v7)
+    // Open a new database (should create with v8)
     let _graph = magellan::CodeGraph::open(&db_path).unwrap();
 
     // Verify schema version
@@ -20,7 +20,7 @@ fn test_new_database_has_v7_schema() {
         )
         .unwrap();
 
-    assert_eq!(version, 7, "New databases should have schema version 7");
+    assert_eq!(version, 8, "New databases should have schema version 8");
 
     // Verify ast_nodes table exists
     let has_ast_table: bool = conn
@@ -32,7 +32,7 @@ fn test_new_database_has_v7_schema() {
         .unwrap_or(false);
 
     assert!(has_ast_table, "ast_nodes table should exist in new databases");
-    
+
     // Verify cfg_blocks table exists (v7 addition)
     let has_cfg_table: bool = conn
         .query_row(
@@ -43,10 +43,21 @@ fn test_new_database_has_v7_schema() {
         .unwrap_or(false);
 
     assert!(has_cfg_table, "cfg_blocks table should exist in new databases (v7)");
+    
+    // Verify cfg_hash column exists (v8 addition)
+    let has_cfg_hash: bool = conn
+        .query_row(
+            "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='cfg_hash'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+    
+    assert!(has_cfg_hash, "cfg_hash column should exist in cfg_blocks (v8)");
 }
 
 #[test]
-fn test_fresh_database_creation_v7() {
+fn test_fresh_database_creation_v8() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("fresh.db");
 
@@ -62,7 +73,7 @@ fn test_fresh_database_creation_v7() {
     let version: i64 = conn
         .query_row("SELECT magellan_schema_version FROM magellan_meta", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 7);
+    assert_eq!(version, 8);
 
     // Check ast_nodes table
     let count: i64 = conn
@@ -89,11 +100,11 @@ fn test_fresh_database_creation_v7() {
     assert!(indexes.contains(&"idx_ast_nodes_span".to_string()));
 }
 
-/// Test that v4->v7 migration creates the required tables
+/// Test that v4->v8 migration creates the required tables
 #[test]
-fn test_migration_v4_to_v7_creates_required_tables() {
+fn test_migration_v4_to_v8_creates_required_tables() {
     let temp_dir = TempDir::new().unwrap();
-    let db_path = temp_dir.path().join("test_v4_to_v7.db");
+    let db_path = temp_dir.path().join("test_v4_to_v8.db");
 
     // Create a v4 database (without ast_nodes table)
     let conn = rusqlite::Connection::open(&db_path).unwrap();
@@ -119,7 +130,7 @@ fn test_migration_v4_to_v7_creates_required_tables() {
     let result = magellan::migrate_cmd::run_migrate(db_path.clone(), false, true).unwrap();
     assert!(result.success);
     assert_eq!(result.old_version, 4);
-    assert_eq!(result.new_version, 7);
+    assert_eq!(result.new_version, 8);
 
     // Verify ast_nodes table exists
     let conn = rusqlite::Connection::open(&db_path).unwrap();
@@ -141,6 +152,16 @@ fn test_migration_v4_to_v7_creates_required_tables() {
         )
         .unwrap_or(false);
     assert!(has_cfg_table, "cfg_blocks table should be created (v7)");
+    
+    // Verify cfg_hash column exists (v8)
+    let has_cfg_hash: bool = conn
+        .query_row(
+            "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='cfg_hash'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+    assert!(has_cfg_hash, "cfg_hash column should be created (v8)");
 
     // Verify indexes exist
     let has_parent_index: bool = conn
@@ -172,12 +193,12 @@ fn test_migration_v4_to_v7_creates_required_tables() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(version, 7, "schema version should be 7 after migration");
+    assert_eq!(version, 8, "schema version should be 8 after migration");
 }
 
-/// Test that opening a v4 database auto-upgrades to v7
+/// Test that opening a v4 database auto-upgrades to v8
 #[test]
-fn test_opening_v4_database_auto_upgrades_to_v7() {
+fn test_opening_v4_database_auto_upgrades_to_v8() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test_v4_auto.db");
 
@@ -204,10 +225,10 @@ fn test_opening_v4_database_auto_upgrades_to_v7() {
     .unwrap();
     drop(conn);
 
-    // Open the database with CodeGraph (should auto-upgrade to v7)
+    // Open the database with CodeGraph (should auto-upgrade to v8)
     let _graph = magellan::CodeGraph::open(&db_path).unwrap();
 
-    // Verify schema version is now 7
+    // Verify schema version is now 8
     let conn = rusqlite::Connection::open(&db_path).unwrap();
     let version: i64 = conn
         .query_row(
@@ -217,7 +238,7 @@ fn test_opening_v4_database_auto_upgrades_to_v7() {
         )
         .unwrap();
 
-    assert_eq!(version, 7, "Opening v4 database should auto-upgrade to v7");
+    assert_eq!(version, 8, "Opening v4 database should auto-upgrade to v8");
 
     // Verify ast_nodes table exists
     let has_ast_table: bool = conn
@@ -229,4 +250,15 @@ fn test_opening_v4_database_auto_upgrades_to_v7() {
         .unwrap_or(false);
 
     assert!(has_ast_table, "ast_nodes table should be created during auto-upgrade");
+    
+    // Verify cfg_hash column exists (v8)
+    let has_cfg_hash: bool = conn
+        .query_row(
+            "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='cfg_hash'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+    
+    assert!(has_cfg_hash, "cfg_hash column should be created during auto-upgrade (v8)");
 }

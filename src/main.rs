@@ -5,7 +5,9 @@
 mod ast_cmd;
 mod collisions_cmd;
 mod dead_code_cmd;
+mod enrich_cmd;
 mod export_cmd;
+mod import_lsif_cmd;
 mod label_cmd;
 mod migrate_cmd;
 mod files_cmd;
@@ -21,6 +23,10 @@ mod slice_cmd;
 mod verify_cmd;
 mod watch_cmd;
 mod status_cmd;
+mod context_cmd;
+mod doctor_cmd;
+#[cfg(feature = "web-ui")]
+mod web_ui_cmd;
 mod version;
 mod cli;
 
@@ -101,6 +107,59 @@ fn main() -> ExitCode {
                 collisions_field,
                 filters,
             ) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::ImportLsif { db_path, lsif_paths }) => {
+            if let Err(e) = import_lsif_cmd::run_import_lsif(db_path, lsif_paths) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::Enrich { db_path, files, timeout_secs }) => {
+            if let Err(e) = enrich_cmd::run_enrich(db_path, files, timeout_secs) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::Context { subcommand, db_path }) => {
+            use cli::ContextSubcommand;
+            let result = match subcommand {
+                ContextSubcommand::Build => context_cmd::run_context_build(db_path),
+                ContextSubcommand::Summary => context_cmd::run_context_summary(db_path),
+                ContextSubcommand::List { kind, page, page_size, cursor } => {
+                    context_cmd::run_context_list(db_path, kind, page, page_size, cursor)
+                }
+                ContextSubcommand::Symbol { name, file, callers, callees } => {
+                    context_cmd::run_context_symbol(db_path, name, file, callers, callees)
+                }
+                ContextSubcommand::File { path } => {
+                    context_cmd::run_context_file(db_path, path)
+                }
+                ContextSubcommand::Server { port, host } => {
+                    context_cmd::run_context_server(db_path, port, host)
+                }
+            };
+            if let Err(e) = result {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::Doctor { db_path, fix }) => {
+            if let Err(e) = doctor_cmd::run_doctor(db_path, fix) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        #[cfg(feature = "web-ui")]
+        Ok(Command::WebUi { db_path, host, port }) => {
+            if let Err(e) = web_ui_cmd::run_web_ui(db_path, host, port) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }

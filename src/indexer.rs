@@ -13,7 +13,10 @@
 //! **Rule:** Never send to wakeup channel while holding other locks.
 //! See `PipelineSharedState` for detailed documentation.
 
+pub mod async_io;
+
 use anyhow::{Context, Result};
+use indicatif::{ProgressBar, ProgressStyle};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -148,7 +151,13 @@ pub fn run_indexer_n(root_path: PathBuf, db_path: PathBuf, max_events: usize) ->
     let mut processed = 0;
     let mut idle_for = std::time::Duration::from_secs(0);
     let idle_step = std::time::Duration::from_millis(10);
-    let idle_timeout = std::time::Duration::from_secs(2);
+    // Configurable timeout: default 5s (increased from 2s for slow filesystems/large files)
+    // Can be overridden via MAGELLAN_WATCH_TIMEOUT_MS environment variable
+    let idle_timeout_ms = std::env::var("MAGELLAN_WATCH_TIMEOUT_MS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(5000);
+    let idle_timeout = std::time::Duration::from_millis(idle_timeout_ms);
 
     while processed < max_events {
         match watcher.try_recv_event() {
@@ -359,14 +368,30 @@ pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>
 
     // Baseline scan if requested
     if config.scan_initial {
-        println!("Scanning {}...", config.root_path.display());
-        let file_count = graph.scan_directory(
+        use indicatif::HumanCount;
+        
+        graph.scan_directory(
             &config.root_path,
-            Some(&|current, total| {
-                println!("Scanning... {}/{}", current, total);
+            Some(&|current, total, file_path| {
+                // Progress bar is created on first call
+                static PB: std::sync::OnceLock<ProgressBar> = std::sync::OnceLock::new();
+                let pb = PB.get_or_init(|| {
+                    let pb = ProgressBar::new(total as u64);
+                    pb.set_style(
+                        ProgressStyle::default_bar()
+                            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({percent}%) ETA: {eta}\n{msg}")
+                            .unwrap()
+                            .progress_chars("=>-"),
+                    );
+                    pb
+                });
+                pb.set_position(current as u64);
+                pb.set_message(format!("Scanning: {}", file_path));
+                if current >= total {
+                    pb.finish_with_message(format!("Scanned {} files", HumanCount(total as u64)));
+                }
             }),
         )?;
-        println!("Scanned {} files", file_count);
     }
 
     // Drain any dirty paths that accumulated during scan

@@ -4,7 +4,6 @@
 
 use anyhow::Result;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use sqlitegraph::{GraphBackend, SnapshotId};
 
@@ -159,9 +158,20 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
     let mut function_symbol_ids: Vec<(String, i64, i64, i64)> = Vec::new();
     let mut indexed_symbols: Vec<(crate::ingest::SymbolFact, i64)> = Vec::new();
 
+    // Detect language once for label assignment
+    let language_label = language.map(|l| l.as_str().to_string());
+
     for fact in &symbol_facts {
         let symbol_id = graph.symbols.insert_symbol_node(fact)?;
         graph.symbols.insert_defines_edge(file_id, symbol_id)?;
+
+        // Add labels for the symbol (SQLite backend only)
+        // Language label (e.g., "rust", "python", "javascript")
+        if let Some(ref lang) = language_label {
+            let _ = graph.add_label(symbol_id.as_i64(), lang);
+        }
+        // Symbol kind label (e.g., "fn", "struct", "enum", "method")
+        let _ = graph.add_label(symbol_id.as_i64(), &fact.kind_normalized);
 
         // Track function symbols for CFG extraction (Rust only)
         // kind_normalized uses normalized_key: "fn" for Function, "method" for Method
@@ -553,8 +563,10 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         } else {
             0
         };
-        
-        // TODO: V3 backend needs CFG blocks support
+
+        // CFG blocks deletion requires CfgOps to use SideTables abstraction for V3 support.
+        // Currently CfgOps uses direct SQLite via rusqlite. Full V3 support requires
+        // refactoring CfgOps to store CFG blocks in KV store.
         cfg_blocks_deleted = 0;
         let edges_deleted = 0;
 
@@ -615,8 +627,10 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         } else {
             0
         };
-        
-        // TODO: V3 backend needs CFG blocks support
+
+        // CFG blocks deletion requires CfgOps to use SideTables abstraction for V3 support.
+        // Currently CfgOps uses direct SQLite via rusqlite. Full V3 support requires
+        // refactoring CfgOps to store CFG blocks in KV store.
         cfg_blocks_deleted = 0;
 
         // Invalidate cache for this file (even if no file node existed)
@@ -833,9 +847,10 @@ pub mod test_helpers {
             }
 
             // Explicit edge cleanup for deleted IDs.
+            // Note: Edge cleanup uses graph.symbols.delete_edges_for_entities() which
+            // requires SideTables support for V3. Currently returns 0 for V3 backend.
             deleted_entity_ids.sort_unstable();
             deleted_entity_ids.dedup();
-            // TODO: V3 backend needs edge cleanup support
             let _ = deleted_entity_ids;
             let edges_deleted = 0;
 

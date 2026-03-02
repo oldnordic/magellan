@@ -17,6 +17,8 @@ pub fn print_short_usage() {
     eprintln!("Common commands:");
     eprintln!("  watch       Index codebase: magellan watch --root . --db code.db");
     eprintln!("  status      Show database stats: magellan status --db code.db");
+    eprintln!("  doctor      Diagnose issues: magellan doctor --db code.db [--fix]");
+    eprintln!("  web-ui      Start web interface: magellan web-ui --db code.db [--port 8080]");
     eprintln!("  find        Find symbols: magellan find --db code.db --name main");
     eprintln!("  refs        Show references: magellan refs --db code.db --name foo");
     eprintln!("  query       List file symbols: magellan query --db code.db --file src/lib.rs");
@@ -38,7 +40,7 @@ pub fn print_full_usage() {
     eprintln!();
     eprintln!("  magellan watch --root <DIR> --db <FILE> [--debounce-ms <N>] [--watch-only] [--validate] [--validate-only]");
     eprintln!(
-        "  magellan export --db <FILE> [--format json|jsonl|csv|scip|dot] [--output <PATH>] [--minify] [--cluster]"
+        "  magellan export --db <FILE> [--format json|jsonl|csv|scip|dot|lsif] [--output <PATH>] [--minify] [--cluster]"
     );
     eprintln!("  magellan status --db <FILE>");
     eprintln!("  magellan query --db <FILE> --file <PATH> [--kind <KIND>]");
@@ -109,7 +111,7 @@ pub fn print_full_usage() {
     eprintln!();
     eprintln!("Export arguments:");
     eprintln!("  --db <FILE>         Path to sqlitegraph database");
-    eprintln!("  --format <FORMAT>   Export format: json (default), jsonl, csv, or scip");
+    eprintln!("  --format <FORMAT>   Export format: json (default), jsonl, csv, scip, dot, or lsif");
     eprintln!("  --output <PATH>     Write to file instead of stdout");
     eprintln!("  --minify            Use compact JSON (no pretty-printing)");
     eprintln!("  --no-symbols        Exclude symbols from export");
@@ -215,6 +217,38 @@ pub fn print_full_usage() {
     eprintln!("  --verbose           Show detailed statistics");
 }
 
+/// Context subcommands
+#[derive(Debug)]
+pub enum ContextSubcommand {
+    /// Build context index
+    Build,
+    /// Show project summary
+    Summary,
+    /// List symbols (paginated)
+    List {
+        kind: Option<String>,
+        page: Option<usize>,
+        page_size: Option<usize>,
+        cursor: Option<String>,
+    },
+    /// Show symbol detail
+    Symbol {
+        name: String,
+        file: Option<String>,
+        callers: bool,
+        callees: bool,
+    },
+    /// Show file context
+    File {
+        path: String,
+    },
+    /// Start HTTP context server
+    Server {
+        port: u16,
+        host: String,
+    },
+}
+
 #[derive(Debug)]
 pub enum Command {
     Watch {
@@ -237,6 +271,29 @@ pub enum Command {
         include_collisions: bool,
         collisions_field: CollisionField,
         filters: ExportFilters,
+    },
+    ImportLsif {
+        db_path: PathBuf,
+        lsif_paths: Vec<PathBuf>,
+    },
+    Enrich {
+        db_path: PathBuf,
+        files: Option<Vec<PathBuf>>,
+        timeout_secs: u64,
+    },
+    Context {
+        subcommand: ContextSubcommand,
+        db_path: PathBuf,
+    },
+    Doctor {
+        db_path: PathBuf,
+        fix: bool,
+    },
+    #[cfg(feature = "web-ui")]
+    WebUi {
+        db_path: PathBuf,
+        host: String,
+        port: u16,
     },
     Status {
         output_format: OutputFormat,
@@ -624,6 +681,7 @@ fn parse_export_args(args: &[String]) -> Result<Command> {
                     "csv" => ExportFormat::Csv,
                     "scip" => ExportFormat::Scip,
                     "dot" => ExportFormat::Dot,
+                    "lsif" => ExportFormat::Lsif,
                     _ => return Err(anyhow::anyhow!("Invalid format: {}", args[i + 1])),
                 };
                 i += 2;
@@ -707,6 +765,361 @@ fn parse_export_args(args: &[String]) -> Result<Command> {
     })
 }
 
+/// Parse the `import-lsif` command arguments
+fn parse_import_lsif_args(args: &[String]) -> Result<Command> {
+    let mut db_path: Option<PathBuf> = None;
+    let mut lsif_paths: Vec<PathBuf> = Vec::new();
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--db" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--db requires an argument"));
+                }
+                db_path = Some(PathBuf::from(&args[i + 1]));
+                i += 2;
+            }
+            "--input" | "--file" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--input requires an argument"));
+                }
+                lsif_paths.push(PathBuf::from(&args[i + 1]));
+                i += 2;
+            }
+            _ => {
+                // Treat as LSIF file path
+                lsif_paths.push(PathBuf::from(&args[i]));
+                i += 1;
+            }
+        }
+    }
+
+    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    
+    if lsif_paths.is_empty() {
+        return Err(anyhow::anyhow!("At least one LSIF file must be specified"));
+    }
+
+    Ok(Command::ImportLsif { db_path, lsif_paths })
+}
+
+/// Parse the `enrich` command arguments
+fn parse_enrich_args(args: &[String]) -> Result<Command> {
+    let mut db_path: Option<PathBuf> = None;
+    let mut files: Option<Vec<PathBuf>> = None;
+    let mut timeout_secs: u64 = 30;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--db" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--db requires an argument"));
+                }
+                db_path = Some(PathBuf::from(&args[i + 1]));
+                i += 2;
+            }
+            "--file" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--file requires an argument"));
+                }
+                let file = PathBuf::from(&args[i + 1]);
+                files.get_or_insert_with(Vec::new).push(file);
+                i += 2;
+            }
+            "--timeout" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--timeout requires an argument"));
+                }
+                timeout_secs = args[i + 1].parse().map_err(|_| {
+                    anyhow::anyhow!("Invalid timeout: {}. Must be a number", args[i + 1])
+                })?;
+                i += 2;
+            }
+            _ => {
+                return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
+            }
+        }
+    }
+
+    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    
+    Ok(Command::Enrich { db_path, files, timeout_secs })
+}
+
+/// Parse the `context` command arguments
+fn parse_context_args(args: &[String]) -> Result<Command> {
+    if args.is_empty() {
+        return Err(anyhow::anyhow!("context subcommand required: build, summary, list, symbol, file, server"));
+    }
+
+    let mut db_path: Option<PathBuf> = None;
+    let subcommand = match args[0].as_str() {
+        "build" => {
+            ContextSubcommand::Build
+        }
+        "summary" => {
+            ContextSubcommand::Summary
+        }
+        "list" => {
+            let mut kind: Option<String> = None;
+            let mut page: Option<usize> = None;
+            let mut page_size: Option<usize> = None;
+            let mut cursor: Option<String> = None;
+
+            let mut i = 1;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--db" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--db requires an argument"));
+                        }
+                        db_path = Some(PathBuf::from(&args[i + 1]));
+                        i += 2;
+                    }
+                    "--kind" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--kind requires an argument"));
+                        }
+                        kind = Some(args[i + 1].clone());
+                        i += 2;
+                    }
+                    "--page" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--page requires an argument"));
+                        }
+                        page = Some(args[i + 1].parse().map_err(|_| anyhow::anyhow!("Invalid page number"))?);
+                        i += 2;
+                    }
+                    "--page-size" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--page-size requires an argument"));
+                        }
+                        page_size = Some(args[i + 1].parse().map_err(|_| anyhow::anyhow!("Invalid page size"))?);
+                        i += 2;
+                    }
+                    "--cursor" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--cursor requires an argument"));
+                        }
+                        cursor = Some(args[i + 1].clone());
+                        i += 2;
+                    }
+                    _ => {
+                        return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
+                    }
+                }
+            }
+
+            ContextSubcommand::List { kind, page, page_size, cursor }
+        }
+        "symbol" => {
+            let mut name: Option<String> = None;
+            let mut file: Option<String> = None;
+            let mut callers = false;
+            let mut callees = false;
+
+            let mut i = 1;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--db" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--db requires an argument"));
+                        }
+                        db_path = Some(PathBuf::from(&args[i + 1]));
+                        i += 2;
+                    }
+                    "--name" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--name requires an argument"));
+                        }
+                        name = Some(args[i + 1].clone());
+                        i += 2;
+                    }
+                    "--file" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--file requires an argument"));
+                        }
+                        file = Some(args[i + 1].clone());
+                        i += 2;
+                    }
+                    "--callers" => {
+                        callers = true;
+                        i += 1;
+                    }
+                    "--callees" => {
+                        callees = true;
+                        i += 1;
+                    }
+                    _ => {
+                        return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
+                    }
+                }
+            }
+
+            let name = name.ok_or_else(|| anyhow::anyhow!("--name is required for symbol subcommand"))?;
+            ContextSubcommand::Symbol { name, file, callers, callees }
+        }
+        "file" => {
+            let mut path: Option<String> = None;
+
+            let mut i = 1;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--db" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--db requires an argument"));
+                        }
+                        db_path = Some(PathBuf::from(&args[i + 1]));
+                        i += 2;
+                    }
+                    "--path" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--path requires an argument"));
+                        }
+                        path = Some(args[i + 1].clone());
+                        i += 2;
+                    }
+                    _ => {
+                        return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
+                    }
+                }
+            }
+
+            let path = path.ok_or_else(|| anyhow::anyhow!("--path is required for file subcommand"))?;
+            ContextSubcommand::File { path }
+        }
+        "server" => {
+            let mut port: u16 = 8080;
+            let mut host = "127.0.0.1".to_string();
+
+            let mut i = 1;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--db" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--db requires an argument"));
+                        }
+                        db_path = Some(PathBuf::from(&args[i + 1]));
+                        i += 2;
+                    }
+                    "--port" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--port requires an argument"));
+                        }
+                        port = args[i + 1].parse().map_err(|_| anyhow::anyhow!("Invalid port number"))?;
+                        i += 2;
+                    }
+                    "--host" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--host requires an argument"));
+                        }
+                        host = args[i + 1].clone();
+                        i += 2;
+                    }
+                    _ => {
+                        return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
+                    }
+                }
+            }
+
+            ContextSubcommand::Server { port, host }
+        }
+        _ => {
+            return Err(anyhow::anyhow!("Unknown context subcommand: {}. Use: build, summary, list, symbol, file, server", args[0]));
+        }
+    };
+
+    // Parse --db from remaining args if not already parsed
+    if db_path.is_none() {
+        let mut i = 1;
+        while i < args.len() {
+            if args[i] == "--db" && i + 1 < args.len() {
+                db_path = Some(PathBuf::from(&args[i + 1]));
+                break;
+            }
+            i += 1;
+        }
+    }
+
+    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+
+    Ok(Command::Context { subcommand, db_path })
+}
+
+/// Parse the `doctor` command arguments
+fn parse_doctor_args(args: &[String]) -> Result<Command> {
+    let mut db_path: Option<PathBuf> = None;
+    let mut fix = false;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--db" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--db requires an argument"));
+                }
+                db_path = Some(PathBuf::from(&args[i + 1]));
+                i += 2;
+            }
+            "--fix" => {
+                fix = true;
+                i += 1;
+            }
+            _ => {
+                return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
+            }
+        }
+    }
+
+    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    
+    Ok(Command::Doctor { db_path, fix })
+}
+
+/// Parse the `web-ui` command arguments
+#[cfg(feature = "web-ui")]
+fn parse_web_ui_args(args: &[String]) -> Result<Command> {
+    let mut db_path: Option<PathBuf> = None;
+    let mut host = "127.0.0.1".to_string();
+    let mut port: u16 = 8080;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--db" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--db requires an argument"));
+                }
+                db_path = Some(PathBuf::from(&args[i + 1]));
+                i += 2;
+            }
+            "--host" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--host requires an argument"));
+                }
+                host = args[i + 1].clone();
+                i += 2;
+            }
+            "--port" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--port requires an argument"));
+                }
+                port = args[i + 1].parse().map_err(|_| anyhow::anyhow!("Invalid port number"))?;
+                i += 2;
+            }
+            _ => {
+                return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
+            }
+        }
+    }
+
+    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    
+    Ok(Command::WebUi { db_path, host, port })
+}
+
 /// Parse the `status` command arguments
 fn parse_status_args(args: &[String]) -> Result<Command> {
     let mut db_path: Option<PathBuf> = None;
@@ -716,6 +1129,10 @@ fn parse_status_args(args: &[String]) -> Result<Command> {
     while i < args.len() {
         match args[i].as_str() {
             "--db" => db_path = Some(parse_path_arg(args, &mut i, "--db")?),
+            "--json" => {
+                output_format = OutputFormat::Json;
+                i += 1;
+            }
             "--output" => {
                 let value = parse_required_arg(args, &mut i, "--output")?;
                 output_format = parse_output_format(&value)?;
@@ -804,6 +1221,10 @@ fn parse_find_args(args: &[String]) -> Result<Command> {
             }
             "--first" => {
                 first = true;
+                i += 1;
+            }
+            "--json" => {
+                output_format = OutputFormat::Json;
                 i += 1;
             }
             "--output" => {
@@ -921,7 +1342,13 @@ where
     match command.as_str() {
         "watch" => parse_watch_args(&args[2..]),
         "export" => parse_export_args(&args[2..]),
+        "import-lsif" => parse_import_lsif_args(&args[2..]),
+        "enrich" => parse_enrich_args(&args[2..]),
         "status" => parse_status_args(&args[2..]),
+        "context" => parse_context_args(&args[2..]),
+        "doctor" => parse_doctor_args(&args[2..]),
+        #[cfg(feature = "web-ui")]
+        "web-ui" => parse_web_ui_args(&args[2..]),
         "query" => parse_query_args(&args[2..]),
         "find" => parse_find_args(&args[2..]),
         "refs" => parse_refs_args(&args[2..]),
@@ -1157,6 +1584,10 @@ fn parse_refs_args(args: &[String]) -> Result<Command> {
                     ));
                 }
                 i += 2;
+            }
+            "--json" => {
+                output_format = OutputFormat::Json;
+                i += 1;
             }
             "--output" => {
                 if i + 1 >= args.len() {
@@ -1563,6 +1994,10 @@ fn parse_query_args(args: &[String]) -> Result<Command> {
             }
             "--show-extent" => {
                 show_extent = true;
+                i += 1;
+            }
+            "--json" => {
+                output_format = OutputFormat::Json;
                 i += 1;
             }
             "--output" => {
@@ -2047,6 +2482,10 @@ fn parse_dead_code_args(args: &[String]) -> Result<Command> {
                 entry_symbol_id = Some(args[i + 1].clone());
                 i += 2;
             }
+            "--json" => {
+                output_format = OutputFormat::Json;
+                i += 1;
+            }
             "--output" => {
                 if i + 1 >= args.len() {
                     return Err(anyhow::anyhow!("--output requires an argument"));
@@ -2100,6 +2539,10 @@ fn parse_cycles_args(args: &[String]) -> Result<Command> {
                 }
                 symbol_id = Some(args[i + 1].clone());
                 i += 2;
+            }
+            "--json" => {
+                output_format = OutputFormat::Json;
+                i += 1;
             }
             "--output" => {
                 if i + 1 >= args.len() {
@@ -2351,20 +2794,10 @@ mod tests {
     /// Test that short usage is ≤25 lines (usability research shows longer help is ignored)
     #[test]
     fn test_short_usage_line_count() {
-        let mut buf = Vec::new();
-        // Redirect eprintln to our buffer for testing
-        {
-            use std::io::Write;
-            let mut handle = std::io::stderr();
-            // We can't easily capture eprintln, so we verify the function doesn't panic
-            // and check line count by calling it directly with a custom writer
-            // For this test, we manually count lines in the source
-        }
-        
         // Manual line count verification - short usage should be brief
         // This test documents the requirement: short help ≤25 lines
         let short_help_lines = 15; // Estimated from print_short_usage()
-        assert!(short_help_lines <= 25, 
+        assert!(short_help_lines <= 25,
             "Short help should be ≤25 lines to ensure users actually read it");
     }
 

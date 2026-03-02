@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 //! Magellan: A dumb, deterministic codebase mapping tool
 //!
 //! Magellan observes files, extracts symbols and references, and persists facts to sqlitegraph.
@@ -50,6 +51,11 @@ pub mod generation;
 pub mod graph;
 pub mod indexer;
 pub mod ingest;
+pub mod lsif;
+pub mod lsp;
+pub mod context;
+#[cfg(feature = "web-ui")]
+pub mod web_ui;
 
 pub mod migrate_backend_cmd;
 pub mod migrate_cmd;

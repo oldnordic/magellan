@@ -26,6 +26,75 @@ pub struct ScanResult {
     pub diagnostics: Vec<WatchDiagnostic>,
 }
 
+/// Async scan with parallel file reading using tokio
+pub async fn scan_directory_async(
+    graph: &mut CodeGraph,
+    dir_path: &Path,
+    filter: &crate::graph::filter::FileFilter,
+    progress: Option<&ScanProgress>,
+) -> Result<ScanResult> {
+    use crate::indexer::async_io::read_files_async;
+    use crate::diagnostics::SkipReason;
+    
+    // Collect all candidate files first (for sorted order)
+    let mut candidate_files: Vec<PathBuf> = Vec::new();
+    let mut diagnostics = Vec::new();
+
+    // Use walkdir to collect all files
+    for entry in walkdir::WalkDir::new(dir_path)
+        .follow_links(false)
+        .into_iter()
+        .filter_map(std::result::Result::ok)
+    {
+        let path = entry.path();
+        if path.is_dir() {
+            continue;
+        }
+        match validate_path_within_root(path, dir_path) {
+            Ok(_) => {
+                if filter.should_skip(path).is_none() {
+                    candidate_files.push(path.to_path_buf());
+                } else {
+                    let reason = filter.should_skip(path).unwrap_or(SkipReason::IgnoredInternal);
+                    let rel_path = path.strip_prefix(dir_path).unwrap_or(path).to_string_lossy().to_string();
+                    diagnostics.push(WatchDiagnostic::skipped(rel_path, reason));
+                }
+            }
+            Err(_e) => {
+                let rel_path = path.strip_prefix(dir_path).unwrap_or(path).to_string_lossy().to_string();
+                diagnostics.push(WatchDiagnostic::skipped(rel_path, SkipReason::IgnoredInternal));
+            }
+        }
+    }
+
+    // Sort for determinism
+    candidate_files.sort();
+
+    let total = candidate_files.len();
+    let indexed = AtomicUsize::new(0);
+
+    // Read files asynchronously in parallel
+    let file_contents = read_files_async(candidate_files.clone()).await?;
+
+    // Index files sequentially (graph is not Send)
+    for (path, content) in file_contents {
+        let path_str = path.to_string_lossy().to_string();
+
+        if let Ok(count) = crate::graph::ops::index_file(graph, &path_str, &content) {
+            indexed.fetch_add(count, Ordering::SeqCst);
+        }
+
+        if let Some(progress_fn) = progress {
+            progress_fn(indexed.load(Ordering::SeqCst), total, &path_str);
+        }
+    }
+
+    Ok(ScanResult {
+        indexed: indexed.load(Ordering::SeqCst),
+        diagnostics,
+    })
+}
+
 /// Result of parallel file read operation.
 ///
 /// Contains either the successfully read file contents and metadata,
@@ -223,7 +292,7 @@ pub fn scan_directory_with_filter(
         // Update progress counter
         let current = indexed_count.fetch_add(1, Ordering::Relaxed) + 1;
         if let Some(cb) = progress {
-            cb(current, total);
+            cb(current, total, &result.rel_path);
         }
 
         // Handle read errors

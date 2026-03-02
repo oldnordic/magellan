@@ -30,7 +30,7 @@ use crate::graph::query::{collision_groups, CollisionField};
 
 /// Export format options
 ///
-/// Dot, Csv, and Scip are available export formats.
+/// Dot, Csv, Scip, and Lsif are available export formats.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExportFormat {
     /// Standard JSON array format
@@ -43,6 +43,8 @@ pub enum ExportFormat {
     Csv,
     /// SCIP (Source Code Intelligence Protocol) binary format
     Scip,
+    /// LSIF (Language Server Index Format) for cross-repo navigation
+    Lsif,
 }
 
 impl ExportFormat {
@@ -54,6 +56,7 @@ impl ExportFormat {
             "dot" => Some(ExportFormat::Dot),
             "csv" => Some(ExportFormat::Csv),
             "scip" => Some(ExportFormat::Scip),
+            "lsif" => Some(ExportFormat::Lsif),
             _ => None,
         }
     }
@@ -1533,6 +1536,11 @@ pub fn export_graph(graph: &mut CodeGraph, config: &ExportConfig) -> Result<Stri
             // Return base64-encoded SCIP data as a workaround for text-based export_graph
             // For direct binary output, use export_cmd.rs which handles SCIP specially
             Ok(base64::engine::general_purpose::STANDARD.encode(&scip_bytes))
+        }
+        ExportFormat::Lsif => {
+            // LSIF export returns JSONL format
+            // For file output, use export_cmd.rs which handles LSIF specially
+            Ok(String::new())
         }
     }
 }

@@ -126,6 +126,24 @@ pub fn run_export(
                 io::stdout().write_all(&scip_bytes)?;
             }
         }
+    // Handle LSIF format specially (JSONL output)
+    } else if format == ExportFormat::Lsif {
+        use magellan::lsif;
+        
+        // Get package info from Cargo.toml if available
+        let (package_name, package_version) = detect_package_info(&db_path);
+        
+        // Export to LSIF
+        match output {
+            Some(path) => {
+                let count = lsif::export::export_lsif(&mut graph, &path, &package_name, &package_version)?;
+                eprintln!("Exported {} symbols to {:?}", count, path);
+            }
+            None => {
+                eprintln!("Warning: LSIF format requires --output file.lsif");
+                eprintln!("Use: magellan export --db code.db --format lsif --output output.lsif");
+            }
+        }
     } else {
         // Text-based formats
         let config = ExportConfig {
@@ -221,5 +239,49 @@ fn format_name(format: ExportFormat) -> String {
         ExportFormat::Dot => "dot".to_string(),
         ExportFormat::Csv => "csv".to_string(),
         ExportFormat::Scip => "scip".to_string(),
+        ExportFormat::Lsif => "lsif".to_string(),
     }
+}
+
+/// Detect package name and version from Cargo.toml or directory name
+fn detect_package_info(db_path: &std::path::Path) -> (String, String) {
+    // Try to find Cargo.toml in parent directories
+    let mut current = db_path.parent().unwrap_or(std::path::Path::new("."));
+    
+    for _ in 0..10 {
+        let cargo_toml = current.join("Cargo.toml");
+        if cargo_toml.exists() {
+            if let Ok(content) = std::fs::read_to_string(&cargo_toml) {
+                let name = content
+                    .lines()
+                    .find(|l| l.starts_with("name = "))
+                    .and_then(|l| l.split('"').nth(1))
+                    .unwrap_or("unknown")
+                    .to_string();
+                
+                let version = content
+                    .lines()
+                    .find(|l| l.starts_with("version = "))
+                    .and_then(|l| l.split('"').nth(1))
+                    .unwrap_or("0.1.0")
+                    .to_string();
+                
+                return (name, version);
+            }
+        }
+        current = current.parent().unwrap_or(std::path::Path::new("."));
+        if current.as_os_str().is_empty() {
+            break;
+        }
+    }
+    
+    // Fallback to directory name
+    let dir_name = db_path
+        .parent()
+        .and_then(|p| p.file_name())
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown")
+        .to_string();
+    
+    (dir_name, "0.1.0".to_string())
 }
