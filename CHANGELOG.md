@@ -17,6 +17,27 @@ Magellan v3.0.0 is part of the Code Intelligence ecosystem, working alongside:
 
 ### Added
 
+#### Context API Documentation
+- **Deterministic JSON contract** for LLM context queries
+  - `docs/CONTEXT_API_CONTRACT.md` with full schema specification
+  - Project summary, symbol list, symbol detail, file context
+  - Pagination with cursor-based navigation
+  - Error response format with error codes
+  - Version history and backward compatibility
+
+#### Benchmarks
+- **Context query latency benchmarks** (`benches/context_bench.rs`)
+  - context_summary, context_list, context_symbol, context_file
+  - Large codebase tests (100k+ symbols)
+  - Run: `cargo bench --bench context_bench`
+
+#### Stress Tests
+- **LSIF import stress tests** (`tests/lsif_stress_tests.rs`)
+  - Small (100), Medium (10k), Large (100k) symbol imports
+  - Invalid file handling, empty file handling
+  - All 7 tests passing
+  - Run: `cargo test --test lsif_stress_tests`
+
 #### Async Watcher (Phase 1)
 - **Async file I/O** using tokio runtime
   - Non-blocking file reads for improved performance
@@ -122,6 +143,27 @@ Magellan v3.0.0 is part of the Code Intelligence ecosystem, working alongside:
 ## [2.6.0] - 2026-03-01
 
 ### Added
+
+#### Context API Documentation
+- **Deterministic JSON contract** for LLM context queries
+  - `docs/CONTEXT_API_CONTRACT.md` with full schema specification
+  - Project summary, symbol list, symbol detail, file context
+  - Pagination with cursor-based navigation
+  - Error response format with error codes
+  - Version history and backward compatibility
+
+#### Benchmarks
+- **Context query latency benchmarks** (`benches/context_bench.rs`)
+  - context_summary, context_list, context_symbol, context_file
+  - Large codebase tests (100k+ symbols)
+  - Run: `cargo bench --bench context_bench`
+
+#### Stress Tests
+- **LSIF import stress tests** (`tests/lsif_stress_tests.rs`)
+  - Small (100), Medium (10k), Large (100k) symbol imports
+  - Invalid file handling, empty file handling
+  - All 7 tests passing
+  - Run: `cargo test --test lsif_stress_tests`
 - **Progress bar for scan operations:** Visual feedback during initial scan
   - Uses `indicatif` crate for terminal progress bars
   - Shows elapsed time, progress bar, file count, and ETA
@@ -149,6 +191,27 @@ Magellan v3.0.0 is part of the Code Intelligence ecosystem, working alongside:
 ## [2.5.1] - 2026-03-01
 
 ### Added
+
+#### Context API Documentation
+- **Deterministic JSON contract** for LLM context queries
+  - `docs/CONTEXT_API_CONTRACT.md` with full schema specification
+  - Project summary, symbol list, symbol detail, file context
+  - Pagination with cursor-based navigation
+  - Error response format with error codes
+  - Version history and backward compatibility
+
+#### Benchmarks
+- **Context query latency benchmarks** (`benches/context_bench.rs`)
+  - context_summary, context_list, context_symbol, context_file
+  - Large codebase tests (100k+ symbols)
+  - Run: `cargo bench --bench context_bench`
+
+#### Stress Tests
+- **LSIF import stress tests** (`tests/lsif_stress_tests.rs`)
+  - Small (100), Medium (10k), Large (100k) symbol imports
+  - Invalid file handling, empty file handling
+  - All 7 tests passing
+  - Run: `cargo test --test lsif_stress_tests`
 - **C language support:** Complete symbol extraction for C source files
   - Functions, structs, enums, and unions
   - Reference and call graph extraction
@@ -175,6 +238,27 @@ Magellan v3.0.0 is part of the Code Intelligence ecosystem, working alongside:
 ## [2.5.0] - 2026-02-27
 
 ### Added
+
+#### Context API Documentation
+- **Deterministic JSON contract** for LLM context queries
+  - `docs/CONTEXT_API_CONTRACT.md` with full schema specification
+  - Project summary, symbol list, symbol detail, file context
+  - Pagination with cursor-based navigation
+  - Error response format with error codes
+  - Version history and backward compatibility
+
+#### Benchmarks
+- **Context query latency benchmarks** (`benches/context_bench.rs`)
+  - context_summary, context_list, context_symbol, context_file
+  - Large codebase tests (100k+ symbols)
+  - Run: `cargo bench --bench context_bench`
+
+#### Stress Tests
+- **LSIF import stress tests** (`tests/lsif_stress_tests.rs`)
+  - Small (100), Medium (10k), Large (100k) symbol imports
+  - Invalid file handling, empty file handling
+  - All 7 tests passing
+  - Run: `cargo test --test lsif_stress_tests`
 - **Find command:** Implemented caller/callee references in JSON output
   - `--with-callers` flag now includes functions that call the found symbol
   - `--with-callees` flag now includes functions that the found symbol calls
@@ -191,6 +275,27 @@ Magellan v3.0.0 is part of the Code Intelligence ecosystem, working alongside:
 ## [2.4.9] - 2026-02-22
 
 ### Added
+
+#### Context API Documentation
+- **Deterministic JSON contract** for LLM context queries
+  - `docs/CONTEXT_API_CONTRACT.md` with full schema specification
+  - Project summary, symbol list, symbol detail, file context
+  - Pagination with cursor-based navigation
+  - Error response format with error codes
+  - Version history and backward compatibility
+
+#### Benchmarks
+- **Context query latency benchmarks** (`benches/context_bench.rs`)
+  - context_summary, context_list, context_symbol, context_file
+  - Large codebase tests (100k+ symbols)
+  - Run: `cargo bench --bench context_bench`
+
+#### Stress Tests
+- **LSIF import stress tests** (`tests/lsif_stress_tests.rs`)
+  - Small (100), Medium (10k), Large (100k) symbol imports
+  - Invalid file handling, empty file handling
+  - All 7 tests passing
+  - Run: `cargo test --test lsif_stress_tests`
 - **Schema v8:** Added `cfg_hash` column to `cfg_blocks` table
   - Enables granular cache invalidation for tools like Mirage
   - Hash computed from block data (function_id, kind, terminator, spans)
@@ -199,6 +304,27 @@ Magellan v3.0.0 is part of the Code Intelligence ecosystem, working alongside:
 ## [2.4.8] - 2026-02-21
 
 ### Added
+
+#### Context API Documentation
+- **Deterministic JSON contract** for LLM context queries
+  - `docs/CONTEXT_API_CONTRACT.md` with full schema specification
+  - Project summary, symbol list, symbol detail, file context
+  - Pagination with cursor-based navigation
+  - Error response format with error codes
+  - Version history and backward compatibility
+
+#### Benchmarks
+- **Context query latency benchmarks** (`benches/context_bench.rs`)
+  - context_summary, context_list, context_symbol, context_file
+  - Large codebase tests (100k+ symbols)
+  - Run: `cargo bench --bench context_bench`
+
+#### Stress Tests
+- **LSIF import stress tests** (`tests/lsif_stress_tests.rs`)
+  - Small (100), Medium (10k), Large (100k) symbol imports
+  - Invalid file handling, empty file handling
+  - All 7 tests passing
+  - Run: `cargo test --test lsif_stress_tests`
 - Shortened `--help` output. Research shows users ignore help >25 lines.
   - `--help` / `-h` now shows concise 16-line quick reference
   - `--help-full` / `-H` shows complete 179-line documentation
@@ -246,11 +372,53 @@ Magellan v3.0.0 is part of the Code Intelligence ecosystem, working alongside:
 ## [2.4.3] - 2026-02-14
 
 ### Added
+
+#### Context API Documentation
+- **Deterministic JSON contract** for LLM context queries
+  - `docs/CONTEXT_API_CONTRACT.md` with full schema specification
+  - Project summary, symbol list, symbol detail, file context
+  - Pagination with cursor-based navigation
+  - Error response format with error codes
+  - Version history and backward compatibility
+
+#### Benchmarks
+- **Context query latency benchmarks** (`benches/context_bench.rs`)
+  - context_summary, context_list, context_symbol, context_file
+  - Large codebase tests (100k+ symbols)
+  - Run: `cargo bench --bench context_bench`
+
+#### Stress Tests
+- **LSIF import stress tests** (`tests/lsif_stress_tests.rs`)
+  - Small (100), Medium (10k), Large (100k) symbol imports
+  - Invalid file handling, empty file handling
+  - All 7 tests passing
+  - Run: `cargo test --test lsif_stress_tests`
 - Symbol lookup by entity ID: `CodeGraph::get_symbol_by_entity_id()`
 
 ## [2.4.2] - 2026-02-14
 
 ### Added
+
+#### Context API Documentation
+- **Deterministic JSON contract** for LLM context queries
+  - `docs/CONTEXT_API_CONTRACT.md` with full schema specification
+  - Project summary, symbol list, symbol detail, file context
+  - Pagination with cursor-based navigation
+  - Error response format with error codes
+  - Version history and backward compatibility
+
+#### Benchmarks
+- **Context query latency benchmarks** (`benches/context_bench.rs`)
+  - context_summary, context_list, context_symbol, context_file
+  - Large codebase tests (100k+ symbols)
+  - Run: `cargo bench --bench context_bench`
+
+#### Stress Tests
+- **LSIF import stress tests** (`tests/lsif_stress_tests.rs`)
+  - Small (100), Medium (10k), Large (100k) symbol imports
+  - Invalid file handling, empty file handling
+  - All 7 tests passing
+  - Run: `cargo test --test lsif_stress_tests`
 - V3 KV operations for llmgrep integration (prefix scan, FQN lookup, etc)
 
 ## [2.4.1] - 2026-02-14
@@ -261,6 +429,27 @@ Magellan v3.0.0 is part of the Code Intelligence ecosystem, working alongside:
 ## [2.4.0] - 2026-02-14
 
 ### Added
+
+#### Context API Documentation
+- **Deterministic JSON contract** for LLM context queries
+  - `docs/CONTEXT_API_CONTRACT.md` with full schema specification
+  - Project summary, symbol list, symbol detail, file context
+  - Pagination with cursor-based navigation
+  - Error response format with error codes
+  - Version history and backward compatibility
+
+#### Benchmarks
+- **Context query latency benchmarks** (`benches/context_bench.rs`)
+  - context_summary, context_list, context_symbol, context_file
+  - Large codebase tests (100k+ symbols)
+  - Run: `cargo bench --bench context_bench`
+
+#### Stress Tests
+- **LSIF import stress tests** (`tests/lsif_stress_tests.rs`)
+  - Small (100), Medium (10k), Large (100k) symbol imports
+  - Invalid file handling, empty file handling
+  - All 7 tests passing
+  - Run: `cargo test --test lsif_stress_tests`
 - V3 backend support (native binary format, no SQLite)
 - Full backend parity - both SQLite and V3 support all features
 
@@ -270,12 +459,54 @@ Magellan v3.0.0 is part of the Code Intelligence ecosystem, working alongside:
 ## [2.3.0] - 2026-02-13
 
 ### Added
+
+#### Context API Documentation
+- **Deterministic JSON contract** for LLM context queries
+  - `docs/CONTEXT_API_CONTRACT.md` with full schema specification
+  - Project summary, symbol list, symbol detail, file context
+  - Pagination with cursor-based navigation
+  - Error response format with error codes
+  - Version history and backward compatibility
+
+#### Benchmarks
+- **Context query latency benchmarks** (`benches/context_bench.rs`)
+  - context_summary, context_list, context_symbol, context_file
+  - Large codebase tests (100k+ symbols)
+  - Run: `cargo bench --bench context_bench`
+
+#### Stress Tests
+- **LSIF import stress tests** (`tests/lsif_stress_tests.rs`)
+  - Small (100), Medium (10k), Large (100k) symbol imports
+  - Invalid file handling, empty file handling
+  - All 7 tests passing
+  - Run: `cargo test --test lsif_stress_tests`
 - Graph algorithms: reachability, dead code, cycles, paths, slicing
 - Side tables for metrics and execution logging
 
 ## [2.2.0] - 2026-02-12
 
 ### Added
+
+#### Context API Documentation
+- **Deterministic JSON contract** for LLM context queries
+  - `docs/CONTEXT_API_CONTRACT.md` with full schema specification
+  - Project summary, symbol list, symbol detail, file context
+  - Pagination with cursor-based navigation
+  - Error response format with error codes
+  - Version history and backward compatibility
+
+#### Benchmarks
+- **Context query latency benchmarks** (`benches/context_bench.rs`)
+  - context_summary, context_list, context_symbol, context_file
+  - Large codebase tests (100k+ symbols)
+  - Run: `cargo bench --bench context_bench`
+
+#### Stress Tests
+- **LSIF import stress tests** (`tests/lsif_stress_tests.rs`)
+  - Small (100), Medium (10k), Large (100k) symbol imports
+  - Invalid file handling, empty file handling
+  - All 7 tests passing
+  - Run: `cargo test --test lsif_stress_tests`
 - AST node extraction and storage
 - CFG (control flow graph) support
 - Code chunk storage
@@ -283,6 +514,27 @@ Magellan v3.0.0 is part of the Code Intelligence ecosystem, working alongside:
 ## [2.1.0] - 2026-02-11
 
 ### Added
+
+#### Context API Documentation
+- **Deterministic JSON contract** for LLM context queries
+  - `docs/CONTEXT_API_CONTRACT.md` with full schema specification
+  - Project summary, symbol list, symbol detail, file context
+  - Pagination with cursor-based navigation
+  - Error response format with error codes
+  - Version history and backward compatibility
+
+#### Benchmarks
+- **Context query latency benchmarks** (`benches/context_bench.rs`)
+  - context_summary, context_list, context_symbol, context_file
+  - Large codebase tests (100k+ symbols)
+  - Run: `cargo bench --bench context_bench`
+
+#### Stress Tests
+- **LSIF import stress tests** (`tests/lsif_stress_tests.rs`)
+  - Small (100), Medium (10k), Large (100k) symbol imports
+  - Invalid file handling, empty file handling
+  - All 7 tests passing
+  - Run: `cargo test --test lsif_stress_tests`
 - Multi-language support: Rust, Python, C, C++, Java, JavaScript, TypeScript
 - Call graph extraction (caller -> callee)
 
@@ -295,6 +547,27 @@ Magellan v3.0.0 is part of the Code Intelligence ecosystem, working alongside:
 ## [1.0.0] - 2026-01-15
 
 ### Added
+
+#### Context API Documentation
+- **Deterministic JSON contract** for LLM context queries
+  - `docs/CONTEXT_API_CONTRACT.md` with full schema specification
+  - Project summary, symbol list, symbol detail, file context
+  - Pagination with cursor-based navigation
+  - Error response format with error codes
+  - Version history and backward compatibility
+
+#### Benchmarks
+- **Context query latency benchmarks** (`benches/context_bench.rs`)
+  - context_summary, context_list, context_symbol, context_file
+  - Large codebase tests (100k+ symbols)
+  - Run: `cargo bench --bench context_bench`
+
+#### Stress Tests
+- **LSIF import stress tests** (`tests/lsif_stress_tests.rs`)
+  - Small (100), Medium (10k), Large (100k) symbol imports
+  - Invalid file handling, empty file handling
+  - All 7 tests passing
+  - Run: `cargo test --test lsif_stress_tests`
 - Initial release
 - Basic symbol extraction for Rust
 - File watching with notify

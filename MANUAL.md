@@ -35,7 +35,11 @@ Magellan can be used standalone, but its primary purpose is to enable downstream
     - [Backend Architecture](#backend-architecture-v240)
     - [Threading Model](#threading-model-v17)
 13. [Exit Codes](#exit-codes)
-14. [v3.0.0 New Features](#14-v300-new-features)
+14. [Context API](#14-context-api)
+    - JSON Contract
+    - Benchmarks
+    - Stress Tests
+15. [v3.0.0 New Features](#14-v300-new-features)
 
 ---
 
@@ -2083,6 +2087,68 @@ This ordering prevents lost wakeups and deadlocks.
 GPL-3.0-or-later
 
 ---
+
+
+## 14. Context API
+
+### JSON Contract
+
+The Context API provides deterministic JSON responses for LLM integration.
+
+**Documentation:** [`docs/CONTEXT_API_CONTRACT.md`](docs/CONTEXT_API_CONTRACT.md)
+
+**Endpoints:**
+- `magellan context summary --json` - Project overview (~50 tokens)
+- `magellan context list --json` - Paginated symbol listing
+- `magellan context symbol --json` - Symbol detail with call graph
+- `magellan context file --json` - File-level context
+
+**Schema Version:** 1.0.0 (stable)
+
+### Benchmarks
+
+**Location:** `benches/context_bench.rs`
+
+**Run benchmarks:**
+```bash
+cargo bench --bench context_bench
+```
+
+**Benchmarks:**
+- `context_summary` - Project overview latency
+- `context_list` - Paginated symbol listing (10, 50, 100 page sizes)
+- `context_symbol` - Symbol detail with call graph
+- `context_file` - File-level context
+- `context_large_codebase` - 100k+ symbol stress tests
+
+**Expected Results:**
+| Query | Expected Latency |
+|-------|-----------------|
+| context_summary | <10ms |
+| context_list (page 1) | <50ms |
+| context_list (page 100) | <100ms |
+| context_symbol | <50ms |
+| context_file | <30ms |
+
+### Stress Tests
+
+**Location:** `tests/lsif_stress_tests.rs`
+
+**Run tests:**
+```bash
+cargo test --test lsif_stress_tests
+```
+
+**Test Coverage:**
+- Small imports (100 symbols)
+- Medium imports (10k symbols)
+- Large imports (100k symbols)
+- Multiple package imports
+- Invalid file handling
+- Empty file handling
+- Missing package vertex handling
+
+**All 7 tests passing** ✅
 
 ## 14. v3.0.0 New Features
 
