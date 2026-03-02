@@ -189,6 +189,7 @@ Both backends have **full feature parity** (v2.4.0):
 
 - **[MANUAL.md](MANUAL.md)** — Complete command reference, architecture, and examples
 - **[CHANGELOG.md](CHANGELOG.md)** — Version history and release notes
+- **[docs/CONTEXT_API_CONTRACT.md](docs/CONTEXT_API_CONTRACT.md)** — Deterministic JSON contract for LLM context API
 - **[AGENTS.md](AGENTS.md)** — Development guidelines for contributors
 
 ## What Magellan Does NOT Do
