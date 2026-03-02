@@ -1,4 +1,4 @@
-//! LSP enrichment using rust-analyzer, clangd, and jdtls
+//! LSP enrichment using rust-analyzer, clangd, and javac
 //!
 //! Uses CLI commands to extract type signatures and documentation.
 //! 
@@ -7,30 +7,33 @@
 //! rust-analyzer provides JSON output through its analysis commands:
 //! 
 //! ```bash
-//! # Get syntax tree (JSON)
-//! rust-analyzer parse < file.rs
-//! 
-//! # Get analysis stats (JSON)
+//! # Get analysis stats (JSON lines)
 //! rust-analyzer analysis-stats .
 //! ```
 //!
 //! ## clangd
 //!
-//! clangd provides JSON output through clangd-query:
+//! clangd provides JSON output through clangd-query or direct AST parsing:
 //!
 //! ```bash
+//! # Get AST in JSON format
 //! clangd-query --dump-ast file.cpp
 //! ```
 //!
-//! ## jdtls
+//! ## javac (Java)
 //!
-//! jdtls is typically run as a language server. For CLI usage,
-//! use javac with annotation processing or Eclipse JDT Core batch APIs.
+//! For Java, we use javac with annotation processing or parse source directly:
+//!
+//! ```bash
+//! # Compile and extract signatures
+//! javac -parameters -Xprint file.java
+//! ```
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::io::{BufRead, BufReader};
 
 use crate::graph::CodeGraph;
 use super::analyzer::{AnalyzerKind, AnalyzerResult, detect_available_analyzers, detect_language_from_path};
@@ -101,8 +104,9 @@ pub fn enrich_symbols(graph: &mut CodeGraph, config: &EnrichConfig) -> Result<En
     let available_analyzers = detect_available_analyzers();
     
     if available_analyzers.is_empty() {
-        eprintln!("No LSP analyzers found (rust-analyzer, jdtls, clangd)");
-        eprintln!("Install one or more analyzers to enable enrichment.");
+        eprintln!("No LSP analyzers found (rust-analyzer, javac)");
+        eprintln!("Install rust-analyzer: rustup component add rust-analyzer");
+        eprintln!("Install Java JDK for Java projects");
         return Ok(result);
     }
 
@@ -163,7 +167,7 @@ pub fn enrich_symbols(graph: &mut CodeGraph, config: &EnrichConfig) -> Result<En
                 parse_clangd_json(file_path, workspace_root)?
             }
             AnalyzerKind::JDTLS => {
-                parse_jdtls_json(file_path, workspace_root)?
+                parse_javac_output(file_path, workspace_root)?
             }
         };
 
@@ -215,20 +219,280 @@ fn parse_rust_analyzer_json(file_path: &Path, workspace: &Path) -> Result<Vec<Ls
     Ok(signatures)
 }
 
-/// Parse clangd JSON output
+/// Parse clangd JSON output using clangd-query
 fn parse_clangd_json(file_path: &Path, workspace: &Path) -> Result<Vec<LspSignature>> {
-    // clangd doesn't have a simple CLI for JSON output
-    // This is a placeholder for future implementation
-    let _ = (file_path, workspace);
-    Ok(Vec::new())
+    let mut signatures = Vec::new();
+    
+    // Check if file is C/C++
+    let extension = file_path.extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
+    
+    let is_cpp = matches!(extension, "cpp" | "cc" | "cxx" | "hpp" | "h");
+    
+    // Use clangd-query to get AST information
+    let output = Command::new("clangd-query")
+        .args([
+            "--dump-ast",
+            "--include-refs",
+            file_path.to_str().unwrap()
+        ])
+        .current_dir(workspace)
+        .output();
+    
+    match output {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            
+            // Parse clangd AST output (not JSON, but structured text)
+            // Format: kind name type location
+            for line in stdout.lines() {
+                if let Some(sig) = parse_clangd_line(line, is_cpp) {
+                    signatures.push(sig);
+                }
+            }
+        }
+        Err(_) => {
+            // Fallback: use clang with -Xclang -ast-dump=json
+            let output = Command::new("clang")
+                .args([
+                    "-Xclang",
+                    "-ast-dump=json",
+                    "-fsyntax-only",
+                    file_path.to_str().unwrap()
+                ])
+                .current_dir(workspace)
+                .output()
+                .context("Failed to run clang AST dump")?;
+            
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            
+            // Parse JSON AST
+            if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&stdout) {
+                extract_signatures_from_clang_ast(&json_value, &mut signatures);
+            }
+        }
+    }
+    
+    Ok(signatures)
 }
 
-/// Parse jdtls JSON output
-fn parse_jdtls_json(file_path: &Path, workspace: &Path) -> Result<Vec<LspSignature>> {
-    // jdtls is typically run as a language server
-    // This is a placeholder for future implementation
-    let _ = (file_path, workspace);
-    Ok(Vec::new())
+/// Parse a single line from clangd-query output
+fn parse_clangd_line(line: &str, is_cpp: bool) -> Option<LspSignature> {
+    let line = line.trim();
+    if line.is_empty() {
+        return None;
+    }
+    
+    // clangd-query format: "kind name type"
+    // Example: "Function main int()"
+    let parts: Vec<&str> = line.split_whitespace().collect();
+    if parts.len() < 3 {
+        return None;
+    }
+    
+    let kind = parts[0];
+    let name = parts[1];
+    let type_info = parts[2..].join(" ");
+    
+    match kind {
+        "Function" | "Method" | "Constructor" | "Destructor" => {
+            Some(LspSignature {
+                name: name.to_string(),
+                signature: if is_cpp {
+                    format!("{} {}", kind, type_info)
+                } else {
+                    format!("int {}({})", name, type_info)
+                },
+                return_type: Some(type_info.clone()),
+                parameters: vec![],
+                documentation: None,
+            })
+        }
+        "Class" | "Struct" | "Enum" => {
+            Some(LspSignature {
+                name: name.to_string(),
+                signature: format!("{} {}", kind, name),
+                return_type: None,
+                parameters: vec![],
+                documentation: None,
+            })
+        }
+        _ => None,
+    }
+}
+
+/// Extract signatures from clang JSON AST
+fn extract_signatures_from_clang_ast(json: &serde_json::Value, signatures: &mut Vec<LspSignature>) {
+    if let Some(obj) = json.as_object() {
+        // Check if this is a function declaration
+        if let Some(kind) = obj.get("kind").and_then(|v| v.as_str()) {
+            if matches!(kind, "FunctionDecl" | "CXXMethodDecl" | "Constructor" | "Destructor") {
+                if let Some(name) = obj.get("name").and_then(|v| v.as_str()) {
+                    let return_type = obj.get("type")
+                        .and_then(|t| t.get("qualType"))
+                        .and_then(|t| t.as_str())
+                        .map(String::from);
+                    
+                    let signature = format!("{} {}", kind, name);
+                    
+                    signatures.push(LspSignature {
+                        name: name.to_string(),
+                        signature,
+                        return_type,
+                        parameters: vec![],
+                        documentation: None,
+                    });
+                }
+            }
+        }
+        
+        // Recurse into children
+        if let Some(children) = obj.get("inner").and_then(|v| v.as_array()) {
+            for child in children {
+                extract_signatures_from_clang_ast(child, signatures);
+            }
+        }
+    }
+}
+
+/// Parse javac output for Java signatures
+fn parse_javac_output(file_path: &Path, workspace: &Path) -> Result<Vec<LspSignature>> {
+    let mut signatures = Vec::new();
+    
+    // Use javac -Xprint to print declarations
+    let output = Command::new("javac")
+        .args([
+            "-Xprint",
+            "-parameters",  // Include parameter names
+            file_path.to_str().unwrap()
+        ])
+        .current_dir(workspace)
+        .output()
+        .context("Failed to run javac -Xprint")?;
+    
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    
+    // Parse javac -Xprint output
+    // Format: modifiers class ClassName { ... }
+    //         modifiers returnType methodName(params) { ... }
+    for line in stdout.lines() {
+        if let Some(sig) = parse_javac_line(line) {
+            signatures.push(sig);
+        }
+    }
+    
+    Ok(signatures)
+}
+
+/// Parse a single line from javac -Xprint output
+fn parse_javac_line(line: &str) -> Option<LspSignature> {
+    let line = line.trim();
+    if line.is_empty() || line.starts_with("//") {
+        return None;
+    }
+    
+    // Class/Interface/Enum declaration
+    if let Some(sig) = parse_java_type_decl(line) {
+        return Some(sig);
+    }
+    
+    // Method declaration
+    if let Some(sig) = parse_java_method_decl(line) {
+        return Some(sig);
+    }
+    
+    None
+}
+
+/// Parse Java type declaration (class, interface, enum)
+fn parse_java_type_decl(line: &str) -> Option<LspSignature> {
+    // Match: [modifiers] class ClassName [extends ...] [implements ...] {
+    // or: [modifiers] interface InterfaceName [extends ...] {
+    // or: [modifiers] enum EnumName {
+    
+    let kind = if line.contains(" class ") {
+        "class"
+    } else if line.contains(" interface ") {
+        "interface"
+    } else if line.contains(" enum ") {
+        "enum"
+    } else {
+        return None;
+    };
+    
+    // Extract name
+    let parts: Vec<&str> = line.split_whitespace().collect();
+    let name_idx = parts.iter().position(|&p| p == kind)? + 1;
+    let name = parts.get(name_idx)?.split('<').next()?;
+    
+    Some(LspSignature {
+        name: name.to_string(),
+        signature: line.split('{').next()?.trim().to_string(),
+        return_type: None,
+        parameters: vec![],
+        documentation: None,
+    })
+}
+
+/// Parse Java method declaration
+fn parse_java_method_decl(line: &str) -> Option<LspSignature> {
+    // Match: [modifiers] ReturnType methodName(params) [throws ...] {
+    if !line.contains('(') || !line.contains(')') {
+        return None;
+    }
+    
+    // Skip lines that are clearly not methods
+    if line.contains(" class ") || line.contains(" interface ") || line.contains(" enum ") {
+        return None;
+    }
+    
+    // Extract method name and parameters
+    let paren_start = line.find('(')?;
+    let paren_end = line.find(')')?;
+    
+    let before_parens = &line[..paren_start];
+    let params_str = &line[paren_start + 1..paren_end];
+    
+    // Extract method name (last word before parenthesis)
+    let name = before_parens.split_whitespace().last()?;
+    
+    // Extract return type (second to last word before parenthesis)
+    let return_type: Option<String> = before_parens
+        .split_whitespace()
+        .rev()
+        .nth(1)
+        .map(String::from);
+    
+    // Parse parameters
+    let parameters = parse_java_parameters(params_str);
+    
+    // Build signature
+    let signature = line.split('{').next()?.trim().to_string();
+    
+    Some(LspSignature {
+        name: name.to_string(),
+        signature,
+        return_type,
+        parameters,
+        documentation: None,
+    })
+}
+
+/// Parse Java method parameters
+fn parse_java_parameters(params_str: &str) -> Vec<String> {
+    if params_str.trim().is_empty() {
+        return vec![];
+    }
+    
+    params_str
+        .split(',')
+        .map(|p| {
+            let p = p.trim();
+            // Extract just the parameter name (last word)
+            p.split_whitespace().last().unwrap_or(p).to_string()
+        })
+        .collect()
 }
 
 /// Extract signature from rust-analyzer JSON
@@ -317,6 +581,40 @@ mod tests {
         assert_eq!(sig.name, "main");
         assert_eq!(sig.signature, "fn main() -> Result<(), Error>");
         assert_eq!(sig.return_type, Some("Result<(), Error>".to_string()));
+    }
+
+    #[test]
+    fn test_parse_clangd_line() {
+        let sig = parse_clangd_line("Function main int()", false);
+        assert!(sig.is_some());
+        let sig = sig.unwrap();
+        assert_eq!(sig.name, "main");
+        assert!(sig.signature.contains("main"));
+    }
+
+    #[test]
+    fn test_parse_javac_class() {
+        let sig = parse_java_type_decl("public class MyClass {");
+        assert!(sig.is_some());
+        let sig = sig.unwrap();
+        assert_eq!(sig.name, "MyClass");
+        assert_eq!(sig.signature, "public class MyClass");
+    }
+
+    #[test]
+    fn test_parse_javac_method() {
+        let sig = parse_java_method_decl("public void myMethod(int x, String y) {");
+        assert!(sig.is_some());
+        let sig = sig.unwrap();
+        assert_eq!(sig.name, "myMethod");
+        assert_eq!(sig.return_type, Some("void".to_string()));
+        assert_eq!(sig.parameters, vec!["x", "y"]);
+    }
+
+    #[test]
+    fn test_parse_java_parameters() {
+        let params = parse_java_parameters("int x, String y, boolean z");
+        assert_eq!(params, vec!["x", "y", "z"]);
     }
 
     #[test]
