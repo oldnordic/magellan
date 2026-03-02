@@ -208,7 +208,7 @@ mod tests {
 
     #[test]
     fn test_lsif_graph_creation() {
-        let mut graph = LsifGraph::new();
+        let graph = LsifGraph::new();
         assert_eq!(graph.protocol_version, "0.6.0");
         assert!(graph.vertices.is_empty());
         assert!(graph.edges.is_empty());
