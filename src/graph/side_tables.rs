@@ -217,7 +217,40 @@ pub trait SideTables: Send + Sync {
 
     /// Count total cross-file references
     fn count_cross_file_refs(&self) -> Result<usize>;
-    
+
+    // ===== Label Methods =====
+
+    /// Add a label to an entity
+    ///
+    /// # Arguments
+    /// * `entity_id` - The entity ID to label
+    /// * `label` - The label to add
+    fn add_label(&self, entity_id: i64, label: &str) -> Result<()>;
+
+    /// Get all labels for an entity
+    ///
+    /// # Arguments
+    /// * `entity_id` - The entity ID
+    ///
+    /// # Returns
+    /// Vector of labels for the entity
+    fn get_labels_for_entity(&self, entity_id: i64) -> Result<Vec<String>>;
+
+    /// Get all entities with a specific label
+    ///
+    /// # Arguments
+    /// * `label` - The label to query
+    ///
+    /// # Returns
+    /// Vector of entity IDs with this label
+    fn get_entities_by_label(&self, label: &str) -> Result<Vec<i64>>;
+
+    /// Get all labels in use
+    ///
+    /// # Returns
+    /// Vector of all distinct labels
+    fn get_all_labels(&self) -> Result<Vec<String>>;
+
     /// Convert to Any for downcasting
     ///
     /// This allows downcasting to concrete backend types (e.g., V3SideTables)
@@ -1149,6 +1182,50 @@ pub mod sqlite_impl {
             Ok(count as usize)
         }
 
+        // ===== Label Methods =====
+
+        fn add_label(&self, entity_id: i64, label: &str) -> Result<()> {
+            let conn = self.conn.lock().unwrap();
+            conn.execute(
+                "INSERT OR IGNORE INTO graph_labels(entity_id, label) VALUES(?1, ?2)",
+                params![entity_id, label],
+            )?;
+            Ok(())
+        }
+
+        fn get_labels_for_entity(&self, entity_id: i64) -> Result<Vec<String>> {
+            let conn = self.conn.lock().unwrap();
+            let mut stmt = conn.prepare(
+                "SELECT label FROM graph_labels WHERE entity_id = ?1 ORDER BY label"
+            )?;
+            let labels = stmt
+                .query_map(params![entity_id], |row| row.get(0))?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(labels)
+        }
+
+        fn get_entities_by_label(&self, label: &str) -> Result<Vec<i64>> {
+            let conn = self.conn.lock().unwrap();
+            let mut stmt = conn.prepare(
+                "SELECT entity_id FROM graph_labels WHERE label = ?1 ORDER BY entity_id"
+            )?;
+            let entities = stmt
+                .query_map(params![label], |row| row.get(0))?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(entities)
+        }
+
+        fn get_all_labels(&self) -> Result<Vec<String>> {
+            let conn = self.conn.lock().unwrap();
+            let mut stmt = conn.prepare(
+                "SELECT DISTINCT label FROM graph_labels ORDER BY label"
+            )?;
+            let labels = stmt
+                .query_map([], |row| row.get(0))?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(labels)
+        }
+
         fn as_any(&self) -> &dyn std::any::Any {
             self
         }
@@ -1777,8 +1854,8 @@ pub mod v3_impl {
                 // Delete old entries
                 let old_file_key = format!("ast:file:{}:{}", fid, node_id);
                 let old_kind_key = format!("ast:kind:{}:{}", kind_str, node_id);
-                self.backend.kv_delete_v3(old_file_key.into_bytes());
-                self.backend.kv_delete_v3(old_kind_key.into_bytes());
+                self.backend.kv_delete_v3(old_file_key.as_bytes());
+                self.backend.kv_delete_v3(old_kind_key.as_bytes());
 
                 // Update parent_id and re-insert
                 node.parent_id = Some(new_parent_id);
@@ -2020,6 +2097,86 @@ pub mod v3_impl {
             let prefix = b"cref:to:";
             let results = self.backend.kv_prefix_scan_v3(snapshot, prefix);
             Ok(results.len())
+        }
+
+        // ===== Label Methods =====
+
+        fn add_label(&self, entity_id: i64, label: &str) -> Result<()> {
+            // Key format: label:entity:{entity_id}:{label} -> [] (forward mapping)
+            // Key format: label:inv:{label}:{entity_id} -> [] (reverse mapping)
+            let entity_key = format!("label:entity:{}:{}", entity_id, label);
+            let inverse_key = format!("label:inv:{}:{}", label, entity_id);
+            
+            self.backend.kv_set_v3(entity_key.into_bytes(), KvValue::Bytes(vec![]), None);
+            self.backend.kv_set_v3(inverse_key.into_bytes(), KvValue::Bytes(vec![]), None);
+            Ok(())
+        }
+
+        fn get_labels_for_entity(&self, entity_id: i64) -> Result<Vec<String>> {
+            let snapshot = SnapshotId::current();
+            let prefix = format!("label:entity:{}:", entity_id);
+            let results = self.backend.kv_prefix_scan_v3(snapshot, prefix.as_bytes());
+            
+            // Extract label from key: label:entity:{entity_id}:{label}
+            let labels = results
+                .into_iter()
+                .filter_map(|(key, _)| {
+                    let key_str = String::from_utf8(key).ok()?;
+                    let parts: Vec<&str> = key_str.split(':').collect();
+                    // Expected format: ["label", "entity", "{entity_id}", "{label}"]
+                    if parts.len() >= 4 && parts[0] == "label" && parts[1] == "entity" {
+                        Some(parts[3..].join(":")) // Handle labels with colons
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            Ok(labels)
+        }
+
+        fn get_entities_by_label(&self, label: &str) -> Result<Vec<i64>> {
+            let snapshot = SnapshotId::current();
+            let prefix = format!("label:inv:{}:", label);
+            let results = self.backend.kv_prefix_scan_v3(snapshot, prefix.as_bytes());
+            
+            // Extract entity_id from key: label:inv:{label}:{entity_id}
+            let entities = results
+                .into_iter()
+                .filter_map(|(key, _)| {
+                    let key_str = String::from_utf8(key).ok()?;
+                    let parts: Vec<&str> = key_str.split(':').collect();
+                    // Expected format: ["label", "inv", "{label}", "{entity_id}"]
+                    if parts.len() >= 4 && parts[0] == "label" && parts[1] == "inv" {
+                        parts[3].parse::<i64>().ok()
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            Ok(entities)
+        }
+
+        fn get_all_labels(&self) -> Result<Vec<String>> {
+            let snapshot = SnapshotId::current();
+            let prefix = b"label:inv:";
+            let results = self.backend.kv_prefix_scan_v3(snapshot, prefix);
+            
+            // Extract unique labels from keys: label:inv:{label}:{entity_id}
+            let mut label_set = std::collections::HashSet::new();
+            for (key, _) in results {
+                let key_str = String::from_utf8(key).ok();
+                if let Some(key_str) = key_str {
+                    let parts: Vec<&str> = key_str.split(':').collect();
+                    // Expected format: ["label", "inv", "{label}", "{entity_id}"]
+                    if parts.len() >= 4 && parts[0] == "label" && parts[1] == "inv" {
+                        label_set.insert(parts[2].to_string());
+                    }
+                }
+            }
+            
+            let mut labels: Vec<String> = label_set.into_iter().collect();
+            labels.sort();
+            Ok(labels)
         }
 
         fn as_any(&self) -> &dyn std::any::Any {

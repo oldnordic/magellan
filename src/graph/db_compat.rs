@@ -36,7 +36,8 @@ pub fn expected_sqlitegraph_schema_version() -> i64 {
 /// Phase 36: Added ast_nodes table for AST hierarchy storage.
 /// Phase 40: Added file_id column to ast_nodes for per-file tracking.
 /// Phase 42: Added cfg_blocks table for Control Flow Graph storage.
-pub const MAGELLAN_SCHEMA_VERSION: i64 = 7;
+/// Phase 43: Added cfg_hash column to cfg_blocks for cache invalidation (v8).
+pub const MAGELLAN_SCHEMA_VERSION: i64 = 8;
 
 /// Ensure Magellan-owned metadata exists and matches expected versions.
 ///
@@ -119,6 +120,11 @@ pub fn ensure_magellan_meta(db_path: &Path) -> Result<(), DbCompatError> {
                             // v6 -> v7: Add cfg_blocks table
                             ensure_cfg_schema(&conn)?;
                             current_version = 7;
+                        }
+                        7 => {
+                            // v7 -> v8: Add cfg_hash column to cfg_blocks
+                            ensure_cfg_hash_column(&conn)?;
+                            current_version = 8;
                         }
                         _ => {
                             return Err(DbCompatError::MagellanSchemaMismatch {
@@ -336,6 +342,39 @@ pub fn ensure_cfg_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatErro
     .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
 
     // Index for hash-based cache lookups
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_cfg_blocks_hash
+         ON cfg_blocks(cfg_hash)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    Ok(())
+}
+
+/// Ensure cfg_hash column exists in cfg_blocks table (v7 -> v8 migration)
+///
+/// Adds cfg_hash column for cache invalidation in downstream tools.
+pub fn ensure_cfg_hash_column(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
+    // Add cfg_hash column if it doesn't exist
+    // SQLite doesn't support IF NOT EXISTS for ADD COLUMN, so we check first
+    let has_column: bool = conn
+        .query_row(
+            "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='cfg_hash'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+
+    if !has_column {
+        conn.execute(
+            "ALTER TABLE cfg_blocks ADD COLUMN cfg_hash TEXT",
+            [],
+        )
+        .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    }
+
+    // Create index for hash-based cache lookups
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_cfg_blocks_hash
          ON cfg_blocks(cfg_hash)",

@@ -11,6 +11,9 @@ use std::path::PathBuf;
 use crate::graph::ambiguity::AmbiguityOps;
 use crate::graph::schema::{EdgeEndpoints, SymbolNode};
 use crate::ingest::{SymbolFact, SymbolKind};
+use crate::ingest::c::CParser;
+use crate::ingest::cpp::CppParser;
+use crate::ingest::java::JavaParser;
 use crate::references::ReferenceFact;
 
 use super::CodeGraph;
@@ -447,7 +450,22 @@ fn populate_cross_file_refs(
             let mut parser = Parser::new()?;
             parser.extract_references(path_buf.clone(), source, &all_symbol_facts)
         }
-        _ => Vec::new(), // TODO: Support other languages
+        Some(crate::ingest::Language::C) => {
+            let mut parser = CParser::new()?;
+            parser.extract_references(path_buf.clone(), source, &all_symbol_facts)
+        }
+        Some(crate::ingest::Language::Cpp) => {
+            let mut parser = CppParser::new()?;
+            parser.extract_references(path_buf.clone(), source, &all_symbol_facts)
+        }
+        Some(crate::ingest::Language::Java) => {
+            let mut parser = JavaParser::new()?;
+            parser.extract_references(path_buf.clone(), source, &all_symbol_facts)
+        }
+        // TODO: Implement reference extraction for remaining languages:
+        // - Python: PythonParser::extract_references
+        // - JavaScript/TypeScript: JavaScriptParser/TypeScriptParser::extract_references
+        _ => Vec::new(),
     };
 
     // Store each reference in the side tables for efficient cross-file lookup

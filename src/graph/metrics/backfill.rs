@@ -26,13 +26,13 @@ impl MetricsOps {
     /// Can also be called manually to recompute metrics.
     ///
     /// # Arguments
-    /// * `progress` - Optional callback for progress updates (current, total)
+    /// * `progress` - Optional callback for progress updates (current, total, file_path)
     ///
     /// # Returns
     /// BackfillResult with total files processed and any errors
     pub fn backfill_all_metrics(
         &self,
-        progress: Option<&dyn Fn(usize, usize)>,
+        progress: Option<&(dyn Fn(usize, usize, &str) + Send + Sync)>,
     ) -> Result<BackfillResult> {
         let conn = self.connect()?;
 
@@ -87,7 +87,7 @@ impl MetricsOps {
 
             // Report progress
             if let Some(cb) = progress {
-                cb(processed, total);
+                cb(processed, total, &file_path);
             }
         }
 

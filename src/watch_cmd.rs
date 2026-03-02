@@ -195,9 +195,9 @@ pub fn run_watch(
         let sig_flag = flag::register(signal::SIGINT, shutdown_clone.clone())?;
         let _ = flag::register(signal::SIGTERM, shutdown_clone.clone())?;
 
-        // Store the flag so it doesn't get dropped immediately (which would unregister the handler)
-        // The flag will keep the handler registered until it's dropped
-        std::mem::forget(sig_flag);
+        // Keep the flag alive so the handler stays registered.
+        // Using `let _ =` instead of mem::forget since SigId is Copy.
+        let _ = sig_flag;
     }
 
     // Warmup parsers to avoid first-parse latency

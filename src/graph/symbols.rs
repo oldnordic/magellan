@@ -253,10 +253,9 @@ impl SymbolOps {
         let id = self.backend.insert_node(node_spec)?;
         let node_id = NodeId::from(id);
 
-        // TODO: Labels are SQLite-specific and not available on GraphBackend trait
-        // Re-enable when native backend has label support or trait is extended
-        // Language label (e.g., "rust", "python", "javascript")
-        // Symbol kind label (e.g., "fn", "struct", "enum", "method")
+        // Note: Labels (language, symbol kind) are added during indexing in ops.rs
+        // using graph.add_label() which delegates to SideTables for backend-agnostic storage.
+        // This keeps symbol insertion separate from labeling concerns.
 
         Ok(node_id)
     }

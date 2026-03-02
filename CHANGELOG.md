@@ -3,7 +3,174 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0] - 2026-03-02
+
+### Major Release: Async, Cross-Repo, and LLM-Ready
+
+This release adds to Magellan a full-featured code intelligence platform with async I/O, cross-repository navigation, and LLM-optimized context queries.
+
+Magellan v3.0.0 is part of the Code Intelligence ecosystem, working alongside:
+- **LLMGrep** — Semantic code search
+- **Mirage** — CFG-based path analysis
+- **Splice** — Safe refactoring with span safety
+
+
+### Added
+
+#### Async Watcher (Phase 1)
+- **Async file I/O** using tokio runtime
+  - Non-blocking file reads for improved performance
+  - Parallel file processing with configurable concurrency
+  - Backpressure handling via bounded channels (100 batch limit)
+- **New modules:**
+  - `src/watcher/async_watcher.rs` - Async file watcher
+  - `src/indexer/async_io.rs` - Async file read utilities
+- **New method:** `CodeGraph::scan_directory_async()`
+
+#### Cross-Repository Navigation (Phase 2)
+- **LSIF export/import** for cross-repo symbol resolution
+  - `magellan export --format lsif --output file.lsif`
+  - `magellan import-lsif --db code.db --input package.lsif`
+- **LSIF 0.6.0 schema** support
+  - Package, Document, Symbol, Range vertices
+  - Contains, Item, TextDocument, Moniker edges
+- **Auto package detection** from Cargo.toml
+- **New module:** `src/lsif/` (export, import, schema)
+
+#### LSP CLI Enrichment (Phase 3)
+- **LSP tool integration** via CLI (like Splice)
+  - rust-analyzer, jdtls, clangd support
+  - Automatic tool detection in PATH
+- **Enrich command:** `magellan enrich --db code.db`
+  - Extracts type signatures from LSP tools
+  - Stores enriched data for LLM context
+- **New module:** `src/lsp/` (analyzer, enrich)
+
+#### LLM Context Query Interface (Phase 3)
+- **Summarized, paginated context** for LLMs
+  - Multi-level summaries (Project, File, Symbol)
+  - Token-efficient output (~50-500 tokens per query)
+- **Context commands:**
+  - `magellan context build` - Build context index
+  - `magellan context summary` - Project overview (~50 tokens)
+  - `magellan context list` - Paginated symbol listing
+  - `magellan context symbol --name X` - Symbol detail with callers/callees
+  - `magellan context file --path X` - File-level context
+  - `magellan context-server --port 8080` - HTTP API server
+- **Pagination support** with cursor-based navigation
+- **New module:** `src/context/` (build, query, server)
+
+#### CLI Improvements
+- **`--json` flag** for all commands (shorthand for `--output json`)
+- **Progress bars** for scan operations (indicatif)
+  - Now shows current filename: `Scanning: src/main.rs`
+  - Shows percentage and ETA: `[=====> ] 23/143 (16%) ETA: 2s`
+- **Configurable watcher timeout** via `MAGELLAN_WATCH_TIMEOUT_MS`
+- **Better error messages** with suggestions
+  - `magellan context symbol --name main` now shows similar symbols
+- **Doctor command** for diagnostics
+  - `magellan doctor --db code.db` - Check database health
+  - `magellan doctor --db code.db --fix` - Auto-fix issues
+- **Web UI server** (optional, `--features web-ui`)
+  - `magellan web-ui --db code.db --port 8080`
+  - Built with axum (like codemcp)
+
+#### CI/CD Infrastructure
+- **GitHub Actions workflows**
+  - `.github/workflows/ci.yml` - Tests on Linux/macOS/Windows
+  - `.github/workflows/release.yml` - Auto-release on tag push
+- **Automated testing**
+  - Clippy with `-D warnings`
+  - Formatting checks
+  - TSAN tests
+  - Integration tests with llmgrep and mirage
+- **Auto-release** on git tag push
+  - Creates GitHub release with binaries
+  - Publishes to crates.io
+
+### Changed
+
+- **Watcher timeout:** Default increased from 2s to 5s
+- **Version bump:** 2.6.0 → 3.0.0 (breaking changes)
+
+### Dependencies
+
+- Added `tokio = "1"` with rt-multi-thread, fs, sync, time, macros
+- Added `tokio-stream = "0.1"`
+- Added `async-channel = "2"`
+- Added `which = "6"` for LSP tool detection
+- Added `indicatif = "0.17"` for progress bars
+- Added `axum = "0.7"` (optional, web-ui feature)
+- Added `tower = "0.4"` (optional, web-ui feature)
+- Added `tower-http = "0.5"` (optional, web-ui feature)
+
+### Breaking Changes
+
+- Async runtime required (tokio)
+- New context index file (`.context.json`) alongside database
+- CLI: New `context` subcommand namespace
+- New `doctor`, `enrich`, `web-ui` commands
+
+### Fixed
+
+- Schema alignment verified across magellan, llmgrep, and mirage
+- No table or column drift detected
+- All tools build and work with updated schema
+
 ## [Unreleased]
+
+## [2.6.0] - 2026-03-01
+
+### Added
+- **Progress bar for scan operations:** Visual feedback during initial scan
+  - Uses `indicatif` crate for terminal progress bars
+  - Shows elapsed time, progress bar, file count, and ETA
+  - Template: `{spinner} [{elapsed}] [{bar}] {pos}/{len} files ({eta})`
+
+- **`--json` flag for all commands:** Shorthand for `--output json`
+  - `magellan status --json` - JSON output for database status
+  - `magellan query --json` - JSON output for file symbols
+  - `magellan find --json` - JSON output for symbol search
+  - `magellan refs --json` - JSON output for references
+  - `magellan dead-code --json` - JSON output for dead code analysis
+  - `magellan cycles --json` - JSON output for cycle detection
+  - Simplifies tooling integration (no need to remember `--output json`)
+
+### Changed
+- **Watcher timeout increased:** Default timeout increased from 2s to 5s
+  - Prevents premature exit during slow file operations
+  - Fixes timeouts on slow filesystems (network drives, WSL2)
+  - Configurable via `MAGELLAN_WATCH_TIMEOUT_MS` environment variable
+  - Example: `MAGELLAN_WATCH_TIMEOUT_MS=10000 magellan watch ...`
+
+### Dependencies
+- Added `indicatif = "0.17"` for progress bar support
+
+## [2.5.1] - 2026-03-01
+
+### Added
+- **C language support:** Complete symbol extraction for C source files
+  - Functions, structs, enums, and unions
+  - Reference and call graph extraction
+  - FQN support with canonical and display names
+  - Parser pooling for performance
+
+- **Java language support:** Complete symbol extraction for Java source files
+  - Classes, interfaces, enums, methods, and packages
+  - Reference and call graph extraction
+  - Package-aware FQN with proper scope handling
+  - Parser pooling for performance
+
+- **llmgrep compatibility:** Added C and Java AST node kind mappings
+  - `C_NODE_KINDS` for tree-sitter-c node types
+  - `JAVA_NODE_KINDS` for tree-sitter-java node types
+  - Updated `get_supported_languages()` to include "c" and "java"
+  - Updated `get_node_kinds_for_language()` for C and Java categories
+
+### Fixed
+- Schema alignment verified across magellan, llmgrep, and mirage
+- No table or field drift between tools
+- All three tools work correctly with SQLite backend
 
 ## [2.5.0] - 2026-02-27
 

@@ -55,7 +55,7 @@ pub mod validation;
 pub mod side_tables;
 
 // Re-export small public types from ops.
-pub use ops::{DeleteResult, ReconcileOutcome};
+pub use ops::{index_file, DeleteResult, ReconcileOutcome};
 
 // Re-export metrics types
 pub use metrics::BackfillResult;
@@ -105,8 +105,8 @@ pub use schema::{CallNode, CfgBlock, CfgEdge, CrossFileRef, FileNode, ReferenceN
 
 /// Progress callback for scan_directory
 ///
-/// Receives (current_count, total_count) as scanning progresses
-pub type ScanProgress = dyn Fn(usize, usize) + Send + Sync;
+/// Receives (current_count, total_count, current_file_path) as scanning progresses
+pub type ScanProgress = dyn Fn(usize, usize, &str) + Send + Sync;
 
 /// Check if a database path is an in-memory database.
 ///
@@ -660,6 +660,27 @@ impl CodeGraph {
         scan::scan_directory(self, dir_path, progress)
     }
 
+    /// Async version of scan_directory with parallel file reading
+    ///
+    /// Uses tokio for async file I/O, improving performance on slow filesystems.
+    /// Graph operations remain synchronous (CodeGraph is not Send).
+    ///
+    /// # Arguments
+    /// * `dir_path` - Directory to scan recursively
+    /// * `progress` - Optional callback for progress updates (current, total)
+    ///
+    /// # Returns
+    /// Number of files indexed
+    pub async fn scan_directory_async(
+        &mut self,
+        dir_path: &Path,
+        progress: Option<&ScanProgress>,
+    ) -> Result<usize> {
+        let filter = filter::FileFilter::new(dir_path, &[], &[])?;
+        let result = scan::scan_directory_async(self, dir_path, &filter, progress).await?;
+        Ok(result.indexed)
+    }
+
     /// Backfill metrics for all existing files in the database
     ///
     /// This is called automatically after database migration to schema version 5.
@@ -674,9 +695,7 @@ impl CodeGraph {
         &mut self,
         progress: Option<&ScanProgress>,
     ) -> Result<metrics::BackfillResult> {
-        // Convert ScanProgress (Send + Sync) to plain Fn for backfill
-        let progress_callback = progress.map(|p| p as &dyn Fn(usize, usize));
-        self.metrics.backfill_all_metrics(progress_callback)
+        self.metrics.backfill_all_metrics(progress)
     }
 
     /// Export all graph data to JSON format
@@ -969,5 +988,25 @@ impl CodeGraph {
             }
             Err(_) => None,
         }
+    }
+
+    // ===== Label Operations =====
+    // Note: add_label uses side_tables, other label ops delegate to query.rs
+
+    /// Add a label to an entity (uses side_tables)
+    ///
+    /// # Arguments
+    /// * `entity_id` - The entity ID to label
+    /// * `label` - The label to add
+    pub fn add_label(&self, entity_id: i64, label: &str) -> Result<()> {
+        self.side_tables.add_label(entity_id, label)
+    }
+
+    /// Get all labels for an entity (uses side_tables)
+    ///
+    /// # Arguments
+    /// * `entity_id` - The entity ID
+    pub fn get_labels_for_entity(&self, entity_id: i64) -> Result<Vec<String>> {
+        self.side_tables.get_labels_for_entity(entity_id)
     }
 }

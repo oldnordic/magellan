@@ -9,7 +9,6 @@ use magellan::graph::query;
 use magellan::output::rich::{SpanChecksums, SpanContext};
 use magellan::output::{output_json, FindResponse, JsonResponse, OutputFormat, Span, SymbolMatch, CalleeInfo, CallerInfo};
 use magellan::{CodeGraph, SymbolKind};
-use magellan::references::CallFact;
 use std::path::PathBuf;
 
 /// Represents a found symbol with its file and node ID

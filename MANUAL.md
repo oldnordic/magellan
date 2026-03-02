@@ -1,6 +1,6 @@
 # Magellan Operator Manual
 
-**Version 2.5.0** | *Last Updated: 2026-02-27*
+**Version 3.0.0** | *Last Updated: 2026-03-02*
 
 Comprehensive instructions for operating Magellan.
 
@@ -12,7 +12,7 @@ Magellan is **infrastructure for code intelligence**. It was built to serve as t
 |------|---------|-------------------------|
 | **LLMGrep** | Semantic code search via natural language | Queries Magellan's symbol graph for context retrieval |
 | **Mirage** | AI-powered code navigation | Uses Magellan's AST database for precise code understanding |
-| **Splice** | Intelligent refactoring engine | Leverages Magellan's call graph for safe transformations |
+| **Splice** | Intelligent refactoring engine | Uses Magellan's call graph for safe transformations |
 
 Magellan can be used standalone, but its primary purpose is to enable downstream tools to answer complex codebase questions with millisecond latency — even on multi-million line repositories.
 
@@ -35,6 +35,7 @@ Magellan can be used standalone, but its primary purpose is to enable downstream
     - [Backend Architecture](#backend-architecture-v240)
     - [Threading Model](#threading-model-v17)
 13. [Exit Codes](#exit-codes)
+14. [v3.0.0 New Features](#14-v300-new-features)
 
 ---
 
@@ -71,7 +72,7 @@ Magellan supports multiple storage backends via feature flags:
 
 | Feature | Description | File Extension | Use Case |
 |---------|-------------|----------------|----------|
-| `native-v3` | **High-performance binary backend** with KV store | `.v3` | Production (recommended) |
+| `native-v3` | **High-performance binary backend** with KV store | `.v3` | Recommended for performance |
 | `sqlite-backend` | Stable SQLite backend (default) | `.db` | Compatibility, debugging |
 | `native-v2` | Legacy binary backend (deprecated) | `.v3` | Legacy support only |
 
@@ -2080,3 +2081,115 @@ This ordering prevents lost wakeups and deadlocks.
 ## License
 
 GPL-3.0-or-later
+
+---
+
+## 14. v3.0.0 New Features
+
+### 14.1 Async Watcher
+
+Magellan v3.0.0 introduces async I/O using tokio:
+
+```bash
+# Progress bar now shows filename
+Scanning: src/main.rs [=====> ] 23/143 (16%) ETA: 2s
+```
+
+**Benefits:**
+- Non-blocking file reads
+- Parallel file processing
+- Better performance on slow filesystems
+
+### 14.2 LLM Context Queries
+
+New `context` subcommand for efficient LLM integration:
+
+```bash
+# Project overview (~50 tokens)
+magellan context summary --db code.db
+
+# Paginated symbol listing
+magellan context list --db code.db --kind fn --page 1 --page-size 50
+
+# Symbol detail with call graph
+magellan context symbol --db code.db --name main --callers --callees
+
+# File context
+magellan context file --db code.db --path src/main.rs
+```
+
+### 14.3 Self-Diagnostics
+
+New `doctor` command for troubleshooting:
+
+```bash
+# Check database health
+magellan doctor --db code.db
+
+# Auto-fix issues
+magellan doctor --db code.db --fix
+```
+
+**Checks:**
+- Database file exists
+- Database readable
+- Schema version valid
+- Symbol index populated
+- File index populated
+- Call graph populated
+- Database size reasonable
+- WAL file size reasonable
+- Context index exists
+
+### 14.4 LSP Enrichment
+
+Extract type signatures from LSP tools:
+
+```bash
+# Enrich symbols with rust-analyzer, jdtls, or clangd
+magellan enrich --db code.db
+```
+
+### 14.5 Cross-Repository Navigation
+
+LSIF export/import for cross-repo symbol resolution:
+
+```bash
+# Export to LSIF
+magellan export --db code.db --format lsif --output project.lsif
+
+# Import external dependencies
+magellan import-lsif --db code.db --input serde.lsif
+```
+
+### 14.6 Web UI (Optional)
+
+Start a web interface for code exploration:
+
+```bash
+# Build with web-ui feature
+cargo build --release --features web-ui
+
+# Start web server
+magellan web-ui --db code.db --port 8080
+```
+
+**API Endpoints:**
+- `GET /api/summary` - Project overview
+- `GET /api/symbols` - List symbols (paginated)
+- `GET /api/symbol/:name` - Symbol detail
+- `GET /api/file/:path` - File context
+
+### 14.7 CI/CD
+
+GitHub Actions workflows for automated testing:
+
+- Tests on Linux, macOS, Windows
+- Clippy with `-D warnings`
+- Formatting checks
+- TSAN tests
+- Integration tests with llmgrep and mirage
+- Auto-release on git tag push
+- Publishes to crates.io
+
+---
