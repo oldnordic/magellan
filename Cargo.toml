@@ -46,6 +46,11 @@ name = "perf_suite"
 harness = false
 path = "benches/perf_suite.rs"
 
+[[bench]]
+name = "context_bench"
+harness = false
+path = "benches/context_bench.rs"
+
 [features]
 # Default: SQLite backend (stable, widely compatible)
 default = ["sqlite-backend"]
