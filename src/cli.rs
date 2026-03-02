@@ -492,16 +492,6 @@ fn parse_required_arg(args: &[String], i: &mut usize, flag: &str) -> Result<Stri
 /// 
 /// Returns Some(value) and increments index by 2 if next arg exists,
 /// otherwise returns None and increments by 1.
-fn parse_optional_arg(args: &[String], i: &mut usize) -> Option<String> {
-    if *i + 1 < args.len() {
-        let value = args[*i + 1].clone();
-        *i += 2;
-        Some(value)
-    } else {
-        *i += 1;
-        None
-    }
-}
 
 /// Helper to parse output format from string
 /// 
@@ -525,15 +515,6 @@ fn parse_path_arg(args: &[String], i: &mut usize, flag: &str) -> Result<PathBuf>
 }
 
 /// Helper to parse an integer argument
-fn parse_int_arg<T: std::str::FromStr>(args: &[String], i: &mut usize, flag: &str) -> Result<T>
-where
-    T::Err: std::fmt::Display,
-{
-    let value = parse_required_arg(args, i, flag)?;
-    value.parse::<T>().map_err(|e| {
-        anyhow::anyhow!("Invalid value for {}: {}", flag, e)
-    })
-}
 
 /// Parse the `watch` command arguments
 /// 

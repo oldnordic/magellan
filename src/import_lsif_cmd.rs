@@ -19,7 +19,7 @@ use std::path::PathBuf;
 /// # Returns
 /// Result indicating success or failure
 pub fn run_import_lsif(db_path: PathBuf, lsif_paths: Vec<PathBuf>) -> Result<()> {
-    let mut graph = CodeGraph::open(&db_path)?;
+    let graph = CodeGraph::open(&db_path)?;
     let exec_id = generate_execution_id();
 
     // Build command args for execution tracking
