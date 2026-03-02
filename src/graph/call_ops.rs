@@ -220,16 +220,17 @@ impl CallOps {
             // Resolve caller symbol_id - always in current file, so FQN should work
             let caller_symbol_id = symbol_ids.get(&call.caller);
 
+            // Insert call node regardless of symbol resolution
+            let call_id = self.insert_call_node(&call)?;
+            
+            // Create CALLER edge if caller symbol found
+            if let Some(&caller_id) = caller_symbol_id {
+                self.insert_caller_edge(NodeId::from(caller_id), call_id)?;
+            }
+            
+            // Create CALLS edge if callee symbol found
             if let Some(&callee_id) = callee_symbol_id {
-                if let Some(&caller_id) = caller_symbol_id {
-                    let call_id = self.insert_call_node(&call)?;
-                    // CALLER edge: caller Symbol -> Call node
-                    self.insert_caller_edge(NodeId::from(caller_id), call_id)?;
-                    // CALLS edge: Call node -> callee Symbol
-                    self.insert_calls_edge(call_id, NodeId::from(callee_id))?;
-
-
-                }
+                self.insert_calls_edge(call_id, NodeId::from(callee_id))?;
             }
         }
 
