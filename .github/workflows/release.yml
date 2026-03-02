@@ -9,10 +9,10 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # Create GitHub release
-  create-release:
+  # Create GitHub release and publish to crates.io
+  release:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     
     steps:
     - uses: actions/checkout@v4
@@ -20,66 +20,23 @@ jobs:
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
     
-    - name: Get version from tag
-      id: get_version
-      run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-    
     - name: Build release binary
-      run: cargo build --release --features sqlite-backend
+      run: cargo build --release
     
     - name: Create tarball
       run: |
         mkdir -p release
         cp target/release/magellan release/
-        tar -czf magellan-${{ steps.get_version.outputs.VERSION }}-x86_64-unknown-linux-gnu.tar.gz -C release magellan
+        tar -czf magellan-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz -C release magellan
     
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v1
       with:
-        files: |
-          magellan-${{ steps.get_version.outputs.VERSION }}-x86_64-unknown-linux-gnu.tar.gz
-        body: |
-          ## Magellan ${{ steps.get_version.outputs.VERSION }}
-          
-          See [CHANGELOG.md](CHANGELOG.md) for details.
-          
-          ### Installation
-          
-          ```bash
-          # Download and extract
-          tar -xzf magellan-${{ steps.get_version.outputs.VERSION }}-x86_64-unknown-linux-gnu.tar.gz
-          
-          # Move to PATH
-          sudo mv magellan /usr/local/bin/
-          
-          # Verify installation
-          magellan --version
-          ```
-          
-          ### Features
-          
-          - Async file watching with tokio
-          - LSIF export/import for cross-repo navigation
-          - LLM context queries (summarized, paginated)
-          - LSP CLI enrichment (rust-analyzer, jdtls, clangd)
-          - Progress bars with ETA
-          - Doctor command for diagnostics
+        files: magellan-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz
+        generate_release_notes: true
         draft: true
-        prerelease: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # Publish to crates.io
-  publish-crates:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    needs: create-release
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@stable
     
     - name: Publish to crates.io
       run: cargo publish

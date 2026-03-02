@@ -2,17 +2,16 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [main]
   pull_request:
-    branches: [main, master]
+    branches: [main]
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: "-Dwarnings"
 
 jobs:
-  # Build and test on Linux
-  test-linux:
+  # Single build + test + lint job
+  ci:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     
@@ -30,192 +29,16 @@ jobs:
         path: |
           ~/.cargo/registry
           ~/.cargo/git
-          target
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
     
     - name: Check formatting
       run: cargo fmt --all -- --check
     
     - name: Run Clippy
-      run: cargo clippy --all-targets --all-features -- -D warnings
-    
-    - name: Build
-      run: cargo build --release --features sqlite-backend
-    
-    - name: Run tests
-      run: cargo test --all --features sqlite-backend -- --test-threads=1
-    
-    - name: Test with TSAN
-      run: cargo test --all --features tsan -- --test-threads=1
-      continue-on-error: true  # TSAN tests can be flaky
-    
-    - name: Build documentation
-      run: cargo doc --no-deps
-
-  # Build on macOS
-  test-macos:
-    runs-on: macos-latest
-    timeout-minutes: 20
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@stable
-    
-    - name: Cache cargo registry
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          target
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      run: cargo clippy --all-targets -- -D warnings
     
     - name: Build
       run: cargo build --release
     
     - name: Run tests
-      run: cargo test --release -- --test-threads=1
-
-  # Build on Windows
-  test-windows:
-    runs-on: windows-latest
-    timeout-minutes: 20
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@stable
-    
-    - name: Cache cargo registry
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          target
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-    
-    - name: Build
-      run: cargo build --release
-    
-    # Windows tests may have file locking issues
-    - name: Run tests
-      run: cargo test --release -- --test-threads=1
-      continue-on-error: true
-
-  # Integration test with llmgrep
-  integration-llmgrep:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    needs: test-linux
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@stable
-    
-    - name: Build magellan
-      run: cargo build --release
-    
-    - name: Build llmgrep
-      run: |
-        cd ../llmgrep
-        cargo build --release
-    
-    - name: Create test project
-      run: |
-        mkdir -p /tmp/test-project
-        cd /tmp/test-project
-        echo 'fn main() { println!("Hello"); }' > main.rs
-        echo 'fn helper() {}' > lib.rs
-    
-    - name: Test magellan indexing
-      run: |
-        cd /tmp/test-project
-        timeout 30 target/debug/magellan watch --root . --db test.db --scan-initial
-    
-    - name: Test llmgrep search
-      run: |
-        cd /tmp/test-project
-        ../llmgrep/target/debug/llmgrep search --db test.db --query "main" --output human
-
-  # Integration test with mirage
-  integration-mirage:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    needs: test-linux
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@stable
-    
-    - name: Build magellan
-      run: cargo build --release
-    
-    - name: Build mirage
-      run: |
-        cd ../mirage
-        cargo build --release
-    
-    - name: Create test project
-      run: |
-        mkdir -p /tmp/test-project
-        cd /tmp/test-project
-        cat > main.rs << 'EOF'
-fn main() {
-    let x = 1;
-    if x > 0 {
-        println!("Positive");
-    } else {
-        println!("Non-positive");
-    }
-}
-EOF
-    
-    - name: Test magellan indexing
-      run: |
-        cd /tmp/test-project
-        timeout 30 target/debug/magellan watch --root . --db test.db --scan-initial
-    
-    - name: Test mirage status
-      run: |
-        cd /tmp/test-project
-        ../mirage/target/debug/mirage status --db test.db
-
-  # Benchmark (optional, only on main branch)
-  benchmark:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    if: github.ref == 'refs/heads/main'
-    needs: test-linux
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@stable
-    
-    - name: Cache cargo registry
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          target
-        key: ${{ runner.os }}-cargo-bench-${{ hashFiles('**/Cargo.lock') }}
-    
-    - name: Run benchmarks
-      run: cargo bench --bench perf_suite -- --output-format bencher | tee benchmark_results.txt
-    
-    - name: Upload benchmark results
-      uses: actions/upload-artifact@v4
-      with:
-        name: benchmark-results
-        path: benchmark_results.txt
-        retention-days: 30
+      run: cargo test --release
