@@ -263,10 +263,24 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
         }
     }
 
-    // Step 5.6: Extract and store CFG blocks for Rust functions
-    // CFG extraction is only done for .rs files with function symbols
-    if path.ends_with(".rs") && !function_symbol_ids.is_empty() {
-        let _cfg_result = pool::with_parser(crate::ingest::detect::Language::Rust, |parser| {
+    // Step 5.6: Extract and store CFG blocks for Rust and C/C++ functions
+    // CFG extraction supports:
+    // - Rust (.rs): function_item nodes
+    // - C/C++ (.c, .h, .cpp, .hpp, .cc, .cxx): function_definition nodes
+    let is_rust = path.ends_with(".rs");
+    let is_cpp = path.ends_with(".cpp") || path.ends_with(".hpp") || path.ends_with(".cc") || path.ends_with(".cxx");
+    let is_c = path.ends_with(".c") || path.ends_with(".h");
+    
+    if (is_rust || is_c || is_cpp) && !function_symbol_ids.is_empty() {
+        let language = if is_rust {
+            crate::ingest::detect::Language::Rust
+        } else if is_cpp {
+            crate::ingest::detect::Language::Cpp
+        } else {
+            crate::ingest::detect::Language::C
+        };
+        
+        let _cfg_result = pool::with_parser(language, |parser| {
             // parser.parse returns Option, handle gracefully
             let tree = match parser.parse(source, None) {
                 Some(t) => t,
@@ -274,27 +288,38 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
             };
             let root = tree.root_node();
 
-            // Find all function_item nodes
-            fn collect_function_items(node: tree_sitter::Node) -> Vec<tree_sitter::Node> {
-                let mut items = Vec::new();
-                if node.kind() == "function_item" {
-                    items.push(node);
-                }
-                let mut child_cursor = node.walk();
-                if child_cursor.goto_first_child() {
-                    loop {
-                        items.extend(collect_function_items(child_cursor.node()));
-                        if !child_cursor.goto_next_sibling() {
+            // Determine function node kind based on language
+            // Rust: function_item, C/C++: function_definition
+            let function_kind = if is_rust { "function_item" } else { "function_definition" };
+
+            // Find all function nodes using iterative tree walk
+            let mut function_nodes = Vec::new();
+            let mut cursor = root.walk();
+            
+            if cursor.goto_first_child() {
+                loop {
+                    let node = cursor.node();
+                    if node.kind() == function_kind {
+                        function_nodes.push(node);
+                    }
+                    
+                    if cursor.goto_first_child() {
+                        continue;
+                    }
+                    
+                    while !cursor.goto_next_sibling() {
+                        if !cursor.goto_parent() {
                             break;
                         }
                     }
+                    
+                    if cursor.goto_parent() {
+                        break;
+                    }
                 }
-                items
             }
 
-            let function_nodes = collect_function_items(root);
-
-            // For each function_item, find matching symbol and extract CFG
+            // For each function node, find matching symbol and extract CFG
             for func_node in function_nodes {
                 let func_start = func_node.byte_range().start as i64;
                 let func_end = func_node.byte_range().end as i64;
