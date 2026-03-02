@@ -3,6 +3,18 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.1] - 2026-03-02
+
+### Added
+- **C/C++ CFG support:** CFG extraction now works for C/C++ files
+  - Supports .c, .h, .cpp, .hpp, .cc, .cxx file extensions
+  - Uses function_definition node kind for C/C++ (vs function_item for Rust)
+  - Iterative tree walk avoids Rust lifetime issues
+
+### Fixed
+- Mirage CFG analysis now works with C/C++ codebases
+- cfg_blocks table now populated for C/C++ functions
+
 ## [3.0.0] - 2026-03-02
 
 ### Major Release: Async Indexing, Cross-Repo LSIF, and LLM Context API
@@ -139,6 +151,18 @@ Magellan v3.0.0 is part of the Code Intelligence ecosystem, working alongside:
 - All tools build and work with updated schema
 
 ## [Unreleased]
+
+## [3.0.1] - 2026-03-02
+
+### Added
+- **C/C++ CFG support:** CFG extraction now works for C/C++ files
+  - Supports .c, .h, .cpp, .hpp, .cc, .cxx file extensions
+  - Uses function_definition node kind for C/C++ (vs function_item for Rust)
+  - Iterative tree walk avoids Rust lifetime issues
+
+### Fixed
+- Mirage CFG analysis now works with C/C++ codebases
+- cfg_blocks table now populated for C/C++ functions
 
 ## [2.6.0] - 2026-03-01
 
