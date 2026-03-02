@@ -195,7 +195,6 @@ Both backends have **full feature parity** (v2.4.0):
 
 - No semantic analysis or type checking
 - No LSP server or language features
-- No async runtimes or background thread pools
 - No config files
 - No web APIs or network services
 

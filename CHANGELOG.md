@@ -5,7 +5,7 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [3.0.0] - 2026-03-02
 
-### Major Release: Async, Cross-Repo, and LLM-Ready
+### Major Release: Async Indexing, Cross-Repo LSIF, and LLM Context API
 
 This release adds to Magellan a full-featured code intelligence platform with async I/O, cross-repository navigation, and LLM-optimized context queries.
 
@@ -71,7 +71,7 @@ Magellan v3.0.0 is part of the Code Intelligence ecosystem, working alongside:
 - **Doctor command** for diagnostics
   - `magellan doctor --db code.db` - Check database health
   - `magellan doctor --db code.db --fix` - Auto-fix issues
-- **Web UI server** (optional, `--features web-ui`)
+- **Web UI server** (experimental, `--features web-ui`, limited by CodeGraph Send+Sync)
   - `magellan web-ui --db code.db --port 8080`
   - Built with axum (like codemcp)
 
