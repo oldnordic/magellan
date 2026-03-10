@@ -3,10 +3,9 @@
 //! Shows program slices (backward/forward) for bug isolation and refactoring safety.
 
 use anyhow::Result;
-use magellan::graph::{SliceDirection, SliceResult};
+use magellan::backend_router::MagellanBackend;
 use magellan::output::command::{SliceResponse, SliceStats, Span, SymbolMatch};
 use magellan::output::{output_json, JsonResponse, OutputFormat};
-use magellan::CodeGraph;
 use std::path::PathBuf;
 
 /// Slice direction for CLI arguments
@@ -17,7 +16,6 @@ pub enum CliSliceDirection {
 }
 
 impl CliSliceDirection {
-    /// Convert from string
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "backward" => Some(CliSliceDirection::Backward),
@@ -26,15 +24,6 @@ impl CliSliceDirection {
         }
     }
 
-    /// Convert to SliceDirection
-    pub fn to_direction(&self) -> SliceDirection {
-        match self {
-            CliSliceDirection::Backward => SliceDirection::Backward,
-            CliSliceDirection::Forward => SliceDirection::Forward,
-        }
-    }
-
-    /// As string
     pub fn as_str(&self) -> &'static str {
         match self {
             CliSliceDirection::Backward => "backward",
@@ -44,19 +33,6 @@ impl CliSliceDirection {
 }
 
 /// Run the slice command
-///
-/// # Arguments
-/// * `db_path` - Path to the sqlitegraph database
-/// * `target` - Target symbol ID to slice from
-/// * `direction` - Slice direction (backward or forward)
-/// * `verbose` - Show detailed statistics
-/// * `output_format` - Output format (Human or Json)
-///
-/// # Displays
-/// Human-readable slice results with statistics or JSON output
-///
-/// # Note
-/// Uses call-graph reachability as a fallback for full CFG-based slicing.
 pub fn run_slice(
     db_path: PathBuf,
     target: String,
@@ -64,7 +40,6 @@ pub fn run_slice(
     verbose: bool,
     output_format: OutputFormat,
 ) -> Result<()> {
-    // Build args for execution tracking
     let mut args = vec![
         "slice".to_string(),
         "--target".to_string(),
@@ -76,55 +51,83 @@ pub fn run_slice(
         args.push("--verbose".to_string());
     }
 
-    let graph = CodeGraph::open(&db_path)?;
+    let backend = MagellanBackend::open(&db_path)?;
     let exec_id = magellan::output::generate_execution_id();
     let db_path_str = db_path.to_string_lossy().to_string();
 
-    graph
-        .execution_log()
-        .start_execution(
-            &exec_id,
-            env!("CARGO_PKG_VERSION"),
-            &args,
-            None,
-            &db_path_str,
-        )?;
+    backend.start_execution(
+        &exec_id,
+        env!("CARGO_PKG_VERSION"),
+        &args,
+        None,
+        &db_path_str,
+    )?;
 
-    // Compute slice
-    let slice_result = match direction.to_direction() {
-        SliceDirection::Backward => graph.backward_slice(&target)?,
-        SliceDirection::Forward => graph.forward_slice(&target)?,
+    // Parse target ID
+    let target_id: u64 = target.parse().unwrap_or(0);
+
+    // Get target symbol info
+    let target_info_unified = backend
+        .find_symbol_by_id(target_id)
+        .ok_or_else(|| anyhow::anyhow!("Target symbol ID '{}' not found", target))?;
+
+    // Convert UnifiedSymbolInfo to SymbolInfo
+    let target_info = magellan::graph::SymbolInfo {
+        symbol_id: Some(target_id.to_string()),
+        fqn: Some(target_info_unified.fqn.clone()),
+        kind: format!("{:?}", target_info_unified.kind),
+        file_path: target_info_unified.file_path.clone(),
     };
 
-    // Handle JSON output mode
+    // Compute slice using call-graph reachability
+    let included_ids = match direction {
+        CliSliceDirection::Backward => backend.reverse_reachable_from(target_id),
+        CliSliceDirection::Forward => backend.reachable_from(target_id),
+    };
+
+    // Build included symbols
+    let mut included_symbols = Vec::new();
+    for id in &included_ids {
+        if let Some(info) = backend.find_symbol_by_id(*id) {
+            included_symbols.push(magellan::graph::SymbolInfo {
+                symbol_id: Some(id.to_string()),
+                fqn: Some(info.fqn.clone()),
+                kind: format!("{:?}", info.kind),
+                file_path: info.file_path.clone(),
+            });
+        }
+    }
+
+    let slice_result = magellan::graph::SliceResult {
+        slice: magellan::graph::ProgramSlice {
+            direction: match direction {
+                CliSliceDirection::Backward => magellan::graph::SliceDirection::Backward,
+                CliSliceDirection::Forward => magellan::graph::SliceDirection::Forward,
+            },
+            target: target_info.clone(),
+            included_symbols,
+            symbol_count: included_ids.len(),
+        },
+        statistics: magellan::graph::SliceStatistics {
+            total_symbols: included_ids.len(),
+            data_dependencies: 0,
+            control_dependencies: included_ids.len().saturating_sub(1),
+        },
+    };
+
     if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
-        graph
-            .execution_log()
-            .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
-        return output_json_mode(
-            &target,
-            slice_result,
-            verbose,
-            &exec_id,
-            output_format,
-        );
+        backend.finish_execution(&exec_id, "success", None, 0, 0, 0)?;
+        return output_json_mode(&target, slice_result, verbose, &exec_id, output_format);
     }
 
     // Human mode
-    let direction_label = match slice_result.slice.direction {
-        SliceDirection::Backward => "that affects",
-        SliceDirection::Forward => "affected by",
+    let direction_label = match direction {
+        CliSliceDirection::Backward => "that affect",
+        CliSliceDirection::Forward => "affected by",
     };
 
-    println!(
-        "Program slice: symbols {} \"{}\"",
-        direction_label,
-        target
-    );
-    println!(
-        "  Total symbols: {}",
-        slice_result.statistics.total_symbols
-    );
+    println!("Program slice: symbols {} \"{}\"", direction_label, target);
+    println!("  Total symbols: {}", slice_result.statistics.total_symbols);
     if verbose {
         println!(
             "  Data dependencies: {} (not computed in call-graph fallback)",
@@ -144,65 +147,57 @@ pub fn run_slice(
             let fqn_display = symbol.fqn.as_deref().unwrap_or("?");
             println!(
                 "    {} ({}) in {}",
-                fqn_display,
-                symbol.kind,
-                symbol.file_path
+                fqn_display, symbol.kind, symbol.file_path
             );
         }
     }
 
-    // Note about call-graph fallback
-    if slice_result.statistics.data_dependencies == 0 && !slice_result.slice.included_symbols.is_empty() {
+    if slice_result.statistics.data_dependencies == 0
+        && !slice_result.slice.included_symbols.is_empty()
+    {
         println!("\n  Note: Current implementation uses call-graph reachability.");
-        println!("  Full CFG-based slicing will be available in a future release.");
     }
 
-    graph
-        .execution_log()
-        .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
+    backend.finish_execution(&exec_id, "success", None, 0, 0, 0)?;
     Ok(())
 }
 
-/// Output slice results in JSON format
 fn output_json_mode(
     _target: &str,
-    slice_result: SliceResult,
+    slice_result: magellan::graph::SliceResult,
     _verbose: bool,
     exec_id: &str,
     output_format: OutputFormat,
 ) -> Result<()> {
-    // Convert target SymbolInfo to SymbolMatch for JSON output
+    // Use placeholder values for line numbers since SymbolInfo doesn't have them
     let target_span = Span::new(
         slice_result.slice.target.file_path.clone(),
-        0, // byte_start not available from SymbolInfo
-        0, // byte_end not available
-        1, // line unknown
-        0, // col unknown
-        1, // end_line unknown
-        0, // end_col unknown
+        0,
+        0,
+        1,
+        0,
+        1,
+        0,
     );
+    let target_symbol_id = slice_result.slice.target.symbol_id.clone();
     let target_match = SymbolMatch::new(
         slice_result
             .slice
             .target
             .fqn
             .unwrap_or_else(|| "?".to_string()),
-        slice_result.slice.target.kind.clone(),
+        slice_result.slice.target.kind,
         target_span,
-        None, // parent unknown
-        slice_result.slice.target.symbol_id,
+        None,
+        target_symbol_id,
     );
 
-    // Convert included symbols to SymbolMatch
     let included_symbols: Vec<SymbolMatch> = slice_result
         .slice
         .included_symbols
         .into_iter()
         .map(|sym| {
-            let span = Span::new(
-                sym.file_path.clone(),
-                0, 0, 1, 0, 1, 0,
-            );
+            let span = Span::new(sym.file_path.clone(), 0, 0, 1, 0, 1, 0);
             SymbolMatch::new(
                 sym.fqn.unwrap_or_else(|| "?".to_string()),
                 sym.kind,
@@ -214,8 +209,8 @@ fn output_json_mode(
         .collect();
 
     let direction = match slice_result.slice.direction {
-        SliceDirection::Backward => "backward".to_string(),
-        SliceDirection::Forward => "forward".to_string(),
+        magellan::graph::SliceDirection::Backward => "backward".to_string(),
+        magellan::graph::SliceDirection::Forward => "forward".to_string(),
     };
 
     let statistics = SliceStats {

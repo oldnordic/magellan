@@ -15,6 +15,24 @@
 
 pub mod async_io;
 
+// Debug macro - enabled for debug-prints or when geometric-backend needs it
+#[cfg(any(feature = "debug-prints", feature = "geometric-backend"))]
+macro_rules! debug_print {
+    ($($arg:tt)*) => {
+        eprintln!($($arg)*);
+    };
+}
+
+#[cfg(not(any(feature = "debug-prints", feature = "geometric-backend")))]
+#[allow(unused_macros)] // Macro is used when geometric-backend feature is enabled
+macro_rules! debug_print {
+    ($($arg:tt)*) => {
+        // Optimized out when debug-prints feature is disabled
+        // Always return () to work in expression context
+        ()
+    };
+}
+
 use anyhow::{Context, Result};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::collections::BTreeSet;
@@ -26,17 +44,14 @@ use std::time::{Duration, Instant};
 
 use crate::{CodeGraph, FileEvent, FileSystemWatcher, WatcherConfig};
 
-
-
-
 /// Reconcile files that exist in DB but not on filesystem.
-/// 
+///
 /// This handles the case where files were deleted while the indexer wasn't running.
 /// It scans all File nodes in the database and deletes any whose path doesn't exist
 /// on the filesystem.
 fn reconcile_deleted_files(graph: &mut CodeGraph, root_path: &std::path::Path) -> Result<()> {
     let file_nodes = graph.all_file_nodes()?;
-    
+
     for (path, _file_node) in file_nodes {
         let file_path = std::path::Path::new(&path);
         // Only check files within our watched root
@@ -44,7 +59,7 @@ fn reconcile_deleted_files(graph: &mut CodeGraph, root_path: &std::path::Path) -
             let _ = graph.delete_file(&path);
         }
     }
-    
+
     Ok(())
 }
 
@@ -138,7 +153,7 @@ pub fn run_indexer_n(root_path: PathBuf, db_path: PathBuf, max_events: usize) ->
 
     // Open graph
     let mut graph = CodeGraph::open(&db_path)?;
-    
+
     // Reconcile: Check for files that exist in DB but not on filesystem
     // This handles the case where files were deleted while indexer wasn't running
     reconcile_deleted_files(&mut graph, &root_path)?;
@@ -280,7 +295,9 @@ impl PipelineSharedState {
     ///
     /// By holding lock during send, we ensure data isn't drained before wakeup.
     fn insert_dirty_paths(&self, paths: &[PathBuf]) -> Result<()> {
-        let mut dirty_paths = self.dirty_paths.lock()
+        let mut dirty_paths = self
+            .dirty_paths
+            .lock()
             .map_err(|e| anyhow::anyhow!("dirty_paths mutex poisoned: {}", e))?;
         for path in paths {
             dirty_paths.insert(path.clone());
@@ -299,7 +316,9 @@ impl PipelineSharedState {
     ///
     /// Returns all dirty paths in lexicographic order and clears the set.
     fn drain_dirty_paths(&self) -> Result<Vec<PathBuf>> {
-        let mut paths = self.dirty_paths.lock()
+        let mut paths = self
+            .dirty_paths
+            .lock()
             .map_err(|e| anyhow::anyhow!("dirty_paths mutex poisoned: {}", e))?;
         let snapshot: Vec<PathBuf> = paths.iter().cloned().collect();
         paths.clear();
@@ -350,12 +369,7 @@ pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>
         let shutdown_watch = shutdown.clone();
 
         thread::spawn(move || {
-            let result = watcher_loop(
-                root_path,
-                watcher_config,
-                shared_state,
-                shutdown_watch,
-            );
+            let result = watcher_loop(root_path, watcher_config, shared_state, shutdown_watch);
 
             // Clean up parsers before thread exit to prevent tcache_thread_shutdown crash
             crate::ingest::pool::cleanup_parsers();
@@ -369,7 +383,7 @@ pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>
     // Baseline scan if requested
     if config.scan_initial {
         use indicatif::HumanCount;
-        
+
         graph.scan_directory(
             &config.root_path,
             Some(&|current, total, file_path| {
@@ -440,7 +454,9 @@ pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>
                 "Warning: Watcher thread did not finish within {:?}, forcing shutdown",
                 timeout
             );
-            eprintln!("Note: Data may not be flushed. Use Ctrl+C (not timeout) for clean shutdown.");
+            eprintln!(
+                "Note: Data may not be flushed. Use Ctrl+C (not timeout) for clean shutdown."
+            );
             break;
         }
         thread::sleep(Duration::from_millis(100));
@@ -506,8 +522,6 @@ fn watcher_loop(
     Ok(())
 }
 
-
-
 /// Process a list of dirty paths, reconciling each in sorted order.
 ///
 /// Paths are already sorted because they came from a BTreeSet.
@@ -546,4 +560,211 @@ fn process_dirty_paths(graph: &mut CodeGraph, dirty_paths: &[PathBuf]) -> Result
         }
     }
     Ok(dirty_paths.len())
+}
+
+/// Run the watch pipeline for geometric backend databases
+#[cfg(feature = "geometric-backend")]
+pub fn run_watch_pipeline_geometric(
+    config: crate::WatchPipelineConfig,
+    shutdown: Arc<AtomicBool>,
+) -> Result<usize> {
+    use crate::graph::geo_index;
+    use crate::graph::geometric_backend::GeometricBackend;
+    use indicatif::{HumanCount, ProgressBar, ProgressStyle};
+
+    // Open or create geometric backend (mutable for initial scan)
+    // For new databases, this creates the file with empty sections
+    let mut backend = if config.db_path.exists() {
+        GeometricBackend::open(&config.db_path)?
+    } else {
+        GeometricBackend::create(&config.db_path)?
+    };
+
+    // Create shared state for buffering dirty paths
+    let (shared_state, wakeup_rx) = PipelineSharedState::new();
+    let main_state = shared_state.clone();
+
+    // Start watcher thread
+    let _watcher_thread = {
+        let root_path = config.root_path.clone();
+        let watcher_config = config.watcher_config.clone();
+        let shared_state = Arc::new(shared_state);
+        let shutdown_watch = shutdown.clone();
+
+        thread::spawn(move || {
+            let _ = watcher_loop(root_path, watcher_config, shared_state, shutdown_watch);
+            crate::ingest::pool::cleanup_parsers();
+        })
+    };
+
+    // Baseline scan if requested
+    let mut total_processed = 0;
+    if config.scan_initial {
+        println!("Starting initial scan of: {}", config.root_path.display());
+        use indicatif::HumanCount;
+
+        match geo_index::scan_directory_with_progress(
+            &mut backend,
+            &config.root_path,
+            Some(&|current, total| {
+                // Progress bar is created on first call
+                static PB: std::sync::OnceLock<ProgressBar> = std::sync::OnceLock::new();
+                let pb = PB.get_or_init(|| {
+                    let pb = ProgressBar::new(total as u64);
+                    pb.set_style(
+                        ProgressStyle::default_bar()
+                            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({percent}%) ETA: {eta}\n{msg}")
+                            .unwrap()
+                            .progress_chars("=>-"),
+                    );
+                    pb
+                });
+                pb.set_position(current as u64);
+                pb.set_message(format!(
+                    "Indexing: {}/{} files",
+                    HumanCount(current as u64),
+                    HumanCount(total as u64)
+                ));
+                if current >= total {
+                    pb.finish_with_message(format!("Scanned {} files", HumanCount(total as u64)));
+                }
+            }),
+        ) {
+            Ok(count) => {
+                println!("Initial scan complete: indexed {} files", count);
+                total_processed += count;
+
+                // CRITICAL FIX: Save data immediately after initial scan
+                // Don't wait for watch loop to exit (which might not happen on SIGINT)
+                debug_print!("[WATCH_DEBUG] Saving data after initial scan...");
+                match backend.save_to_disk() {
+                    Ok(_) => debug_print!("[WATCH_DEBUG] Data saved successfully"),
+                    Err(e) => debug_print!("[WATCH_DEBUG] ERROR saving data: {}", e),
+                }
+                debug_print!("[WATCH_DEBUG] Save operation completed.");
+            }
+            Err(e) => {
+                eprintln!("Initial scan error: {}", e);
+            }
+        }
+    }
+
+    // Main watch loop
+    println!(
+        "Magellan watching (Geometric): {}",
+        config.root_path.display()
+    );
+    println!("Database: {}", config.db_path.display());
+
+    // Counter for periodic saves (every 100 files in watch mode)
+    let mut save_counter = 0;
+
+    while !shutdown.load(Ordering::SeqCst) {
+        match wakeup_rx.recv_timeout(Duration::from_millis(100)) {
+            Ok(()) => {
+                let dirty_paths = main_state.drain_dirty_paths()?;
+                if !dirty_paths.is_empty() {
+                    let batch_count = process_dirty_paths_geometric(&backend, &dirty_paths)?;
+                    total_processed += batch_count;
+                    save_counter += batch_count;
+
+                    // Periodic save every 100 files to prevent OOM
+                    if save_counter >= 100 {
+                        backend.save_to_disk()?;
+                        save_counter = 0;
+                    }
+                }
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                // Timeout - check shutdown flag and continue
+                continue;
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                break;
+            }
+        }
+    }
+
+    // Explicitly save before exiting
+    println!("Flushing data to disk...");
+    backend.save_to_disk()?;
+    println!("Data flushed.");
+
+    Ok(total_processed)
+}
+
+/// Process changed files for geometric backend
+#[cfg(feature = "geometric-backend")]
+fn process_dirty_paths_geometric(
+    backend: &crate::graph::geometric_backend::GeometricBackend,
+    dirty_paths: &[PathBuf],
+) -> Result<usize> {
+    use crate::graph::geometric_backend::extract_symbols_and_cfg_from_file;
+    use crate::ingest::detect_language;
+    use std::fs;
+
+    let mut count = 0;
+    for path in dirty_paths {
+        if !path.exists() {
+            continue;
+        }
+
+        let language = match detect_language(path) {
+            Some(l) => l,
+            None => continue,
+        };
+
+        let content = match fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        match extract_symbols_and_cfg_from_file(path, &content, language) {
+            Ok((symbols, cfg_blocks, cfg_edges)) => {
+                let sym_count = symbols.len();
+                let symbol_ids = backend.insert_symbols(symbols)?;
+
+                if !cfg_blocks.is_empty() {
+                    // Track block indices to their logical IDs for edge insertion
+                    // Note: CfgBlock.id is the logical ID stored in NodeRec, not the storage ID
+                    let mut block_id_map: std::collections::HashMap<usize, u64> =
+                        std::collections::HashMap::new();
+
+                    for (idx, mut block) in cfg_blocks.into_iter().enumerate() {
+                        let local_sym_idx = block.function_id as usize;
+                        if local_sym_idx < symbol_ids.len() {
+                            block.function_id = symbol_ids[local_sym_idx] as i64;
+                        }
+                        // Track the logical block ID (block.id) which is what edges need to reference
+                        let logical_id = block.id;
+                        block_id_map.insert(idx, logical_id);
+                        let _ = backend.insert_cfg_block(block);
+                    }
+
+                    // Insert edges using the block logical ID map
+                    for edge in cfg_edges {
+                        if let (Some(&src_id), Some(&dst_id)) = (
+                            block_id_map.get(&edge.source_idx),
+                            block_id_map.get(&edge.target_idx),
+                        ) {
+                            let _ = backend.insert_edge(src_id, dst_id, edge.edge_type.as_str());
+                        }
+                    }
+                }
+
+                println!("MODIFY {} symbols={}", path.display(), sym_count);
+                count += 1;
+            }
+            Err(e) => println!("ERROR {} {}", path.display(), e),
+        }
+    }
+    Ok(count)
+}
+
+#[cfg(not(feature = "geometric-backend"))]
+pub fn run_watch_pipeline_geometric(
+    _config: crate::WatchPipelineConfig,
+    _shutdown: Arc<AtomicBool>,
+) -> Result<usize> {
+    Err(anyhow::anyhow!("Geometric backend not enabled"))
 }

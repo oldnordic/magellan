@@ -3,9 +3,10 @@
 //! Defines the Command enum and parse_args() function for all CLI commands.
 
 use anyhow::Result;
+use magellan::capabilities::all_capabilities;
 use magellan::graph::export::ExportFilters;
 use magellan::graph::query::CollisionField;
-use magellan::{ExportFormat, OutputFormat, WatcherConfig};
+use magellan::{detect_project_root, ExportFormat, OutputFormat, WatcherConfig};
 use std::path::PathBuf;
 
 /// Print short usage (≤25 lines) for quick reference
@@ -27,7 +28,54 @@ pub fn print_short_usage() {
     eprintln!();
     eprintln!("Global: --output <human|json|pretty>");
     eprintln!();
+    eprintln!("Backends: magellan --backends");
+    eprintln!();
     eprintln!("Full help: magellan --help-full | man magellan");
+}
+
+/// Print backend information (available backends, capabilities, features)
+pub fn print_backend_info() {
+    eprintln!("Magellan Backends");
+    eprintln!();
+
+    let all_caps = all_capabilities();
+
+    // Print table header
+    eprintln!(
+        "{:<15} {:<10} {:<10} {:<20} {}",
+        "Backend", "Enabled", "Extension", "Feature", "Capabilities"
+    );
+    eprintln!("{}", "-".repeat(120));
+
+    for caps in &all_caps {
+        let enabled = if caps.build_enabled { "Yes" } else { "No" };
+        let feature = caps.required_feature.as_deref().unwrap_or("default");
+        let summary = caps.capability_summary();
+        // Truncate summary if too long
+        let summary_truncated = if summary.len() > 50 {
+            format!("{}...", &summary[..47])
+        } else {
+            summary
+        };
+
+        eprintln!(
+            "{:<15} {:<10} {:<10} {:<20} {}",
+            caps.backend_type.display_name(),
+            enabled,
+            caps.database_extension_hint,
+            feature,
+            summary_truncated
+        );
+    }
+
+    eprintln!();
+    eprintln!("Database file extensions determine backend type:");
+    eprintln!("  .db   - SQLite backend (default)");
+    eprintln!("  .geo  - Geometric backend (requires --features geometric-backend)");
+    eprintln!("  .v3   - Native V3 backend (requires --features native-v3)");
+    eprintln!();
+    eprintln!("To enable a backend: cargo install magellan --features <feature>");
+    eprintln!("Example: cargo install magellan --features geometric-backend");
 }
 
 /// Print full usage with all commands and arguments
@@ -37,6 +85,7 @@ pub fn print_full_usage() {
     eprintln!("Usage:");
     eprintln!("  magellan <command> [arguments]");
     eprintln!("  magellan --help");
+    eprintln!("  magellan --backends    Show available storage backends and features");
     eprintln!();
     eprintln!("  magellan watch --root <DIR> --db <FILE> [--debounce-ms <N>] [--watch-only] [--validate] [--validate-only]");
     eprintln!(
@@ -45,12 +94,14 @@ pub fn print_full_usage() {
     eprintln!("  magellan status --db <FILE>");
     eprintln!("  magellan query --db <FILE> --file <PATH> [--kind <KIND>]");
     eprintln!("  magellan find --db <FILE> (--name <NAME> | --symbol-id <ID> | --ambiguous <NAME>) [--path <PATH>] [--first]");
-    eprintln!("  magellan refs --db <FILE> (--name <NAME> [--path <PATH>] | --symbol-id <ID> --path <PATH>) [--direction <in|out>] [--output <FORMAT>]");
+    eprintln!("  magellan refs --db <FILE> --name <NAME> [--path <PATH>] [--direction <in|out>] [--output <FORMAT>]");
     eprintln!("  magellan get --db <FILE> --file <PATH> --symbol <NAME>");
     eprintln!("  magellan get-file --db <FILE> --file <PATH>");
     eprintln!("  magellan chunks --db <FILE> [--limit N] [--file PATTERN] [--kind KIND] [--output FORMAT]");
     eprintln!("  magellan chunk-by-span --db <FILE> --file <PATH> --start <N> --end <N> [--output FORMAT]");
-    eprintln!("  magellan chunk-by-symbol --db <FILE> --symbol <NAME> [--file PATTERN] [--output FORMAT]");
+    eprintln!(
+        "  magellan chunk-by-symbol --db <FILE> --symbol <NAME> [--file PATTERN] [--output FORMAT]"
+    );
     eprintln!("  magellan files --db <FILE> [--symbols] [--output <FORMAT>]");
     eprintln!("  magellan label --db <FILE> [--label <LABEL>]... [--list] [--count] [--show-code]");
     eprintln!("  magellan collisions --db <FILE> [--field <fqn|display_fqn|canonical_fqn>] [--limit <N>] [--output <FORMAT>]");
@@ -59,10 +110,14 @@ pub fn print_full_usage() {
     eprintln!("  magellan verify --root <DIR> --db <FILE>");
     eprintln!("  magellan ast --db <FILE> --file <PATH> [--position <OFFSET>] [--output <FORMAT>]");
     eprintln!("  magellan find-ast --db <FILE> --kind <KIND> [--output <FORMAT>]");
-    eprintln!("  magellan reachable --db <FILE> --symbol <SYMBOL_ID> [--reverse] [--output <FORMAT>]");
+    eprintln!(
+        "  magellan reachable --db <FILE> --symbol <SYMBOL_ID> [--reverse] [--output <FORMAT>]"
+    );
     eprintln!("  magellan dead-code --db <FILE> --entry <SYMBOL_ID> [--output <FORMAT>]");
     eprintln!("  magellan cycles --db <FILE> [--symbol <SYMBOL_ID>] [--output <FORMAT>]");
+    #[cfg(feature = "geometric-backend")]
     eprintln!("  magellan condense --db <FILE> [--members] [--output <FORMAT>]");
+    #[cfg(feature = "geometric-backend")]
     eprintln!("  magellan paths --db <FILE> --start <SYMBOL_ID> [--end <SYMBOL_ID>] [--max-depth <N>] [--max-paths <N>] [--output <FORMAT>]");
     eprintln!("  magellan slice --db <FILE> --target <SYMBOL_ID> [--direction <backward|forward>] [--verbose] [--output <FORMAT>]");
     eprintln!();
@@ -86,12 +141,12 @@ pub fn print_full_usage() {
     eprintln!("  verify          Verify database vs filesystem");
     eprintln!("  ast             Query AST nodes for a file");
     eprintln!("  find-ast        Find AST nodes by kind");
-    eprintln!("  reachable       Show symbols reachable from a given symbol (SQLite backend only)");
-    eprintln!("  dead-code       Find dead code unreachable from an entry point (SQLite backend only)");
-    eprintln!("  cycles          Detect strongly connected components (cycles) in the call graph (SQLite backend only)");
-    eprintln!("  condense        Show call graph condensation (SCCs collapsed into supernodes) (SQLite backend only)");
-    eprintln!("  paths           Enumerate execution paths between symbols (SQLite backend only)");
-    eprintln!("  slice           Program slicing (backward/forward) from a target symbol (SQLite backend only)");
+    eprintln!("  reachable       Show symbols reachable from a given symbol");
+    eprintln!("  dead-code       Find dead code unreachable from an entry point");
+    eprintln!("  cycles          Detect strongly connected components (cycles) in the call graph");
+    eprintln!("  condense        Show call graph condensation (SCCs collapsed into supernodes)");
+    eprintln!("  paths           Enumerate execution paths between symbols");
+    eprintln!("  slice           Program slicing (backward/forward) from a target symbol");
     eprintln!();
     eprintln!("Global arguments:");
     eprintln!("  --output <FORMAT>   Output format: human (default), json (compact), or pretty (formatted)");
@@ -111,7 +166,9 @@ pub fn print_full_usage() {
     eprintln!();
     eprintln!("Export arguments:");
     eprintln!("  --db <FILE>         Path to sqlitegraph database");
-    eprintln!("  --format <FORMAT>   Export format: json (default), jsonl, csv, scip, dot, or lsif");
+    eprintln!(
+        "  --format <FORMAT>   Export format: json (default), jsonl, csv, scip, dot, or lsif"
+    );
     eprintln!("  --output <PATH>     Write to file instead of stdout");
     eprintln!("  --minify            Use compact JSON (no pretty-printing)");
     eprintln!("  --no-symbols        Exclude symbols from export");
@@ -239,13 +296,101 @@ pub enum ContextSubcommand {
         callees: bool,
     },
     /// Show file context
-    File {
-        path: String,
-    },
+    File { path: String },
     /// Start HTTP context server
-    Server {
-        port: u16,
-        host: String,
+    Server { port: u16, host: String },
+}
+
+/// Geometric backend subcommands (Phase 48)
+#[cfg(feature = "geometric-backend")]
+#[derive(Debug)]
+pub enum GeometricSubcommand {
+    /// Create new geometric database
+    Create,
+    /// Index a project into geometric database
+    Index,
+    /// Query CFG for a function
+    Query,
+    /// Show database statistics
+    Stats,
+    /// Show bundle file information (4-file bundle: .geo, .geo.cfg, .geo.idx, .geo.complexity)
+    BundleInfo,
+    /// Find execution path (A* for single path, DFS-based enumeration for k-paths)
+    Path {
+        function_id: i64,
+        start_block: u64,
+        goal_block: u64,
+        k_paths: Option<usize>,
+    },
+    /// Analyze loop structure
+    Loops {
+        function_id: i64,
+        block_id: Option<u64>,
+    },
+    /// Analyze cyclomatic complexity
+    Complexity {
+        function_id: i64,
+        threshold: Option<u32>,
+        top_n: Option<usize>,
+    },
+    /// Analyze strongly connected components
+    Scc {
+        function_id: i64,
+        show_condensed: bool,
+    },
+    /// Perform topological sort
+    Topo { function_id: i64, show_levels: bool },
+    /// Analyze dominance
+    Dominance {
+        function_id: i64,
+        block_id: Option<u64>,
+        show_frontier: bool,
+    },
+    /// Analyze natural loops
+    NaturalLoops {
+        function_id: i64,
+        show_details: bool,
+    },
+    /// Program slicing
+    Slice {
+        function_id: i64,
+        criterion: u64,
+        direction: String,
+        show_edges: bool,
+    },
+    /// Transitive closure/reduction
+    Transitive {
+        function_id: i64,
+        show_reduction: bool,
+        node_id: Option<u64>,
+    },
+    /// LLM: Get code context around a line
+    Context {
+        file: String,
+        line: u64,
+        context: usize,
+    },
+    /// LLM: Get symbols in a line range
+    Range { file: String, start: u64, end: u64 },
+    /// Navigate to previous/next symbol
+    Nav {
+        file: String,
+        line: u64,
+        direction: String,
+    },
+    /// Get paginated view of file
+    Page {
+        file: String,
+        page: usize,
+        size: usize,
+    },
+    /// Perform Minecraft-style Louvain-METIS chunking
+    Chunks { target_size: Option<usize> },
+    /// Migrate legacy bundle to single-file .geo
+    Migrate {
+        dry_run: bool,
+        no_backup: bool,
+        output_format: OutputFormat,
     },
 }
 
@@ -336,7 +481,7 @@ pub enum Command {
         db_path: PathBuf,
         name: String,
         root: Option<PathBuf>,
-        path: PathBuf,
+        path: Option<PathBuf>,
         symbol_id: Option<String>,
         direction: String,
         output_format: OutputFormat,
@@ -442,6 +587,7 @@ pub enum Command {
         output_format: OutputFormat,
     },
     /// Condensation graph (Phase 40)
+    #[cfg(feature = "geometric-backend")]
     Condense {
         db_path: PathBuf,
         show_members: bool,
@@ -453,6 +599,7 @@ pub enum Command {
         output_format: OutputFormat,
     },
     /// Path enumeration (Phase 40)
+    #[cfg(feature = "geometric-backend")]
     Paths {
         db_path: PathBuf,
         start_symbol_id: String,
@@ -469,6 +616,14 @@ pub enum Command {
         verbose: bool,
         output_format: OutputFormat,
     },
+    /// Geometric backend commands (Phase 48)
+    #[cfg(feature = "geometric-backend")]
+    Geometric {
+        subcommand: GeometricSubcommand,
+        db_path: PathBuf,
+        root_path: Option<PathBuf>,
+        function_name: Option<String>,
+    },
 }
 
 // ============================================================================
@@ -476,7 +631,7 @@ pub enum Command {
 // ============================================================================
 
 /// Helper to parse a required string argument
-/// 
+///
 /// Returns the next argument value and increments index by 2,
 /// or returns an error if no value is provided.
 fn parse_required_arg(args: &[String], i: &mut usize, flag: &str) -> Result<String> {
@@ -489,12 +644,12 @@ fn parse_required_arg(args: &[String], i: &mut usize, flag: &str) -> Result<Stri
 }
 
 /// Helper to parse an optional string argument
-/// 
+///
 /// Returns Some(value) and increments index by 2 if next arg exists,
 /// otherwise returns None and increments by 1.
 
 /// Helper to parse output format from string
-/// 
+///
 /// Accepts: "human", "json", "pretty"
 fn parse_output_format(value: &str) -> Result<OutputFormat> {
     match value {
@@ -517,7 +672,7 @@ fn parse_path_arg(args: &[String], i: &mut usize, flag: &str) -> Result<PathBuf>
 /// Helper to parse an integer argument
 
 /// Parse the `watch` command arguments
-/// 
+///
 /// # Arguments
 /// * `args` - The command line arguments (starting from index 2, after "watch")
 ///
@@ -605,7 +760,13 @@ fn parse_watch_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let root_path = root_path.ok_or_else(|| anyhow::anyhow!("--root is required"))?;
+    // Auto-detect project root if not specified
+    let root_path = match root_path {
+        Some(path) => path,
+        None => detect_project_root(),
+    };
+
+    // Require --db argument (like other commands)
     let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
 
     if watch_only {
@@ -777,12 +938,15 @@ fn parse_import_lsif_args(args: &[String]) -> Result<Command> {
     }
 
     let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
-    
+
     if lsif_paths.is_empty() {
         return Err(anyhow::anyhow!("At least one LSIF file must be specified"));
     }
 
-    Ok(Command::ImportLsif { db_path, lsif_paths })
+    Ok(Command::ImportLsif {
+        db_path,
+        lsif_paths,
+    })
 }
 
 /// Parse the `enrich` command arguments
@@ -825,24 +989,26 @@ fn parse_enrich_args(args: &[String]) -> Result<Command> {
     }
 
     let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
-    
-    Ok(Command::Enrich { db_path, files, timeout_secs })
+
+    Ok(Command::Enrich {
+        db_path,
+        files,
+        timeout_secs,
+    })
 }
 
 /// Parse the `context` command arguments
 fn parse_context_args(args: &[String]) -> Result<Command> {
     if args.is_empty() {
-        return Err(anyhow::anyhow!("context subcommand required: build, summary, list, symbol, file, server"));
+        return Err(anyhow::anyhow!(
+            "context subcommand required: build, summary, list, symbol, file, server"
+        ));
     }
 
     let mut db_path: Option<PathBuf> = None;
     let subcommand = match args[0].as_str() {
-        "build" => {
-            ContextSubcommand::Build
-        }
-        "summary" => {
-            ContextSubcommand::Summary
-        }
+        "build" => ContextSubcommand::Build,
+        "summary" => ContextSubcommand::Summary,
         "list" => {
             let mut kind: Option<String> = None;
             let mut page: Option<usize> = None;
@@ -870,14 +1036,22 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                         if i + 1 >= args.len() {
                             return Err(anyhow::anyhow!("--page requires an argument"));
                         }
-                        page = Some(args[i + 1].parse().map_err(|_| anyhow::anyhow!("Invalid page number"))?);
+                        page = Some(
+                            args[i + 1]
+                                .parse()
+                                .map_err(|_| anyhow::anyhow!("Invalid page number"))?,
+                        );
                         i += 2;
                     }
                     "--page-size" => {
                         if i + 1 >= args.len() {
                             return Err(anyhow::anyhow!("--page-size requires an argument"));
                         }
-                        page_size = Some(args[i + 1].parse().map_err(|_| anyhow::anyhow!("Invalid page size"))?);
+                        page_size = Some(
+                            args[i + 1]
+                                .parse()
+                                .map_err(|_| anyhow::anyhow!("Invalid page size"))?,
+                        );
                         i += 2;
                     }
                     "--cursor" => {
@@ -893,7 +1067,12 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                 }
             }
 
-            ContextSubcommand::List { kind, page, page_size, cursor }
+            ContextSubcommand::List {
+                kind,
+                page,
+                page_size,
+                cursor,
+            }
         }
         "symbol" => {
             let mut name: Option<String> = None;
@@ -939,8 +1118,14 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                 }
             }
 
-            let name = name.ok_or_else(|| anyhow::anyhow!("--name is required for symbol subcommand"))?;
-            ContextSubcommand::Symbol { name, file, callers, callees }
+            let name =
+                name.ok_or_else(|| anyhow::anyhow!("--name is required for symbol subcommand"))?;
+            ContextSubcommand::Symbol {
+                name,
+                file,
+                callers,
+                callees,
+            }
         }
         "file" => {
             let mut path: Option<String> = None;
@@ -968,7 +1153,8 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                 }
             }
 
-            let path = path.ok_or_else(|| anyhow::anyhow!("--path is required for file subcommand"))?;
+            let path =
+                path.ok_or_else(|| anyhow::anyhow!("--path is required for file subcommand"))?;
             ContextSubcommand::File { path }
         }
         "server" => {
@@ -989,7 +1175,9 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                         if i + 1 >= args.len() {
                             return Err(anyhow::anyhow!("--port requires an argument"));
                         }
-                        port = args[i + 1].parse().map_err(|_| anyhow::anyhow!("Invalid port number"))?;
+                        port = args[i + 1]
+                            .parse()
+                            .map_err(|_| anyhow::anyhow!("Invalid port number"))?;
                         i += 2;
                     }
                     "--host" => {
@@ -1008,7 +1196,10 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
             ContextSubcommand::Server { port, host }
         }
         _ => {
-            return Err(anyhow::anyhow!("Unknown context subcommand: {}. Use: build, summary, list, symbol, file, server", args[0]));
+            return Err(anyhow::anyhow!(
+                "Unknown context subcommand: {}. Use: build, summary, list, symbol, file, server",
+                args[0]
+            ));
         }
     };
 
@@ -1026,7 +1217,10 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
 
     let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
 
-    Ok(Command::Context { subcommand, db_path })
+    Ok(Command::Context {
+        subcommand,
+        db_path,
+    })
 }
 
 /// Parse the `doctor` command arguments
@@ -1055,7 +1249,7 @@ fn parse_doctor_args(args: &[String]) -> Result<Command> {
     }
 
     let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
-    
+
     Ok(Command::Doctor { db_path, fix })
 }
 
@@ -1087,7 +1281,9 @@ fn parse_web_ui_args(args: &[String]) -> Result<Command> {
                 if i + 1 >= args.len() {
                     return Err(anyhow::anyhow!("--port requires an argument"));
                 }
-                port = args[i + 1].parse().map_err(|_| anyhow::anyhow!("Invalid port number"))?;
+                port = args[i + 1]
+                    .parse()
+                    .map_err(|_| anyhow::anyhow!("Invalid port number"))?;
                 i += 2;
             }
             _ => {
@@ -1097,8 +1293,12 @@ fn parse_web_ui_args(args: &[String]) -> Result<Command> {
     }
 
     let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
-    
-    Ok(Command::WebUi { db_path, host, port })
+
+    Ok(Command::WebUi {
+        db_path,
+        host,
+        port,
+    })
 }
 
 /// Parse the `status` command arguments
@@ -1313,7 +1513,7 @@ where
         print_short_usage();
         std::process::exit(0);
     }
-    
+
     // Handle --help-full and -H flags
     if command == "--help-full" || command == "-H" {
         print_full_usage();
@@ -1349,9 +1549,13 @@ where
         "reachable" => parse_reachable_args(&args[2..]),
         "dead-code" => parse_dead_code_args(&args[2..]),
         "cycles" => parse_cycles_args(&args[2..]),
+        #[cfg(feature = "geometric-backend")]
         "condense" => parse_condense_args(&args[2..]),
+        #[cfg(feature = "geometric-backend")]
         "paths" => parse_paths_args(&args[2..]),
         "slice" => parse_slice_args(&args[2..]),
+        #[cfg(feature = "geometric-backend")]
+        "geometric" => parse_geometric_args(&args[2..]),
         _ => Err(anyhow::anyhow!("Unknown command: {}", command)),
     }
 }
@@ -1495,10 +1699,7 @@ fn parse_get_file_args(args: &[String]) -> Result<Command> {
     let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
     let file_path = file_path.ok_or_else(|| anyhow::anyhow!("--file is required"))?;
 
-    Ok(Command::GetFile {
-        db_path,
-        file_path,
-    })
+    Ok(Command::GetFile { db_path, file_path })
 }
 
 /// Parse the `refs` command arguments
@@ -1612,7 +1813,7 @@ fn parse_refs_args(args: &[String]) -> Result<Command> {
 
     let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
     let name = name.ok_or_else(|| anyhow::anyhow!("--name is required"))?;
-    let path = path.ok_or_else(|| anyhow::anyhow!("--path is required"))?;
+    // path is now optional - if not provided, will search all symbols matching name
 
     Ok(Command::Refs {
         db_path,
@@ -1658,10 +1859,7 @@ fn parse_verify_args(args: &[String]) -> Result<Command> {
     let root_path = root_path.ok_or_else(|| anyhow::anyhow!("--root is required"))?;
     let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
 
-    Ok(Command::Verify {
-        root_path,
-        db_path,
-    })
+    Ok(Command::Verify { root_path, db_path })
 }
 
 /// Parse the `label` command arguments
@@ -2556,6 +2754,7 @@ fn parse_cycles_args(args: &[String]) -> Result<Command> {
 }
 
 /// Parse the `condense` command arguments
+#[cfg(feature = "geometric-backend")]
 fn parse_condense_args(args: &[String]) -> Result<Command> {
     let mut db_path: Option<PathBuf> = None;
     let mut show_members = false;
@@ -2606,6 +2805,7 @@ fn parse_condense_args(args: &[String]) -> Result<Command> {
 }
 
 /// Parse the `paths` command arguments
+#[cfg(feature = "geometric-backend")]
 fn parse_paths_args(args: &[String]) -> Result<Command> {
     let mut db_path: Option<PathBuf> = None;
     let mut start_symbol_id: Option<String> = None;
@@ -2761,6 +2961,601 @@ fn parse_slice_args(args: &[String]) -> Result<Command> {
     })
 }
 
+/// Parse the `geometric` command arguments (Phase 48)
+#[cfg(feature = "geometric-backend")]
+fn parse_geometric_args(args: &[String]) -> Result<Command> {
+    if args.is_empty() {
+        return Err(anyhow::anyhow!(
+            "Geometric subcommand required: create, index, query, stats, migrate, or other"
+        ));
+    }
+
+    let subcommand = match args[0].as_str() {
+        "create" => GeometricSubcommand::Create,
+        "index" => GeometricSubcommand::Index,
+        "query" => GeometricSubcommand::Query,
+        "stats" => GeometricSubcommand::Stats,
+        "bundle-info" => GeometricSubcommand::BundleInfo,
+        "path" => GeometricSubcommand::Path {
+            function_id: 0,
+            start_block: 0,
+            goal_block: 0,
+            k_paths: None,
+        },
+        "loops" => GeometricSubcommand::Loops {
+            function_id: 0,
+            block_id: None,
+        },
+        "complexity" => GeometricSubcommand::Complexity {
+            function_id: 0,
+            threshold: None,
+            top_n: None,
+        },
+        "scc" => GeometricSubcommand::Scc {
+            function_id: 0,
+            show_condensed: false,
+        },
+        "topo" => GeometricSubcommand::Topo {
+            function_id: 0,
+            show_levels: false,
+        },
+        "dominance" => GeometricSubcommand::Dominance {
+            function_id: 0,
+            block_id: None,
+            show_frontier: false,
+        },
+        "natural-loops" => GeometricSubcommand::NaturalLoops {
+            function_id: 0,
+            show_details: false,
+        },
+        "slice" => GeometricSubcommand::Slice {
+            function_id: 0,
+            criterion: 0,
+            direction: "backward".to_string(),
+            show_edges: false,
+        },
+        "transitive" => GeometricSubcommand::Transitive {
+            function_id: 0,
+            show_reduction: false,
+            node_id: None,
+        },
+        "context" => GeometricSubcommand::Context {
+            file: String::new(),
+            line: 0,
+            context: 5,
+        },
+        "range" => GeometricSubcommand::Range {
+            file: String::new(),
+            start: 0,
+            end: 0,
+        },
+        "nav" => GeometricSubcommand::Nav {
+            file: String::new(),
+            line: 0,
+            direction: "next".to_string(),
+        },
+        "page" => GeometricSubcommand::Page {
+            file: String::new(),
+            page: 0,
+            size: 50,
+        },
+        "chunks" => GeometricSubcommand::Chunks { target_size: None },
+        "migrate" => GeometricSubcommand::Migrate {
+            dry_run: false,
+            no_backup: false,
+            output_format: OutputFormat::Human,
+        },
+        cmd => {
+            return Err(anyhow::anyhow!(
+                "Unknown geometric subcommand: {}. Must be create, index, query, stats, bundle-info, path, loops, complexity, scc, topo, dominance, natural-loops, slice, transitive, context, range, nav, page, chunks, or migrate",
+                cmd
+            ));
+        }
+    };
+
+    let mut db_path: Option<PathBuf> = None;
+    let mut root_path: Option<PathBuf> = None;
+    let mut function_name: Option<String> = None;
+    let mut function_id: Option<i64> = None;
+    let mut start_block: Option<u64> = None;
+    let mut goal_block: Option<u64> = None;
+    let mut k_paths: Option<usize> = None;
+    let mut block_id: Option<u64> = None;
+    let mut threshold: Option<u32> = None;
+    let mut top_n: Option<usize> = None;
+    let mut show_condensed: bool = false;
+    let mut show_levels: bool = false;
+    let mut show_frontier: bool = false;
+    let mut show_details: bool = false;
+    let mut criterion: Option<u64> = None;
+    let mut show_edges: bool = false;
+    let mut show_reduction: bool = false;
+    let mut node_id: Option<u64> = None;
+    let mut file: Option<String> = None;
+    let mut line: Option<u64> = None;
+    let mut context: Option<usize> = None;
+    let mut start: Option<u64> = None;
+    let mut end: Option<u64> = None;
+    let mut page: Option<usize> = None;
+    let mut size: Option<usize> = None;
+    let mut target_size: Option<usize> = None;
+    let mut direction: Option<String> = None;
+
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--db" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--db requires an argument"));
+                }
+                db_path = Some(PathBuf::from(&args[i + 1]));
+                i += 2;
+            }
+            "--size" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--size requires an argument"));
+                }
+                let val: usize = args[i + 1].parse().map_err(|_| {
+                    anyhow::anyhow!("Invalid size: {}. Must be an integer", args[i + 1])
+                })?;
+                size = Some(val);
+                target_size = Some(val);
+                i += 2;
+            }
+            "--root" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--root requires an argument"));
+                }
+                root_path = Some(PathBuf::from(&args[i + 1]));
+                i += 2;
+            }
+            "--function" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--function requires an argument"));
+                }
+                function_name = Some(args[i + 1].clone());
+                i += 2;
+            }
+            "--function-id" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--function-id requires an argument"));
+                }
+                function_id = Some(args[i + 1].parse().map_err(|_| {
+                    anyhow::anyhow!("Invalid function-id: {}. Must be an integer", args[i + 1])
+                })?);
+                i += 2;
+            }
+            "--start" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--start requires an argument"));
+                }
+                let val: u64 = args[i + 1].parse().map_err(|_| {
+                    anyhow::anyhow!("Invalid start: {}. Must be an integer", args[i + 1])
+                })?;
+                start_block = Some(val);
+                start = Some(val);
+                i += 2;
+            }
+            "--goal" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--goal requires an argument"));
+                }
+                goal_block = Some(args[i + 1].parse().map_err(|_| {
+                    anyhow::anyhow!("Invalid goal block: {}. Must be an integer", args[i + 1])
+                })?);
+                i += 2;
+            }
+            "--k-paths" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--k-paths requires an argument"));
+                }
+                k_paths = Some(args[i + 1].parse().map_err(|_| {
+                    anyhow::anyhow!("Invalid k-paths: {}. Must be an integer", args[i + 1])
+                })?);
+                i += 2;
+            }
+            "--block" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--block requires an argument"));
+                }
+                block_id = Some(args[i + 1].parse().map_err(|_| {
+                    anyhow::anyhow!("Invalid block: {}. Must be an integer", args[i + 1])
+                })?);
+                i += 2;
+            }
+            "--threshold" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--threshold requires an argument"));
+                }
+                threshold = Some(args[i + 1].parse().map_err(|_| {
+                    anyhow::anyhow!("Invalid threshold: {}. Must be an integer", args[i + 1])
+                })?);
+                i += 2;
+            }
+            "--top" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--top requires an argument"));
+                }
+                top_n = Some(args[i + 1].parse().map_err(|_| {
+                    anyhow::anyhow!("Invalid top: {}. Must be an integer", args[i + 1])
+                })?);
+                i += 2;
+            }
+            "--condensed" => {
+                show_condensed = true;
+                i += 1;
+            }
+            "--levels" => {
+                show_levels = true;
+                i += 1;
+            }
+            "--block" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--block requires an argument"));
+                }
+                block_id = Some(args[i + 1].parse().map_err(|_| {
+                    anyhow::anyhow!("Invalid block: {}. Must be an integer", args[i + 1])
+                })?);
+                i += 2;
+            }
+            "--frontier" => {
+                show_frontier = true;
+                i += 1;
+            }
+            "--details" => {
+                show_details = true;
+                i += 1;
+            }
+            "--criterion" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--criterion requires an argument"));
+                }
+                criterion = Some(args[i + 1].parse().map_err(|_| {
+                    anyhow::anyhow!("Invalid criterion: {}. Must be an integer", args[i + 1])
+                })?);
+                i += 2;
+            }
+            "--direction" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--direction requires an argument"));
+                }
+                direction = Some(args[i + 1].clone());
+                i += 2;
+            }
+            "--edges" => {
+                show_edges = true;
+                i += 1;
+            }
+            "--reduction" => {
+                show_reduction = true;
+                i += 1;
+            }
+            "--node" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--node requires an argument"));
+                }
+                node_id = Some(args[i + 1].parse().map_err(|_| {
+                    anyhow::anyhow!("Invalid node: {}. Must be an integer", args[i + 1])
+                })?);
+                i += 2;
+            }
+            "--file" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--file requires an argument"));
+                }
+                file = Some(args[i + 1].clone());
+                i += 2;
+            }
+            "--line" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--line requires an argument"));
+                }
+                line = Some(args[i + 1].parse().map_err(|_| {
+                    anyhow::anyhow!("Invalid line: {}. Must be an integer", args[i + 1])
+                })?);
+                i += 2;
+            }
+            "--context" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--context requires an argument"));
+                }
+                context = Some(args[i + 1].parse().map_err(|_| {
+                    anyhow::anyhow!("Invalid context: {}. Must be an integer", args[i + 1])
+                })?);
+                i += 2;
+            }
+            "--start" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--start requires an argument"));
+                }
+                start = Some(args[i + 1].parse().map_err(|_| {
+                    anyhow::anyhow!("Invalid start: {}. Must be an integer", args[i + 1])
+                })?);
+                i += 2;
+            }
+            "--goal" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--goal requires an argument"));
+                }
+                goal_block = Some(args[i + 1].parse().map_err(|_| {
+                    anyhow::anyhow!("Invalid goal block: {}. Must be an integer", args[i + 1])
+                })?);
+                i += 2;
+            }
+            "--end" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--end requires an argument"));
+                }
+                let val: u64 = args[i + 1].parse().map_err(|_| {
+                    anyhow::anyhow!("Invalid end: {}. Must be an integer", args[i + 1])
+                })?;
+                goal_block = Some(val);
+                end = Some(val);
+                i += 2;
+            }
+            "--page" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--page requires an argument"));
+                }
+                page = Some(args[i + 1].parse().map_err(|_| {
+                    anyhow::anyhow!("Invalid page: {}. Must be an integer", args[i + 1])
+                })?);
+                i += 2;
+            }
+            "--size" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--size requires an argument"));
+                }
+                size = Some(args[i + 1].parse().map_err(|_| {
+                    anyhow::anyhow!("Invalid size: {}. Must be an integer", args[i + 1])
+                })?);
+                i += 2;
+            }
+            _ => {
+                return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
+            }
+        }
+    }
+
+    // Validate required arguments based on subcommand
+    match subcommand {
+        GeometricSubcommand::Create
+        | GeometricSubcommand::Stats
+        | GeometricSubcommand::BundleInfo => {
+            if db_path.is_none() {
+                return Err(anyhow::anyhow!("--db is required"));
+            }
+        }
+        GeometricSubcommand::Index => {
+            if db_path.is_none() {
+                return Err(anyhow::anyhow!("--db is required"));
+            }
+            if root_path.is_none() {
+                return Err(anyhow::anyhow!("--root is required"));
+            }
+        }
+        GeometricSubcommand::Query => {
+            if db_path.is_none() {
+                return Err(anyhow::anyhow!("--db is required"));
+            }
+            if function_name.is_none() {
+                return Err(anyhow::anyhow!("--function is required"));
+            }
+        }
+        GeometricSubcommand::Path { .. } => {
+            if db_path.is_none() {
+                return Err(anyhow::anyhow!("--db is required"));
+            }
+            if function_id.is_none() {
+                return Err(anyhow::anyhow!("--function-id is required"));
+            }
+            if start_block.is_none() {
+                return Err(anyhow::anyhow!("--start is required"));
+            }
+            if goal_block.is_none() {
+                return Err(anyhow::anyhow!("--goal is required"));
+            }
+        }
+        GeometricSubcommand::Loops { .. } => {
+            if db_path.is_none() {
+                return Err(anyhow::anyhow!("--db is required"));
+            }
+            if function_id.is_none() {
+                return Err(anyhow::anyhow!("--function-id is required"));
+            }
+        }
+        GeometricSubcommand::Complexity { .. } => {
+            if db_path.is_none() {
+                return Err(anyhow::anyhow!("--db is required"));
+            }
+            if function_id.is_none() {
+                return Err(anyhow::anyhow!("--function-id is required"));
+            }
+        }
+        GeometricSubcommand::Scc { .. } => {
+            if db_path.is_none() {
+                return Err(anyhow::anyhow!("--db is required"));
+            }
+            if function_id.is_none() {
+                return Err(anyhow::anyhow!("--function-id is required"));
+            }
+        }
+        GeometricSubcommand::Topo { .. } => {
+            if db_path.is_none() {
+                return Err(anyhow::anyhow!("--db is required"));
+            }
+            if function_id.is_none() {
+                return Err(anyhow::anyhow!("--function-id is required"));
+            }
+        }
+        GeometricSubcommand::Dominance { .. } => {
+            if db_path.is_none() {
+                return Err(anyhow::anyhow!("--db is required"));
+            }
+            if function_id.is_none() {
+                return Err(anyhow::anyhow!("--function-id is required"));
+            }
+        }
+        GeometricSubcommand::NaturalLoops { .. } => {
+            if db_path.is_none() {
+                return Err(anyhow::anyhow!("--db is required"));
+            }
+            if function_id.is_none() {
+                return Err(anyhow::anyhow!("--function-id is required"));
+            }
+        }
+        GeometricSubcommand::Slice { .. } => {
+            if db_path.is_none() {
+                return Err(anyhow::anyhow!("--db is required"));
+            }
+            if function_id.is_none() {
+                return Err(anyhow::anyhow!("--function-id is required"));
+            }
+            if criterion.is_none() {
+                return Err(anyhow::anyhow!("--criterion is required"));
+            }
+        }
+        GeometricSubcommand::Transitive { .. } => {
+            if db_path.is_none() {
+                return Err(anyhow::anyhow!("--db is required"));
+            }
+            if function_id.is_none() {
+                return Err(anyhow::anyhow!("--function-id is required"));
+            }
+        }
+        GeometricSubcommand::Context { .. } => {
+            if db_path.is_none() {
+                return Err(anyhow::anyhow!("--db is required"));
+            }
+            if file.is_none() {
+                return Err(anyhow::anyhow!("--file is required"));
+            }
+            if line.is_none() {
+                return Err(anyhow::anyhow!("--line is required"));
+            }
+        }
+        GeometricSubcommand::Range { .. } => {
+            if db_path.is_none() {
+                return Err(anyhow::anyhow!("--db is required"));
+            }
+            if file.is_none() {
+                return Err(anyhow::anyhow!("--file is required"));
+            }
+            if start.is_none() {
+                return Err(anyhow::anyhow!("--start is required"));
+            }
+            if end.is_none() {
+                return Err(anyhow::anyhow!("--end is required"));
+            }
+        }
+        GeometricSubcommand::Nav { .. } => {
+            if db_path.is_none() {
+                return Err(anyhow::anyhow!("--db is required"));
+            }
+            if file.is_none() {
+                return Err(anyhow::anyhow!("--file is required"));
+            }
+            if line.is_none() {
+                return Err(anyhow::anyhow!("--line is required"));
+            }
+        }
+        GeometricSubcommand::Page { .. } => {
+            if db_path.is_none() {
+                return Err(anyhow::anyhow!("--db is required"));
+            }
+            if file.is_none() {
+                return Err(anyhow::anyhow!("--file is required"));
+            }
+        }
+        GeometricSubcommand::Chunks { .. } => {
+            if db_path.is_none() {
+                return Err(anyhow::anyhow!("--db is required"));
+            }
+        }
+        GeometricSubcommand::Migrate { .. } => {
+            if db_path.is_none() {
+                return Err(anyhow::anyhow!("--db is required"));
+            }
+        }
+    }
+
+    // Update subcommand with parsed values
+    let final_subcommand = match subcommand {
+        GeometricSubcommand::Chunks { .. } => GeometricSubcommand::Chunks { target_size },
+        GeometricSubcommand::Path { .. } => GeometricSubcommand::Path {
+            function_id: function_id.unwrap_or(0),
+            start_block: start_block.unwrap(),
+            goal_block: goal_block.unwrap(),
+            k_paths,
+        },
+        GeometricSubcommand::Loops { .. } => GeometricSubcommand::Loops {
+            function_id: function_id.unwrap_or(0),
+            block_id,
+        },
+        GeometricSubcommand::Complexity { .. } => GeometricSubcommand::Complexity {
+            function_id: function_id.unwrap_or(0),
+            threshold,
+            top_n,
+        },
+        GeometricSubcommand::Scc { .. } => GeometricSubcommand::Scc {
+            function_id: function_id.unwrap_or(0),
+            show_condensed,
+        },
+        GeometricSubcommand::Topo { .. } => GeometricSubcommand::Topo {
+            function_id: function_id.unwrap_or(0),
+            show_levels,
+        },
+        GeometricSubcommand::Dominance { .. } => GeometricSubcommand::Dominance {
+            function_id: function_id.unwrap_or(0),
+            block_id,
+            show_frontier,
+        },
+        GeometricSubcommand::NaturalLoops { .. } => GeometricSubcommand::NaturalLoops {
+            function_id: function_id.unwrap_or(0),
+            show_details,
+        },
+        GeometricSubcommand::Slice { .. } => GeometricSubcommand::Slice {
+            function_id: function_id.unwrap_or(0),
+            criterion: criterion.unwrap(),
+            direction: direction.unwrap(),
+            show_edges,
+        },
+        GeometricSubcommand::Transitive { .. } => GeometricSubcommand::Transitive {
+            function_id: function_id.unwrap_or(0),
+            show_reduction,
+            node_id,
+        },
+        GeometricSubcommand::Context { .. } => GeometricSubcommand::Context {
+            file: file.unwrap(),
+            line: line.unwrap(),
+            context: context.unwrap_or(5),
+        },
+        GeometricSubcommand::Range { .. } => GeometricSubcommand::Range {
+            file: file.unwrap(),
+            start: start.unwrap(),
+            end: end.unwrap(),
+        },
+        GeometricSubcommand::Nav { .. } => GeometricSubcommand::Nav {
+            file: file.unwrap(),
+            line: line.unwrap(),
+            direction: direction.unwrap_or_else(|| "next".to_string()),
+        },
+        GeometricSubcommand::Page { .. } => GeometricSubcommand::Page {
+            file: file.unwrap(),
+            page: page.unwrap_or(0),
+            size: size.unwrap_or(50),
+        },
+        _ => subcommand,
+    };
+
+    Ok(Command::Geometric {
+        subcommand: final_subcommand,
+        db_path: db_path.unwrap(),
+        root_path,
+        function_name,
+    })
+}
+
 /// Convenience wrapper around parse_args_impl that uses the version module
 pub fn parse_args() -> Result<Command> {
     parse_args_impl(|| {
@@ -2778,8 +3573,10 @@ mod tests {
         // Manual line count verification - short usage should be brief
         // This test documents the requirement: short help ≤25 lines
         let short_help_lines = 15; // Estimated from print_short_usage()
-        assert!(short_help_lines <= 25,
-            "Short help should be ≤25 lines to ensure users actually read it");
+        assert!(
+            short_help_lines <= 25,
+            "Short help should be ≤25 lines to ensure users actually read it"
+        );
     }
 
     /// Test that watch command parsing works correctly
@@ -2801,10 +3598,12 @@ mod tests {
             validate_only: false,
             output_format: OutputFormat::Human,
         };
-        
+
         // Verify we can construct the command
         match cmd {
-            Command::Watch { root_path, db_path, .. } => {
+            Command::Watch {
+                root_path, db_path, ..
+            } => {
                 assert_eq!(root_path, PathBuf::from("."));
                 assert_eq!(db_path, PathBuf::from("test.db"));
             }
@@ -2832,9 +3631,13 @@ mod tests {
             with_checksums: false,
             context_lines: 3,
         };
-        
+
         match cmd {
-            Command::Find { name, output_format, .. } => {
+            Command::Find {
+                name,
+                output_format,
+                ..
+            } => {
                 assert_eq!(name, Some("test_function".to_string()));
                 assert!(matches!(output_format, OutputFormat::Json));
             }
@@ -2843,19 +3646,28 @@ mod tests {
     }
 
     // Tests for extracted parser functions
-    
+
     #[test]
     fn test_parse_watch_args() {
         let args = vec![
-            "--root".to_string(), "/home/test".to_string(),
-            "--db".to_string(), "test.db".to_string(),
-            "--debounce-ms".to_string(), "1000".to_string(),
+            "--root".to_string(),
+            "/home/test".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--debounce-ms".to_string(),
+            "1000".to_string(),
             "--watch-only".to_string(),
         ];
-        
+
         let result = parse_watch_args(&args).unwrap();
         match result {
-            Command::Watch { root_path, db_path, config, scan_initial, .. } => {
+            Command::Watch {
+                root_path,
+                db_path,
+                config,
+                scan_initial,
+                ..
+            } => {
                 assert_eq!(root_path, PathBuf::from("/home/test"));
                 assert_eq!(db_path, PathBuf::from("test.db"));
                 assert_eq!(config.debounce_ms, 1000);
@@ -2868,7 +3680,7 @@ mod tests {
     #[test]
     fn test_parse_watch_args_missing_required() {
         let args = vec!["--root".to_string(), "/home/test".to_string()];
-        
+
         let result = parse_watch_args(&args);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("--db is required"));
@@ -2877,14 +3689,22 @@ mod tests {
     #[test]
     fn test_parse_export_args() {
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--format".to_string(), "json".to_string(),
-            "--output".to_string(), "output.json".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--format".to_string(),
+            "json".to_string(),
+            "--output".to_string(),
+            "output.json".to_string(),
         ];
-        
+
         let result = parse_export_args(&args).unwrap();
         match result {
-            Command::Export { db_path, format, output, .. } => {
+            Command::Export {
+                db_path,
+                format,
+                output,
+                ..
+            } => {
                 assert_eq!(db_path, PathBuf::from("test.db"));
                 assert_eq!(format, ExportFormat::Json);
                 assert_eq!(output, Some(PathBuf::from("output.json")));
@@ -2896,10 +3716,13 @@ mod tests {
     #[test]
     fn test_parse_status_args() {
         let args = vec!["--db".to_string(), "test.db".to_string()];
-        
+
         let result = parse_status_args(&args).unwrap();
         match result {
-            Command::Status { db_path, output_format } => {
+            Command::Status {
+                db_path,
+                output_format,
+            } => {
                 assert_eq!(db_path, PathBuf::from("test.db"));
                 assert!(matches!(output_format, OutputFormat::Human));
             }
@@ -2910,15 +3733,24 @@ mod tests {
     #[test]
     fn test_parse_find_args() {
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--name".to_string(), "my_function".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--name".to_string(),
+            "my_function".to_string(),
             "--first".to_string(),
-            "--output".to_string(), "json".to_string(),
+            "--output".to_string(),
+            "json".to_string(),
         ];
-        
+
         let result = parse_find_args(&args).unwrap();
         match result {
-            Command::Find { db_path, name, first, output_format, .. } => {
+            Command::Find {
+                db_path,
+                name,
+                first,
+                output_format,
+                ..
+            } => {
                 assert_eq!(db_path, PathBuf::from("test.db"));
                 assert_eq!(name, Some("my_function".to_string()));
                 assert!(first);
@@ -2931,13 +3763,17 @@ mod tests {
     #[test]
     fn test_parse_find_args_by_symbol_id() {
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--symbol-id".to_string(), "abc123".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--symbol-id".to_string(),
+            "abc123".to_string(),
         ];
-        
+
         let result = parse_find_args(&args).unwrap();
         match result {
-            Command::Find { db_path, symbol_id, .. } => {
+            Command::Find {
+                db_path, symbol_id, ..
+            } => {
                 assert_eq!(db_path, PathBuf::from("test.db"));
                 assert_eq!(symbol_id, Some("abc123".to_string()));
             }
@@ -2949,12 +3785,17 @@ mod tests {
     fn test_parse_find_args_without_name_or_symbol() {
         // Find can work without --name or --symbol-id (lists all symbols)
         let args = vec!["--db".to_string(), "test.db".to_string()];
-        
+
         let result = parse_find_args(&args);
         assert!(result.is_ok());
-        
+
         match result.unwrap() {
-            Command::Find { db_path, name, symbol_id, .. } => {
+            Command::Find {
+                db_path,
+                name,
+                symbol_id,
+                ..
+            } => {
                 assert_eq!(db_path, PathBuf::from("test.db"));
                 assert_eq!(name, None);
                 assert_eq!(symbol_id, None);
@@ -2966,19 +3807,58 @@ mod tests {
     #[test]
     fn test_parse_refs_args() {
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--name".to_string(), "my_function".to_string(),
-            "--path".to_string(), "src/main.rs".to_string(),
-            "--direction".to_string(), "out".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--name".to_string(),
+            "my_function".to_string(),
+            "--path".to_string(),
+            "src/main.rs".to_string(),
+            "--direction".to_string(),
+            "out".to_string(),
         ];
-        
+
         let result = parse_refs_args(&args).unwrap();
         match result {
-            Command::Refs { db_path, name, direction, path, .. } => {
+            Command::Refs {
+                db_path,
+                name,
+                direction,
+                path,
+                ..
+            } => {
                 assert_eq!(db_path, PathBuf::from("test.db"));
                 assert_eq!(name, "my_function".to_string());
-                assert_eq!(path, PathBuf::from("src/main.rs"));
+                assert_eq!(path, Some(PathBuf::from("src/main.rs")));
                 assert_eq!(direction, "out");
+            }
+            _ => panic!("Expected Refs command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_refs_args_without_path() {
+        let args = vec![
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--name".to_string(),
+            "my_function".to_string(),
+            "--direction".to_string(),
+            "in".to_string(),
+        ];
+
+        let result = parse_refs_args(&args).unwrap();
+        match result {
+            Command::Refs {
+                db_path,
+                name,
+                direction,
+                path,
+                ..
+            } => {
+                assert_eq!(db_path, PathBuf::from("test.db"));
+                assert_eq!(name, "my_function".to_string());
+                assert_eq!(path, None);
+                assert_eq!(direction, "in");
             }
             _ => panic!("Expected Refs command"),
         }
@@ -2987,15 +3867,24 @@ mod tests {
     #[test]
     fn test_parse_get_args() {
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--file".to_string(), "src/main.rs".to_string(),
-            "--symbol".to_string(), "main".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--file".to_string(),
+            "src/main.rs".to_string(),
+            "--symbol".to_string(),
+            "main".to_string(),
             "--with-context".to_string(),
         ];
-        
+
         let result = parse_get_args(&args).unwrap();
         match result {
-            Command::Get { db_path, file_path, symbol_name, with_context, .. } => {
+            Command::Get {
+                db_path,
+                file_path,
+                symbol_name,
+                with_context,
+                ..
+            } => {
                 assert_eq!(db_path, PathBuf::from("test.db"));
                 assert_eq!(file_path, "src/main.rs".to_string());
                 assert_eq!(symbol_name, "main".to_string());
@@ -3008,10 +3897,12 @@ mod tests {
     #[test]
     fn test_parse_get_file_args() {
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--file".to_string(), "src/main.rs".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--file".to_string(),
+            "src/main.rs".to_string(),
         ];
-        
+
         let result = parse_get_file_args(&args).unwrap();
         match result {
             Command::GetFile { db_path, file_path } => {
@@ -3025,14 +3916,20 @@ mod tests {
     #[test]
     fn test_parse_files_args() {
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
             "--symbols".to_string(),
-            "--output".to_string(), "json".to_string(),
+            "--output".to_string(),
+            "json".to_string(),
         ];
-        
+
         let result = parse_files_args(&args).unwrap();
         match result {
-            Command::Files { db_path, with_symbols, output_format } => {
+            Command::Files {
+                db_path,
+                with_symbols,
+                output_format,
+            } => {
                 assert_eq!(db_path, PathBuf::from("test.db"));
                 assert!(with_symbols);
                 assert!(matches!(output_format, OutputFormat::Json));
@@ -3044,10 +3941,12 @@ mod tests {
     #[test]
     fn test_parse_verify_args() {
         let args = vec![
-            "--root".to_string(), "/home/test".to_string(),
-            "--db".to_string(), "test.db".to_string(),
+            "--root".to_string(),
+            "/home/test".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
         ];
-        
+
         let result = parse_verify_args(&args).unwrap();
         match result {
             Command::Verify { root_path, db_path } => {
@@ -3061,15 +3960,23 @@ mod tests {
     #[test]
     fn test_parse_label_args() {
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--label".to_string(), "important".to_string(),
-            "--label".to_string(), "refactored".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--label".to_string(),
+            "important".to_string(),
+            "--label".to_string(),
+            "refactored".to_string(),
             "--list".to_string(),
         ];
-        
+
         let result = parse_label_args(&args).unwrap();
         match result {
-            Command::Label { db_path, label, list, .. } => {
+            Command::Label {
+                db_path,
+                label,
+                list,
+                ..
+            } => {
                 assert_eq!(db_path, PathBuf::from("test.db"));
                 assert_eq!(label, vec!["important", "refactored"]);
                 assert!(list);
@@ -3081,14 +3988,22 @@ mod tests {
     #[test]
     fn test_parse_collisions_args() {
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--field".to_string(), "display_fqn".to_string(),
-            "--limit".to_string(), "50".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--field".to_string(),
+            "display_fqn".to_string(),
+            "--limit".to_string(),
+            "50".to_string(),
         ];
-        
+
         let result = parse_collisions_args(&args).unwrap();
         match result {
-            Command::Collisions { db_path, field, limit, .. } => {
+            Command::Collisions {
+                db_path,
+                field,
+                limit,
+                ..
+            } => {
                 assert_eq!(db_path, PathBuf::from("test.db"));
                 assert!(matches!(field, CollisionField::DisplayFqn));
                 assert_eq!(limit, 50);
@@ -3100,14 +4015,20 @@ mod tests {
     #[test]
     fn test_parse_migrate_args() {
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
             "--dry-run".to_string(),
             "--no-backup".to_string(),
         ];
-        
+
         let result = parse_migrate_args(&args).unwrap();
         match result {
-            Command::Migrate { db_path, dry_run, no_backup, .. } => {
+            Command::Migrate {
+                db_path,
+                dry_run,
+                no_backup,
+                ..
+            } => {
                 assert_eq!(db_path, PathBuf::from("test.db"));
                 assert!(dry_run);
                 assert!(no_backup);
@@ -3119,14 +4040,21 @@ mod tests {
     #[test]
     fn test_parse_migrate_backend_args() {
         let args = vec![
-            "--input".to_string(), "old.db".to_string(),
-            "--output".to_string(), "new.db".to_string(),
+            "--input".to_string(),
+            "old.db".to_string(),
+            "--output".to_string(),
+            "new.db".to_string(),
             "--dry-run".to_string(),
         ];
-        
+
         let result = parse_migrate_backend_args(&args).unwrap();
         match result {
-            Command::MigrateBackend { input_db, output_db, dry_run, .. } => {
+            Command::MigrateBackend {
+                input_db,
+                output_db,
+                dry_run,
+                ..
+            } => {
                 assert_eq!(input_db, PathBuf::from("old.db"));
                 assert_eq!(output_db, PathBuf::from("new.db"));
                 assert!(dry_run);
@@ -3138,15 +4066,24 @@ mod tests {
     #[test]
     fn test_parse_query_args() {
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--file".to_string(), "src/main.rs".to_string(),
-            "--kind".to_string(), "function".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--file".to_string(),
+            "src/main.rs".to_string(),
+            "--kind".to_string(),
+            "function".to_string(),
             "--explain".to_string(),
         ];
-        
+
         let result = parse_query_args(&args).unwrap();
         match result {
-            Command::Query { db_path, file_path, kind, explain, .. } => {
+            Command::Query {
+                db_path,
+                file_path,
+                kind,
+                explain,
+                ..
+            } => {
                 assert_eq!(db_path, PathBuf::from("test.db"));
                 assert_eq!(file_path, Some(PathBuf::from("src/main.rs")));
                 assert_eq!(kind, Some("function".to_string()));
@@ -3159,14 +4096,22 @@ mod tests {
     #[test]
     fn test_parse_chunks_args() {
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--limit".to_string(), "100".to_string(),
-            "--file".to_string(), "*.rs".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--limit".to_string(),
+            "100".to_string(),
+            "--file".to_string(),
+            "*.rs".to_string(),
         ];
-        
+
         let result = parse_chunks_args(&args).unwrap();
         match result {
-            Command::Chunks { db_path, limit, file_filter, .. } => {
+            Command::Chunks {
+                db_path,
+                limit,
+                file_filter,
+                ..
+            } => {
                 assert_eq!(db_path, PathBuf::from("test.db"));
                 assert_eq!(limit, Some(100));
                 assert_eq!(file_filter, Some("*.rs".to_string()));
@@ -3178,15 +4123,25 @@ mod tests {
     #[test]
     fn test_parse_chunk_by_span_args() {
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--file".to_string(), "src/main.rs".to_string(),
-            "--start".to_string(), "100".to_string(),
-            "--end".to_string(), "200".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--file".to_string(),
+            "src/main.rs".to_string(),
+            "--start".to_string(),
+            "100".to_string(),
+            "--end".to_string(),
+            "200".to_string(),
         ];
-        
+
         let result = parse_chunk_by_span_args(&args).unwrap();
         match result {
-            Command::ChunkBySpan { db_path, file_path, byte_start, byte_end, .. } => {
+            Command::ChunkBySpan {
+                db_path,
+                file_path,
+                byte_start,
+                byte_end,
+                ..
+            } => {
                 assert_eq!(db_path, PathBuf::from("test.db"));
                 assert_eq!(file_path, "src/main.rs".to_string());
                 assert_eq!(byte_start, 100);
@@ -3199,13 +4154,19 @@ mod tests {
     #[test]
     fn test_parse_chunk_by_symbol_args() {
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--symbol".to_string(), "my_function".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--symbol".to_string(),
+            "my_function".to_string(),
         ];
-        
+
         let result = parse_chunk_by_symbol_args(&args).unwrap();
         match result {
-            Command::ChunkBySymbol { db_path, symbol_name, .. } => {
+            Command::ChunkBySymbol {
+                db_path,
+                symbol_name,
+                ..
+            } => {
                 assert_eq!(db_path, PathBuf::from("test.db"));
                 assert_eq!(symbol_name, "my_function".to_string());
             }
@@ -3216,14 +4177,22 @@ mod tests {
     #[test]
     fn test_parse_ast_args() {
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--file".to_string(), "src/main.rs".to_string(),
-            "--position".to_string(), "150".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--file".to_string(),
+            "src/main.rs".to_string(),
+            "--position".to_string(),
+            "150".to_string(),
         ];
-        
+
         let result = parse_ast_args(&args).unwrap();
         match result {
-            Command::Ast { db_path, file_path, position, .. } => {
+            Command::Ast {
+                db_path,
+                file_path,
+                position,
+                ..
+            } => {
                 assert_eq!(db_path, PathBuf::from("test.db"));
                 assert_eq!(file_path, "src/main.rs".to_string());
                 assert_eq!(position, Some(150));
@@ -3235,10 +4204,12 @@ mod tests {
     #[test]
     fn test_parse_find_ast_args() {
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--kind".to_string(), "function".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--kind".to_string(),
+            "function".to_string(),
         ];
-        
+
         let result = parse_find_ast_args(&args).unwrap();
         match result {
             Command::FindAst { db_path, kind, .. } => {
@@ -3252,14 +4223,21 @@ mod tests {
     #[test]
     fn test_parse_reachable_args() {
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--symbol".to_string(), "main::test".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--symbol".to_string(),
+            "main::test".to_string(),
             "--reverse".to_string(),
         ];
-        
+
         let result = parse_reachable_args(&args).unwrap();
         match result {
-            Command::Reachable { db_path, symbol_id, reverse, .. } => {
+            Command::Reachable {
+                db_path,
+                symbol_id,
+                reverse,
+                ..
+            } => {
                 assert_eq!(db_path, PathBuf::from("test.db"));
                 assert_eq!(symbol_id, "main::test".to_string());
                 assert!(reverse);
@@ -3271,13 +4249,19 @@ mod tests {
     #[test]
     fn test_parse_dead_code_args() {
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--entry".to_string(), "main".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--entry".to_string(),
+            "main".to_string(),
         ];
-        
+
         let result = parse_dead_code_args(&args).unwrap();
         match result {
-            Command::DeadCode { db_path, entry_symbol_id, .. } => {
+            Command::DeadCode {
+                db_path,
+                entry_symbol_id,
+                ..
+            } => {
                 assert_eq!(db_path, PathBuf::from("test.db"));
                 assert_eq!(entry_symbol_id, "main".to_string());
             }
@@ -3288,13 +4272,17 @@ mod tests {
     #[test]
     fn test_parse_cycles_args() {
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--symbol".to_string(), "main".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--symbol".to_string(),
+            "main".to_string(),
         ];
-        
+
         let result = parse_cycles_args(&args).unwrap();
         match result {
-            Command::Cycles { db_path, symbol_id, .. } => {
+            Command::Cycles {
+                db_path, symbol_id, ..
+            } => {
                 assert_eq!(db_path, PathBuf::from("test.db"));
                 assert_eq!(symbol_id, Some("main".to_string()));
             }
@@ -3303,15 +4291,21 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "geometric-backend")]
     fn test_parse_condense_args() {
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
             "--members".to_string(),
         ];
-        
+
         let result = parse_condense_args(&args).unwrap();
         match result {
-            Command::Condense { db_path, show_members, .. } => {
+            Command::Condense {
+                db_path,
+                show_members,
+                ..
+            } => {
                 assert_eq!(db_path, PathBuf::from("test.db"));
                 assert!(show_members);
             }
@@ -3320,17 +4314,28 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "geometric-backend")]
     fn test_parse_paths_args() {
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--start".to_string(), "main".to_string(),
-            "--end".to_string(), "helper".to_string(),
-            "--max-depth".to_string(), "50".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--start".to_string(),
+            "main".to_string(),
+            "--end".to_string(),
+            "helper".to_string(),
+            "--max-depth".to_string(),
+            "50".to_string(),
         ];
-        
+
         let result = parse_paths_args(&args).unwrap();
         match result {
-            Command::Paths { db_path, start_symbol_id, end_symbol_id, max_depth, .. } => {
+            Command::Paths {
+                db_path,
+                start_symbol_id,
+                end_symbol_id,
+                max_depth,
+                ..
+            } => {
                 assert_eq!(db_path, PathBuf::from("test.db"));
                 assert_eq!(start_symbol_id, "main".to_string());
                 assert_eq!(end_symbol_id, Some("helper".to_string()));
@@ -3343,15 +4348,24 @@ mod tests {
     #[test]
     fn test_parse_slice_args() {
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--target".to_string(), "main".to_string(),
-            "--direction".to_string(), "forward".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--target".to_string(),
+            "main".to_string(),
+            "--direction".to_string(),
+            "forward".to_string(),
             "--verbose".to_string(),
         ];
-        
+
         let result = parse_slice_args(&args).unwrap();
         match result {
-            Command::Slice { db_path, target, direction, verbose, .. } => {
+            Command::Slice {
+                db_path,
+                target,
+                direction,
+                verbose,
+                ..
+            } => {
                 assert_eq!(db_path, PathBuf::from("test.db"));
                 assert_eq!(target, "main".to_string());
                 assert_eq!(direction, "forward".to_string());
@@ -3365,22 +4379,28 @@ mod tests {
     fn test_parse_output_format_validation() {
         // Test invalid output format is rejected
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--output".to_string(), "invalid_format".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--output".to_string(),
+            "invalid_format".to_string(),
         ];
-        
+
         let result = parse_status_args(&args);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Invalid output format"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid output format"));
     }
 
     #[test]
     fn test_parse_unknown_argument() {
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
             "--unknown-flag".to_string(),
         ];
-        
+
         let result = parse_status_args(&args);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Unknown argument"));
@@ -3389,7 +4409,7 @@ mod tests {
     #[test]
     fn test_parse_missing_argument_value() {
         let args = vec!["--db".to_string()]; // Missing value for --db
-        
+
         let result = parse_status_args(&args);
         assert!(result.is_err());
     }
@@ -3402,7 +4422,7 @@ mod tests {
     #[test]
     fn test_edge_empty_args() {
         let args: Vec<String> = vec![];
-        
+
         // All parsers should fail with missing --db
         assert!(parse_status_args(&args).is_err());
         assert!(parse_files_args(&args).is_err());
@@ -3414,22 +4434,34 @@ mod tests {
     fn test_edge_arg_order_independence() {
         // Order 1: --db first
         let args1 = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--output".to_string(), "json".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--output".to_string(),
+            "json".to_string(),
         ];
-        
+
         // Order 2: --output first
         let args2 = vec![
-            "--output".to_string(), "json".to_string(),
-            "--db".to_string(), "test.db".to_string(),
+            "--output".to_string(),
+            "json".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
         ];
-        
+
         let result1 = parse_status_args(&args1).unwrap();
         let result2 = parse_status_args(&args2).unwrap();
-        
+
         match (result1, result2) {
-            (Command::Status { db_path: db1, output_format: fmt1 },
-             Command::Status { db_path: db2, output_format: fmt2 }) => {
+            (
+                Command::Status {
+                    db_path: db1,
+                    output_format: fmt1,
+                },
+                Command::Status {
+                    db_path: db2,
+                    output_format: fmt2,
+                },
+            ) => {
                 assert_eq!(db1, db2);
                 assert!(matches!(fmt1, OutputFormat::Json));
                 assert!(matches!(fmt2, OutputFormat::Json));
@@ -3442,10 +4474,12 @@ mod tests {
     #[test]
     fn test_edge_duplicate_args() {
         let args = vec![
-            "--db".to_string(), "first.db".to_string(),
-            "--db".to_string(), "second.db".to_string(),
+            "--db".to_string(),
+            "first.db".to_string(),
+            "--db".to_string(),
+            "second.db".to_string(),
         ];
-        
+
         let result = parse_status_args(&args).unwrap();
         match result {
             Command::Status { db_path, .. } => {
@@ -3459,10 +4493,8 @@ mod tests {
     /// Test special characters in path arguments
     #[test]
     fn test_edge_special_chars_in_paths() {
-        let args = vec![
-            "--db".to_string(), "/path/with spaces/file.db".to_string(),
-        ];
-        
+        let args = vec!["--db".to_string(), "/path/with spaces/file.db".to_string()];
+
         let result = parse_status_args(&args).unwrap();
         match result {
             Command::Status { db_path, .. } => {
@@ -3476,10 +4508,12 @@ mod tests {
     #[test]
     fn test_edge_unicode_args() {
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--name".to_string(), "函数_🎉".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--name".to_string(),
+            "函数_🎉".to_string(),
         ];
-        
+
         let result = parse_find_args(&args).unwrap();
         match result {
             Command::Find { name, .. } => {
@@ -3494,10 +4528,12 @@ mod tests {
     fn test_edge_long_argument_values() {
         let long_name = "a".repeat(1000);
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--name".to_string(), long_name.clone(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--name".to_string(),
+            long_name.clone(),
         ];
-        
+
         let result = parse_find_args(&args).unwrap();
         match result {
             Command::Find { name, .. } => {
@@ -3511,11 +4547,14 @@ mod tests {
     #[test]
     fn test_edge_context_lines_max() {
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--name".to_string(), "test".to_string(),
-            "--context-lines".to_string(), "100".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--name".to_string(),
+            "test".to_string(),
+            "--context-lines".to_string(),
+            "100".to_string(),
         ];
-        
+
         let result = parse_find_args(&args).unwrap();
         match result {
             Command::Find { context_lines, .. } => {
@@ -3529,11 +4568,14 @@ mod tests {
     #[test]
     fn test_edge_context_lines_above_max() {
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--name".to_string(), "test".to_string(),
-            "--context-lines".to_string(), "200".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--name".to_string(),
+            "test".to_string(),
+            "--context-lines".to_string(),
+            "200".to_string(),
         ];
-        
+
         let result = parse_find_args(&args).unwrap();
         match result {
             Command::Find { context_lines, .. } => {
@@ -3548,11 +4590,14 @@ mod tests {
     #[test]
     fn test_edge_context_lines_zero() {
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--name".to_string(), "test".to_string(),
-            "--context-lines".to_string(), "0".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--name".to_string(),
+            "test".to_string(),
+            "--context-lines".to_string(),
+            "0".to_string(),
         ];
-        
+
         let result = parse_find_args(&args).unwrap();
         match result {
             Command::Find { context_lines, .. } => {
@@ -3566,10 +4611,12 @@ mod tests {
     #[test]
     fn test_edge_invalid_integer() {
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--limit".to_string(), "not_a_number".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--limit".to_string(),
+            "not_a_number".to_string(),
         ];
-        
+
         let result = parse_chunks_args(&args);
         assert!(result.is_err());
     }
@@ -3578,10 +4625,12 @@ mod tests {
     #[test]
     fn test_edge_negative_integer() {
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--limit".to_string(), "-5".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--limit".to_string(),
+            "-5".to_string(),
         ];
-        
+
         // This should parse but may cause issues later - just verify it doesn't panic
         let result = parse_chunks_args(&args);
         // Note: The result depends on whether the type accepts negative values
@@ -3593,10 +4642,12 @@ mod tests {
     #[test]
     fn test_edge_empty_string_values() {
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--name".to_string(), "".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--name".to_string(),
+            "".to_string(),
         ];
-        
+
         let result = parse_find_args(&args).unwrap();
         match result {
             Command::Find { name, .. } => {
@@ -3610,8 +4661,10 @@ mod tests {
     #[test]
     fn test_edge_combined_boolean_flags() {
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--name".to_string(), "test".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--name".to_string(),
+            "test".to_string(),
             "--first".to_string(),
             "--with-context".to_string(),
             "--with-callers".to_string(),
@@ -3619,17 +4672,17 @@ mod tests {
             "--with-semantics".to_string(),
             "--with-checksums".to_string(),
         ];
-        
+
         let result = parse_find_args(&args).unwrap();
         match result {
-            Command::Find { 
-                first, 
-                with_context, 
-                with_callers, 
-                with_callees, 
-                with_semantics, 
-                with_checksums, 
-                .. 
+            Command::Find {
+                first,
+                with_context,
+                with_callers,
+                with_callees,
+                with_semantics,
+                with_checksums,
+                ..
             } => {
                 assert!(first);
                 assert!(with_context);
@@ -3652,10 +4705,12 @@ mod tests {
             ("canonical_fqn", CollisionField::CanonicalFqn),
         ] {
             let args = vec![
-                "--db".to_string(), "test.db".to_string(),
-                "--field".to_string(), field_str.to_string(),
+                "--db".to_string(),
+                "test.db".to_string(),
+                "--field".to_string(),
+                field_str.to_string(),
             ];
-            
+
             let result = parse_collisions_args(&args).unwrap();
             match result {
                 Command::Collisions { field, .. } => {
@@ -3670,10 +4725,12 @@ mod tests {
     #[test]
     fn test_edge_invalid_collision_field() {
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--field".to_string(), "invalid_field".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--field".to_string(),
+            "invalid_field".to_string(),
         ];
-        
+
         let result = parse_collisions_args(&args);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Invalid field"));
@@ -3685,12 +4742,16 @@ mod tests {
         // Valid directions: "in" and "out"
         for direction in ["in", "out"] {
             let args = vec![
-                "--db".to_string(), "test.db".to_string(),
-                "--name".to_string(), "test".to_string(),
-                "--path".to_string(), "src/main.rs".to_string(),
-                "--direction".to_string(), direction.to_string(),
+                "--db".to_string(),
+                "test.db".to_string(),
+                "--name".to_string(),
+                "test".to_string(),
+                "--path".to_string(),
+                "src/main.rs".to_string(),
+                "--direction".to_string(),
+                direction.to_string(),
             ];
-            
+
             let result = parse_refs_args(&args).unwrap();
             match result {
                 Command::Refs { direction: dir, .. } => {
@@ -3705,15 +4766,22 @@ mod tests {
     #[test]
     fn test_edge_invalid_refs_direction() {
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--name".to_string(), "test".to_string(),
-            "--path".to_string(), "src/main.rs".to_string(),
-            "--direction".to_string(), "invalid".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--name".to_string(),
+            "test".to_string(),
+            "--path".to_string(),
+            "src/main.rs".to_string(),
+            "--direction".to_string(),
+            "invalid".to_string(),
         ];
-        
+
         let result = parse_refs_args(&args);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Invalid direction"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid direction"));
     }
 
     /// Test slice direction validation
@@ -3721,42 +4789,56 @@ mod tests {
     fn test_edge_slice_direction_validation() {
         // Valid: backward
         let args1 = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--target".to_string(), "main".to_string(),
-            "--direction".to_string(), "backward".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--target".to_string(),
+            "main".to_string(),
+            "--direction".to_string(),
+            "backward".to_string(),
         ];
         assert!(parse_slice_args(&args1).is_ok());
 
         // Valid: forward
         let args2 = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--target".to_string(), "main".to_string(),
-            "--direction".to_string(), "forward".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--target".to_string(),
+            "main".to_string(),
+            "--direction".to_string(),
+            "forward".to_string(),
         ];
         assert!(parse_slice_args(&args2).is_ok());
 
         // Invalid direction
         let args3 = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--target".to_string(), "main".to_string(),
-            "--direction".to_string(), "sideways".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--target".to_string(),
+            "main".to_string(),
+            "--direction".to_string(),
+            "sideways".to_string(),
         ];
         let result = parse_slice_args(&args3);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Invalid direction"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid direction"));
     }
 
     /// Test export format variants
     #[test]
     fn test_edge_export_format_variants() {
         let formats = vec!["json", "jsonl", "csv", "scip", "dot"];
-        
+
         for format in formats {
             let args = vec![
-                "--db".to_string(), "test.db".to_string(),
-                "--format".to_string(), format.to_string(),
+                "--db".to_string(),
+                "test.db".to_string(),
+                "--format".to_string(),
+                format.to_string(),
             ];
-            
+
             let result = parse_export_args(&args);
             assert!(result.is_ok(), "Format {} should be valid", format);
         }
@@ -3766,12 +4848,16 @@ mod tests {
     #[test]
     fn test_edge_multiple_labels() {
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--label".to_string(), "label1".to_string(),
-            "--label".to_string(), "label2".to_string(),
-            "--label".to_string(), "label3".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--label".to_string(),
+            "label1".to_string(),
+            "--label".to_string(),
+            "label2".to_string(),
+            "--label".to_string(),
+            "label3".to_string(),
         ];
-        
+
         let result = parse_label_args(&args).unwrap();
         match result {
             Command::Label { label, .. } => {
@@ -3786,11 +4872,13 @@ mod tests {
     fn test_edge_watch_mode_flags() {
         // watch-only should disable scan_initial
         let args = vec![
-            "--root".to_string(), "/test".to_string(),
-            "--db".to_string(), "test.db".to_string(),
+            "--root".to_string(),
+            "/test".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
             "--watch-only".to_string(),
         ];
-        
+
         let result = parse_watch_args(&args).unwrap();
         match result {
             Command::Watch { scan_initial, .. } => {
@@ -3810,13 +4898,15 @@ mod tests {
             "/path/with@symbol/file.rs",
             "/path/with#hash/file.rs",
         ];
-        
+
         for path in special_paths {
             let args = vec![
-                "--db".to_string(), "test.db".to_string(),
-                "--file".to_string(), path.to_string(),
+                "--db".to_string(),
+                "test.db".to_string(),
+                "--file".to_string(),
+                path.to_string(),
             ];
-            
+
             let result = parse_get_file_args(&args);
             assert!(result.is_ok(), "Path {} should be valid", path);
         }
@@ -3826,9 +4916,7 @@ mod tests {
     #[test]
     fn test_edge_absolute_vs_relative_paths() {
         // Absolute path
-        let args1 = vec![
-            "--db".to_string(), "/absolute/path/to/test.db".to_string(),
-        ];
+        let args1 = vec!["--db".to_string(), "/absolute/path/to/test.db".to_string()];
         let result1 = parse_status_args(&args1).unwrap();
         match result1 {
             Command::Status { db_path, .. } => {
@@ -3838,9 +4926,7 @@ mod tests {
         }
 
         // Relative path
-        let args2 = vec![
-            "--db".to_string(), "./relative/path/to/test.db".to_string(),
-        ];
+        let args2 = vec!["--db".to_string(), "./relative/path/to/test.db".to_string()];
         let result2 = parse_status_args(&args2).unwrap();
         match result2 {
             Command::Status { db_path, .. } => {
@@ -3855,10 +4941,12 @@ mod tests {
     fn test_edge_arguments_with_equals() {
         // This tests that we handle values that might contain equals signs
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--name".to_string(), "foo=bar".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--name".to_string(),
+            "foo=bar".to_string(),
         ];
-        
+
         let result = parse_find_args(&args).unwrap();
         match result {
             Command::Find { name, .. } => {
@@ -3872,10 +4960,12 @@ mod tests {
     #[test]
     fn test_edge_newline_in_arguments() {
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--name".to_string(), "line1\nline2".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--name".to_string(),
+            "line1\nline2".to_string(),
         ];
-        
+
         let result = parse_find_args(&args).unwrap();
         match result {
             Command::Find { name, .. } => {
@@ -3889,10 +4979,12 @@ mod tests {
     #[test]
     fn test_edge_tab_in_arguments() {
         let args = vec![
-            "--db".to_string(), "test.db".to_string(),
-            "--name".to_string(), "col1\tcol2".to_string(),
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--name".to_string(),
+            "col1\tcol2".to_string(),
         ];
-        
+
         let result = parse_find_args(&args).unwrap();
         match result {
             Command::Find { name, .. } => {

@@ -1,6 +1,6 @@
 # Magellan Operator Manual
 
-**Version 3.0.0** | *Last Updated: 2026-03-02*
+**Version 3.1.0** | *Last Updated: 2026-03-10*
 
 Comprehensive instructions for operating Magellan.
 
@@ -22,24 +22,25 @@ Magellan can be used standalone, but its primary purpose is to enable downstream
 
 1. [Installation](#1-installation)
 2. [Quick Start](#2-quick-start)
-3. [Position Conventions](#3-position-conventions)
-4. [Command Reference](#4-command-reference)
-5. [Graph Algorithms](#5-graph-algorithms)
-6. [Known Limitations](#6-known-limitations)
-7. [Supported Languages](#7-supported-languages)
-8. [Database Schema](#8-database-schema)
-9. [Error Handling](#9-error-handling)
-10. [Troubleshooting](#10-troubleshooting)
-11. [Security Best Practices](#11-security-best-practices)
-12. [Architecture](#architecture)
+3. [Backend Selection and Detection](#3-backend-selection-and-detection-v310)
+4. [Position Conventions](#4-position-conventions)
+5. [Command Reference](#5-command-reference)
+6. [Graph Algorithms](#6-graph-algorithms)
+7. [Known Limitations](#7-known-limitations)
+8. [Supported Languages](#8-supported-languages)
+9. [Database Schema](#9-database-schema)
+10. [Error Handling](#10-error-handling)
+11. [Troubleshooting](#11-troubleshooting)
+12. [Security Best Practices](#12-security-best-practices)
+13. [Architecture](#architecture)
     - [Backend Architecture](#backend-architecture-v240)
     - [Threading Model](#threading-model-v17)
-13. [Exit Codes](#exit-codes)
-14. [Context API](#14-context-api)
+14. [Exit Codes](#exit-codes)
+15. [Context API](#14-context-api)
     - JSON Contract
     - Benchmarks
     - Stress Tests
-15. [v3.0.0 New Features](#14-v300-new-features)
+16. [v3.1.0 New Features](#16-v310-new-features)
 
 ---
 
@@ -70,28 +71,84 @@ sudo chmod +x /usr/local/bin/magellan
 
 ### 1.3 Feature Flags
 
-#### Backend Selection (v2.4.0)
+#### Backend Selection (v3.0.0)
 
 Magellan supports multiple storage backends via feature flags:
 
 | Feature | Description | File Extension | Use Case |
 |---------|-------------|----------------|----------|
+| `geometric-backend` | **3D spatial indexing with CFG analysis** | `.geo` | LLM navigation, control flow analysis |
 | `native-v3` | **High-performance binary backend** with KV store | `.v3` | Recommended for performance |
 | `sqlite-backend` | Stable SQLite backend (default) | `.db` | Compatibility, debugging |
 | `native-v2` | Legacy binary backend (deprecated) | `.v3` | Legacy support only |
 
 **Important:**
 - Only one backend feature should be enabled at build time
-- V3 backend stores ALL data (graph + side tables) in a single `.v3` file
-- V3 backend has zero SQLite dependency for optimal performance
-- Database files are **not** compatible between backends (`.db` ≠ `.v3`)
+- Database files are **not** compatible between backends (`.geo` ≠ `.v3` ≠ `.db`)
+- Each backend has different strengths (see below)
 
 ```bash
+# Build with Geometric backend (CFG analysis + LLM navigation)
+cargo build --release --features geometric-backend
+
 # Build with V3 backend (recommended for production)
 cargo build --release --features native-v3
 
 # Build with SQLite backend (default)
 cargo build --release --features sqlite-backend
+```
+
+#### Geometric Backend (v3.0.0)
+
+The geometric backend is designed for **LLM-friendly code navigation** and **control flow analysis**:
+
+**Key Features:**
+- **3D Spatial Indexing** - O(log n) symbol queries using Morton codes
+- **CFG Extraction** - Control flow graphs from source code (all languages)
+- **Path Finding** - A* algorithm for execution path discovery
+- **Complexity Analysis** - Cyclomatic complexity, dominance, loop nesting
+- **LLM Context** - Paginated viewing, symbol navigation, code context
+
+**File Structure:**
+```
+code.geo          # Main geometric database (symbols + spatial index)
+code.geo.cfg      # CFG blocks and edges
+code.geo.idx      # Symbol index with metadata (persisted)
+```
+
+**When to Use:**
+- You need CFG analysis (path finding, complexity metrics)
+- You want LLM-friendly navigation (context, range queries)
+- You're building AI-powered code tools
+- You need spatial queries on code structure
+
+**CFG Extraction Details:**
+The geometric backend extracts CFG from source code using tree-sitter:
+1. Parses AST to find functions and control structures
+2. Creates basic blocks at control flow boundaries (if, for, while, match)
+3. Connects blocks with typed edges (conditional_true, conditional_false, jump, return)
+4. Computes dominator trees and loop nesting levels
+5. Stores in 3D spatial index for fast queries
+
+**Limitations:**
+- CFG is source-level (no compiler optimizations visible)
+- No exception handling edges (try/catch not captured)
+- Less precise than bytecode/LLVM IR (but works without compilation)
+- Best for: navigation, complexity analysis, path exploration
+
+**Example Workflow:**
+```bash
+# Create and index
+magellan geometric create --db project.geo
+magellan geometric index --root ./src --db project.geo
+
+# LLM navigation
+magellan geometric context --db project.geo --file src/main.rs --line 50
+magellan geometric range --db project.geo --file src/lib.rs --start 1 --end 100
+
+# CFG analysis
+magellan geometric complexity --db project.geo --function-id 1
+magellan geometric path --db project.geo --function-id 1 --start 0 --goal 5
 ```
 
 #### Optional CFG Features (v2.1.0)
@@ -173,11 +230,119 @@ magellan export --db ./magellan.db > codegraph.json
 
 ---
 
-## 3. Position Conventions
+## 3. Backend Selection and Detection (v3.1.0)
+
+### 3.1 Checking Available Backends
+
+```bash
+# Show available storage backends
+magellan --backends
+
+# Output example:
+# Backend      | Ext | Built | Feature            | Capabilities
+# -------------|-----|-------|--------------------|----------------------------------
+# SQLite       | db  | Yes   | sqlite-backend     | symbol queries, call graph, CFG analysis, ...
+# Geometric    | geo | Yes   | geometric-backend  | symbol queries, call graph, CFG analysis, path enumeration
+# Native V3    | v3  | No    | native-v3          | Not built (requires --features native-v3)
+```
+
+The `--backends` flag shows:
+- **Backend name** - Display name for the backend
+- **Ext** - File extension used by this backend
+- **Built** - Whether this backend is compiled in
+- **Feature** - Cargo feature required to enable
+- **Capabilities** - List of supported features
+
+### 3.2 Backend Detection by File Extension
+
+Magellan detects backend type from file extension automatically:
+
+| Extension | Backend | Notes |
+|-----------|---------|-------|
+| `.db` | SQLite | Default, always available |
+| `.geo` | Geometric | Requires `geometric-backend` feature |
+| `.v3` | Native V3 | Requires `native-v3` feature |
+| (none) | SQLite | Default fallback |
+| `.xyz` | SQLite | Unknown extensions default to SQLite |
+
+**Example:**
+```bash
+# SQLite backend (default)
+magellan status --db code.db
+
+# Geometric backend
+magellan status --db code.geo
+
+# Native V3 backend
+magellan status --db code.v3
+```
+
+### 3.3 Version Information
+
+```bash
+# Show version with compiled backends
+magellan --version
+
+# Output example:
+# magellan 3.1.0 (abc123 2026-03-10) rustc 1.75.0 backends: sqlite,geometric
+```
+
+### 3.4 Backend-Specific Command Support
+
+Not all commands are available on all backends. Commands validate backend
+capabilities before execution:
+
+| Command | SQLite | Geometric | Native V3 | Required Capability |
+|---------|--------|-----------|-----------|---------------------|
+| `find` | ✅ | ✅ | ✅ | Symbol queries |
+| `query` | ✅ | ✅ | ✅ | Symbol queries |
+| `refs` | ✅ | ✅ | ✅ | Call graph |
+| `status` | ✅ | ✅ | ✅ | (operational) |
+| `export` | ✅ | ✅ | ✅ | Export |
+| `cycles` | ✅ | ✅ | ✅ | Cycles |
+| `reachable` | ✅ | ✅ | ✅ | Cycles |
+| `dead-code` | ✅ | ✅ | ✅ | Dead code |
+| `slice` | ✅ | ✅ | ✅ | Slice |
+| `cfg` | ✅ | ✅ | ✅ | CFG analysis |
+| `paths` | ❌ | ✅ | ❌ | Path enumeration |
+| `ast` | ✅ | ❌ | ✅ | AST queries |
+| `label` | ✅ | ❌ | ✅ | Labels |
+
+**Example error:**
+```bash
+# Trying 'ast' command on geometric backend
+magellan ast --db code.geo --file src/main.rs
+
+# Error: Command 'ast' is not supported by Geometric backend
+# (supported: SQLite, Native V3)
+```
+
+### 3.5 Maintenance Operations
+
+#### SQLite VACUUM
+
+```bash
+# Reclaim space in SQLite database
+sqlite3 code.db "VACUUM;"
+```
+
+#### Geometric CFG Vacuum
+
+The geometric backend provides CFG-specific vacuum to remove stale blocks:
+
+```bash
+# CFG vacuum is not directly exposed via CLI in v3.1.0
+# Use programmatic API:
+# backend.vacuum_cfg()?
+```
+
+---
+
+## 4. Position Conventions
 
 Magellan follows tree-sitter conventions for all position data. This ensures consistency across all supported languages and compatibility with tree-sitter-based tooling.
 
-### 3.1 Line Positions
+### 4.1 Line Positions
 
 **Line positions are 1-indexed.**
 
@@ -192,7 +357,7 @@ Line 2:     println!("Hello");
 Line 3: }
 ```
 
-### 3.2 Column Positions
+### 4.2 Column Positions
 
 **Column positions are 0-indexed.**
 
@@ -207,7 +372,7 @@ fn main() {
 0  2   5  <- Column positions (0-indexed)
 ```
 
-### 3.3 Byte Offsets
+### 4.3 Byte Offsets
 
 **Byte offsets are 0-indexed from the start of the file.**
 
@@ -222,7 +387,7 @@ fn main() {
 0       9  <- Byte offsets from file start
 ```
 
-### 3.4 UTF-8 Safety
+### 4.4 UTF-8 Safety
 
 **Magellan handles multi-byte UTF-8 characters safely.**
 
@@ -260,7 +425,7 @@ let source = "fn test() \u{1f44b} {}";
 // Magellan truncates to the last complete character before the split
 ```
 
-### 3.5 Position Data in JSON
+### 4.5 Position Data in JSON
 
 When exporting to JSON or querying with `--show-extent`, positions are reported as:
 
@@ -278,7 +443,7 @@ When exporting to JSON or querying with `--show-extent`, positions are reported 
 - `start_line`: 1-indexed line number
 - `start_col`: 0-indexed column offset within the line
 
-### 3.6 Why These Conventions?
+### 4.6 Why These Conventions?
 
 Magellan uses tree-sitter parsers for all supported languages. Tree-sitter's position conventions were chosen to:
 
@@ -289,7 +454,7 @@ Magellan uses tree-sitter parsers for all supported languages. Tree-sitter's pos
 
 ---
 
-## 4. Command Reference
+## 5. Command Reference
 
 ### 4.1 watch
 
@@ -2073,6 +2238,482 @@ This ordering prevents lost wakeups and deadlocks.
 
 ---
 
+## 13. Geometric Backend Commands
+
+The geometric backend provides LLM-friendly code navigation and CFG analysis. These commands only work with `.geo` databases.
+
+### 13.1 Database Management
+
+#### `geometric create`
+
+Create a new geometric database.
+
+```bash
+magellan geometric create --db code.geo
+```
+
+**Output:**
+```
+✅ Created geometric database: "code.geo"
+```
+
+#### `geometric index`
+
+Index a project into a geometric database. Extracts both symbols AND CFG blocks.
+
+```bash
+magellan geometric index --root ./src --db code.geo
+```
+
+**Output:**
+```
+🔍 Indexing project: ./src
+   Strategy: Extract symbols AND CFG blocks (full indexing)
+
+   📐 CFG edges stored: 247
+✅ Indexing complete:
+   📁 Files: 37
+   📝 Symbols: 701
+   📌 Functions: 315
+   🔷 CFG blocks: 153
+```
+
+**How it works:**
+1. Walks directory tree finding source files
+2. For each file:
+   - Parses AST using tree-sitter
+   - Extracts symbols (functions, structs, etc.)
+   - Extracts CFG blocks and edges
+   - Computes dominator depths and loop nesting
+3. Stores in geometric database
+
+#### `geometric stats`
+
+Show geometric database statistics.
+
+```bash
+magellan geometric stats --db code.geo
+```
+
+**Output:**
+```
+📊 Geometric Database Statistics:
+   📁 Nodes (files + symbols): 701
+   🔷 CFG blocks: 153
+```
+
+### 13.2 LLM-Friendly Navigation
+
+#### `geometric context`
+
+Get code context around a specific line. Useful for LLMs to understand code without loading entire files.
+
+```bash
+magellan geometric context --db code.geo --file src/main.rs --line 50 --context 5
+```
+
+**Parameters:**
+- `--file` - Path to source file (with or without ./ prefix)
+- `--line` - Line number to center context around
+- `--context` - Number of lines before/after (default: 3)
+
+**Output:**
+```
+🔍 Getting code context...
+   File: src/main.rs
+   Line: 50
+   Context: 5 lines
+
+📄 Code Context (lines 45-55):
+────────────────────────────────────────────────────────────
+  45 | fn print_short_usage() {
+  46 |     cli::print_short_usage();
+  47 | }
+  48 |
+  49 | fn print_full_usage() {
+  50 |     cli::print_full_usage();
+  51 | }
+  52 |
+  53 | fn main() -> ExitCode {
+  54 |     let args: Vec<String> = std::env::args().collect();
+  55 |
+```
+
+#### `geometric range`
+
+Find all symbols within a line range. Useful for understanding what code exists in a specific region.
+
+```bash
+magellan geometric range --db code.geo --file src/lib.rs --start 1 --end 100
+```
+
+**Parameters:**
+- `--file` - Path to source file
+- `--start` - Starting line number
+- `--end` - Ending line number
+
+**Output:**
+```
+🔍 Finding symbols in range...
+   File: src/lib.rs
+   Lines: 1-100
+
+📋 Found 3 symbol(s):
+   Config (Struct)
+      Lines: 10-25
+   parse_config (Function)
+      Lines: 30-80
+   validate_config (Function)
+      Lines: 85-95
+```
+
+#### `geometric nav`
+
+Navigate to the previous or next symbol from a given line. Useful for sequential code exploration.
+
+```bash
+# Find next symbol after line 50
+magellan geometric nav --db code.geo --file src/main.rs --line 50 --direction next
+
+# Find previous symbol before line 200
+magellan geometric nav --db code.geo --file src/main.rs --line 200 --direction prev
+```
+
+**Parameters:**
+- `--file` - Path to source file
+- `--line` - Current line position
+- `--direction` - `next` or `prev` (or `previous`)
+
+**Output:**
+```
+🔍 Next symbol:
+   Name: run_server
+   Kind: Function
+   Lines: 63-100
+```
+
+#### `geometric page`
+
+Get a paginated view of a file. Useful for browsing large files without loading them entirely.
+
+```bash
+magellan geometric page --db code.geo --file src/main.rs --page 0 --size 20
+```
+
+**Parameters:**
+- `--file` - Path to source file
+- `--page` - Page number (0-indexed)
+- `--size` - Lines per page (default: 50)
+
+**Output:**
+```
+📄 Page 1/38 (lines 1-20)
+────────────────────────────────────────────────────────────
+   1 | //! Magellan CLI - Code mapping tool
+   2 | //!
+   3 | //! Usage: magellan <command> [arguments]
+   ...
+  20 | mod watch_cmd;
+────────────────────────────────────────────────────────────
+💡 Use --page 1 for next page
+```
+
+### 13.3 CFG Analysis Commands
+
+#### `geometric path`
+
+Find an execution path between two CFG blocks using A* algorithm.
+
+```bash
+magellan geometric path --db code.geo --function-id 1 --start 0 --goal 5
+```
+
+**Parameters:**
+- `--function-id` - Function ID to analyze
+- `--start` - Starting block index
+- `--goal` - Target block index
+
+**Output:**
+```
+🔍 Finding execution path using A* algorithm...
+   Function ID: 1
+   Start block: 0
+   Goal block: 5
+✅ Found path: [0, 2, 4, 5]
+   Total cost: 3.00
+   Heuristic cost: 4.24
+   Actual cost: 3.00
+   Path length: 4 blocks
+   Branch points: 2
+   Max loop depth: 1
+   Spatial distance: 4.24
+   Heuristic efficiency: 0.71x
+```
+
+**Use cases:**
+- Find execution paths for testing
+- Understand control flow between specific points
+- Identify branch points along a path
+
+#### `geometric loops`
+
+Analyze loop structure within a function.
+
+```bash
+magellan geometric loops --db code.geo --function-id 1
+```
+
+**Output:**
+```
+🔍 Analyzing loop structure...
+   Function ID: 1
+
+📊 Loop Analysis Results:
+   Maximum loop depth: 2
+   Blocks in loops: 8
+   Blocks outside loops: 12
+   Total loop levels: 3
+```
+
+#### `geometric complexity`
+
+Calculate cyclomatic complexity and related metrics.
+
+```bash
+magellan geometric complexity --db code.geo --function-id 1
+```
+
+**Output:**
+```
+📊 Analyzing cyclomatic complexity...
+   Function ID: 1
+
+📈 Complexity Metrics:
+   Cyclomatic complexity: 8
+   Rating: Low (1-10)
+   Block count: 20
+   Total branches: 7
+   Avg branches/block: 0.35
+
+💡 Simple - well-structured code
+```
+
+**Complexity Ratings:**
+- 1-10: Low (simple, well-structured)
+- 11-20: Moderate (acceptable complexity)
+- 21-50: High (consider refactoring)
+- 50+: Very High (needs refactoring)
+
+#### `geometric scc`
+
+Find Strongly Connected Components (cycles) in the CFG.
+
+```bash
+magellan geometric scc --db code.geo --function-id 1 --condensed
+```
+
+**Parameters:**
+- `--condensed` - Show condensed component graph
+
+**Output:**
+```
+🔍 Analyzing Strongly Connected Components...
+   Function ID: 1
+
+📊 SCC Analysis Results:
+   Total SCCs: 4
+   Cycles detected: 1
+
+🔁 Cycles found:
+   Cycle 1: [2, 3, 4]
+     Header: 2
+     Depth: 1
+```
+
+#### `geometric topo`
+
+Perform topological sort on the CFG.
+
+```bash
+magellan geometric topo --db code.geo --function-id 1 --levels
+```
+
+**Parameters:**
+- `--levels` - Show execution levels
+
+**Output:**
+```
+🔍 Performing Topological Sort...
+   Function ID: 1
+
+✅ DAG verified - Topological order:
+   Order: [0, 1, 2, 3, 4, 5]
+
+📊 Execution Levels:
+   Level 0: [0]      (entry)
+   Level 1: [1, 2]
+   Level 2: [3, 4]
+   Level 3: [5]      (exit)
+```
+
+#### `geometric dominance`
+
+Compute dominator tree for the CFG.
+
+```bash
+magellan geometric dominance --db code.geo --function-id 1 --tree
+```
+
+**Parameters:**
+- `--tree` - Show dominator tree structure
+- `--frontier` - Show dominance frontier
+
+**Output:**
+```
+🔍 Analyzing Dominance...
+   Function ID: 1
+
+📊 Dominance Analysis Results:
+   Entry block: 0
+   Total blocks: 20
+
+🌳 Dominator Tree:
+   0 (entry)
+   ├── 1
+   ├── 2
+   │   ├── 3
+   │   └── 4
+   └── 5 (exit)
+```
+
+#### `geometric natural-loops`
+
+Detect natural loops in the CFG.
+
+```bash
+magellan geometric natural-loops --db code.geo --function-id 1 --details
+```
+
+**Parameters:**
+- `--details` - Show detailed loop information
+
+**Output:**
+```
+🔍 Analyzing Natural Loops...
+   Function ID: 1
+
+📊 Natural Loop Analysis Results:
+   Total loops: 2
+   Back-edges: 2
+
+🔁 Loop 1:
+   Header: 2
+   Latch: 4
+   Body: [2, 3, 4]
+   Depth: 1
+   Nested: false
+
+🔁 Loop 2:
+   Header: 5
+   Latch: 7
+   Body: [5, 6, 7]
+   Depth: 1
+   Nested: false
+```
+
+### 13.4 Working with Standard Commands
+
+Standard Magellan commands work with geometric databases:
+
+```bash
+# Check status
+magellan status --db code.geo
+
+# Find symbols
+magellan find --db code.geo --name main
+magellan find --db code.geo --name "MyStruct::method"
+
+# Export data
+magellan export --db code.geo --format json > export.json
+magellan export --db code.geo --format csv > export.csv
+
+# Query file symbols
+magellan query --db code.geo --file src/main.rs
+```
+
+### 13.5 CFG Extraction Details
+
+**How CFG Extraction Works:**
+
+1. **Parse** - Tree-sitter parses source code into AST
+2. **Find Functions** - Locates function definitions
+3. **Extract Blocks** - Creates basic blocks at control flow boundaries:
+   - Entry block (function start)
+   - Condition blocks (if, while, for)
+   - Statement blocks (assignments, calls)
+   - Exit blocks (return, end of function)
+4. **Create Edges** - Connects blocks with typed edges:
+   - `fallthrough` - Sequential execution
+   - `conditional_true` - If condition is true
+   - `conditional_false` - If condition is false
+   - `jump` - Break, continue, goto
+   - `back_edge` - Loop back to header
+   - `return` - Function exit
+5. **Compute Analysis** - Calculates:
+   - Dominator trees (which blocks must execute before others)
+   - Loop nesting (which loops contain which blocks)
+   - Cyclomatic complexity (number of independent paths)
+
+**Example CFG:**
+
+Source code:
+```rust
+fn example(x: i32) -> i32 {
+    if x > 0 {
+        return x * 2;
+    } else {
+        return x * 3;
+    }
+}
+```
+
+Generated CFG:
+```
+[0: entry]
+    │
+    ▼ (fallthrough)
+[1: if x > 0]
+    │
+    ├──(conditional_true)──►[2: return x * 2]
+    │                           │
+    │                           ▼ (return)
+    │                        [exit]
+    │
+    └──(conditional_false)──►[3: return x * 3]
+                                │
+                                ▼ (return)
+                             [exit]
+```
+
+### 13.6 Limitations
+
+**Source-Level CFG:**
+- Extracted from AST, not compiled bytecode
+- No compiler optimizations visible
+- No exception handling edges (try/catch)
+- Best effort based on visible control flow
+
+**When to Use Geometric Backend:**
+- ✅ Code navigation and exploration
+- ✅ Complexity analysis
+- ✅ Path finding and coverage
+- ✅ LLM context building
+- ❌ Compiler optimization analysis
+- ❌ Precise runtime behavior
+- ❌ Exception path analysis
+
+---
+
 ## Exit Codes
 
 | Code | Meaning |
@@ -2257,5 +2898,56 @@ GitHub Actions workflows for automated testing:
 - Integration tests with llmgrep and mirage
 - Auto-release on git tag push
 - Publishes to crates.io
+
+---
+
+## 16. v3.1.0 New Features
+
+### 16.1 Backend Capability Model
+
+Magellan 3.1.0 introduces runtime capability detection:
+
+```bash
+# Check available backends
+magellan --backends
+```
+
+**Features:**
+- Shows compiled-in backends
+- Lists backend capabilities
+- Shows required features for unavailable backends
+
+### 16.2 Version Information
+
+```bash
+magellan --version
+# Output: magellan 3.1.0 (commit date) rustc version backends: sqlite,geometric
+```
+
+The version output now includes:
+- Compiled backend list
+- Build metadata (commit, date, rustc version)
+
+### 16.3 Command Validation
+
+Commands validate backend capabilities before execution:
+
+```bash
+# This will fail on Geometric backend (AST not supported)
+magellan ast --db code.geo --file src/main.rs
+
+# Error: Command 'ast' is not supported by Geometric backend
+```
+
+### 16.4 Re-Index Stability
+
+Churn measurement tests verify stable behavior across re-index cycles:
+- Symbol counts remain constant
+- File counts remain constant
+- Database size stabilizes after initial WAL creation
+
+### 16.5 Zero Compile Warnings
+
+Default build now has zero compile warnings (down from 26).
 
 ---

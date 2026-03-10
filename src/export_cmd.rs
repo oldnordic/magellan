@@ -3,6 +3,7 @@
 //! Exports graph data to JSON/JSONL/CSV/DOT/SCIP formats with stable IDs.
 
 use anyhow::Result;
+use magellan::backend_router::{BackendType, MagellanBackend};
 use magellan::graph::export::{
     export_graph, scip, stream_json, stream_json_minified, stream_ndjson, ExportConfig,
     ExportFilters, ExportFormat,
@@ -44,6 +45,11 @@ pub fn run_export(
     collisions_field: CollisionField,
     filters: ExportFilters,
 ) -> Result<()> {
+    // Check if this is a geometric database and route accordingly
+    if MagellanBackend::detect_type(&db_path) == BackendType::Geometric {
+        return run_export_geometric(db_path, format, output);
+    }
+
     let mut graph = CodeGraph::open(&db_path)?;
     let exec_id = generate_execution_id();
 
@@ -129,14 +135,15 @@ pub fn run_export(
     // Handle LSIF format specially (JSONL output)
     } else if format == ExportFormat::Lsif {
         use magellan::lsif;
-        
+
         // Get package info from Cargo.toml if available
         let (package_name, package_version) = detect_package_info(&db_path);
-        
+
         // Export to LSIF
         match output {
             Some(path) => {
-                let count = lsif::export::export_lsif(&mut graph, &path, &package_name, &package_version)?;
+                let count =
+                    lsif::export::export_lsif(&mut graph, &path, &package_name, &package_version)?;
                 eprintln!("Exported {} symbols to {:?}", count, path);
             }
             None => {
@@ -247,7 +254,7 @@ fn format_name(format: ExportFormat) -> String {
 fn detect_package_info(db_path: &std::path::Path) -> (String, String) {
     // Try to find Cargo.toml in parent directories
     let mut current = db_path.parent().unwrap_or(std::path::Path::new("."));
-    
+
     for _ in 0..10 {
         let cargo_toml = current.join("Cargo.toml");
         if cargo_toml.exists() {
@@ -258,14 +265,14 @@ fn detect_package_info(db_path: &std::path::Path) -> (String, String) {
                     .and_then(|l| l.split('"').nth(1))
                     .unwrap_or("unknown")
                     .to_string();
-                
+
                 let version = content
                     .lines()
                     .find(|l| l.starts_with("version = "))
                     .and_then(|l| l.split('"').nth(1))
                     .unwrap_or("0.1.0")
                     .to_string();
-                
+
                 return (name, version);
             }
         }
@@ -274,7 +281,7 @@ fn detect_package_info(db_path: &std::path::Path) -> (String, String) {
             break;
         }
     }
-    
+
     // Fallback to directory name
     let dir_name = db_path
         .parent()
@@ -282,6 +289,41 @@ fn detect_package_info(db_path: &std::path::Path) -> (String, String) {
         .and_then(|n| n.to_str())
         .unwrap_or("unknown")
         .to_string();
-    
+
     (dir_name, "0.1.0".to_string())
+}
+
+/// Export geometric database to JSON format
+fn run_export_geometric(
+    db_path: PathBuf,
+    format: ExportFormat,
+    output: Option<PathBuf>,
+) -> Result<()> {
+    use magellan::backend_router::MagellanBackend;
+
+    let backend = MagellanBackend::open(&db_path)?;
+
+    // Get export data from geometric backend
+    let json_output = match format {
+        ExportFormat::Json => backend.export_json()?,
+        ExportFormat::JsonL => backend.export_jsonl()?,
+        ExportFormat::Csv => backend.export_csv()?,
+        _ => {
+            return Err(anyhow::anyhow!(
+                "Format {:?} not supported for geometric databases. Use json, jsonl, or csv.",
+                format
+            ));
+        }
+    };
+
+    // Output to file or stdout
+    if let Some(output_path) = output {
+        let mut file = File::create(&output_path)?;
+        file.write_all(json_output.as_bytes())?;
+        println!("Exported geometric database to {}", output_path.display());
+    } else {
+        println!("{}", json_output);
+    }
+
+    Ok(())
 }

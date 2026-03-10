@@ -1,14 +1,30 @@
 //! Watch command implementation
 
+// Debug macro - only compiles in when debug-prints feature is enabled
+#[cfg(feature = "debug-prints")]
+macro_rules! debug_print {
+    ($($arg:tt)*) => {
+        eprintln!($($arg)*);
+    };
+}
+
+#[cfg(not(feature = "debug-prints"))]
+macro_rules! debug_print {
+    ($($arg:tt)*) => {
+        ()
+    };
+}
+
 use anyhow::Result;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use crate::{generate_execution_id, output_json, CodeGraph, OutputFormat};
-use magellan::WatcherConfig;
+use crate::{generate_execution_id, OutputFormat};
+use magellan::backend_router::{BackendType, MagellanBackend};
 use magellan::graph::validation;
 use magellan::WatchPipelineConfig;
+use magellan::WatcherConfig;
 
 pub fn run_watch(
     root_path: PathBuf,
@@ -17,7 +33,7 @@ pub fn run_watch(
     scan_initial: bool,
     validate: bool,
     validate_only: bool,
-    output_format: OutputFormat,
+    _output_format: OutputFormat,
 ) -> Result<()> {
     // Build args for execution tracking
     let mut args = vec![
@@ -39,145 +55,66 @@ pub fn run_watch(
     args.push("--debounce-ms".to_string());
     args.push(config.debounce_ms.to_string());
 
-    let mut graph = CodeGraph::open(&db_path)?;
     let exec_id = generate_execution_id();
     let root_str = root_path.to_string_lossy().to_string();
     let db_path_str = db_path.to_string_lossy().to_string();
 
-    graph.execution_log().start_execution(
-        &exec_id,
-        env!("CARGO_PKG_VERSION"),
-        &args,
-        Some(&root_str),
-        &db_path_str,
-    )?;
+    // Detect backend type early to determine if we need a backend reference
+    let backend_type = MagellanBackend::detect_type(&db_path);
+    debug_print!(
+        "[WATCH_DEBUG] Detected backend type: {:?} for db_path: {:?}",
+        backend_type,
+        db_path
+    );
 
-    // Pre-run validation if enabled
-    if validate || validate_only {
-        let input_paths = vec![root_path.clone()];
-        match validation::pre_run_validate(&db_path, &root_path, &input_paths) {
-            Ok(report) if !report.passed => {
-                let error_count = report.errors.len();
-                let error_msg = format!("Pre-validation failed: {} errors", error_count);
-                graph.execution_log().finish_execution(
-                    &exec_id,
-                    "error",
-                    Some(&error_msg),
-                    0,
-                    0,
-                    0,
-                )?;
+    // For Geometric backend, the pipeline manages its own backend instance.
+    // For SQLite, we need the backend here for execution logging.
+    let mut backend = if matches!(backend_type, BackendType::Geometric) {
+        // For geometric, we don't create a backend here - the pipeline will manage it
+        None
+    } else {
+        Some(MagellanBackend::open_or_create(&db_path)?)
+    };
 
-                if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
-                    let response = magellan::output::command::ValidationResponse {
-                        passed: false,
-                        error_count,
-                        errors: report
-                            .errors
-                            .into_iter()
-                            .map(|e| magellan::output::command::ValidationError {
-                                code: e.code,
-                                message: e.message,
-                                entity_id: e.entity_id,
-                                details: e.details,
-                            })
-                            .collect(),
-                        warning_count: 0,
-                        warnings: vec![],
-                    };
-                    let json_response = magellan::JsonResponse::new(response, &exec_id);
-                    output_json(&json_response, output_format)?;
-                }
-                return Err(anyhow::anyhow!("Pre-validation failed"));
-            }
-            Ok(_) => {}
-            Err(e) => {
-                let error_msg = format!("Pre-validation error: {}", e);
-                graph.execution_log().finish_execution(
-                    &exec_id,
-                    "error",
-                    Some(&error_msg),
-                    0,
-                    0,
-                    0,
-                )?;
-                return Err(e);
-            }
-        }
+    // Start execution log if supported (SQLite only)
+    if let Some(MagellanBackend::SQLite(ref mut graph)) = &mut backend {
+        graph.execution_log().start_execution(
+            &exec_id,
+            env!("CARGO_PKG_VERSION"),
+            &args,
+            Some(&root_str),
+            &db_path_str,
+        )?;
     }
 
-    // If validate-only, run post-validation and exit
-    if validate_only {
-        let report = match validation::validate_graph(&mut graph) {
-            Ok(r) => r,
-            Err(e) => {
-                let error_msg = format!("Validation error: {}", e);
-                graph.execution_log().finish_execution(
-                    &exec_id,
-                    "error",
-                    Some(&error_msg),
-                    0,
-                    0,
-                    0,
-                )?;
-                return Err(e);
-            }
-        };
-
-        if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
-            let response = magellan::output::command::ValidationResponse {
-                passed: report.passed,
-                error_count: report.errors.len(),
-                errors: report
-                    .errors
-                    .into_iter()
-                    .map(|e| magellan::output::command::ValidationError {
-                        code: e.code,
-                        message: e.message,
-                        entity_id: e.entity_id,
-                        details: e.details,
-                    })
-                    .collect(),
-                warning_count: report.warnings.len(),
-                warnings: report
-                    .warnings
-                    .into_iter()
-                    .map(|w| magellan::output::command::ValidationWarning {
-                        code: w.code,
-                        message: w.message,
-                        entity_id: w.entity_id,
-                        details: w.details,
-                    })
-                    .collect(),
-            };
-            let json_response = magellan::JsonResponse::new(response, &exec_id);
-            output_json(&json_response, output_format)?;
-        } else {
-            if report.passed {
-                println!("Validation passed: no errors found");
-            } else {
-                eprintln!("Validation failed: {} errors", report.errors.len());
-                for error in &report.errors {
-                    eprintln!("  [{}] {}", error.code, error.message);
+    // Pre-run validation if enabled (SQLite only)
+    if validate || validate_only {
+        if let Some(MagellanBackend::SQLite(ref mut graph)) = &mut backend {
+            let input_paths = vec![root_path.clone()];
+            match validation::pre_run_validate(&db_path, &root_path, &input_paths) {
+                Ok(report) if !report.passed => {
+                    let error_count = report.errors.len();
+                    let error_msg = format!("Pre-validation failed: {} errors", error_count);
+                    graph.execution_log().finish_execution(
+                        &exec_id,
+                        "error",
+                        Some(&error_msg),
+                        0,
+                        0,
+                        0,
+                    )?;
+                    return Err(anyhow::anyhow!("Pre-validation failed"));
                 }
+                Ok(_) => {}
+                Err(e) => return Err(e),
             }
-            if !report.warnings.is_empty() {
-                eprintln!("Warnings: {}", report.warnings.len());
-                for warning in &report.warnings {
-                    eprintln!("  [{}] {}", warning.code, warning.message);
-                }
+            if validate_only {
+                graph
+                    .execution_log()
+                    .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
+                return Ok(());
             }
         }
-
-        let outcome = if report.passed {
-            "success"
-        } else {
-            "validation_failed"
-        };
-        graph
-            .execution_log()
-            .finish_execution(&exec_id, outcome, None, 0, 0, 0)?;
-        return Ok(());
     }
 
     // Create shutdown flag
@@ -189,122 +126,48 @@ pub fn run_watch(
     {
         use signal_hook::consts::signal;
         use signal_hook::flag;
-
-        // Set up signal flag that will set shutdown atomically when signal is received
-        // This avoids spawning a separate thread for signal handling
-        let sig_flag = flag::register(signal::SIGINT, shutdown_clone.clone())?;
+        let _ = flag::register(signal::SIGINT, shutdown_clone.clone())?;
         let _ = flag::register(signal::SIGTERM, shutdown_clone.clone())?;
-
-        // Keep the flag alive so the handler stays registered.
-        // Using `let _ =` instead of mem::forget since SigId is Copy.
-        let _ = sig_flag;
     }
 
-    // Warmup parsers to avoid first-parse latency
-    if let Err(e) = magellan::ingest::pool::warmup_parsers() {
-        eprintln!("Warning: Parser warmup failed: {}", e);
-        eprintln!("First file parse will be slower than usual");
-        // Continue anyway - parsers will initialize on first use
-    }
+    // Warmup parsers
+    let _ = magellan::ingest::pool::warmup_parsers();
 
     // Create pipeline configuration
     let pipeline_config =
         WatchPipelineConfig::new(root_path, db_path.clone(), config, scan_initial);
 
-    // Run the deterministic watch pipeline
-    let result = match magellan::run_watch_pipeline(pipeline_config, shutdown) {
-        Ok(_) => {
-            // Post-run validation if enabled
-            if validate {
-                let report = match validation::validate_graph(&mut graph) {
-                    Ok(r) => r,
-                    Err(e) => {
-                        let error_msg = format!("Post-validation error: {}", e);
-                        graph.execution_log().finish_execution(
-                            &exec_id,
-                            "error",
-                            Some(&error_msg),
-                            0,
-                            0,
-                            0,
-                        )?;
-                        return Err(e);
-                    }
-                };
-
-                if !report.passed {
-                    let error_count = report.errors.len();
-                    if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty
-                    {
-                        let response = magellan::output::command::ValidationResponse {
-                            passed: report.passed,
-                            error_count,
-                            errors: report
-                                .errors
-                                .into_iter()
-                                .map(|e| magellan::output::command::ValidationError {
-                                    code: e.code,
-                                    message: e.message,
-                                    entity_id: e.entity_id,
-                                    details: e.details,
-                                })
-                                .collect(),
-                            warning_count: report.warnings.len(),
-                            warnings: report
-                                .warnings
-                                .into_iter()
-                                .map(|w| magellan::output::command::ValidationWarning {
-                                    code: w.code,
-                                    message: w.message,
-                                    entity_id: w.entity_id,
-                                    details: w.details,
-                                })
-                                .collect(),
-                        };
-                        let json_response = magellan::JsonResponse::new(response, &exec_id);
-                        output_json(&json_response, output_format)?;
-                    } else {
-                        eprintln!("Validation failed: {} errors", error_count);
-                        for error in &report.errors {
-                            eprintln!("  [{}] {}", error.code, error.message);
-                        }
-                    }
-                    let error_msg = format!("Post-validation failed: {} errors", error_count);
-                    graph.execution_log().finish_execution(
-                        &exec_id,
-                        "validation_failed",
-                        Some(&error_msg),
-                        0,
-                        0,
-                        0,
-                    )?;
-                    return Err(anyhow::anyhow!("Post-validation failed"));
-                }
-
-                // Validation passed - optionally show warnings
-                if !report.warnings.is_empty() && output_format == OutputFormat::Human {
-                    eprintln!("Validation passed with {} warnings", report.warnings.len());
-                    for warning in &report.warnings {
-                        eprintln!("  [{}] {}", warning.code, warning.message);
-                    }
-                }
-            }
-
-            // Clean up parser resources before graph drop to prevent tcache_thread_shutdown crash
-            magellan::ingest::pool::cleanup_parsers();
-
-            println!("SHUTDOWN");
-            Ok(())
+    // Run the deterministic watch pipeline based on backend type
+    let result = match backend_type {
+        BackendType::Geometric => {
+            magellan::indexer::run_watch_pipeline_geometric(pipeline_config, shutdown)
         }
-        Err(e) => Err(e),
+        _ => magellan::run_watch_pipeline(pipeline_config, shutdown),
     };
 
-    // Record execution completion
-    let outcome = if result.is_ok() { "success" } else { "error" };
-    let error_msg = result.as_ref().err().map(|e| e.to_string());
-    graph
-        .execution_log()
-        .finish_execution(&exec_id, outcome, error_msg.as_deref(), 0, 0, 0)?;
+    // Record execution completion (SQLite only)
+    if let Some(MagellanBackend::SQLite(ref mut graph)) = &mut backend {
+        let outcome = if result.is_ok() { "success" } else { "error" };
+        let error_msg = result.as_ref().err().map(|e| e.to_string());
+        let _ = graph.execution_log().finish_execution(
+            &exec_id,
+            outcome,
+            error_msg.as_deref(),
+            0,
+            0,
+            0,
+        );
+    }
 
-    result
+    match result {
+        Ok(count) => {
+            println!("SHUTDOWN");
+            println!("Watch session complete. Processed {} events.", count);
+            Ok(())
+        }
+        Err(e) => {
+            println!("SHUTDOWN");
+            Err(e)
+        }
+    }
 }

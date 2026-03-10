@@ -1,6 +1,6 @@
 [package]
 name = "magellan"
-version = "3.0.1"
+version = "3.1.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/oldnordic/magellan"
@@ -9,6 +9,7 @@ documentation = "https://github.com/oldnordic/magellan/blob/main/MANUAL.md"
 description = "Deterministic codebase mapping tool for local development"
 keywords = ["code-indexing", "code-analysis", "ast", "source-code", "cli"]
 categories = ["development-tools", "command-line-utilities"]
+
 exclude = [
     ".mcp.json",
     "AGENTS.md",
@@ -51,6 +52,58 @@ name = "context_bench"
 harness = false
 path = "benches/context_bench.rs"
 
+[[bench]]
+name = "geometric_benchmarks"
+harness = false
+path = "benches/geometric_benchmarks.rs"
+required-features = ["benchmarks"]
+
+[[bench]]
+name = "minecraft_style_benchmarks"
+harness = false
+path = "benches/minecraft_style_benchmarks.rs"
+required-features = ["benchmarks"]
+
+[[bench]]
+name = "block_comparison_benchmarks"
+harness = false
+path = "benches/block_comparison_benchmarks.rs"
+required-features = ["benchmarks"]
+
+[[bench]]
+name = "insert_read_benchmark"
+harness = false
+path = "benches/insert_read_benchmark.rs"
+required-features = ["geometric-backend", "benchmarks"]
+
+[[bench]]
+name = "rigorous_benchmark"
+harness = false
+path = "benches/rigorous_benchmark.rs"
+required-features = ["geometric-backend", "benchmarks"]
+
+[[bench]]
+name = "comprehensive_benchmark"
+harness = false
+path = "benches/comprehensive_benchmark.rs"
+required-features = ["geometric-backend", "benchmarks"]
+
+[[bench]]
+name = "indexing_bench"
+harness = false
+path = "benches/indexing_bench.rs"
+required-features = ["geometric-backend", "benchmarks"]
+
+[[bench]]
+name = "cfg_bench"
+harness = false
+path = "benches/cfg_bench.rs"
+
+[[bench]]
+name = "parsing_bottleneck"
+harness = false
+path = "benches/parsing_bottleneck.rs"
+
 [features]
 # Default: SQLite backend (stable, widely compatible)
 default = ["sqlite-backend"]
@@ -65,6 +118,19 @@ sqlite-backend = ["sqlitegraph/sqlite-backend"]
 # Uses native binary format instead of SQLite
 native-v3 = ["sqlitegraph/native-v3"]
 
+# GeoGraphDB backend (experimental - 3D spatial indexing for CFG)
+# Provides O(log n) path queries instead of O(2^n) enumeration
+geometric-backend = ["dep:geographdb-core"]
+
+# Java bytecode CFG (placeholder for future ASM integration)
+bytecode-cfg = []
+
+# Telemetry for race condition and loop detection
+telemetry = []
+
+# LLVM IR CFG for C/C++ (stable, uses LLVM)
+llvm-cfg = ["dep:llvm-sys"]
+
 # Platform support
 # Windows: opt-in feature for Windows builds (analysis-only, reduced functionality)
 windows = []
@@ -72,17 +138,14 @@ windows = []
 # Web UI server (optional)
 web-ui = ["dep:axum", "dep:tower", "dep:tower-http"]
 
+# Benchmarks for performance testing
+benchmarks = ["geometric-backend"]
+
+# Debug instrumentation (disabled by default for performance)
+# Enable with: cargo build --features debug-prints
+debug-prints = ["geographdb-core/debug-prints"]
+
 # Optional LLVM IR-based CFG extraction for C/C++ (requires clang)
-# This is an OPTIONAL enhancement - AST-based CFG works without it
-llvm-cfg = ["dep:inkwell"]
-
-# Optional Java bytecode-based CFG extraction (requires Java bytecode library)
-# This is an OPTIONAL enhancement - AST-based CFG works without it
-bytecode-cfg = ["dep:java_asm"]
-
-# LSP support (Phase 3) - optional feature
-lsp = ["tower-lsp", "lsp-types"]
-
 [dependencies]
 ahash = "0.8"
 notify = "8.2.0"
@@ -119,6 +182,17 @@ camino = "1.2"
 rayon = "1.11"
 tempfile = "3.10"
 
+# 3D vector types for geometric backend
+glam = { version = "0.27", features = ["serde"] }
+
+# GeoGraphDB spatial indexing (optional - for geometric-backend feature)
+geographdb-core = { path = "../geographdb-core", optional = true }
+
+# Java bytecode CFG analysis (ASM library)
+
+# LLVM IR CFG analysis for C/C++
+llvm-sys = { version = "170", optional = true }
+
 # Async runtime for watcher (Phase 1)
 tokio = { version = "1", features = ["rt-multi-thread", "fs", "sync", "time", "macros"] }
 tokio-stream = "0.1"
@@ -152,20 +226,6 @@ optional = false
 # - This is OPTIONAL - Magellan works fine without it
 # AST-based CFG extraction (Phase 42) works for all languages
 
-# Java bytecode library for CFG extraction (optional, for bytecode-cfg)
-# Note: This is a placeholder for future ASM integration.
-# The org.ow2.asm library is Java-based; Rust equivalents are being evaluated.
-# Phase 44-02 will implement the actual bytecode CFG extraction.
-# See docs/JAVA_BYTECODE_CFG.md for details.
-[dependencies.java_asm]
-version = "0.1"
-optional = true
-# - LLVM/Clang installed (matching version to inkwell)
-# - libclang.so/libLLVM.so in library path
-# - This is OPTIONAL - Magellan works fine without it
-# AST-based CFG extraction (Phase 42) works for all languages
 
 [dev-dependencies]
-tempfile = "3.10"
-rusqlite = "0.31"
 criterion = "0.5"
