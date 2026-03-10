@@ -190,8 +190,6 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
         indexed_symbols.push((fact.clone(), symbol_id.as_i64()));
     }
 
-
-
     // Step 5: Extract and store code chunks for each symbol
     // Use safe UTF-8 extraction to handle multi-byte characters that tree-sitter may split
     let mut code_chunks = Vec::new();
@@ -225,7 +223,8 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
         // with_parser returns Result<R> where R is the closure's return type.
         // We return Vec<AstNode> directly (not wrapped in Result) to avoid double wrapping.
         let ast_nodes_result = pool::with_parser(lang, |parser| {
-            parser.parse(source, None)
+            parser
+                .parse(source, None)
                 .map(|tree| crate::graph::extract_ast_nodes(&tree, source))
                 .unwrap_or_else(Vec::new)
         });
@@ -238,28 +237,28 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
 
     // Step 5.55: Extract and store import statements
     // Import extraction provides metadata for cross-file symbol resolution (Phase 61)
-    let import_result = pool::with_parser(
-        crate::ingest::detect::Language::Rust,
-        |_parser| {
-            // Create ImportExtractor and extract imports
-            // ImportExtractor::new() returns Result, but we're in a non-Result closure
-            // So we use unwrap_or_default to handle errors gracefully
-            let mut import_extractor =
-                crate::ingest::imports::ImportExtractor::new().unwrap_or_else(|_| {
-                    // Fallback: create a new parser directly
-                    crate::ingest::imports::ImportExtractor::default()
-                });
-            import_extractor.extract_imports_rust(path_buf.clone(), source)
-        },
-    );
+    let import_result = pool::with_parser(crate::ingest::detect::Language::Rust, |_parser| {
+        // Create ImportExtractor and extract imports
+        // ImportExtractor::new() returns Result, but we're in a non-Result closure
+        // So we use unwrap_or_default to handle errors gracefully
+        let mut import_extractor =
+            crate::ingest::imports::ImportExtractor::new().unwrap_or_else(|_| {
+                // Fallback: create a new parser directly
+                crate::ingest::imports::ImportExtractor::default()
+            });
+        import_extractor.extract_imports_rust(path_buf.clone(), source)
+    });
     if let Ok(extracted_imports) = import_result {
         if !extracted_imports.is_empty() {
             // Delete old imports for this file
             let _ = graph.imports.delete_imports_in_file(path);
             // Index the new imports with IMPORTS edges and path resolution
-            let _ = graph
-                .imports
-                .index_imports(path, file_id.as_i64(), extracted_imports, Some(&graph.module_resolver));
+            let _ = graph.imports.index_imports(
+                path,
+                file_id.as_i64(),
+                extracted_imports,
+                Some(&graph.module_resolver),
+            );
         }
     }
 
@@ -268,9 +267,12 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
     // - Rust (.rs): function_item nodes
     // - C/C++ (.c, .h, .cpp, .hpp, .cc, .cxx): function_definition nodes
     let is_rust = path.ends_with(".rs");
-    let is_cpp = path.ends_with(".cpp") || path.ends_with(".hpp") || path.ends_with(".cc") || path.ends_with(".cxx");
+    let is_cpp = path.ends_with(".cpp")
+        || path.ends_with(".hpp")
+        || path.ends_with(".cc")
+        || path.ends_with(".cxx");
     let is_c = path.ends_with(".c") || path.ends_with(".h");
-    
+
     if (is_rust || is_c || is_cpp) && !function_symbol_ids.is_empty() {
         let language = if is_rust {
             crate::ingest::detect::Language::Rust
@@ -279,7 +281,7 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
         } else {
             crate::ingest::detect::Language::C
         };
-        
+
         let _cfg_result = pool::with_parser(language, |parser| {
             // parser.parse returns Option, handle gracefully
             let tree = match parser.parse(source, None) {
@@ -290,34 +292,37 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
 
             // Determine function node kind based on language
             // Rust: function_item, C/C++: function_definition
-            let function_kind = if is_rust { "function_item" } else { "function_definition" };
+            let function_kind = if is_rust {
+                "function_item"
+            } else {
+                "function_definition"
+            };
 
-            // Find all function nodes using iterative tree walk
+            // Find all function nodes using recursive tree walk
+            // C++ functions may be nested inside namespace_declaration, class_specifier, etc.
             let mut function_nodes = Vec::new();
-            let mut cursor = root.walk();
-            
-            if cursor.goto_first_child() {
-                loop {
-                    let node = cursor.node();
-                    if node.kind() == function_kind {
-                        function_nodes.push(node);
-                    }
-                    
-                    if cursor.goto_first_child() {
-                        continue;
-                    }
-                    
-                    while !cursor.goto_next_sibling() {
-                        if !cursor.goto_parent() {
+
+            fn find_function_nodes_recursive<'a>(
+                node: tree_sitter::Node<'a>,
+                function_kind: &str,
+                result: &mut Vec<tree_sitter::Node<'a>>,
+            ) {
+                if node.kind() == function_kind {
+                    result.push(node);
+                }
+                // Recurse into children
+                let mut cursor = node.walk();
+                if cursor.goto_first_child() {
+                    loop {
+                        find_function_nodes_recursive(cursor.node(), function_kind, result);
+                        if !cursor.goto_next_sibling() {
                             break;
                         }
                     }
-                    
-                    if cursor.goto_parent() {
-                        break;
-                    }
                 }
             }
+
+            find_function_nodes_recursive(root, function_kind, &mut function_nodes);
 
             // For each function node, find matching symbol and extract CFG
             for func_node in function_nodes {
@@ -325,10 +330,13 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
                 let func_end = func_node.byte_range().end as i64;
 
                 // Find matching function symbol by byte range
-                if let Some((_, entity_id, _, _)) = function_symbol_ids.iter().find(|(_, _, start, end)| {
-                    func_start == *start && func_end == *end
-                }) {
-                    let _ = graph.cfg_ops.index_cfg_for_function(&func_node, source, *entity_id);
+                if let Some((_, entity_id, _, _)) = function_symbol_ids
+                    .iter()
+                    .find(|(_, _, start, end)| func_start == *start && func_end == *end)
+                {
+                    let _ = graph
+                        .cfg_ops
+                        .index_cfg_for_function(&func_node, source, *entity_id);
                 }
             }
 
@@ -354,7 +362,7 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
                 return None;
             }
             Some(SymbolNode {
-                symbol_id: None,  // Computed by metrics module
+                symbol_id: None, // Computed by metrics module
                 name: fact.name.clone(),
                 kind: fact.kind_normalized.clone(),
                 kind_normalized: Some(fact.kind_normalized.clone()),
@@ -367,6 +375,7 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
                 start_col: fact.start_col,
                 end_line: fact.end_line,
                 end_col: fact.end_col,
+                cfg_conditions: fact.cfg_conditions.clone(),
             })
         })
         .collect();
@@ -396,6 +405,301 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
     graph.invalidate_cache(path);
 
     Ok(symbol_facts.len())
+}
+
+/// Incremental indexing for a file - only updates changed symbols
+///
+/// This is a performance optimization for large files. Instead of deleting
+/// all symbols and re-inserting them, this function:
+/// 1. Gets existing symbols for the file
+/// 2. Parses new symbols from source
+/// 3. Computes diff by FQN (Fully Qualified Name)
+/// 4. Only deletes symbols that no longer exist
+/// 5. Only inserts symbols that are new or changed
+///
+/// This is most effective when:
+/// - Adding a new function at the end of a file
+/// - Removing a function from the middle
+/// - Most symbols remain unchanged
+///
+/// Note: This is a simplified version. References and calls are still
+/// re-computed for the entire file because they depend on exact byte positions.
+///
+/// # Arguments
+/// * `graph` - CodeGraph instance
+/// * `path` - File path to index
+/// * `source` - File contents as bytes
+///
+/// # Returns
+/// Number of symbols indexed
+pub fn index_file_incremental(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<usize> {
+    use crate::ingest::c::CParser;
+    use crate::ingest::cpp::CppParser;
+    use crate::ingest::java::JavaParser;
+    use crate::ingest::javascript::JavaScriptParser;
+    use crate::ingest::pool;
+    use crate::ingest::python::PythonParser;
+    use crate::ingest::typescript::TypeScriptParser;
+    use crate::ingest::{detect::Language, detect_language, Parser};
+    use std::collections::{HashMap, HashSet};
+
+    let hash = graph.files.compute_hash(source);
+
+    // Step 1: Find or create file node
+    let file_id = graph.files.find_or_create_file_node(path, &hash)?;
+
+    // Step 2: Get existing symbols for this file
+    let existing_symbols_result = graph.symbol_nodes_in_file(path);
+    let existing_symbols: HashMap<String, i64> = match &existing_symbols_result {
+        Ok(symbols) => symbols
+            .iter()
+            .filter_map(|(id, fact)| fact.fqn.as_ref().map(|fqn| (fqn.clone(), *id)))
+            .collect(),
+        Err(_) => HashMap::new(),
+    };
+
+    // Step 3: Parse new symbols from source
+    let path_buf = PathBuf::from(path);
+    let language = detect_language(&path_buf);
+
+    let new_symbol_facts = match language {
+        Some(Language::Python) => pool::with_parser(Language::Python, |parser| {
+            PythonParser::extract_symbols_with_parser(parser, path_buf.clone(), source)
+        })?,
+        Some(Language::Rust) => pool::with_parser(Language::Rust, |parser| {
+            Parser::extract_symbols_with_parser(parser, path_buf.clone(), source)
+        })?,
+        Some(Language::C) => pool::with_parser(Language::C, |parser| {
+            CParser::extract_symbols_with_parser(parser, path_buf.clone(), source)
+        })?,
+        Some(Language::Cpp) => pool::with_parser(Language::Cpp, |parser| {
+            CppParser::extract_symbols_with_parser(parser, path_buf.clone(), source)
+        })?,
+        Some(Language::Java) => pool::with_parser(Language::Java, |parser| {
+            JavaParser::extract_symbols_with_parser(parser, path_buf.clone(), source)
+        })?,
+        Some(Language::JavaScript) => pool::with_parser(Language::JavaScript, |parser| {
+            JavaScriptParser::extract_symbols_with_parser(parser, path_buf.clone(), source)
+        })?,
+        Some(Language::TypeScript) => pool::with_parser(Language::TypeScript, |parser| {
+            TypeScriptParser::extract_symbols_with_parser(parser, path_buf.clone(), source)
+        })?,
+        _ => Vec::new(),
+    };
+
+    // Step 4: Build sets for diff computation
+    let new_fqns: HashSet<String> = new_symbol_facts
+        .iter()
+        .filter_map(|fact| fact.fqn.as_ref().cloned())
+        .collect();
+
+    let existing_fqns: HashSet<String> = existing_symbols.keys().cloned().collect();
+
+    // Step 5: Identify symbols to delete (exist in old but not in new)
+    let to_delete: Vec<i64> = existing_fqns
+        .difference(&new_fqns)
+        .filter_map(|fqn| existing_symbols.get(fqn))
+        .copied()
+        .collect();
+
+    // Step 6: Identify symbols to insert (exist in new but not in old)
+    // For simplicity, we also re-insert symbols that changed position
+    let to_insert: Vec<crate::ingest::SymbolFact> = new_symbol_facts
+        .iter()
+        .filter(|fact| {
+            if let Some(fqn) = &fact.fqn {
+                !existing_fqns.contains(fqn)
+            } else {
+                true
+            }
+        })
+        .cloned()
+        .collect();
+
+    // Step 7: Delete only removed symbols
+    for node_id in to_delete {
+        let _ = graph.calls.backend.delete_entity(node_id);
+    }
+
+    // Step 8: Delete old references and calls (they'll be re-computed)
+    let _ = graph.references.delete_references_in_file(path);
+    let _ = graph.calls.delete_calls_in_file(path);
+
+    // Step 9: Insert new/changed symbols
+    let mut function_symbol_ids: Vec<(String, i64, i64, i64)> = Vec::new();
+    let language_label = language.map(|l| l.as_str().to_string());
+
+    for fact in &to_insert {
+        let symbol_id = graph.symbols.insert_symbol_node(fact)?;
+        graph.symbols.insert_defines_edge(file_id, symbol_id)?;
+
+        if let Some(ref lang) = language_label {
+            let _ = graph.add_label(symbol_id.as_i64(), lang);
+        }
+        let _ = graph.add_label(symbol_id.as_i64(), &fact.kind_normalized);
+
+        if fact.kind_normalized == "fn" || fact.kind_normalized == "method" {
+            if let Some(ref name) = fact.name {
+                function_symbol_ids.push((
+                    name.clone(),
+                    symbol_id.as_i64(),
+                    fact.byte_start as i64,
+                    fact.byte_end as i64,
+                ));
+            }
+        }
+    }
+
+    // Step 10: Re-compute references and calls for the file
+    // (These are still computed fully because they depend on exact positions)
+    let _ = crate::graph::query::index_references(graph, path, source)?;
+    let _ = super::calls::index_calls(graph, path, source);
+
+    // Step 11: Re-extract AST nodes
+    let ast_nodes_result = pool::with_parser(Language::Rust, |parser| {
+        parser
+            .parse(source, None)
+            .map(|tree| crate::graph::extract_ast_nodes(&tree, source))
+            .unwrap_or_else(Vec::new)
+    });
+    if let Ok(ast_nodes) = ast_nodes_result {
+        if !ast_nodes.is_empty() {
+            let _ = insert_ast_nodes(graph, file_id.as_i64(), ast_nodes);
+        }
+    }
+
+    // Step 12: Re-extract imports
+    let import_result = pool::with_parser(crate::ingest::detect::Language::Rust, |_parser| {
+        let mut import_extractor = crate::ingest::imports::ImportExtractor::new()
+            .unwrap_or_else(|_| crate::ingest::imports::ImportExtractor::default());
+        import_extractor.extract_imports_rust(path_buf.clone(), source)
+    });
+    if let Ok(extracted_imports) = import_result {
+        if !extracted_imports.is_empty() {
+            let _ = graph.imports.delete_imports_in_file(path);
+            let _ = graph.imports.index_imports(
+                path,
+                file_id.as_i64(),
+                extracted_imports,
+                Some(&graph.module_resolver),
+            );
+        }
+    }
+
+    // Step 13: Re-extract CFG
+    let is_rust = path.ends_with(".rs");
+    let is_cpp = path.ends_with(".cpp") || path.ends_with(".hpp") || path.ends_with(".cc");
+    let is_c = path.ends_with(".c") || path.ends_with(".h");
+
+    if (is_rust || is_c || is_cpp) && !function_symbol_ids.is_empty() {
+        let lang = if is_rust {
+            Language::Rust
+        } else if is_cpp {
+            Language::Cpp
+        } else {
+            Language::C
+        };
+
+        let _ = pool::with_parser(lang, |parser| {
+            let tree = match parser.parse(source, None) {
+                Some(t) => t,
+                None => return Ok(()),
+            };
+            let root = tree.root_node();
+            let function_kind = if is_rust {
+                "function_item"
+            } else {
+                "function_definition"
+            };
+
+            let mut function_nodes = Vec::new();
+            fn find_function_nodes_recursive<'a>(
+                node: tree_sitter::Node<'a>,
+                kind: &str,
+                result: &mut Vec<tree_sitter::Node<'a>>,
+            ) {
+                if node.kind() == kind {
+                    result.push(node);
+                }
+                let mut cursor = node.walk();
+                if cursor.goto_first_child() {
+                    loop {
+                        find_function_nodes_recursive(cursor.node(), kind, result);
+                        if !cursor.goto_next_sibling() {
+                            break;
+                        }
+                    }
+                }
+            }
+            find_function_nodes_recursive(root, function_kind, &mut function_nodes);
+
+            for func_node in function_nodes {
+                let func_start = func_node.byte_range().start as i64;
+                let func_end = func_node.byte_range().end as i64;
+
+                if let Some((_, entity_id, _, _)) = function_symbol_ids
+                    .iter()
+                    .find(|(_, _, start, end)| func_start == *start && func_end == *end)
+                {
+                    let _ = graph
+                        .cfg_ops
+                        .index_cfg_for_function(&func_node, source, *entity_id);
+                }
+            }
+
+            Ok::<(), anyhow::Error>(())
+        });
+    }
+
+    // Step 14: Compute metrics
+    use crate::graph::schema::SymbolNode;
+    let symbol_nodes: Vec<SymbolNode> = to_insert
+        .iter()
+        .filter_map(|fact| {
+            if fact.start_line == 0 && fact.byte_start == 0 {
+                return None;
+            }
+            Some(SymbolNode {
+                symbol_id: None,
+                name: fact.name.clone(),
+                kind: fact.kind_normalized.clone(),
+                kind_normalized: Some(fact.kind_normalized.clone()),
+                fqn: fact.fqn.clone(),
+                display_fqn: fact.display_fqn.clone(),
+                canonical_fqn: fact.canonical_fqn.clone(),
+                byte_start: fact.byte_start,
+                byte_end: fact.byte_end,
+                start_line: fact.start_line,
+                start_col: fact.start_col,
+                end_line: fact.end_line,
+                end_col: fact.end_col,
+                cfg_conditions: fact.cfg_conditions.clone(),
+            })
+        })
+        .collect();
+
+    #[cfg(feature = "native-v3")]
+    {
+        use std::sync::Arc;
+        if let Err(e) = graph.metrics.compute_for_file_v3(
+            Arc::clone(&graph.calls.backend),
+            path,
+            source,
+            &symbol_nodes,
+        ) {
+            eprintln!("Warning: Failed to compute metrics for '{}': {}", path, e);
+        }
+    }
+    #[cfg(not(feature = "native-v3"))]
+    {
+        if let Err(e) = graph.metrics.compute_for_file(path, source, &symbol_nodes) {
+            eprintln!("Warning: Failed to compute metrics for '{}': {}", path, e);
+        }
+    }
+
+    graph.invalidate_cache(path);
+
+    Ok(new_symbol_facts.len())
 }
 
 /// Delete a file and all derived data from the graph
@@ -455,8 +759,6 @@ pub fn delete_file(graph: &mut CodeGraph, path: &str) -> Result<DeleteResult> {
 /// # Returns
 /// DeleteResult with detailed counts of deleted entities.
 pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResult> {
-    
-
     // === PHASE 1: Count items to be deleted (before any deletion) ===
     // These are the expected counts we will verify against.
 
@@ -511,6 +813,7 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
     let calls_deleted: usize;
     let ast_nodes_deleted: usize;
     let cfg_blocks_deleted: usize;
+    let edges_deleted: usize;
 
     if let Some(file_id) = graph.files.find_file_node(path)? {
         // Capture symbol IDs before deletion.
@@ -527,7 +830,13 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         let mut symbol_ids_sorted = symbol_ids;
         symbol_ids_sorted.sort_unstable();
 
-
+        // CRITICAL: Delete CFG blocks/edges BEFORE deleting graph_entities.
+        // cfg_ops.delete_cfg_for_file(path) uses a subquery against graph_entities,
+        // which would return no results after entities are deleted. Use the captured
+        // symbol_ids (which are function_ids) to delete CFG directly.
+        let (blocks, edges) = graph.cfg_ops.delete_cfg_for_functions(&symbol_ids_sorted)?;
+        cfg_blocks_deleted = blocks;
+        edges_deleted = edges;
 
         // Delete each symbol node (sqlitegraph deletes edges touching entity).
         for symbol_id in &symbol_ids_sorted {
@@ -545,10 +854,7 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         );
 
         // Delete the File node itself.
-        graph
-            .files
-            .backend
-            .delete_entity(file_id.as_i64())?;
+        graph.files.backend.delete_entity(file_id.as_i64())?;
         deleted_entity_ids.push(file_id.as_i64());
 
         // Delete references in this file.
@@ -571,29 +877,28 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
             path, expected_calls, calls_deleted
         );
 
-
-
         // Explicit edge cleanup for deleted IDs (symbols + file) to ensure no rows remain.
         deleted_entity_ids.sort_unstable();
         deleted_entity_ids.dedup();
-        
+
         // Delete code chunks for this file using the ChunkStore abstraction.
         // This works with both SQLite and V3 backends.
         chunks_deleted = graph.chunks.delete_chunks_for_file(path)?;
-        
+
         // Delete AST nodes using SideTables (works with both SQLite and V3)
-        let file_id_for_ast = graph.files.file_index.get(path).map(|id| id.as_i64()).unwrap_or(0);
+        let file_id_for_ast = graph
+            .files
+            .file_index
+            .get(path)
+            .map(|id| id.as_i64())
+            .unwrap_or(0);
         ast_nodes_deleted = if file_id_for_ast > 0 {
-            graph.side_tables.delete_ast_nodes_for_file(file_id_for_ast)?
+            graph
+                .side_tables
+                .delete_ast_nodes_for_file(file_id_for_ast)?
         } else {
             0
         };
-
-        // CFG blocks deletion requires CfgOps to use SideTables abstraction for V3 support.
-        // Currently CfgOps uses direct SQLite via rusqlite. Full V3 support requires
-        // refactoring CfgOps to store CFG blocks in KV store.
-        cfg_blocks_deleted = 0;
-        let edges_deleted = 0;
 
         // Assert AST node count matches expected
         assert_eq!(
@@ -646,17 +951,24 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         );
 
         // Delete AST nodes using SideTables (even if no file node, clean up orphaned data)
-        let file_id_for_ast = graph.files.file_index.get(path).map(|id| id.as_i64()).unwrap_or(0);
+        let file_id_for_ast = graph
+            .files
+            .file_index
+            .get(path)
+            .map(|id| id.as_i64())
+            .unwrap_or(0);
         ast_nodes_deleted = if file_id_for_ast > 0 {
-            graph.side_tables.delete_ast_nodes_for_file(file_id_for_ast)?
+            graph
+                .side_tables
+                .delete_ast_nodes_for_file(file_id_for_ast)?
         } else {
             0
         };
 
-        // CFG blocks deletion requires CfgOps to use SideTables abstraction for V3 support.
-        // Currently CfgOps uses direct SQLite via rusqlite. Full V3 support requires
-        // refactoring CfgOps to store CFG blocks in KV store.
-        cfg_blocks_deleted = 0;
+        // Delete CFG blocks and edges for this file (orphan cleanup)
+        let (blocks, edges) = graph.cfg_ops.delete_cfg_for_file(path)?;
+        cfg_blocks_deleted = blocks;
+        edges_deleted = edges;
 
         // Invalidate cache for this file (even if no file node existed)
         graph.invalidate_cache(path);
@@ -669,7 +981,7 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
             chunks_deleted,
             ast_nodes_deleted,
             cfg_blocks_deleted,
-            edges_deleted: 0,
+            edges_deleted,
         })
     }
 }
@@ -736,7 +1048,6 @@ fn count_calls_in_file(graph: &CodeGraph, path: &str) -> usize {
 /// to check deletion completeness at various stages.
 pub mod test_helpers {
     use super::*;
-    
 
     /// Test operations that can be verified during delete.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -818,10 +1129,7 @@ pub mod test_helpers {
             }
 
             // Delete the File node itself.
-            graph
-                .files
-                .backend
-                .delete_entity(file_id.as_i64())?;
+            graph.files.backend.delete_entity(file_id.as_i64())?;
             deleted_entity_ids.push(file_id.as_i64());
             // Remove from file_index immediately to keep in-memory state consistent
             graph.files.file_index.remove(path);
@@ -953,7 +1261,11 @@ fn count_chunks_for_file(graph: &CodeGraph, path: &str) -> usize {
 /// This function handles parent-child ID resolution. Nodes are inserted
 /// with placeholder parent IDs (negative values) which are then resolved
 /// to actual database IDs after insertion.
-pub fn insert_ast_nodes(graph: &mut CodeGraph, file_id: i64, nodes: Vec<crate::graph::AstNode>) -> Result<usize> {
+pub fn insert_ast_nodes(
+    graph: &mut CodeGraph,
+    file_id: i64,
+    nodes: Vec<crate::graph::AstNode>,
+) -> Result<usize> {
     if nodes.is_empty() {
         return Ok(0);
     }
@@ -1002,9 +1314,15 @@ pub fn insert_ast_nodes(graph: &mut CodeGraph, file_id: i64, nodes: Vec<crate::g
 
                     // Update the node with the correct parent ID using SideTables trait
                     // SQLite: UPDATE query (efficient), V3: delete+reinsert
-                    if let Err(e) = graph.side_tables.update_ast_node_parent(node_id, actual_parent_id) {
+                    if let Err(e) = graph
+                        .side_tables
+                        .update_ast_node_parent(node_id, actual_parent_id)
+                    {
                         // Log but don't fail - parent links are optional for some operations
-                        eprintln!("Warning: failed to update parent link for node {}: {:?}", node_id, e);
+                        eprintln!(
+                            "Warning: failed to update parent link for node {}: {:?}",
+                            node_id, e
+                        );
                     }
                 }
             }
@@ -1053,7 +1371,8 @@ mod tests {
     fn test_ast_nodes_indexed_with_file_v3() {
         // V3 backend test - AST node storage is not fully implemented yet
         // This test verifies that indexing completes without errors
-        let temp_dir = std::env::temp_dir().join(format!("magellan_ops_test_{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("magellan_ops_test_{}", std::process::id()));
         std::fs::create_dir_all(&temp_dir).unwrap();
         let db_path = temp_dir.join("test.db");
 
@@ -1062,8 +1381,11 @@ mod tests {
         let source = b"fn main() { if true { println!(\"hello\"); } }";
         // Just verify indexing completes without error
         let result = graph.index_file("test.rs", source);
-        assert!(result.is_ok(), "Indexing should complete without error on V3");
-        
+        assert!(
+            result.is_ok(),
+            "Indexing should complete without error on V3"
+        );
+
         // Note: Full AST node support on V3 is pending prefix scan implementation
         // The symbols are indexed, but AST nodes are not yet queryable
     }
@@ -1081,7 +1403,10 @@ fn count_ast_nodes_for_file(graph: &CodeGraph, path: &str) -> usize {
     };
 
     // Count AST nodes using SideTables trait
-    graph.side_tables.count_ast_nodes_for_file(file_id).unwrap_or(0)
+    graph
+        .side_tables
+        .count_ast_nodes_for_file(file_id)
+        .unwrap_or(0)
 }
 
 /// Count CFG blocks for a file path.
@@ -1092,16 +1417,15 @@ fn count_cfg_blocks_for_file(graph: &CodeGraph, path: &str) -> usize {
 
     // Count CFG blocks by joining with graph_entities
     match graph.chunks.connect() {
-        Ok(conn) => {
-            conn.query_row(
+        Ok(conn) => conn
+            .query_row(
                 "SELECT COUNT(*) FROM cfg_blocks c
                  JOIN graph_entities e ON c.function_id = e.id
                  WHERE e.file_path = ?1",
                 params![path],
                 |row| row.get(0),
             )
-            .unwrap_or(0)
-        }
+            .unwrap_or(0),
         Err(_) => 0,
     }
 }

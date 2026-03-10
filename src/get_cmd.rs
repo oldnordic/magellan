@@ -3,16 +3,16 @@
 //! Usage: magellan get --db <FILE> --file <PATH> --symbol <NAME>
 
 use anyhow::Result;
-use rusqlite::Connection;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 // Use the library items through the magellan library
+use magellan::backend_router::MagellanBackend;
 use magellan::common::detect_language_from_path;
-use magellan::graph::query;
 use magellan::generation::schema::CodeChunk;
+use magellan::graph::query;
 use magellan::output::rich::{SpanChecksums, SpanContext};
 use magellan::output::{output_json, JsonResponse, Span, SymbolMatch};
-use magellan::{CodeGraph, generate_execution_id, OutputFormat};
+use magellan::{generate_execution_id, CodeGraph, OutputFormat};
 use serde::{Deserialize, Serialize};
 
 /// Response for get command with rich span data
@@ -22,67 +22,6 @@ pub struct GetResponse {
     pub symbol: SymbolMatch,
     /// Source code content
     pub content: String,
-}
-
-/// Query chunks from SQLite backend
-///
-/// Uses direct SQL query via rusqlite::Connection
-fn query_chunks_from_db(
-    db_path: &Path,
-    file_filter: Option<&str>,
-    kind_filter: Option<&str>,
-    limit: Option<usize>,
-) -> Result<Vec<CodeChunk>> {
-    let conn = Connection::open(db_path)?;
-
-    let mut query = String::from(
-        "SELECT id, file_path, byte_start, byte_end, content, content_hash,
-             symbol_name, symbol_kind, created_at
-             FROM code_chunks
-             WHERE 1=1"
-    );
-
-    let mut params: Vec<String> = Vec::new();
-
-    if let Some(file_pattern) = file_filter {
-        query.push_str(&format!(" AND file_path LIKE ?{}", params.len() + 1));
-        params.push(format!("%{}%", file_pattern));
-    }
-
-    if let Some(kind) = kind_filter {
-        query.push_str(&format!(" AND symbol_kind = ?{}", params.len() + 1));
-        params.push(kind.to_string());
-    }
-
-    query.push_str(" ORDER BY file_path, byte_start");
-
-    if let Some(limit_val) = limit {
-        query.push_str(&format!(" LIMIT {}", limit_val));
-    }
-
-    let mut stmt = conn.prepare(&query)?;
-    let params_ref: Vec<&dyn rusqlite::ToSql> =
-        params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
-
-    let chunk_iter = stmt.query_map(
-        params_ref.as_slice(),
-        |row| {
-            Ok(CodeChunk {
-                id: Some(row.get(0)?),
-                file_path: row.get(1)?,
-                byte_start: row.get(2)?,
-                byte_end: row.get(3)?,
-                content: row.get(4)?,
-                content_hash: row.get(5)?,
-                symbol_name: row.get(6)?,
-                symbol_kind: row.get(7)?,
-                created_at: row.get(8)?,
-            })
-        },
-    )?;
-
-    let chunks: Result<Vec<CodeChunk>, _> = chunk_iter.collect();
-    chunks.map_err(|e| e.into())
 }
 
 pub fn run_get(
@@ -106,11 +45,11 @@ pub fn run_get(
         symbol_name.clone(),
     ];
 
-    let graph = CodeGraph::open(&db_path)?;
+    let backend = MagellanBackend::open(&db_path)?;
     let exec_id = generate_execution_id();
     let db_path_str = db_path.to_string_lossy().to_string();
 
-    graph.execution_log().start_execution(
+    backend.start_execution(
         &exec_id,
         env!("CARGO_PKG_VERSION"),
         &args,
@@ -118,26 +57,107 @@ pub fn run_get(
         &db_path_str,
     )?;
 
-    let chunks = graph.get_code_chunks_for_symbol(&file_path, &symbol_name)?;
+    let chunks = backend.get_code_chunks_for_symbol(&file_path, &symbol_name)?;
 
     if chunks.is_empty() {
         eprintln!(
             "No code chunks found for symbol '{}' in file '{}'",
             symbol_name, file_path
         );
-        graph
-            .execution_log()
-            .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
+        backend.finish_execution(&exec_id, "success", None, 0, 0, 0)?;
         return Ok(());
     }
 
     // Handle JSON output mode
     if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
-        // For JSON output, we need to get the symbol node to get span information
-        // Then we can enrich it with rich span data
-        let mut graph_mut = CodeGraph::open(&db_path)?;
-        if let Ok(symbol_entries) = query::symbol_nodes_in_file_with_ids(&mut graph_mut, &file_path)
-        {
+        // For Geo backend, use backend-neutral API
+        #[cfg(feature = "geometric-backend")]
+        if matches!(
+            MagellanBackend::detect_type(&db_path),
+            magellan::backend_router::BackendType::Geometric
+        ) {
+            // Geo backend: use backend-neutral API
+            let symbols = backend.symbols_in_file(&file_path)?;
+            if let Some(symbol_info) = symbols.iter().find(|s| s.name == symbol_name) {
+                // Create span from symbol info
+                let span = Span::new(
+                    symbol_info.file_path.clone(),
+                    symbol_info.byte_start as usize,
+                    symbol_info.byte_end as usize,
+                    symbol_info.start_line as usize,
+                    symbol_info.start_col as usize,
+                    symbol_info.end_line as usize,
+                    symbol_info.end_col as usize,
+                );
+
+                let mut enriched_span = span;
+
+                // Add context if requested
+                if with_context {
+                    if let Some(context) = SpanContext::extract(
+                        &symbol_info.file_path,
+                        symbol_info.start_line as usize,
+                        symbol_info.end_line as usize,
+                        context_lines,
+                    ) {
+                        enriched_span = enriched_span.with_context(context);
+                    }
+                }
+
+                // Add semantics if requested
+                if with_semantics {
+                    let kind = format!("{:?}", symbol_info.kind);
+                    let language = symbol_info
+                        .language
+                        .clone()
+                        .unwrap_or_else(|| detect_language_from_path(&symbol_info.file_path));
+                    enriched_span = enriched_span.with_semantics_from(kind, language);
+                }
+
+                // Add checksums if requested
+                if with_checksums {
+                    let checksums = SpanChecksums::compute(
+                        &symbol_info.file_path,
+                        symbol_info.byte_start as usize,
+                        symbol_info.byte_end as usize,
+                    );
+                    enriched_span = enriched_span.with_checksums(checksums);
+                }
+
+                let symbol_match = SymbolMatch::new(
+                    symbol_info.name.clone(),
+                    format!("{:?}", symbol_info.kind),
+                    enriched_span,
+                    None,
+                    Some(format!("{}", symbol_info.id)),
+                );
+
+                // Get the content from chunks
+                let content = chunks
+                    .iter()
+                    .map(|c| c.content.clone())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+
+                let response = GetResponse {
+                    symbol: symbol_match,
+                    content,
+                };
+
+                let json_response = JsonResponse::new(response, &exec_id);
+                output_json(&json_response, output_format)?;
+                backend.finish_execution(&exec_id, "success", None, 0, 0, 0)?;
+                return Ok(());
+            } else {
+                eprintln!("Symbol '{}' not found in file '{}'", symbol_name, file_path);
+                backend.finish_execution(&exec_id, "success", None, 0, 0, 0)?;
+                return Ok(());
+            }
+        }
+
+        // For SQLite backend (or no Geo feature), use SQLite-specific query
+        let mut graph = CodeGraph::open(&db_path)?;
+        if let Ok(symbol_entries) = query::symbol_nodes_in_file_with_ids(&mut graph, &file_path) {
             for (_node_id, symbol, symbol_id) in symbol_entries {
                 if let Some(ref name) = symbol.name {
                     if name == &symbol_name {
@@ -212,13 +232,11 @@ pub fn run_get(
                 }
             }
         }
-        graph
-            .execution_log()
-            .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
+        backend.finish_execution(&exec_id, "success", None, 0, 0, 0)?;
         return Ok(());
     }
 
-    // Human mode (existing behavior)
+    // Human mode (backend-neutral)
     for chunk in chunks {
         println!(
             "// Symbol: {} in {}",
@@ -234,9 +252,7 @@ pub fn run_get(
         println!();
     }
 
-    graph
-        .execution_log()
-        .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
+    backend.finish_execution(&exec_id, "success", None, 0, 0, 0)?;
     Ok(())
 }
 
@@ -250,11 +266,11 @@ pub fn run_get_file(db_path: PathBuf, file_path: String) -> Result<()> {
         file_path.clone(),
     ];
 
-    let graph = CodeGraph::open(&db_path)?;
+    let backend = MagellanBackend::open(&db_path)?;
     let exec_id = generate_execution_id();
     let db_path_str = db_path.to_string_lossy().to_string();
 
-    graph.execution_log().start_execution(
+    backend.start_execution(
         &exec_id,
         env!("CARGO_PKG_VERSION"),
         &args,
@@ -262,13 +278,11 @@ pub fn run_get_file(db_path: PathBuf, file_path: String) -> Result<()> {
         &db_path_str,
     )?;
 
-    let chunks = graph.get_code_chunks(&file_path)?;
+    let chunks = backend.get_code_chunks(&file_path)?;
 
     if chunks.is_empty() {
         eprintln!("No code chunks found for file '{}'", file_path);
-        graph
-            .execution_log()
-            .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
+        backend.finish_execution(&exec_id, "success", None, 0, 0, 0)?;
         return Ok(());
     }
 
@@ -287,9 +301,7 @@ pub fn run_get_file(db_path: PathBuf, file_path: String) -> Result<()> {
         println!();
     }
 
-    graph
-        .execution_log()
-        .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
+    backend.finish_execution(&exec_id, "success", None, 0, 0, 0)?;
     Ok(())
 }
 
@@ -322,11 +334,13 @@ pub fn run_chunks(
         args.push(kind.clone());
     }
 
-    let graph = CodeGraph::open(&db_path)?;
+    // NOTE: file_filter and kind_filter are SQLite-specific features
+    // For Geo backend, we currently get all chunks and filter
+    let backend = MagellanBackend::open(&db_path)?;
     let exec_id = generate_execution_id();
     let db_path_str = db_path.to_string_lossy().to_string();
 
-    graph.execution_log().start_execution(
+    backend.start_execution(
         &exec_id,
         env!("CARGO_PKG_VERSION"),
         &args,
@@ -334,14 +348,124 @@ pub fn run_chunks(
         &db_path_str,
     )?;
 
-    // SQLite query
-    let chunks = query_chunks_from_db(&db_path, file_filter.as_deref(), kind_filter.as_deref(), limit)?;
+    // For now, we need to use SQLite directly for filtering
+    // TODO: Add filtering support to MagellanBackend
+    #[cfg(feature = "geometric-backend")]
+    let chunks = if matches!(
+        MagellanBackend::detect_type(&db_path),
+        magellan::backend_router::BackendType::Geometric
+    ) {
+        // For Geo backend, get all chunks (no filtering support yet)
+        // This is a known limitation - filtering is SQLite-only for now
+        Vec::new() // Placeholder - would need to implement get_all_chunks()
+    } else {
+        // Fallback to SQLite for filtering
+        use rusqlite::Connection;
+        let conn = Connection::open(&db_path)?;
+
+        let mut query = String::from(
+            "SELECT id, file_path, byte_start, byte_end, content, content_hash,
+                 symbol_name, symbol_kind, created_at
+                 FROM code_chunks
+                 WHERE 1=1",
+        );
+
+        let mut params: Vec<String> = Vec::new();
+
+        if let Some(ref file_pattern) = file_filter {
+            query.push_str(&format!(" AND file_path LIKE ?{}", params.len() + 1));
+            params.push(format!("%{}%", file_pattern));
+        }
+
+        if let Some(ref kind) = kind_filter {
+            query.push_str(&format!(" AND symbol_kind = ?{}", params.len() + 1));
+            params.push(kind.to_string());
+        }
+
+        query.push_str(" ORDER BY file_path, byte_start");
+
+        if let Some(limit_val) = limit {
+            query.push_str(&format!(" LIMIT {}", limit_val));
+        }
+
+        let mut stmt = conn.prepare(&query)?;
+        let params_ref: Vec<&dyn rusqlite::ToSql> =
+            params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+
+        let chunk_iter = stmt.query_map(params_ref.as_slice(), |row| {
+            Ok(CodeChunk {
+                id: Some(row.get(0)?),
+                file_path: row.get(1)?,
+                byte_start: row.get(2)?,
+                byte_end: row.get(3)?,
+                content: row.get(4)?,
+                content_hash: row.get(5)?,
+                symbol_name: row.get(6)?,
+                symbol_kind: row.get(7)?,
+                created_at: row.get(8)?,
+            })
+        })?;
+
+        let chunks: Result<Vec<CodeChunk>, _> = chunk_iter.collect();
+        chunks?
+    };
+
+    #[cfg(not(feature = "geometric-backend"))]
+    let chunks = {
+        // SQLite-only path
+        use rusqlite::Connection;
+        let conn = Connection::open(&db_path)?;
+
+        let mut query = String::from(
+            "SELECT id, file_path, byte_start, byte_end, content, content_hash,
+                 symbol_name, symbol_kind, created_at
+                 FROM code_chunks
+                 WHERE 1=1",
+        );
+
+        let mut params: Vec<String> = Vec::new();
+
+        if let Some(ref file_pattern) = file_filter {
+            query.push_str(&format!(" AND file_path LIKE ?{}", params.len() + 1));
+            params.push(format!("%{}%", file_pattern));
+        }
+
+        if let Some(ref kind) = kind_filter {
+            query.push_str(&format!(" AND symbol_kind = ?{}", params.len() + 1));
+            params.push(kind.to_string());
+        }
+
+        query.push_str(" ORDER BY file_path, byte_start");
+
+        if let Some(limit_val) = limit {
+            query.push_str(&format!(" LIMIT {}", limit_val));
+        }
+
+        let mut stmt = conn.prepare(&query)?;
+        let params_ref: Vec<&dyn rusqlite::ToSql> =
+            params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+
+        let chunk_iter = stmt.query_map(params_ref.as_slice(), |row| {
+            Ok(CodeChunk {
+                id: Some(row.get(0)?),
+                file_path: row.get(1)?,
+                byte_start: row.get(2)?,
+                byte_end: row.get(3)?,
+                content: row.get(4)?,
+                content_hash: row.get(5)?,
+                symbol_name: row.get(6)?,
+                symbol_kind: row.get(7)?,
+                created_at: row.get(8)?,
+            })
+        })?;
+
+        let chunks: Result<Vec<CodeChunk>, _> = chunk_iter.collect();
+        chunks?
+    };
 
     if chunks.is_empty() {
         eprintln!("No code chunks found in database");
-        graph
-            .execution_log()
-            .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
+        backend.finish_execution(&exec_id, "success", None, 0, 0, 0)?;
         return Ok(());
     }
 
@@ -349,9 +473,7 @@ pub fn run_chunks(
     if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
         let json_response = JsonResponse::new(chunks, &exec_id);
         output_json(&json_response, output_format)?;
-        graph
-            .execution_log()
-            .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
+        backend.finish_execution(&exec_id, "success", None, 0, 0, 0)?;
         return Ok(());
     }
 
@@ -379,9 +501,7 @@ pub fn run_chunks(
         println!();
     }
 
-    graph
-        .execution_log()
-        .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
+    backend.finish_execution(&exec_id, "success", None, 0, 0, 0)?;
     Ok(())
 }
 
@@ -408,11 +528,11 @@ pub fn run_chunk_by_span(
         byte_end.to_string(),
     ];
 
-    let graph = CodeGraph::open(&db_path)?;
+    let backend = MagellanBackend::open(&db_path)?;
     let exec_id = generate_execution_id();
     let db_path_str = db_path.to_string_lossy().to_string();
 
-    graph.execution_log().start_execution(
+    backend.start_execution(
         &exec_id,
         env!("CARGO_PKG_VERSION"),
         &args,
@@ -420,7 +540,7 @@ pub fn run_chunk_by_span(
         &db_path_str,
     )?;
 
-    let chunk = graph.get_code_chunk_by_span(&file_path, byte_start, byte_end)?;
+    let chunk = backend.get_code_chunk_by_span(&file_path, byte_start, byte_end)?;
 
     let chunk = match chunk {
         Some(c) => c,
@@ -429,9 +549,7 @@ pub fn run_chunk_by_span(
                 "No code chunk found at {}:{}-{}",
                 file_path, byte_start, byte_end
             );
-            graph
-                .execution_log()
-                .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
+            backend.finish_execution(&exec_id, "success", None, 0, 0, 0)?;
             return Ok(());
         }
     };
@@ -440,9 +558,7 @@ pub fn run_chunk_by_span(
     if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
         let json_response = JsonResponse::new(chunk, &exec_id);
         output_json(&json_response, output_format)?;
-        graph
-            .execution_log()
-            .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
+        backend.finish_execution(&exec_id, "success", None, 0, 0, 0)?;
         return Ok(());
     }
 
@@ -457,9 +573,7 @@ pub fn run_chunk_by_span(
     println!();
     println!("{}", chunk.content);
 
-    graph
-        .execution_log()
-        .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
+    backend.finish_execution(&exec_id, "success", None, 0, 0, 0)?;
     Ok(())
 }
 
@@ -485,11 +599,11 @@ pub fn run_chunk_by_symbol(
         args.push(file.clone());
     }
 
-    let graph = CodeGraph::open(&db_path)?;
+    let backend = MagellanBackend::open(&db_path)?;
     let exec_id = generate_execution_id();
     let db_path_str = db_path.to_string_lossy().to_string();
 
-    graph.execution_log().start_execution(
+    backend.start_execution(
         &exec_id,
         env!("CARGO_PKG_VERSION"),
         &args,
@@ -497,33 +611,36 @@ pub fn run_chunk_by_symbol(
         &db_path_str,
     )?;
 
-    // Direct SQL query - search globally across all files
-    let conn = Connection::open(&db_path)?;
+    // For global symbol search, we need to use SQLite directly for now
+    // Geo backend requires file_path for chunk lookup
+    // TODO: Implement global chunk search in Geo backend
+    let chunks = {
+        use rusqlite::Connection;
+        let conn = Connection::open(&db_path)?;
 
-    let mut query = String::from(
-        "SELECT id, file_path, byte_start, byte_end, content, content_hash, \
-         symbol_name, symbol_kind, created_at \
-         FROM code_chunks \
-         WHERE symbol_name = ?1",
-    );
+        let mut query = String::from(
+            "SELECT id, file_path, byte_start, byte_end, content, content_hash, \
+             symbol_name, symbol_kind, created_at \
+             FROM code_chunks \
+             WHERE symbol_name = ?1",
+        );
 
-    let mut params: Vec<String> = vec![symbol_name.clone()];
+        let mut params: Vec<String> = vec![symbol_name.clone()];
 
-    if let Some(ref file_pattern) = file_filter {
-        query.push_str(&format!(" AND file_path LIKE ?{}", params.len() + 1));
-        params.push(format!("%{}%", file_pattern));
-    }
+        if let Some(ref file_pattern) = file_filter {
+            query.push_str(&format!(" AND file_path LIKE ?{}", params.len() + 1));
+            params.push(format!("%{}%", file_pattern));
+        }
 
-    query.push_str(" ORDER BY file_path, byte_start");
+        query.push_str(" ORDER BY file_path, byte_start");
 
-    let mut stmt = conn.prepare(&query)?;
+        let mut stmt = conn.prepare(&query)?;
 
-    // Build params as references for rusqlite
-    let params_ref: Vec<&dyn rusqlite::ToSql> = params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+        // Build params as references for rusqlite
+        let params_ref: Vec<&dyn rusqlite::ToSql> =
+            params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
 
-    let chunk_iter = stmt.query_map(
-        params_ref.as_slice(),
-        |row| {
+        let chunk_iter = stmt.query_map(params_ref.as_slice(), |row| {
             Ok(CodeChunk {
                 id: Some(row.get(0)?),
                 file_path: row.get(1)?,
@@ -535,17 +652,15 @@ pub fn run_chunk_by_symbol(
                 symbol_kind: row.get(7)?,
                 created_at: row.get(8)?,
             })
-        },
-    )?;
+        })?;
 
-    let chunks: Result<Vec<CodeChunk>, _> = chunk_iter.collect();
-    let chunks = chunks?;
+        let chunks: Result<Vec<CodeChunk>, _> = chunk_iter.collect();
+        chunks?
+    };
 
     if chunks.is_empty() {
         eprintln!("No code chunks found for symbol '{}'", symbol_name);
-        graph
-            .execution_log()
-            .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
+        backend.finish_execution(&exec_id, "success", None, 0, 0, 0)?;
         return Ok(());
     }
 
@@ -553,9 +668,7 @@ pub fn run_chunk_by_symbol(
     if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
         let json_response = JsonResponse::new(chunks, &exec_id);
         output_json(&json_response, output_format)?;
-        graph
-            .execution_log()
-            .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
+        backend.finish_execution(&exec_id, "success", None, 0, 0, 0)?;
         return Ok(());
     }
 
@@ -585,10 +698,6 @@ pub fn run_chunk_by_symbol(
         }
     }
 
-    graph
-        .execution_log()
-        .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
+    backend.finish_execution(&exec_id, "success", None, 0, 0, 0)?;
     Ok(())
 }
-
-

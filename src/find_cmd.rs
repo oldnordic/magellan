@@ -1,13 +1,18 @@
 //! Find command implementation
 //!
 //! Finds a symbol by name, optionally limited to a specific file.
+//! Now supports multiple backends: SQLite, Geometric, V3
 
 use anyhow::{Context, Result};
 use globset::GlobBuilder;
+use magellan::backend_router::{BackendType, MagellanBackend};
 use magellan::common::{detect_language_from_path, format_symbol_kind, resolve_path};
 use magellan::graph::query;
 use magellan::output::rich::{SpanChecksums, SpanContext};
-use magellan::output::{output_json, FindResponse, JsonResponse, OutputFormat, Span, SymbolMatch, CalleeInfo, CallerInfo};
+use magellan::output::{
+    output_json, CalleeInfo, CallerInfo, FindResponse, JsonResponse, OutputFormat, Span,
+    SymbolMatch,
+};
 use magellan::{CodeGraph, SymbolKind};
 use std::path::PathBuf;
 
@@ -135,6 +140,12 @@ pub fn run_find(
     with_checksums: bool,
     context_lines: usize,
 ) -> Result<()> {
+    // Check if this is a geometric database and route accordingly
+    if MagellanBackend::detect_type(&db_path) == BackendType::Geometric {
+        // For geometric databases, use the geometric backend directly
+        return run_find_geometric(db_path, name, output_format);
+    }
+
     // Build args for execution tracking
     let mut args = vec!["find".to_string()];
     if let Some(ref n) = name {
@@ -214,7 +225,10 @@ pub fn run_find(
                 if let Some(display) = &symbol.display_fqn {
                     println!("  Display:  {}", display);
                 }
-                println!("  Location: Line {}, Column {}", symbol.start_line, symbol.start_col);
+                println!(
+                    "  Location: Line {}, Column {}",
+                    symbol.start_line, symbol.start_col
+                );
                 return Ok(());
             }
             None => {
@@ -225,14 +239,14 @@ pub fn run_find(
         }
     }
 
-    // Handle --ambiguous display FQN query
+    // Handle --ambiguous symbol name query (show all candidates)
     if let Some(amb_name) = ambiguous_name {
         let mut graph_lookup = CodeGraph::open(&db_path)?;
         let candidates = query::get_ambiguous_candidates(&mut graph_lookup, &amb_name)?;
 
         if candidates.is_empty() {
             finish_execution("success", None)?;
-            eprintln!("No symbols found with display name '{}'", amb_name);
+            eprintln!("No symbols found with name '{}'", amb_name);
             return Ok(());
         }
 
@@ -251,83 +265,211 @@ pub fn run_find(
         return Ok(());
     }
 
-    let name =
-        name.ok_or_else(|| anyhow::anyhow!("--name is required unless --list-glob, --symbol-id, or --ambiguous is provided"))?;
+    let name = name.ok_or_else(|| {
+        anyhow::anyhow!(
+            "--name is required unless --list-glob, --symbol-id, or --ambiguous is provided"
+        )
+    })?;
 
-    let mut graph_mut = CodeGraph::open(&db_path)?;
-    let results = match path.as_ref() {
-        Some(file_path) => {
-            let path_str = resolve_path(file_path, &root);
-            match find_in_file(&mut graph_mut, &path_str, &name)? {
-                Some(symbol) => vec![symbol],
-                None => vec![],
+    // Detect backend type and route accordingly
+    let backend_type = MagellanBackend::detect_type(&db_path);
+
+    match backend_type {
+        BackendType::Geometric => {
+            // Use geometric backend
+            let backend = MagellanBackend::open(&db_path)?;
+            match backend.find_symbol_by_fqn(&name) {
+                Ok(Some(info)) => {
+                    finish_execution("success", None)?;
+                    println!("Found symbol: {}", info.fqn);
+                    println!("  Name:     {}", info.name);
+                    println!("  Kind:     {:?}", info.kind);
+                    println!("  File:     {}", info.file_path);
+                    println!(
+                        "  Location: Line {}, Column {}",
+                        info.start_line, info.start_col
+                    );
+                    return Ok(());
+                }
+                Ok(None) => {
+                    finish_execution("success", None)?;
+                    eprintln!("Symbol '{}' not found", name);
+                    return Ok(());
+                }
+                Err(e) => {
+                    finish_execution("error", Some(e.to_string()))?;
+                    return Err(e);
+                }
             }
         }
-        None => find_all_files(&mut graph_mut, &name)?,
+        BackendType::SQLite | BackendType::NativeV3 => {
+            // Use SQLite backend (existing behavior)
+            let mut graph_mut = CodeGraph::open(&db_path)?;
+            let results = match path.as_ref() {
+                Some(file_path) => {
+                    let path_str = resolve_path(file_path, &root);
+                    match find_in_file(&mut graph_mut, &path_str, &name)? {
+                        Some(symbol) => vec![symbol],
+                        None => vec![],
+                    }
+                }
+                None => find_all_files(&mut graph_mut, &name)?,
+            };
+
+            // Handle JSON output mode
+            if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
+                finish_execution("success", None)?;
+                return output_json_mode(
+                    &mut graph_mut,
+                    &name,
+                    results,
+                    path.as_ref().map(|p| resolve_path(p, &root)),
+                    &exec_id,
+                    output_format,
+                    with_context,
+                    with_callers,
+                    with_callees,
+                    with_semantics,
+                    with_checksums,
+                    context_lines,
+                );
+            }
+
+            // Human mode (existing behavior)
+            if results.is_empty() {
+                println!("Symbol '{}' not found", name);
+                println!(
+                    "Hint: use `magellan find --list-glob \"{}\"` to preview name variants.",
+                    name
+                );
+            } else if results.len() == 1 {
+                let symbol = &results[0];
+                println!("Found \"{}\":", name);
+                println!("  File:     {}", symbol.file);
+                println!(
+                    "  Kind:     {} [{}]",
+                    format_symbol_kind(&symbol.kind),
+                    symbol.kind_normalized
+                );
+                println!("  Location: Line {}, Column {}", symbol.line, symbol.col);
+                println!("  Node ID:  {}", symbol.node_id);
+            } else {
+                // Multiple results
+                if first {
+                    // Emit deprecation warning
+                    eprintln!(
+                        "WARNING: --first is deprecated. Use --symbol-id for precise lookups."
+                    );
+                    let symbol = &results[0];
+                    println!("Found \"{}\" (using first match):", name);
+                    println!("  File:     {}", symbol.file);
+                    println!(
+                        "  Kind:     {} [{}]",
+                        format_symbol_kind(&symbol.kind),
+                        symbol.kind_normalized
+                    );
+                    println!("  Location: Line {}, Column {}", symbol.line, symbol.col);
+                    println!("  Node ID:  {}", symbol.node_id);
+                } else {
+                    // Ambiguous, no --first: show error with guidance
+                    eprintln!(
+                        "Ambiguous symbol name '{}': found {} candidates",
+                        name,
+                        results.len()
+                    );
+                    eprintln!("Use --ambiguous <name> to see all candidates");
+                    eprintln!("Use --first to use first match (deprecated)");
+                }
+            }
+
+            finish_execution("success", None)?;
+            Ok(())
+        }
+    }
+}
+
+/// Find command for geometric backend databases
+fn run_find_geometric(
+    db_path: PathBuf,
+    name: Option<String>,
+    _output_format: OutputFormat,
+) -> Result<()> {
+    use magellan::backend_router::MagellanBackend;
+
+    let backend = MagellanBackend::open(&db_path)?;
+
+    let search_name = match name {
+        Some(n) => n,
+        None => {
+            eprintln!("Error: --name is required for geometric databases");
+            return Ok(());
+        }
     };
 
-    // Handle JSON output mode
-    if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
-        finish_execution("success", None)?;
-        return output_json_mode(
-            &mut graph_mut,
-            &name,
-            results,
-            path.as_ref().map(|p| resolve_path(p, &root)),
-            &exec_id,
-            output_format,
-            with_context,
-            with_callers,
-            with_callees,
-            with_semantics,
-            with_checksums,
-            context_lines,
-        );
-    }
-
-    // Human mode (existing behavior)
-    if results.is_empty() {
-        println!("Symbol '{}' not found", name);
-        println!(
-            "Hint: use `magellan find --list-glob \"{}\"` to preview name variants.",
-            name
-        );
-    } else if results.len() == 1 {
-        let symbol = &results[0];
-        println!("Found \"{}\":", name);
-        println!("  File:     {}", symbol.file);
-        println!(
-            "  Kind:     {} [{}]",
-            format_symbol_kind(&symbol.kind),
-            symbol.kind_normalized
-        );
-        println!("  Location: Line {}, Column {}", symbol.line, symbol.col);
-        println!("  Node ID:  {}", symbol.node_id);
-    } else {
-        // Multiple results
-        if first {
-            // Emit deprecation warning
-            eprintln!("WARNING: --first is deprecated. Use --symbol-id for precise lookups.");
-            let symbol = &results[0];
-            println!("Found \"{}\" (using first match):", name);
-            println!("  File:     {}", symbol.file);
+    // Try to find by FQN first
+    match backend.find_symbol_by_fqn(&search_name) {
+        Ok(Some(info)) => {
+            // Human-readable output (simplified for now)
+            println!("Found symbol: {}", info.fqn);
+            println!("  Name:     {}", info.name);
+            println!("  Kind:     {:?}", info.kind);
+            println!("  File:     {}", info.file_path);
             println!(
-                "  Kind:     {} [{}]",
-                format_symbol_kind(&symbol.kind),
-                symbol.kind_normalized
+                "  Location: Line {}, Column {}",
+                info.start_line, info.start_col
             );
-            println!("  Location: Line {}, Column {}", symbol.line, symbol.col);
-            println!("  Node ID:  {}", symbol.node_id);
-        } else {
-            // Ambiguous, no --first: show error with guidance
-            eprintln!("Ambiguous symbol name '{}': found {} candidates", name, results.len());
-            eprintln!("Use --ambiguous <name> to see all candidates");
-            eprintln!("Use --first to use first match (deprecated)");
+            return Ok(());
+        }
+        Ok(None) => {
+            // FQN not found, try searching by simple name
+        }
+        Err(e) => {
+            eprintln!("Error searching geometric database: {}", e);
+            return Err(e);
         }
     }
 
-    finish_execution("success", None)?;
-    Ok(())
+    // Try finding by simple name
+    match backend.find_symbols_by_name(&search_name) {
+        Ok(symbols) if !symbols.is_empty() => {
+            if symbols.len() == 1 {
+                let info = &symbols[0];
+                println!("Found symbol: {}", info.fqn);
+                println!("  Name:     {}", info.name);
+                println!("  Kind:     {:?}", info.kind);
+                println!("  File:     {}", info.file_path);
+                println!(
+                    "  Location: Line {}, Column {}",
+                    info.start_line, info.start_col
+                );
+            } else {
+                println!("Found {} symbols matching '{}'", symbols.len(), search_name);
+                for (i, info) in symbols.iter().enumerate() {
+                    println!("\n  [{}] {}", i + 1, info.fqn);
+                    println!("      Name:     {}", info.name);
+                    println!("      Kind:     {:?}", info.kind);
+                    println!("      File:     {}", info.file_path);
+                    println!(
+                        "      Location: Line {}, Column {}",
+                        info.start_line, info.start_col
+                    );
+                }
+            }
+            Ok(())
+        }
+        Ok(_) => {
+            println!("Symbol '{}' not found in geometric database", search_name);
+            println!(
+                "Hint: Use `magellan geometric query --db {} --function <fqn>` for CFG queries",
+                db_path.display()
+            );
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("Error searching geometric database: {}", e);
+            Err(e)
+        }
+    }
 }
 
 /// Output find results in JSON format
@@ -399,7 +541,7 @@ fn output_json_mode(
                             line: fact.start_line,
                             column: fact.start_col,
                         })
-                        .collect()
+                        .collect(),
                 ),
                 Err(_) => None,
             }
@@ -417,7 +559,7 @@ fn output_json_mode(
                             name: fact.callee,
                             file_path: fact.file_path.to_string_lossy().to_string(),
                         })
-                        .collect()
+                        .collect(),
                 ),
                 Err(_) => None,
             }

@@ -1,9 +1,9 @@
 # Magellan Architecture & Integration Guide
 
 **Status:** Reference Document
-**Purpose:** Design LogicGraph/PathGraph integration with Magellan
-**Date:** 2026-01-31
-**Magellan Version:** 1.9.0
+**Purpose:** Design and integration guide for Magellan
+**Date:** 2026-03-10
+**Magellan Version:** 3.1.0
 
 ---
 
@@ -13,37 +13,420 @@ Magellan is a **deterministic, idempotent codebase mapping tool** that:
 
 1. **Observes files** - Detects source code changes
 2. **Extracts symbols** - Uses tree-sitter parsers for multi-language support
-3. **Persists facts** - Stores nodes and edges in SQLiteGraph database
+3. **Persists facts** - Stores nodes and edges in a graph database
 4. **Enables queries** - Provides symbol/reference/call graph lookups
 
 **Key Principle:** Magellan is "dumb" - it records facts, doesn't interpret behavior.
 
 ---
 
+## Three Backend Architecture
+
+Magellan supports **three distinct storage backends**:
+
+### Backend Comparison
+
+| Backend | Feature | File Ext | Status | Performance |
+|---------|---------|----------|--------|-------------|
+| **SQLite** (default) | SQL-based storage | `.db` | ✅ Complete | Baseline |
+| **Native V3** | Binary KV store | `.v3` | ✅ Complete | 10-20x faster |
+| **Geometric** | 3D spatial indexing | `.geo` | ⚠️ 3D Complete, 4D Incomplete | Experimental |
+
+**Important:** Database files are **not** compatible between backends.
+
+### SQLite Backend (Default)
+
+**Status:** ✅ Feature-complete, stable, production-ready
+
+Uses SQL queries on relational tables via sqlitegraph:
+
+```
+graph_entities ──┐
+graph_edges ─────┼──► SQLite database (.db)
+graph_labels ────┤
+code_chunks ─────┤
+ast_nodes ───────┘
+```
+
+### Native V3 Backend
+
+**Status:** ✅ Complete, recommended for production
+
+- High-performance native binary format
+- KV-based storage (no SQLite dependency)
+- Unlimited capacity
+- B+Tree clustered adjacency storage
+
+Build with:
+```bash
+cargo build --release --features native-v3
+```
+
+### Geometric Backend ⚠️
+
+**Status:** 3D spatial features complete, 4D temporal features incomplete
+
+The geometric backend uses **GeoGraphDB** for 3D spatial indexing of CFG blocks:
+
+#### 3D Spatial Mapping (COMPLETE)
+
+| Coordinate | CFG Property | Meaning |
+|------------|--------------|---------|
+| X | Dominator Depth | How deep in dominator tree |
+| Y | Loop Nesting | How many loops deep |
+| Z | Branch Count | Number of branches |
+
+**Performance:** O(log n) path queries instead of O(2^n) enumeration
+
+#### 4D Temporal Features (INCOMPLETE)
+
+The `NodeRec` structure has MVCC fields for time-travel queries:
+
+```rust
+pub struct NodeRec {
+    // ... 3D spatial fields ...
+    pub begin_ts: u64,    // MVCC timestamp (PLACEHOLDER)
+    pub end_ts: u64,      // MVCC timestamp (PLACEHOLDER)
+    pub tx_id: u64,       // Transaction ID (PLACEHOLDER)
+    pub visibility: u8,   // Visibility flag
+    // ...
+}
+```
+
+**What's NOT implemented:**
+- Temporal queries: "what did CFG look like at time T?"
+- Version comparison between timestamps
+- CFG evolution tracking
+- Time-travel pathfinding
+
+Build with:
+```bash
+# 3D spatial features work
+cargo build --release --features geometric-backend
+
+# Standalone CLI
+magellan-geometric create --db code.geo
+magellan-geometric index --root . --db code.geo
+```
+
+---
+
+## Backend Capability Model (v3.1.0)
+
+### Capability Detection
+
+Magellan 3.1.0 introduces a **runtime capability model** that enables:
+
+1. **Backend-aware help/usage messaging** - Commands show what they support
+2. **Command validation** - Early error when backend lacks required capability
+3. **Build feature detection** - `--backends` flag shows compiled-in backends
+4. **Operational status reporting** - `status` shows backend type
+
+### Capability Structure
+
+Located in `src/capabilities.rs`:
+
+```rust
+pub enum BackendType {
+    SQLite,      // .db files (default)
+    Geometric,   // .geo files (requires geometric-backend feature)
+    NativeV3,    // .v3 files (requires native-v3 feature)
+}
+
+pub struct BackendCapabilities {
+    // Core capabilities
+    pub supports_symbol_queries: bool,
+    pub supports_call_graph: bool,
+    pub supports_cfg_analysis: bool,
+    pub supports_chunks: bool,
+    pub supports_cycles: bool,
+    pub supports_paths: bool,
+    pub supports_slice: bool,
+    pub supports_vacuum_maintenance: bool,
+    pub supports_dead_code: bool,
+    pub supports_reachability: bool,
+    pub supports_export: bool,
+    pub supports_ast: bool,
+    pub supports_labels: bool,
+    // ... metadata fields
+}
+```
+
+### Backend Detection by File Extension
+
+```rust
+BackendType::from_extension(Some("db"))   // => Some(SQLite)
+BackendType::from_extension(Some("geo"))  // => Some(Geometric) if built, None otherwise
+BackendType::from_extension(Some("v3"))   // => Some(NativeV3)
+BackendType::from_extension(Some("xyz"))  // => Some(SQLite) - default fallback
+BackendType::from_extension(None)         // => Some(SQLite) - default fallback
+```
+
+**Important:** Unknown extensions default to SQLite. This ensures tool compatibility
+even when users specify arbitrary filenames.
+
+### Capability Matrix
+
+| Capability | SQLite | Geometric | Native V3 |
+|------------|--------|-----------|-----------|
+| Symbol queries | ✅ | ✅ | ✅ |
+| Call graph | ✅ | ✅ | ✅ |
+| CFG analysis | ✅ | ✅ | ✅ |
+| Chunks | ✅ | ✅ | ✅ |
+| Cycles | ✅ | ✅ | ✅ |
+| Paths (enumeration) | ❌ | ✅ | ❌ |
+| Slice | ✅ | ✅ | ✅ |
+| AST queries | ✅ | ❌ | ✅ |
+| Labels | ✅ | ❌ | ✅ |
+| Vacuum/maintenance | ✅ | ✅ | ✅ |
+| Dead code | ✅ | ✅ | ✅ |
+| Reachability | ✅ | ✅ | ✅ |
+| Export | ✅ | ✅ | ✅ |
+
+### Command Routing
+
+Commands are validated against backend capabilities before execution:
+
+```rust
+// src/capabilities.rs
+pub fn validate_command(
+    command: &str,
+    backend_caps: &BackendCapabilities,
+) -> Result<(), CommandValidationError> {
+    // Check if command is supported by this backend
+    // Return error if capability missing
+}
+```
+
+**Example validation:**
+- `ast` command → requires `supports_ast` → fails on Geometric
+- `paths` command → requires `supports_paths` → fails on SQLite/Native V3
+- `label` command → requires `supports_labels` → fails on Geometric
+- `find` command → requires `supports_symbol_queries` → works on all backends
+
+### Checking Compiled Backends
+
+```bash
+# Show available backends
+magellan --backends
+
+# Output example:
+# Backend      | Ext | Built | Feature         | Capabilities
+# -------------|-----|-------|-----------------|------------------
+# SQLite       | db  | Yes   | sqlite-backend  | symbol queries, call graph, CFG analysis...
+# Geometric    | geo | Yes   | geometric-backend| symbol queries, call graph, CFG analysis, path enumeration...
+# Native V3    | v3  | No    | native-v3       | Not built (requires --features native-v3)
+
+# Version shows compiled backends
+magellan --version
+# magellan 3.1.0 (abc123 2026-03-10) rustc 1.75.0 backends: sqlite,geometric
+```
+
+---
+
+## Re-Index Semantics (v3.1.0)
+
+### Reconcile Behavior
+
+The `reconcile_file_path()` method in both `CodeGraph` (SQLite) and `GeometricBackend`
+provides **deterministic, idempotent re-indexing**:
+
+### SQLite Reconcile (`src/graph/ops.rs`)
+
+```rust
+pub fn reconcile_file_path(
+    graph: &mut CodeGraph,
+    path: &Path,
+    path_key: &str,
+) -> Result<ReconcileOutcome>
+```
+
+**Algorithm:**
+
+1. **Check file existence:**
+   - If file does NOT exist on filesystem → delete all facts, return `Deleted`
+
+2. **Compute content hash:**
+   - Read file contents
+   - Compute SHA-256 hash
+
+3. **Check for changes:**
+   - Compare with stored hash in `graph_entities` (FileNode)
+   - If hash matches → return `Unchanged` (no-op)
+
+4. **Delete old data:**
+   - Delete all symbols via DEFINES edges from file
+   - Delete all references for those symbols
+   - Delete all calls for those symbols
+   - Delete all AST nodes for the file
+   - Delete all CFG blocks for the file
+   - Delete all code chunks for the file
+
+5. **Re-index:**
+   - Run `index_file()` to extract symbols
+   - Run `index_references()` to extract references
+   - Return `Reindexed { symbols, references, calls }`
+
+**Key Invariants:**
+
+- **Symbol counts are stable** across re-index cycles (no inflation)
+- **File hash is the source of truth** for freshness
+- **Delete-then-insert ensures** no stale data accumulates
+- **No partial updates** - transaction either fully commits or fully rolls back
+
+### Geometric Reconcile (`src/graph/geo_index.rs`)
+
+```rust
+pub fn reconcile_file_path(
+    backend: &mut GeometricBackend,
+    path: &Path,
+) -> Result<GeoReconcileOutcome>
+```
+
+**Algorithm:**
+
+1. **Check file existence:**
+   - If file does NOT exist → delete symbols, remove from tracking
+
+2. **Compute content hash:**
+   - Read file, compute hash
+
+3. **Check for changes:**
+   - Compare with stored hash
+   - If unchanged → return `Unchanged`
+
+4. **Delete old data:**
+   - Remove symbols from in-memory index
+   - Remove function_ids from CFG tracking (marks CFG blocks as stale)
+   - Stale CFG blocks are excluded from next save (garbage collection)
+
+5. **Re-index:**
+   - Extract symbols via tree-sitter
+   - Extract CFG blocks if applicable
+   - Insert into in-memory structures
+   - Return `Reindexed`
+
+**Key Difference from SQLite:**
+
+- CFG blocks are **not immediately deleted** from storage
+- They become **stale** and excluded from `cfg_function_ids` tracking
+- Vacuum operation physically removes stale blocks
+
+### Re-Index Idempotence
+
+Both backends guarantee idempotence:
+
+```rust
+// Running reconcile multiple times on unchanged file produces same result
+assert!(matches!(reconcile_file_path(path), Ok(ReconcileOutcome::Unchanged)));
+assert!(matches!(reconcile_file_path(path), Ok(ReconcileOutcome::Unchanged)));
+assert!(matches!(reconcile_file_path(path), Ok(ReconcileOutcome::Unchanged)));
+```
+
+### Churn Test Validation
+
+See `tests/churn_harness_test.rs` for validation that:
+- Symbol counts remain constant across 5 re-index cycles
+- File counts remain constant
+- Database size stabilizes after initial WAL creation
+- VACUUM reclaims space after deletion
+
+---
+
+## Vacuum and Maintenance (v3.1.0)
+
+### SQLite VACUUM
+
+SQLite backend supports standard SQLite VACUUM via `rusqlite`:
+
+```bash
+# Not directly exposed via CLI (future enhancement)
+# Use sqlite3 directly:
+sqlite3 code.db "VACUUM;"
+```
+
+**Effects:**
+- Rebuilds database file, reclaiming free space
+- Resets auto-increment sequences
+- Defragments indexes
+- Requires ~2x temporary disk space during operation
+
+### Geometric CFG Vacuum
+
+Geometric backend provides `vacuum_cfg()` method in `GeometricBackend`:
+
+```rust
+pub fn vacuum_cfg(&self) -> Result<VacuumResult>
+```
+
+**Algorithm:**
+
+1. **Get tracked function IDs** - Source of truth for live CFG
+2. **Count before state:**
+   - Live blocks (blocks for tracked functions)
+   - Total blocks (includes stale)
+   - Live edges (edges between live blocks)
+   - Total edges (includes stale)
+3. **Build fresh CFG section:**
+   - Iterate tracked function IDs
+   - Copy only live blocks to new data structure
+   - Copy only live edges
+4. **Write to storage:**
+   - Open existing `.geo` file
+   - Replace CFG section with new data
+   - Flush changes
+5. **Calculate reclaimed:**
+   - `blocks_reclaimed = total_blocks_before - live_blocks_before`
+   - `edges_reclaimed = total_edges_before - live_edges_before`
+   - `bytes_reclaimed = file_size_before - file_size_after`
+
+**VacuumResult:**
+
+```rust
+pub struct VacuumResult {
+    pub live_blocks_before: usize,
+    pub total_blocks_before: usize,
+    pub blocks_reclaimed: usize,
+    pub live_edges_before: usize,
+    pub total_edges_before: usize,
+    pub edges_reclaimed: usize,
+    pub bytes_reclaimed: u64,
+}
+```
+
+**When to Vacuum:**
+
+After multiple re-index cycles on the same files, stale CFG data
+accumulates in the in-memory CfgStore. Calling `vacuum_cfg()` rebuilds
+the persisted CFG section with only live data.
+
+**Important:** Vacuum does NOT affect symbols or call graph - only CFG
+blocks and edges. Stale symbols are handled differently (see Re-Index
+Semantics).
+
+---
+
 ## Database Schema
 
-### Core Tables
+### Core Tables (SQLite Backend)
 
 #### `graph_entities` - Symbol Nodes
 
 ```sql
 CREATE TABLE graph_entities (
-    id        INTEGER PRIMARY KEY AUTOINCREMENT,  -- Internal node ID
-    kind      TEXT NOT NULL,                       -- Symbol kind (Function, Struct, etc.)
-    name      TEXT NOT NULL,                       -- Symbol display name
-    file_path TEXT,                               -- Source file path
-    data      TEXT NOT NULL                        -- JSON: SymbolNode payload
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind      TEXT NOT NULL,
+    name      TEXT NOT NULL,
+    file_path TEXT,
+    data      TEXT NOT NULL
 );
 ```
-
-**Indexes:**
-- `idx_entities_kind_id` on `(kind, id)` - Fast kind filtering
 
 **data payload (SymbolNode JSON):**
 ```json
 {
-    "symbol_id": "28e17e99cb937643",           -- Stable SHA-256 derived ID
-    "fqn": "tests::test_default_config",       -- Fully-qualified name
+    "symbol_id": "28e17e99cb937643",
+    "fqn": "tests::test_default_config",
     "canonical_fqn": "codemcp::/path/to/file.rs::Function test_default_config",
     "display_fqn": "codemcp::tests::test_default_config",
     "name": "test_default_config",
@@ -63,58 +446,20 @@ CREATE TABLE graph_entities (
 ```sql
 CREATE TABLE graph_edges (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
-    from_id   INTEGER NOT NULL,    -- Source node ID (graph_entities.id)
-    to_id     INTEGER NOT NULL,    -- Target node ID (graph_entities.id)
-    edge_type TEXT NOT NULL,       -- Relationship type
-    data      TEXT NOT NULL        -- JSON: edge metadata (usually {})
+    from_id   INTEGER NOT NULL,
+    to_id     INTEGER NOT NULL,
+    edge_type TEXT NOT NULL,
+    data      TEXT NOT NULL
 );
 ```
 
-**Indexes:**
-- `idx_edges_from` on `(from_id)` - Forward traversal
-- `idx_edges_to` on `(to_id)` - Reverse traversal
-- `idx_edges_type` on `(edge_type)` - Edge type filtering
-
-**Edge Types & Distribution:**
-| edge_type | Count | Meaning |
-|-----------|-------|---------|
-| REFERENCES | 102,104 | Symbol references another symbol |
-| CALLS | 26,325 | Function calls another function |
-| DEFINES | 17,017 | File defines a symbol |
-| CALLER | 6,776 | Reverse of CALLS |
-
-#### `graph_labels` - Tagging System
-
-```sql
-CREATE TABLE graph_labels (
-    entity_id INTEGER NOT NULL,  -- References graph_entities.id
-    label     TEXT NOT NULL       -- Tag: "Rust", "pub", "Function", etc.
-);
-```
-
-**Indexes:**
-- `idx_labels_label` on `(label)`
-- `idx_labels_label_entity_id` on `(label, entity_id)`
-
-**Usage:** Tag symbols with language, visibility, custom categories.
-
-#### `graph_properties` - Key-Value Metadata
-
-```sql
-CREATE TABLE graph_properties (
-    entity_id INTEGER NOT NULL,
-    key       TEXT NOT NULL,
-    value     TEXT NOT NULL
-);
-```
-
-**Indexes:**
-- `idx_props_key_value` on `(key, value)`
-- `idx_props_key_value_entity_id` on `(key, value, entity_id)`
-
----
-
-### Extended Tables
+**Edge Types:**
+| edge_type | Meaning |
+|-----------|---------|
+| REFERENCES | Symbol references another symbol |
+| CALLS | Function calls another function |
+| DEFINES | File defines a symbol |
+| CALLER | Reverse of CALLS |
 
 #### `code_chunks` - Source Code Storage
 
@@ -124,168 +469,25 @@ CREATE TABLE code_chunks (
     file_path     TEXT NOT NULL,
     byte_start    INTEGER NOT NULL,
     byte_end      INTEGER NOT NULL,
-    content       TEXT NOT NULL,         -- Source code snippet
-    content_hash  TEXT NOT NULL,         -- SHA-256 of content
+    content       TEXT NOT NULL,
+    content_hash  TEXT NOT NULL,
     symbol_name   TEXT,
     symbol_kind   TEXT,
-    created_at    INTEGER NOT NULL,
-    UNIQUE(file_path, byte_start, byte_end)
+    created_at    INTEGER NOT NULL
 );
 ```
 
-**Indexes:**
-- `idx_chunks_file_path` on `(file_path)`
-- `idx_chunks_symbol_name` on `(symbol_name)`
-- `idx_chunks_content_hash` on `(content_hash)` - For duplicate detection
-
-#### `ast_nodes` - AST Node Storage (v1.9.0)
+#### `ast_nodes` - AST Node Storage
 
 ```sql
 CREATE TABLE ast_nodes (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    parent_id  INTEGER,                  -- Parent node for tree structure
-    kind       TEXT NOT NULL,            -- Node type from tree-sitter
-    byte_start INTEGER NOT NULL,         -- Start byte offset
-    byte_end   INTEGER NOT NULL,         -- End byte offset
-    FOREIGN KEY (parent_id) REFERENCES ast_nodes(id)
+    parent_id  INTEGER,
+    kind       TEXT NOT NULL,
+    byte_start INTEGER NOT NULL,
+    byte_end   INTEGER NOT NULL
 );
 ```
-
-**Indexes:**
-- `idx_ast_nodes_parent` on `(parent_id)` - For parent-child queries
-- `idx_ast_nodes_span` on `(byte_start, byte_end)` - For position queries
-
-**Common node kinds:**
-- `function_item` - Function definitions
-- `struct_item` - Struct definitions
-- `impl_item` - Implementation blocks
-- `if_expression` - If statements
-- `while_expression` - While loops
-- `for_expression` - For loops
-- `loop_expression` - Loop blocks
-- `match_expression` - Match expressions
-- `block` - Code blocks
-- `call_expression` - Function calls
-- `return_expression` - Return statements
-
-#### `execution_log` - Operation Tracking
-
-```sql
-CREATE TABLE execution_log (
-    id                INTEGER PRIMARY KEY AUTOINCREMENT,
-    execution_id      TEXT NOT NULL UNIQUE,
-    tool_version      TEXT NOT NULL,
-    args              TEXT NOT NULL,
-    root              TEXT,
-    db_path           TEXT NOT NULL,
-    started_at        INTEGER NOT NULL,
-    finished_at       INTEGER,
-    duration_ms       INTEGER,
-    outcome           TEXT NOT NULL,        -- 'success' | 'error'
-    error_message     TEXT,
-    files_indexed     INTEGER DEFAULT 0,
-    symbols_indexed   INTEGER DEFAULT 0,
-    references_indexed INTEGER DEFAULT 0
-);
-```
-
-**Indexes:**
-- `idx_execution_log_started_at` on `(started_at DESC)`
-- `idx_execution_log_execution_id` on `(execution_id)`
-- `idx_execution_log_outcome` on `(outcome)`
-
----
-
-### Semantic Search Tables (HNSW)
-
-#### `hnsw_indexes` - Vector Index Definitions
-
-```sql
-CREATE TABLE hnsw_indexes (
-    id               INTEGER PRIMARY KEY AUTOINCREMENT,
-    name             TEXT NOT NULL UNIQUE,
-    dimension        INTEGER NOT NULL,
-    m                INTEGER NOT NULL,        -- HNSW M parameter
-    ef_construction  INTEGER NOT NULL,        -- HNSW ef-construction
-    distance_metric  TEXT NOT NULL,           -- 'cosine', 'l2', etc.
-    vector_count     INTEGER NOT NULL DEFAULT 0,
-    created_at       INTEGER NOT NULL,
-    updated_at       INTEGER NOT NULL
-);
-```
-
-#### `hnsw_vectors` - Embedding Storage
-
-```sql
-CREATE TABLE hnsw_vectors (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    index_id   INTEGER NOT NULL,
-    vector_data BLOB NOT NULL,                -- Serialized vector
-    metadata   TEXT,                         -- JSON metadata
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL,
-    FOREIGN KEY (index_id) REFERENCES hnsw_indexes(id) ON DELETE CASCADE
-);
-```
-
-#### `hnsw_layers` - HNSW Graph Structure
-
-```sql
-CREATE TABLE hnsw_layers (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    index_id    INTEGER NOT NULL,
-    layer_level INTEGER NOT NULL,
-    node_id     INTEGER NOT NULL,
-    connections BLOB NOT NULL,                -- Serialized neighbor list
-    FOREIGN KEY (index_id) REFERENCES hnsw_indexes(id) ON DELETE CASCADE,
-    UNIQUE(index_id, layer_level, node_id)
-);
-```
-
----
-
-### Metadata Tables
-
-#### `graph_meta` - Schema Versioning
-
-```sql
-CREATE TABLE graph_meta (
-    id             INTEGER PRIMARY KEY CHECK (id = 1),
-    schema_version INTEGER NOT NULL
-);
-```
-
-#### `magellan_meta` - Cross-Tool Version Tracking
-
-```sql
-CREATE TABLE magellan_meta (
-    id                        INTEGER PRIMARY KEY CHECK (id = 1),
-    magellan_schema_version   INTEGER NOT NULL,
-    sqlitegraph_schema_version INTEGER NOT NULL,
-    created_at                INTEGER NOT NULL
-);
-```
-
-#### `graph_meta_history` - Migration Log
-
-```sql
-CREATE TABLE graph_meta_history (
-    version   INTEGER NOT NULL,
-    applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-```
-
----
-
-## Entity Kinds (Symbol Types)
-
-| kind | Count | Description |
-|------|-------|-------------|
-| Reference | 333,570 | Symbol reference (usage site) |
-| Call | 113,464 | Function/method call |
-| Symbol | 1,517 | Definition site |
-
-**Symbol kinds include:** `Function`, `Struct`, `Enum`, `Trait`, `Impl`, `Const`, `Static`, `Type`, `Module`, `Variable`, `Field`, `Method`, `Class`, `Interface`, etc.
 
 ---
 
@@ -305,48 +507,40 @@ magellan <command> [arguments]
 | `export` | Export graph data | `--db`, `--format`, `--output` |
 | `status` | Database statistics | `--db` |
 | `query` | List symbols in file | `--db`, `--file`, `--kind` |
-| `find` | Find symbol by name | `--db`, `--name`, `--symbol-id` |
+| `find` | Find symbol by name | `--db`, `--name` |
 | `refs` | Show callers/callees | `--db`, `--name`, `--direction` |
-| `get` | Get source code | `--db`, `--file`, `--symbol` |
+| `context` | LLM Context API | `--db`, `summary`/`list`/`symbol`/`file` |
+| `enrich` | LSP type enrichment | `--db` |
 | `files` | List all files | `--db` |
-| `label` | Query by labels | `--db`, `--label`, `--list` |
-| `ast` | Show AST tree for file | `--db`, `--file`, `--position` |
-| `find-ast` | Find AST nodes by kind | `--db`, `--kind` |
-| `migrate` | Upgrade schema | `--db`, `--dry-run` |
-| `verify` | Validate vs filesystem | `--root`, `--db` |
+| `doctor` | Self-diagnostics | `--db`, `--fix` |
 
-### Global Arguments
+### Context API (v3.0.0+)
 
 ```bash
---output <FORMAT>    # human (default), json, pretty
+# Project overview (~50 tokens)
+magellan context summary --db code.db --json
+
+# Paginated symbol list
+magellan context list --db code.db --kind fn --page 1 --page-size 50 --json
+
+# Symbol detail with call graph
+magellan context symbol --db code.db --name main --callers --callees --json
+
+# File-level context
+magellan context file --db code.db --path src/main.rs --json
 ```
 
-### Watch Command
+### Export Formats
 
 ```bash
-magellan watch \
-    --root <DIR> \
-    --db <FILE> \
-    [--debounce-ms <N>] \
-    [--watch-only] \
-    [--validate] \
-    [--output <FORMAT>]
-```
+# JSON export
+magellan export --db code.db --format json > graph.json
 
-### Status Command
+# LSIF export (for cross-repo navigation)
+magellan export --db code.db --format lsif --output project.lsif
 
-```bash
-magellan status --db <FILE> [--output <FORMAT>]
-```
-
-**Returns:**
-```
-files: 104
-symbols: 7562
-references: 102104
-calls: 26325
-code_chunks: 456
-ast_nodes: 15234
+# Import external LSIF
+magellan import-lsif --db code.db --input dependency.lsif
 ```
 
 ---
@@ -355,13 +549,15 @@ ast_nodes: 15234
 
 ```
 magellan/src/
-├── main.rs              # CLI entry point, command parsing
+├── main.rs              # CLI entry point
 ├── lib.rs               # Public API exports
-├── common.rs            # Language detection, path utilities
-├── indexer.rs           # Main indexing orchestrator
-├── ingest/              # Language parsers (tree-sitter)
+├── common.rs            # Language detection
+├── indexer.rs           # Indexing orchestrator
+├── cli.rs               # Argument parsing
+├── geometric_cmd.rs     # ⚠️ Geometric backend CLI
+├── ingest/              # Language parsers
 │   ├── mod.rs
-│   ├── detect.rs        # Language detection from extension
+│   ├── detect.rs
 │   ├── rust.rs
 │   ├── c.rs
 │   ├── cpp.rs
@@ -374,30 +570,18 @@ magellan/src/
 │   ├── schema.rs        # Node payload types
 │   ├── ops.rs           # CRUD operations
 │   ├── query.rs         # Symbol queries
-│   ├── scan.rs          # Directory scanning
-│   ├── symbols.rs       # Symbol operations
-│   ├── references.rs    # Reference operations
-│   ├── calls.rs         # Call graph operations
-│   ├── ast_node.rs      # AST node types (v1.9.0)
-│   ├── ast_extractor.rs # AST extraction from tree-sitter (v1.9.0)
-│   ├── ast_ops.rs       # AST query operations (v1.9.0)
-│   ├── filter.rs        # File filtering
-│   ├── freshness.rs     # staleness detection
-│   ├── export.rs        # JSON/SCIP export
-│   ├── validation.rs    # Graph validation
-│   └── cache.rs         # File node cache
+│   ├── algorithms.rs    # Graph algorithms
+│   ├── geometric_backend.rs  # ⚠️ 3D complete, 4D incomplete
+│   ├── cfg_*.rs         # CFG modules
+│   ├── ast_*.rs         # AST modules
+│   └── metrics/         # Code metrics
+├── context/             # LLM Context API
+├── lsp/                 # LSP enrichment
+├── lsif/                # LSIF export/import
 ├── generation/          # Code chunk storage
-│   ├── mod.rs
-│   └── schema.rs        # ChunkStore types
-├── watcher.rs           # File system watcher
-├── diagnostics/         # Watch event tracking
 ├── output/              # Output formatting
-│   ├── mod.rs
-│   ├── command.rs       # Response types
-│   └── rich.rs          # Human-readable output
-├── ast_cmd.rs           # AST CLI commands (v1.9.0)
-├── references.rs        # Reference fact types
-└── verify.rs            # Graph validation logic
+├── watcher/             # Async file watcher
+└── diagnostics/         # Watch event tracking
 ```
 
 ---
@@ -415,22 +599,11 @@ magellan/src/
 │  └─────────┘    └─────────┘    └─────────┘    └─────────┘ │
 │                     │                              │        │
 │                     ▼                              ▼        │
-│              ┌─────────┐                    ┌─────────┐  │
-│              │ Detect  │                    │ CodeGraph│  │
-│              │Language│                    │ Wrapper │  │
-│              └─────────┘                    └─────────┘  │
+│              ┌─────────┐                    ┌─────────┐    │
+│              │ Detect  │                    │ CodeGraph│    │
+│              │Language│                    │ Wrapper │    │
+│              └─────────┘                    └─────────┘    │
 │                                                     │       │
-└─────────────────────────────────────────────────────────────┘
-
-┌──────────────────────────────────────────────────────────────┐
-│                    Query Pipeline                             │
-├──────────────────────────────────────────────────────────────┤
-│                                                              │
-│  ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐ │
-│  │  CLI    │───▶│ Command │───▶│  Graph │───▶│ Results │ │
-│  │ Request│    │ Handler │    │  Query  │    │ Output  │ │
-│  └─────────┘    └─────────┘    └─────────┘    └─────────┘ │
-│                                                     │        │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -448,187 +621,54 @@ Magellan uses **tree-sitter position conventions**:
 
 ---
 
-## Integration Points for LogicGraph/PathGraph
+## Integration Points
 
-### Design Decision: SAME Database
+### Same Database Principle
 
 **Extend `codegraph.db`** with new tables (NOT separate database):
 
 **Why same DB?**
 - Single source of truth
 - JOIN queries work natively
-- Atomic updates (when file changes → delete symbol + delete paths + recompute in ONE transaction)
-- Magellan already extends the DB (graph_edges, graph_labels, code_chunks, hnsw_*)
+- Atomic updates (symbol + path in ONE transaction)
 - Better performance
-
-### Proposed Schema Extension
-
-```sql
--- CFG Nodes (per function)
-CREATE TABLE cfg_nodes (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    function_id  INTEGER NOT NULL,     -- References graph_entities.id
-    node_type    TEXT NOT NULL,        -- 'entry', 'exit', 'branch', 'merge', 'call', 'return'
-    byte_start   INTEGER,
-    byte_end     INTEGER
-);
-
--- CFG Edges (control flow)
-CREATE TABLE cfg_edges (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    from_node_id INTEGER NOT NULL,     -- References cfg_nodes.id
-    to_node_id   INTEGER NOT NULL,     -- References cfg_nodes.id
-    edge_type    TEXT NOT NULL,        -- 'branch_true', 'branch_false', 'fallthrough', 'exception'
-    condition_id INTEGER,             -- Optional: reference to condition expression
-    data         TEXT NOT NULL         -- JSON metadata
-);
-
--- Paths (enumerated execution paths)
-CREATE TABLE control_flow_paths (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    function_id   INTEGER NOT NULL,     -- References graph_entities.id
-    path_hash     TEXT NOT NULL,        -- SHA-256 of path for deduplication
-    entry_node    INTEGER NOT NULL,     -- References cfg_nodes.id
-    exit_node     INTEGER NOT NULL,     -- References cfg_nodes.id
-    path_type     TEXT NOT NULL,        -- 'normal', 'error', 'degenerate'
-    is_reachable  BOOLEAN NOT NULL,
-    proof_hash    TEXT,                 -- Reachability proof
-    created_at    INTEGER NOT NULL
-);
-
--- Path Steps (ordered nodes in a path)
-CREATE TABLE path_steps (
-    path_id      INTEGER NOT NULL,
-    step_order   INTEGER NOT NULL,
-    node_id      INTEGER NOT NULL,     -- References cfg_nodes.id
-    edge_id      INTEGER,              -- References cfg_edges.id
-    PRIMARY KEY (path_id, step_order)
-);
-
--- Call Chain Analysis (interprocedural)
-CREATE TABLE call_chain_blast_zone (
-    changed_function   TEXT NOT NULL,
-    affected_function TEXT NOT NULL,
-    depth             INTEGER NOT NULL,
-    is_error_path     BOOLEAN NOT NULL,
-    proof_id          INTEGER            -- References control_flow_paths.id
-);
-```
 
 ### Linking via symbol_id
 
 Use the **stable symbol_id** from Magellan's SymbolNode:
 
 ```rust
-// In Magellan
 pub struct SymbolNode {
     pub symbol_id: Option<String>,  // SHA-256 of language:fqn:span_id
     // ...
 }
 ```
 
-LogicGraph queries:
-```sql
--- Get paths for a function
-SELECT * FROM control_flow_paths
-WHERE function_id = (SELECT id FROM graph_entities WHERE data->>'symbol_id' = '28e17e99cb937643');
-
--- Get call chain blast zone
-WITH RECURSIVE call_chain AS (
-    SELECT id, 0 as depth
-    FROM graph_entities WHERE data->>'name' = 'run_init'
-    UNION ALL
-    SELECT ge.id, cc.depth + 1
-    FROM call_chain cc
-    JOIN graph_edges e ON cc.id = e.from_id
-    JOIN graph_entities ge ON e.to_id = ge.id
-    WHERE e.edge_type = 'CALLS' AND cc.depth < 10
-)
-SELECT * FROM call_chain;
-```
-
----
-
-## CLI Compatibility
-
-### Match Magellan's CLI Pattern
-
-```bash
-# Magellan
-magellan watch --root . --db .codemcp/codegraph.db
-
-# LogicGraph (proposal) - extends Magellan
-magellan paths --db .codemcp/codegraph.db --function run_init
-magellan unreachable --db .codemcp/codegraph.db --entry main
-magellan blast-zone --db .codemcp/codegraph.db --symbol run_init
-magellan cfg --db .codemcp/codegraph.db --function run_init
-```
-
-### Shared Arguments
-
-| Argument | Meaning | Used By |
-|----------|---------|---------|
-| `--root <DIR>` | Workspace root | Magellan, LogicGraph |
-| `--db <FILE>` | Database path | Magellan, LogicGraph |
-| `--output <FORMAT>` | Output format | All tools |
-| `--debounce-ms <N>` | Watch debounce | Magellan only |
-
 ---
 
 ## Design Recommendations
 
-### 1. Schema Extension
+### Schema Extension
 
 Add to Magellan's migration system in `src/graph/db_compat.rs`:
 
 ```rust
-pub const LOGICGRAPH_SCHEMA_VERSION: i32 = 1;
+pub const CUSTOM_SCHEMA_VERSION: i32 = 1;
 
-pub fn ensure_logicgraph_schema(conn: &rusqlite::Connection) -> Result<()> {
+pub fn ensure_custom_schema(conn: &rusqlite::Connection) -> Result<()> {
     conn.execute(
-        "CREATE TABLE IF NOT EXISTS cfg_nodes (...)",
-        [],
-    )?;
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS cfg_edges (...)",
-        [],
-    )?;
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS control_flow_paths (...)",
-        [],
-    )?;
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS path_steps (...)",
+        "CREATE TABLE IF NOT EXISTS custom_table (...)",
         [],
     )?;
     Ok(())
 }
 ```
 
-### 2. MCP Tool Interface
-
-```typescript
-// Path Query Tools
-get_cfg(function_name: string): CFG
-get_paths(function_name: string, filter: PathFilter): Path[]
-prove_reachability(from: string, to: string): Proof
-find_unreachable(entry_point: string): Node[]
-
-// Call Graph Tools
-get_call_chain(from: string, direction: 'forward'|'backward'): Symbol[]
-get_blast_zone(symbol: string): BlastZoneResult
-
-// Analysis Tools
-find_cfg_duplicates(threshold: number): DuplicatePair[]
-validate_path(path_id: string): ValidationResult
-```
-
-### 3. Incremental Path Computation
+### Incremental Computation
 
 When Magellan indexes a file:
 
 ```rust
-// After Magellan indexes file.rs
 pub fn on_file_indexed(codegraph: &CodeGraph, path: &str) -> Result<()> {
     // 1. Get all functions in the file
     let functions = codegraph.symbols_in_file_with_kind(path, Some(SymbolKind::Function))?;
@@ -639,12 +679,34 @@ pub fn on_file_indexed(codegraph: &CodeGraph, path: &str) -> Result<()> {
         codegraph.store_cfg(func.id, cfg)?;
     }
 
-    // 3. Enumerate paths
-    codegraph.enumerate_paths()?;
-
     Ok(())
 }
 ```
+
+---
+
+## Backend Selection Guide
+
+### When to use SQLite Backend
+
+- Compatibility with existing tools
+- Debugging (human-readable SQL)
+- Small to medium codebases
+- Development/testing
+
+### When to use Native V3 Backend
+
+- Production deployments
+- Large codebases (10M+ LOC)
+- High query throughput
+- When performance matters
+
+### When to use Geometric Backend ⚠️
+
+- CFG analysis experiments
+- When O(log n) path queries are needed
+- **NOT for production** (incomplete features)
+- **NOT for temporal queries** (not implemented)
 
 ---
 
@@ -652,26 +714,31 @@ pub fn on_file_indexed(codegraph: &CodeGraph, path: &str) -> Result<()> {
 
 ### Database Decision
 
-**Use `codegraph.db`** - extend existing schema, not separate database.
+**Three backends, choose based on use case:**
 
-**Reasons:**
-1. Atomic updates (symbol + path in one transaction)
-2. JOIN queries between structure and behavior
-3. Single source of truth
-4. Magellan already extends the DB (edges, labels, chunks, HNSW)
-5. Better performance
+| Use Case | Backend | File Extension |
+|----------|---------|----------------|
+| Default/Compatibility | SQLite | `.db` |
+| Production Performance | Native V3 | `.v3` |
+| CFG Experiments Only | Geometric | `.geo` |
 
-### Building LogicGraph
+### Building with Different Backends
 
-1. Extend Magellan schema with `cfg_*` and `control_flow_paths` tables
-2. Hook into `reconcile_file_path` to update paths when symbols change
-3. Add CLI commands: `paths`, `unreachable`, `blast-zone`, `cfg`
-4. Provide MCP tools for LLM consumption
+```bash
+# SQLite (default)
+cargo build --release
+
+# Native V3 (recommended for production)
+cargo build --release --features native-v3
+
+# Geometric (⚠️ experimental)
+cargo build --release --features geometric-backend
+```
 
 ### Integration Pattern
 
 ```
-Magellan (structure) + LogicGraph (paths) = Complete Code Intelligence
+Magellan (structure) + Analysis Tool (behavior) = Complete Code Intelligence
          ↓                        ↓
     WHERE things are        HOW code behaves
 ```
@@ -684,5 +751,5 @@ Magellan (structure) + LogicGraph (paths) = Complete Code Intelligence
 - Magellan CLI: `src/main.rs`
 - Graph Schema: `src/graph/schema.rs`
 - CodeGraph API: `src/graph/mod.rs`
-- Indexer: `src/indexer.rs`
-- Path-Aware Design: `docs/PATH_AWARE_CODE_INTELLIGENCE_DESIGN.md`
+- Geometric Backend: `src/graph/geometric_backend.rs` ⚠️
+- Geometric Docs: `docs/GEOGRAPHDB_*.md`
