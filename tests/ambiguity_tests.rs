@@ -10,8 +10,8 @@
 //! - --ambiguous flag: Show all candidates for display FQN
 //! - --first flag: Deprecation warning verification
 
-use magellan::graph::query;
 use magellan::graph::ambiguity::AmbiguityOps;
+use magellan::graph::query;
 use magellan::CodeGraph;
 use std::fs;
 use tempfile::TempDir;
@@ -35,11 +35,12 @@ fn test_create_ambiguous_group_single_symbol() {
     graph.index_file(&path_str, &source).unwrap();
 
     // Get the symbol entity ID
-    let (_node_id, _fact, _symbol_id_option) = query::symbol_nodes_in_file_with_ids(&mut graph, &path_str)
-        .unwrap()
-        .into_iter()
-        .next()
-        .expect("Should have one symbol");
+    let (_node_id, _fact, _symbol_id_option) =
+        query::symbol_nodes_in_file_with_ids(&mut graph, &path_str)
+            .unwrap()
+            .into_iter()
+            .next()
+            .expect("Should have one symbol");
 
     // Create group with single symbol (should work)
     // We use the entity_id from the symbol, not symbol_id
@@ -48,7 +49,10 @@ fn test_create_ambiguous_group_single_symbol() {
         .expect("Handler should exist");
 
     let result = graph.create_ambiguous_group("Handler", &[entity_id]);
-    assert!(result.is_ok(), "Should successfully create ambiguity group with single symbol");
+    assert!(
+        result.is_ok(),
+        "Should successfully create ambiguity group with single symbol"
+    );
 }
 
 #[test]
@@ -119,11 +123,12 @@ fn test_resolve_by_symbol_id_found() {
     graph.index_file(&path_str, &source).unwrap();
 
     // Get the SymbolId and display_fqn from the indexed symbol
-    let (_node_id, fact, symbol_id_option) = query::symbol_nodes_in_file_with_ids(&mut graph, &path_str)
-        .unwrap()
-        .into_iter()
-        .find(|(_, fact, _)| fact.name.as_deref() == Some("Handler"))
-        .expect("Handler should exist");
+    let (_node_id, fact, symbol_id_option) =
+        query::symbol_nodes_in_file_with_ids(&mut graph, &path_str)
+            .unwrap()
+            .into_iter()
+            .find(|(_, fact, _)| fact.name.as_deref() == Some("Handler"))
+            .expect("Handler should exist");
 
     // Test resolve_by_symbol_id with actual SymbolId
     if let Some(symbol_id) = symbol_id_option {
@@ -157,7 +162,9 @@ fn test_resolve_by_symbol_id_not_found() {
     let source = fs::read(&test_file).unwrap();
     graph.index_file(&path_str, &source).unwrap();
 
-    let result = graph.resolve_by_symbol_id("Handler", "nonexistent_id_123456789012").unwrap();
+    let result = graph
+        .resolve_by_symbol_id("Handler", "nonexistent_id_123456789012")
+        .unwrap();
     assert!(
         result.is_none(),
         "Should return None when SymbolId doesn't exist"
@@ -179,15 +186,18 @@ fn test_resolve_by_symbol_id_display_fqn_mismatch() {
     graph.index_file(&path_str, &source).unwrap();
 
     // Get the SymbolId
-    let (_node_id, _fact, symbol_id_option) = query::symbol_nodes_in_file_with_ids(&mut graph, &path_str)
-        .unwrap()
-        .into_iter()
-        .find(|(_, fact, _)| fact.name.as_deref() == Some("Handler"))
-        .expect("Handler should exist");
+    let (_node_id, _fact, symbol_id_option) =
+        query::symbol_nodes_in_file_with_ids(&mut graph, &path_str)
+            .unwrap()
+            .into_iter()
+            .find(|(_, fact, _)| fact.name.as_deref() == Some("Handler"))
+            .expect("Handler should exist");
 
     // Query with different display_fqn
     if let Some(symbol_id) = symbol_id_option {
-        let result = graph.resolve_by_symbol_id("DifferentHandler", &symbol_id).unwrap();
+        let result = graph
+            .resolve_by_symbol_id("DifferentHandler", &symbol_id)
+            .unwrap();
         assert!(
             result.is_none(),
             "Should return None when SymbolId exists but display_fqn doesn't match"
@@ -238,10 +248,7 @@ fn test_get_candidates_multiple() {
 
     // Should find candidates (exact count depends on FQN computation)
     // Just verify the query doesn't error - empty result is valid for non-existent display_fqn
-    assert!(
-        true,
-        "Query should succeed without error"
-    );
+    assert!(true, "Query should succeed without error");
 }
 
 #[test]
@@ -282,8 +289,12 @@ fn test_ambiguous_group_idempotent() {
     let display_fqn = fact1.display_fqn.as_deref().unwrap_or("Handler");
 
     // Create group twice with same symbols
-    graph.create_ambiguous_group(display_fqn, &[entity_id1, entity_id2]).unwrap();
-    graph.create_ambiguous_group(display_fqn, &[entity_id1, entity_id2]).unwrap();
+    graph
+        .create_ambiguous_group(display_fqn, &[entity_id1, entity_id2])
+        .unwrap();
+    graph
+        .create_ambiguous_group(display_fqn, &[entity_id1, entity_id2])
+        .unwrap();
 
     // Verify candidates exist (idempotent - no duplicates from double call)
     let candidates = graph.get_candidates(display_fqn).unwrap();
@@ -312,11 +323,12 @@ fn test_cli_find_by_symbol_id() {
     graph.index_file(&path_str, &source).unwrap();
 
     // Get the SymbolId
-    let (_node_id, _fact, symbol_id_option) = query::symbol_nodes_in_file_with_ids(&mut graph, &path_str)
-        .unwrap()
-        .into_iter()
-        .find(|(_, fact, _)| fact.name.as_deref() == Some("function_name"))
-        .expect("function_name should exist");
+    let (_node_id, _fact, symbol_id_option) =
+        query::symbol_nodes_in_file_with_ids(&mut graph, &path_str)
+            .unwrap()
+            .into_iter()
+            .find(|(_, fact, _)| fact.name.as_deref() == Some("function_name"))
+            .expect("function_name should exist");
 
     if let Some(symbol_id) = symbol_id_option {
         // Run CLI find with --symbol-id
@@ -463,12 +475,15 @@ fn test_cli_find_ambiguous_with_display_fqn() {
         .arg("--db")
         .arg(&db_path)
         .arg("--ambiguous")
-        .arg(display_fqn)  // Use display_fqn, not just "Handler"
+        .arg(display_fqn) // Use display_fqn, not just "Handler"
         .output()
         .unwrap();
 
     // Verify output succeeds
-    assert!(output.status.success(), "CLI should succeed with --ambiguous flag");
+    assert!(
+        output.status.success(),
+        "CLI should succeed with --ambiguous flag"
+    );
 
     // Verify stderr contains candidate information (Symbol ID, Canonical, or Name)
     let stderr = String::from_utf8(output.stderr).unwrap();

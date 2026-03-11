@@ -19,11 +19,7 @@ use std::path::PathBuf;
 ///
 /// # Returns
 /// Result indicating success or failure
-pub fn run_enrich(
-    db_path: PathBuf,
-    files: Option<Vec<PathBuf>>,
-    timeout_secs: u64,
-) -> Result<()> {
+pub fn run_enrich(db_path: PathBuf, files: Option<Vec<PathBuf>>, timeout_secs: u64) -> Result<()> {
     let mut graph = CodeGraph::open(&db_path)?;
     let exec_id = generate_execution_id();
 
@@ -61,10 +57,7 @@ pub fn run_enrich(
 
     // Finish execution tracking
     graph.execution_log().finish_execution(
-        &exec_id,
-        "success",
-        None,
-        0, // files_indexed
+        &exec_id, "success", None, 0, // files_indexed
         0, // symbols_indexed
         0, // references_indexed
     )?;

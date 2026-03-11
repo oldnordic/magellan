@@ -20,19 +20,23 @@
 //! See [MANUAL.md](../../MANUAL.md#known-limitations) for details.
 pub mod algorithms;
 pub mod ambiguity;
-mod ast_node;
+pub mod backend;
 mod ast_extractor;
+
+#[cfg(feature = "geometric-backend")]
+pub mod geometric_backend;
+mod ast_node;
 mod ast_ops;
 
 #[cfg(feature = "bytecode-cfg")]
 mod bytecode_cfg;
 
-mod cfg_extractor;
-mod cfg_ops;
 mod cache;
 mod call_ops;
 mod calls;
 pub mod canonical_fqn;
+mod cfg_extractor;
+mod cfg_ops;
 mod count;
 pub mod crate_name;
 mod db_compat;
@@ -42,17 +46,17 @@ mod files;
 pub mod filter;
 mod freshness;
 mod imports; // Private module for import operations
-mod module_resolver; // Private module for module path resolution
 pub mod metrics;
+mod module_resolver; // Private module for module path resolution
 mod ops;
 pub mod query;
 mod references;
 pub mod scan;
 mod schema;
+pub mod side_tables;
 mod symbol_index;
 mod symbols;
 pub mod validation;
-pub mod side_tables;
 
 // Re-export small public types from ops.
 pub use ops::{index_file, DeleteResult, ReconcileOutcome};
@@ -87,7 +91,7 @@ pub use algorithms::{
     SliceResult, SliceStatistics, Supernode, SymbolInfo,
 };
 pub use ast_extractor::{extract_ast_nodes, language_from_path, normalize_node_kind};
-pub use ast_node::{AstNode, AstNodeWithText, is_structural_kind};
+pub use ast_node::{is_structural_kind, AstNode, AstNodeWithText};
 // Re-export CFG types for public API
 pub use cfg_extractor::{BlockKind, CfgExtractor, TerminatorKind};
 pub use cfg_ops::CfgOps;
@@ -95,10 +99,10 @@ pub use cfg_ops::CfgOps;
 #[cfg(feature = "bytecode-cfg")]
 pub use bytecode_cfg::JavaBytecodeCfgExtractor;
 pub use cache::CacheStats;
-pub use db_compat::{ensure_ast_schema, ensure_cfg_schema, CFG_EDGE};
 pub use db_compat::MAGELLAN_SCHEMA_VERSION;
-pub use export::{ExportConfig, ExportFormat};
+pub use db_compat::{ensure_ast_schema, ensure_cfg_schema, CFG_EDGE};
 pub use execution_log::ExecutionLog;
+pub use export::{ExportConfig, ExportFormat};
 pub use freshness::{check_freshness, FreshnessStatus, STALE_THRESHOLD_SECS};
 pub use metrics::MetricsOps;
 pub use schema::{CallNode, CfgBlock, CfgEdge, CrossFileRef, FileNode, ReferenceNode, SymbolNode};
@@ -159,7 +163,7 @@ pub struct CodeGraph {
 
     /// CFG block operations module
     pub cfg_ops: cfg_ops::CfgOps,
-    
+
     /// Side tables for backend-agnostic storage (chunks, AST, metrics, etc.)
     side_tables: Arc<dyn side_tables::SideTables>,
 }
@@ -189,9 +193,12 @@ impl CodeGraph {
         // Select backend based on feature flags:
         // - native-v3: High-performance native binary backend
         // - sqlite-backend (default): Stable SQLite backend
-        
+
         #[cfg(feature = "native-v3")]
-        let (backend, v3_backend_arc): (Arc<dyn GraphBackend>, Option<Arc<sqlitegraph::backend::native::v3::V3Backend>>) = {
+        let (backend, v3_backend_arc): (
+            Arc<dyn GraphBackend>,
+            Option<Arc<sqlitegraph::backend::native::v3::V3Backend>>,
+        ) = {
             use sqlitegraph::backend::native::v3::V3Backend;
             // Native V3 backend: open if exists, create if not
             let v3_backend = if db_path_buf.exists() {
@@ -288,8 +295,9 @@ impl CodeGraph {
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
             // Create SQLite side tables
-            let side_tables: Arc<dyn side_tables::SideTables> = 
-                Arc::new(side_tables::sqlite_impl::SqliteSideTables::open(&db_path_buf)?);
+            let side_tables: Arc<dyn side_tables::SideTables> = Arc::new(
+                side_tables::sqlite_impl::SqliteSideTables::open(&db_path_buf)?,
+            );
 
             // Open a shared connection for ChunkStore to enable transactional operations
             // This allows chunk operations to participate in transactions with graph operations
@@ -362,20 +370,20 @@ impl CodeGraph {
         #[cfg(feature = "native-v3")]
         let (side_tables, chunks, execution_log, metrics, needs_backfill) = {
             use side_tables::v3_impl::V3SideTables;
-            
+
             // Get the Arc<V3Backend> for side tables
             let v3_arc = v3_backend_arc.expect("V3 backend should be initialized");
-            
+
             // Create V3 side tables using KV store (no SQLite!)
             let side_tables: Arc<dyn side_tables::SideTables> = Arc::new(V3SideTables::new(v3_arc));
-            
+
             // Create ChunkStore with SideTables backend
             let chunks = ChunkStore::with_side_tables(side_tables.clone());
-            
+
             // Create ExecutionLog with SideTables backend
             let execution_log = execution_log::ExecutionLog::with_side_tables(side_tables.clone());
-            
-            // Create MetricsOps with SideTables backend  
+
+            // Create MetricsOps with SideTables backend
             let metrics = metrics::MetricsOps::with_side_tables(side_tables.clone());
 
             // No backfill needed for new V3 databases
@@ -392,10 +400,8 @@ impl CodeGraph {
             .parent()
             .unwrap_or_else(|| Path::new("."))
             .to_path_buf();
-        let module_resolver = module_resolver::ModuleResolver::new(
-            Arc::clone(&backend),
-            project_root,
-        );
+        let module_resolver =
+            module_resolver::ModuleResolver::new(Arc::clone(&backend), project_root);
 
         let mut graph = Self {
             files,
@@ -889,9 +895,12 @@ impl CodeGraph {
     /// # Returns
     /// Vector of (key, value) tuples
     #[cfg(feature = "native-v3")]
-    pub fn kv_prefix_scan(&self, prefix: &[u8]) -> Vec<(Vec<u8>, sqlitegraph::backend::native::v3::KvValue)> {
+    pub fn kv_prefix_scan(
+        &self,
+        prefix: &[u8],
+    ) -> Vec<(Vec<u8>, sqlitegraph::backend::native::v3::KvValue)> {
         use side_tables::v3_impl::V3SideTables;
-        
+
         // Try to downcast side_tables to V3SideTables
         if let Some(v3_tables) = self.side_tables.as_any().downcast_ref::<V3SideTables>() {
             v3_tables.kv_prefix_scan(prefix)
@@ -914,7 +923,7 @@ impl CodeGraph {
     #[cfg(feature = "native-v3")]
     pub fn complete_fqn(&self, prefix: &str, limit: usize) -> Vec<String> {
         use side_tables::v3_impl::V3SideTables;
-        
+
         if let Some(v3_tables) = self.side_tables.as_any().downcast_ref::<V3SideTables>() {
             v3_tables.complete_fqn(prefix, limit)
         } else {
@@ -935,7 +944,7 @@ impl CodeGraph {
     #[cfg(feature = "native-v3")]
     pub fn lookup_symbol_by_fqn(&self, fqn: &str) -> Option<i64> {
         use side_tables::v3_impl::V3SideTables;
-        
+
         if let Some(v3_tables) = self.side_tables.as_any().downcast_ref::<V3SideTables>() {
             v3_tables.lookup_symbol_by_fqn(fqn)
         } else {
@@ -957,7 +966,7 @@ impl CodeGraph {
     #[cfg(feature = "native-v3")]
     pub fn get_symbols_by_label_kv(&self, label: &str) -> Vec<i64> {
         use side_tables::v3_impl::V3SideTables;
-        
+
         if let Some(v3_tables) = self.side_tables.as_any().downcast_ref::<V3SideTables>() {
             v3_tables.get_symbols_by_label(label)
         } else {
@@ -977,7 +986,7 @@ impl CodeGraph {
     /// Some(SymbolNode) if found and is a Symbol, None otherwise
     pub fn get_symbol_by_entity_id(&self, entity_id: i64) -> Option<SymbolNode> {
         use sqlitegraph::SnapshotId;
-        
+
         let snapshot = SnapshotId::current();
         match self.files.backend.get_node(snapshot, entity_id) {
             Ok(node) => {

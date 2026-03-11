@@ -19,6 +19,7 @@ pub fn print_short_usage() {
     eprintln!("  watch       Index codebase: magellan watch --root . --db code.db");
     eprintln!("  status      Show database stats: magellan status --db code.db");
     eprintln!("  doctor      Diagnose issues: magellan doctor --db code.db [--fix]");
+    #[cfg(feature = "web-ui")]
     eprintln!("  web-ui      Start web interface: magellan web-ui --db code.db [--port 8080]");
     eprintln!("  find        Find symbols: magellan find --db code.db --name main");
     eprintln!("  refs        Show references: magellan refs --db code.db --name foo");
@@ -144,7 +145,9 @@ pub fn print_full_usage() {
     eprintln!("  reachable       Show symbols reachable from a given symbol");
     eprintln!("  dead-code       Find dead code unreachable from an entry point");
     eprintln!("  cycles          Detect strongly connected components (cycles) in the call graph");
+    #[cfg(feature = "geometric-backend")]
     eprintln!("  condense        Show call graph condensation (SCCs collapsed into supernodes)");
+    #[cfg(feature = "geometric-backend")]
     eprintln!("  paths           Enumerate execution paths between symbols");
     eprintln!("  slice           Program slicing (backward/forward) from a target symbol");
     eprintln!();

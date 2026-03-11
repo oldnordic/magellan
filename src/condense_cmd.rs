@@ -26,7 +26,11 @@ pub fn run_condense(
     // Build args for execution tracking
     let args = vec![
         "condense".to_string(),
-        if show_members { "--members".to_string() } else { "--no-members".to_string() },
+        if show_members {
+            "--members".to_string()
+        } else {
+            "--no-members".to_string()
+        },
     ];
 
     let graph = CodeGraph::open(&db_path)?;
@@ -49,12 +53,7 @@ pub fn run_condense(
         graph
             .execution_log()
             .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
-        return output_json_mode(
-            condensation,
-            show_members,
-            &exec_id,
-            output_format,
-        );
+        return output_json_mode(condensation, show_members, &exec_id, output_format);
     }
 
     // Human mode
@@ -71,7 +70,12 @@ pub fn run_condense(
         };
 
         if show_members && supernode.members.len() > 1 {
-            println!("  [Supernode {}] {} ({} members):", supernode.id, fqn_display, supernode.members.len());
+            println!(
+                "  [Supernode {}] {} ({} members):",
+                supernode.id,
+                fqn_display,
+                supernode.members.len()
+            );
             for member in &supernode.members {
                 let member_fqn = member.fqn.as_deref().unwrap_or("?");
                 println!("      - {} ({})", member_fqn, member.kind);
@@ -82,7 +86,10 @@ pub fn run_condense(
             } else {
                 String::new()
             };
-            println!("  [Supernode {}] {}{}", supernode.id, fqn_display, member_count);
+            println!(
+                "  [Supernode {}] {}{}",
+                supernode.id, fqn_display, member_count
+            );
         }
     }
 
@@ -153,8 +160,18 @@ impl From<CondensationResult> for CondenseResponse {
         Self {
             supernode_count: result.graph.supernodes.len(),
             edge_count: result.graph.edges.len(),
-            supernodes: result.graph.supernodes.into_iter().map(SupernodeJson::from).collect(),
-            edges: result.graph.edges.into_iter().map(|(from, to)| EdgeJson { from, to }).collect(),
+            supernodes: result
+                .graph
+                .supernodes
+                .into_iter()
+                .map(SupernodeJson::from)
+                .collect(),
+            edges: result
+                .graph
+                .edges
+                .into_iter()
+                .map(|(from, to)| EdgeJson { from, to })
+                .collect(),
             symbol_to_supernode: result.original_to_supernode,
         }
     }
@@ -165,7 +182,11 @@ impl From<Supernode> for SupernodeJson {
         Self {
             id: supernode.id,
             member_count: supernode.members.len(),
-            members: supernode.members.into_iter().map(SymbolInfoJson::from).collect(),
+            members: supernode
+                .members
+                .into_iter()
+                .map(SymbolInfoJson::from)
+                .collect(),
         }
     }
 }

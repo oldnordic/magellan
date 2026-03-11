@@ -31,7 +31,10 @@ fn test_new_database_has_v8_schema() {
         )
         .unwrap_or(false);
 
-    assert!(has_ast_table, "ast_nodes table should exist in new databases");
+    assert!(
+        has_ast_table,
+        "ast_nodes table should exist in new databases"
+    );
 
     // Verify cfg_blocks table exists (v7 addition)
     let has_cfg_table: bool = conn
@@ -42,8 +45,11 @@ fn test_new_database_has_v8_schema() {
         )
         .unwrap_or(false);
 
-    assert!(has_cfg_table, "cfg_blocks table should exist in new databases (v7)");
-    
+    assert!(
+        has_cfg_table,
+        "cfg_blocks table should exist in new databases (v7)"
+    );
+
     // Verify cfg_hash column exists (v8 addition)
     let has_cfg_hash: bool = conn
         .query_row(
@@ -52,8 +58,11 @@ fn test_new_database_has_v8_schema() {
             |_| Ok(true),
         )
         .unwrap_or(false);
-    
-    assert!(has_cfg_hash, "cfg_hash column should exist in cfg_blocks (v8)");
+
+    assert!(
+        has_cfg_hash,
+        "cfg_hash column should exist in cfg_blocks (v8)"
+    );
 }
 
 #[test]
@@ -71,7 +80,11 @@ fn test_fresh_database_creation_v8() {
 
     // Check magellan_meta
     let version: i64 = conn
-        .query_row("SELECT magellan_schema_version FROM magellan_meta", [], |r| r.get(0))
+        .query_row(
+            "SELECT magellan_schema_version FROM magellan_meta",
+            [],
+            |r| r.get(0),
+        )
         .unwrap();
     assert_eq!(version, 8);
 
@@ -152,7 +165,7 @@ fn test_migration_v4_to_v8_creates_required_tables() {
         )
         .unwrap_or(false);
     assert!(has_cfg_table, "cfg_blocks table should be created (v7)");
-    
+
     // Verify cfg_hash column exists (v8)
     let has_cfg_hash: bool = conn
         .query_row(
@@ -171,10 +184,7 @@ fn test_migration_v4_to_v8_creates_required_tables() {
             |_| Ok(true),
         )
         .unwrap_or(false);
-    assert!(
-        has_parent_index,
-        "idx_ast_nodes_parent should be created"
-    );
+    assert!(has_parent_index, "idx_ast_nodes_parent should be created");
 
     let has_span_index: bool = conn
         .query_row(
@@ -249,8 +259,11 @@ fn test_opening_v4_database_auto_upgrades_to_v8() {
         )
         .unwrap_or(false);
 
-    assert!(has_ast_table, "ast_nodes table should be created during auto-upgrade");
-    
+    assert!(
+        has_ast_table,
+        "ast_nodes table should be created during auto-upgrade"
+    );
+
     // Verify cfg_hash column exists (v8)
     let has_cfg_hash: bool = conn
         .query_row(
@@ -259,6 +272,9 @@ fn test_opening_v4_database_auto_upgrades_to_v8() {
             |_| Ok(true),
         )
         .unwrap_or(false);
-    
-    assert!(has_cfg_hash, "cfg_hash column should be created during auto-upgrade (v8)");
+
+    assert!(
+        has_cfg_hash,
+        "cfg_hash column should be created during auto-upgrade (v8)"
+    );
 }

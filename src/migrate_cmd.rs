@@ -7,7 +7,7 @@
 //! - v6: AST nodes file_id column for per-file tracking
 
 use anyhow::Result;
-use rusqlite::{params, Transaction, OptionalExtension};
+use rusqlite::{params, OptionalExtension, Transaction};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -40,11 +40,7 @@ pub struct MigrationResult {
 ///
 /// # Returns
 /// Migration result with version info and backup path
-pub fn run_migrate(
-    db_path: PathBuf,
-    dry_run: bool,
-    no_backup: bool,
-) -> Result<MigrationResult> {
+pub fn run_migrate(db_path: PathBuf, dry_run: bool, no_backup: bool) -> Result<MigrationResult> {
     // Check database exists
     if !db_path.exists() {
         return Ok(MigrationResult {
@@ -69,13 +65,12 @@ pub fn run_migrate(
         .unwrap_or(false);
 
     let current_version: Option<i64> = if has_meta_table {
-        conn
-            .query_row(
-                "SELECT magellan_schema_version FROM magellan_meta WHERE id=1",
-                [],
-                |row| row.get(0),
-            )
-            .optional()?
+        conn.query_row(
+            "SELECT magellan_schema_version FROM magellan_meta WHERE id=1",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?
     } else {
         None
     };
@@ -222,10 +217,7 @@ fn migrate_from_version(tx: &Transaction, old_version: i64) -> Result<()> {
     if old_version < 6 {
         // v5 -> v6: Add file_id to ast_nodes table
         // Add file_id column for per-file AST node tracking
-        tx.execute(
-            "ALTER TABLE ast_nodes ADD COLUMN file_id INTEGER",
-            [],
-        )?;
+        tx.execute("ALTER TABLE ast_nodes ADD COLUMN file_id INTEGER", [])?;
 
         // Create index for efficient per-file queries
         tx.execute(
@@ -272,11 +264,8 @@ fn migrate_from_version(tx: &Transaction, old_version: i64) -> Result<()> {
     if old_version < 8 {
         // v7 -> v8: Add cfg_hash column for cache invalidation
         // This allows tools like Mirage to detect when CFG structure changes
-        tx.execute(
-            "ALTER TABLE cfg_blocks ADD COLUMN cfg_hash TEXT",
-            [],
-        )?;
-        
+        tx.execute("ALTER TABLE cfg_blocks ADD COLUMN cfg_hash TEXT", [])?;
+
         // Index for hash-based cache lookups
         tx.execute(
             "CREATE INDEX IF NOT EXISTS idx_cfg_blocks_hash

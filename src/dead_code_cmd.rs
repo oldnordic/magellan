@@ -49,27 +49,22 @@ pub fn run_dead_code(
         graph
             .execution_log()
             .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
-        return output_json_mode(
-            &entry_symbol_id,
-            dead_symbols,
-            &exec_id,
-            output_format,
-        );
+        return output_json_mode(&entry_symbol_id, dead_symbols, &exec_id, output_format);
     }
 
     // Human mode
     if dead_symbols.is_empty() {
-        println!("No dead code found. All symbols are reachable from \"{}\"", entry_symbol_id);
+        println!(
+            "No dead code found. All symbols are reachable from \"{}\"",
+            entry_symbol_id
+        );
     } else {
         println!("Dead code (unreachable from \"{}\"):", entry_symbol_id);
         for dead in &dead_symbols {
             let fqn_display = dead.symbol.fqn.as_deref().unwrap_or("?");
             println!(
                 "  {} ({}) in {} - {}",
-                fqn_display,
-                dead.symbol.kind,
-                dead.symbol.file_path,
-                dead.reason
+                fqn_display, dead.symbol.kind, dead.symbol.file_path, dead.reason
             );
         }
     }

@@ -98,12 +98,9 @@ fn test_extract_context_with_multi_byte_chars() {
 fn test_extract_symbol_splits_emoji_at_end() {
     // Emoji \u{1f44b} is bytes [0xF0, 0x9F, 0x91, 0x8B]
     let source: Vec<u8> = vec![
-        b'f', b'n', b' ', b't', b'e', b's', b't', b'(', b')', b' ', b'{', b'\n',
-        b' ', b' ', b'/',
-        b'/',
-        0xF0, 0x9F, 0x91, 0x8B, // emoji
-        b'\n',
-        b'}',
+        b'f', b'n', b' ', b't', b'e', b's', b't', b'(', b')', b' ', b'{', b'\n', b' ', b' ', b'/',
+        b'/', 0xF0, 0x9F, 0x91, 0x8B, // emoji
+        b'\n', b'}',
     ];
 
     // End in the middle of the emoji (byte 16)
@@ -119,7 +116,7 @@ fn test_extract_symbol_splits_cjk_at_end() {
     // Chinese '你' is bytes [0xE4, 0xBD, 0xA0] (3 bytes)
     let mut source = "fn test() {\n".to_string();
     source.push_str("// "); // comment start
-    source.push('你');     // Chinese character (3 bytes)
+    source.push('你'); // Chinese character (3 bytes)
     source.push('\n');
     source.push('}');
 
@@ -175,7 +172,11 @@ fn test_extract_context_various_sizes() {
     // Test various context sizes
     for context_size in [0, 1, 5, 10, 100] {
         let result = magellan::extract_context_safe(content, 2, 4, context_size);
-        assert!(result.is_some(), "Failed with context_size={}", context_size);
+        assert!(
+            result.is_some(),
+            "Failed with context_size={}",
+            context_size
+        );
     }
 }
 

@@ -96,7 +96,8 @@ pub fn run_refs(
                             graph_mut.calls_from_symbol(&path_str, &symbol_name)?
                         }
                         _ => {
-                            let err_msg = format!("Invalid direction: '{}'. Use 'in' or 'out'", direction);
+                            let err_msg =
+                                format!("Invalid direction: '{}'. Use 'in' or 'out'", direction);
                             graph.execution_log().finish_execution(
                                 &exec_id,
                                 "error",
@@ -110,7 +111,8 @@ pub fn run_refs(
                     };
 
                     // Handle JSON output mode
-                    if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
+                    if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty
+                    {
                         graph
                             .execution_log()
                             .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
@@ -172,7 +174,10 @@ pub fn run_refs(
                         0,
                         0,
                     )?;
-                    eprintln!("Symbol ID '{}' has no display FQN, cannot lookup references", sid);
+                    eprintln!(
+                        "Symbol ID '{}' has no display FQN, cannot lookup references",
+                        sid
+                    );
                     return Ok(());
                 }
             }
@@ -328,8 +333,7 @@ fn output_json_mode(
             // Add semantics if requested
             if with_semantics {
                 let kind = "call".to_string();
-                let language =
-                    detect_language_from_path(call.file_path.to_string_lossy().as_ref());
+                let language = detect_language_from_path(call.file_path.to_string_lossy().as_ref());
                 span = span.with_semantics_from(kind, language);
             }
 

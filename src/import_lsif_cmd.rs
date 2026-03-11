@@ -42,7 +42,7 @@ pub fn run_import_lsif(db_path: PathBuf, lsif_paths: Vec<PathBuf>) -> Result<()>
 
     for lsif_path in &lsif_paths {
         println!("Importing {:?}", lsif_path);
-        
+
         match lsif::import::import_lsif(lsif_path) {
             Ok(pkg) => {
                 println!(
@@ -58,16 +58,16 @@ pub fn run_import_lsif(db_path: PathBuf, lsif_paths: Vec<PathBuf>) -> Result<()>
         }
     }
 
-    println!("\nImported {} package(s) with {} total symbols", total_imported, total_symbols);
+    println!(
+        "\nImported {} package(s) with {} total symbols",
+        total_imported, total_symbols
+    );
     println!("Note: LSIF data is currently parsed for information only.");
     println!("Cross-repo symbol resolution will be available in a future version.");
 
     // Finish execution tracking
     graph.execution_log().finish_execution(
-        &exec_id,
-        "success",
-        None,
-        0, // files_indexed
+        &exec_id, "success", None, 0, // files_indexed
         0, // symbols_indexed
         0, // references_indexed
     )?;

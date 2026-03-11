@@ -80,9 +80,9 @@
 use anyhow::Result;
 use std::path::PathBuf;
 
-use magellan::CodeGraph;
-use magellan::output::{generate_execution_id, output_json, JsonResponse, OutputFormat};
 use magellan::graph::AstNode;
+use magellan::output::{generate_execution_id, output_json, JsonResponse, OutputFormat};
+use magellan::CodeGraph;
 
 /// Run the 'ast' command
 ///
@@ -100,25 +100,23 @@ pub fn run_ast_command(
     if let Some(pos) = position {
         // Show AST at specific position
         match graph.get_ast_node_at_position(&file_path, pos)? {
-            Some(node) => {
-                match output_format {
-                    OutputFormat::Json | OutputFormat::Pretty => {
-                        let response = JsonResponse::new(
-                            serde_json::json!({
-                                "file_path": file_path,
-                                "position": pos,
-                                "node": node,
-                            }),
-                            &exec_id,
-                        );
-                        output_json(&response, output_format)?;
-                    }
-                    OutputFormat::Human => {
-                        println!("AST node at position {} in {}:", pos, file_path);
-                        print_node_tree(&graph, &node, 0)?;
-                    }
+            Some(node) => match output_format {
+                OutputFormat::Json | OutputFormat::Pretty => {
+                    let response = JsonResponse::new(
+                        serde_json::json!({
+                            "file_path": file_path,
+                            "position": pos,
+                            "node": node,
+                        }),
+                        &exec_id,
+                    );
+                    output_json(&response, output_format)?;
                 }
-            }
+                OutputFormat::Human => {
+                    println!("AST node at position {} in {}:", pos, file_path);
+                    print_node_tree(&graph, &node, 0)?;
+                }
+            },
             None => {
                 eprintln!("No AST node found at position {} in {}", pos, file_path);
                 std::process::exit(1);
@@ -191,11 +189,7 @@ pub fn run_find_ast_command(
         OutputFormat::Human => {
             println!("Found {} AST nodes with kind '{}':", nodes.len(), kind);
             for node in nodes {
-                println!("  - {} @ {}:{}",
-                    node.kind,
-                    node.byte_start,
-                    node.byte_end
-                );
+                println!("  - {} @ {}:{}", node.kind, node.byte_start, node.byte_end);
             }
         }
     }
@@ -210,12 +204,9 @@ fn print_node_tree(graph: &CodeGraph, node: &AstNode, indent: usize) -> Result<(
     let prefix = "  ".repeat(indent);
     let connector = if indent == 0 { "" } else { "└── " };
 
-    println!("{}{}{} ({}:{})",
-        prefix,
-        connector,
-        node.kind,
-        node.byte_start,
-        node.byte_end
+    println!(
+        "{}{}{} ({}:{})",
+        prefix, connector, node.kind, node.byte_start, node.byte_end
     );
 
     // Print children if this node has an ID
@@ -232,12 +223,6 @@ fn print_node_tree(graph: &CodeGraph, node: &AstNode, indent: usize) -> Result<(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    
-    
-    
-    
-    
 
     #[test]
     fn test_print_node_tree_basic() {
@@ -303,5 +288,4 @@ mod tests {
 
     //
     // Future phase: Add KV support for position-based AST queries if needed.
-
 }

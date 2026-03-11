@@ -57,9 +57,9 @@ use magellan::CodeGraph;
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::mpsc::sync_channel;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::mpsc::sync_channel;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
@@ -132,82 +132,82 @@ where
 #[test]
 fn stress_concurrent_creates() {
     with_deadlock_timeout(Duration::from_secs(30), || {
-    let temp_dir = TempDir::new().unwrap();
-    let db_path = temp_dir.path().join("test.db");
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.db");
 
-    let start = Instant::now();
+        let start = Instant::now();
 
-    // Phase 1: Concurrent file creation (100 threads)
-    let handles: Vec<_> = (0..100)
-        .map(|i| {
-            let temp_dir = temp_dir.path().to_path_buf();
+        // Phase 1: Concurrent file creation (100 threads)
+        let handles: Vec<_> = (0..100)
+            .map(|i| {
+                let temp_dir = temp_dir.path().to_path_buf();
 
-            thread::spawn(move || {
-                let file_path = temp_dir.join(format!("file_{}.rs", i));
-                let content = format!("fn function_{}() {{}}", i);
+                thread::spawn(move || {
+                    let file_path = temp_dir.join(format!("file_{}.rs", i));
+                    let content = format!("fn function_{}() {{}}", i);
 
-                // Create file concurrently
-                fs::write(&file_path, content).unwrap();
+                    // Create file concurrently
+                    fs::write(&file_path, content).unwrap();
 
-                file_path
+                    file_path
+                })
             })
-        })
-        .collect();
+            .collect();
 
-    // Collect all file paths
-    let mut file_paths = Vec::new();
-    for handle in handles {
-        file_paths.push(handle.join().unwrap());
-    }
+        // Collect all file paths
+        let mut file_paths = Vec::new();
+        for handle in handles {
+            file_paths.push(handle.join().unwrap());
+        }
 
-    let create_duration = start.elapsed();
-    println!(
-        "stress_concurrent_creates: file creation completed in {:?}",
-        create_duration
-    );
+        let create_duration = start.elapsed();
+        println!(
+            "stress_concurrent_creates: file creation completed in {:?}",
+            create_duration
+        );
 
-    // Phase 2: Sequential indexing (simulates indexer behavior)
-    let mut graph = CodeGraph::open(&db_path).unwrap();
+        // Phase 2: Sequential indexing (simulates indexer behavior)
+        let mut graph = CodeGraph::open(&db_path).unwrap();
 
-    for file_path in &file_paths {
-        let path_key = magellan::validation::normalize_path(file_path)
-            .unwrap_or_else(|_| file_path.to_string_lossy().to_string());
-        let _ = graph.reconcile_file_path(file_path, &path_key);
-    }
+        for file_path in &file_paths {
+            let path_key = magellan::validation::normalize_path(file_path)
+                .unwrap_or_else(|_| file_path.to_string_lossy().to_string());
+            let _ = graph.reconcile_file_path(file_path, &path_key);
+        }
 
-    let total_duration = start.elapsed();
-    println!(
-        "stress_concurrent_creates: total completed in {:?}",
-        total_duration
-    );
+        let total_duration = start.elapsed();
+        println!(
+            "stress_concurrent_creates: total completed in {:?}",
+            total_duration
+        );
 
-    // Verify: All 100 files indexed correctly
-    let file_count = graph.count_files().unwrap();
+        // Verify: All 100 files indexed correctly
+        let file_count = graph.count_files().unwrap();
 
-    assert_eq!(
-        file_count, 100,
-        "Expected 100 files after concurrent creates, got {}",
-        file_count
-    );
+        assert_eq!(
+            file_count, 100,
+            "Expected 100 files after concurrent creates, got {}",
+            file_count
+        );
 
-    // Verify: Each file has exactly one symbol (the function)
-    let file_nodes = graph.all_file_nodes().unwrap();
-    assert_eq!(
-        file_nodes.len(),
-        100,
-        "Expected 100 file nodes, got {}",
-        file_nodes.len()
-    );
+        // Verify: Each file has exactly one symbol (the function)
+        let file_nodes = graph.all_file_nodes().unwrap();
+        assert_eq!(
+            file_nodes.len(),
+            100,
+            "Expected 100 file nodes, got {}",
+            file_nodes.len()
+        );
 
-    // Verify: No duplicate file entries
-    let mut paths: Vec<_> = file_nodes.keys().collect();
-    paths.sort();
-    assert_eq!(
-        paths.len(),
-        100,
-        "Expected 100 unique paths, got {} (possible duplicates)",
-        paths.len()
-    );
+        // Verify: No duplicate file entries
+        let mut paths: Vec<_> = file_nodes.keys().collect();
+        paths.sort();
+        assert_eq!(
+            paths.len(),
+            100,
+            "Expected 100 unique paths, got {} (possible duplicates)",
+            paths.len()
+        );
     })
     .expect("Test should complete without deadlock");
 }
@@ -227,79 +227,79 @@ fn stress_concurrent_creates() {
 #[test]
 fn stress_concurrent_modifies() {
     with_deadlock_timeout(Duration::from_secs(30), || {
-    let temp_dir = TempDir::new().unwrap();
-    let db_path = temp_dir.path().join("test.db");
-    let file_path = temp_dir.path().join("shared.rs");
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let file_path = temp_dir.path().join("shared.rs");
 
-    // Create initial file
-    fs::write(&file_path, "fn initial() {}").unwrap();
+        // Create initial file
+        fs::write(&file_path, "fn initial() {}").unwrap();
 
-    let start = Instant::now();
+        let start = Instant::now();
 
-    // Phase 1: Concurrent file modifications (50 threads)
-    let handles: Vec<_> = (0..50)
-        .map(|i| {
-            let file_path = file_path.clone();
+        // Phase 1: Concurrent file modifications (50 threads)
+        let handles: Vec<_> = (0..50)
+            .map(|i| {
+                let file_path = file_path.clone();
 
-            thread::spawn(move || {
-                let content = format!("fn function_{}() {{}}", i);
+                thread::spawn(move || {
+                    let content = format!("fn function_{}() {{}}", i);
 
-                // Modify file concurrently
-                fs::write(&file_path, content).unwrap();
+                    // Modify file concurrently
+                    fs::write(&file_path, content).unwrap();
+                })
             })
-        })
-        .collect();
+            .collect();
 
-    // Wait for all threads to complete
-    for handle in handles {
-        handle.join().unwrap();
-    }
+        // Wait for all threads to complete
+        for handle in handles {
+            handle.join().unwrap();
+        }
 
-    let modify_duration = start.elapsed();
-    println!(
-        "stress_concurrent_modifies: modifications completed in {:?}",
-        modify_duration
-    );
+        let modify_duration = start.elapsed();
+        println!(
+            "stress_concurrent_modifies: modifications completed in {:?}",
+            modify_duration
+        );
 
-    // Phase 2: Sequential indexing (indexer processes final state)
-    let mut graph = CodeGraph::open(&db_path).unwrap();
+        // Phase 2: Sequential indexing (indexer processes final state)
+        let mut graph = CodeGraph::open(&db_path).unwrap();
 
-    let path_key = magellan::validation::normalize_path(&file_path)
-        .unwrap_or_else(|_| file_path.to_string_lossy().to_string());
-    let _ = graph.reconcile_file_path(&file_path, &path_key);
+        let path_key = magellan::validation::normalize_path(&file_path)
+            .unwrap_or_else(|_| file_path.to_string_lossy().to_string());
+        let _ = graph.reconcile_file_path(&file_path, &path_key);
 
-    let total_duration = start.elapsed();
-    println!(
-        "stress_concurrent_modifies: total completed in {:?}",
-        total_duration
-    );
+        let total_duration = start.elapsed();
+        println!(
+            "stress_concurrent_modifies: total completed in {:?}",
+            total_duration
+        );
 
-    // Verify: File is indexed (exactly one file node)
-    let file_count = graph.count_files().unwrap();
+        // Verify: File is indexed (exactly one file node)
+        let file_count = graph.count_files().unwrap();
 
-    assert_eq!(
-        file_count, 1,
-        "Expected 1 file after concurrent modifies, got {}",
-        file_count
-    );
+        assert_eq!(
+            file_count, 1,
+            "Expected 1 file after concurrent modifies, got {}",
+            file_count
+        );
 
-    // Verify: No duplicate file entries
-    let file_nodes = graph.all_file_nodes().unwrap();
-    assert_eq!(
-        file_nodes.len(),
-        1,
-        "Expected 1 file node, got {} (possible corruption)",
-        file_nodes.len()
-    );
+        // Verify: No duplicate file entries
+        let file_nodes = graph.all_file_nodes().unwrap();
+        assert_eq!(
+            file_nodes.len(),
+            1,
+            "Expected 1 file node, got {} (possible corruption)",
+            file_nodes.len()
+        );
 
-    // Verify: File has exactly one symbol
-    let symbols = graph.symbols_in_file(&path_key).unwrap();
-    assert_eq!(
-        symbols.len(),
-        1,
-        "Expected 1 symbol, got {} (possible corruption)",
-        symbols.len()
-    );
+        // Verify: File has exactly one symbol
+        let symbols = graph.symbols_in_file(&path_key).unwrap();
+        assert_eq!(
+            symbols.len(),
+            1,
+            "Expected 1 symbol, got {} (possible corruption)",
+            symbols.len()
+        );
     })
     .expect("Test should complete without deadlock");
 }
@@ -319,125 +319,126 @@ fn stress_concurrent_modifies() {
 #[test]
 fn stress_mixed_operations() {
     with_deadlock_timeout(Duration::from_secs(30), || {
-    let temp_dir = TempDir::new().unwrap();
-    let db_path = temp_dir.path().join("test.db");
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.db");
 
-    let start = Instant::now();
+        let start = Instant::now();
 
-    // Phase 1: Create 100 files (10 threads × 10 files)
-    let create_handles: Vec<_> = (0..10)
-        .map(|thread_id| {
-            let temp_dir = temp_dir.path().to_path_buf();
+        // Phase 1: Create 100 files (10 threads × 10 files)
+        let create_handles: Vec<_> = (0..10)
+            .map(|thread_id| {
+                let temp_dir = temp_dir.path().to_path_buf();
 
-            thread::spawn(move || {
-                for i in 0..10 {
-                    let file_id = thread_id * 10 + i;
-                    let file_path = temp_dir.join(format!("file_{}.rs", file_id));
-                    let content = format!("fn function_{}() {{}}", file_id);
-                    fs::write(&file_path, content).unwrap();
-                }
-            })
-        })
-        .collect();
-
-    // Wait for all creates to complete
-    for handle in create_handles {
-        handle.join().unwrap();
-    }
-
-    let create_duration = start.elapsed();
-    println!(
-        "stress_mixed_operations: file creation completed in {:?}",
-        create_duration
-    );
-
-    // Phase 2: Mixed modify/delete operations (10 threads × 10 ops = 100 total)
-    let mixed_handles: Vec<_> = (0..10)
-        .map(|thread_id| {
-            let temp_dir = temp_dir.path().to_path_buf();
-
-            thread::spawn(move || {
-                for op_id in 0..10 {
-                    let file_id = thread_id * 10 + op_id;
-                    let file_path = temp_dir.join(format!("file_{}.rs", file_id));
-
-                    // Operation pattern: Modify, Modify, Delete, Modify, Delete, ...
-                    match op_id % 4 {
-                        0 | 1 | 3 => {
-                            // Modify existing file
-                            if file_path.exists() {
-                                let content = format!("fn modified_{}_{}() {{}}", thread_id, op_id);
-                                fs::write(&file_path, content).unwrap();
-                            }
-                        }
-                        2 => {
-                            // Delete file
-                            if file_path.exists() {
-                                fs::remove_file(&file_path).unwrap();
-                            }
-                        }
-                        _ => unreachable!(),
+                thread::spawn(move || {
+                    for i in 0..10 {
+                        let file_id = thread_id * 10 + i;
+                        let file_path = temp_dir.join(format!("file_{}.rs", file_id));
+                        let content = format!("fn function_{}() {{}}", file_id);
+                        fs::write(&file_path, content).unwrap();
                     }
-                }
+                })
             })
-        })
-        .collect();
+            .collect();
 
-    // Wait for all mixed operations to complete
-    for handle in mixed_handles {
-        handle.join().unwrap();
-    }
-
-    let op_duration = start.elapsed();
-    println!(
-        "stress_mixed_operations: mixed operations completed in {:?}",
-        op_duration
-    );
-
-    // Phase 3: Sequential indexing (index all remaining files)
-    let mut graph = CodeGraph::open(&db_path).unwrap();
-
-    // Collect all .rs files that still exist
-    for entry in fs::read_dir(temp_dir.path()).unwrap() {
-        let entry = entry.unwrap();
-        let path = entry.path();
-
-        if path.extension().and_then(|s| s.to_str()) == Some("rs") {
-            let path_key = magellan::validation::normalize_path(&path)
-                .unwrap_or_else(|_| path.to_string_lossy().to_string());
-            let _ = graph.reconcile_file_path(&path, &path_key);
+        // Wait for all creates to complete
+        for handle in create_handles {
+            handle.join().unwrap();
         }
-    }
 
-    let total_duration = start.elapsed();
-    println!(
-        "stress_mixed_operations: total completed in {:?}",
-        total_duration
-    );
+        let create_duration = start.elapsed();
+        println!(
+            "stress_mixed_operations: file creation completed in {:?}",
+            create_duration
+        );
 
-    // Verify: Database is consistent (no orphaned references)
-    let graph_file_count = graph.count_files().unwrap();
+        // Phase 2: Mixed modify/delete operations (10 threads × 10 ops = 100 total)
+        let mixed_handles: Vec<_> = (0..10)
+            .map(|thread_id| {
+                let temp_dir = temp_dir.path().to_path_buf();
 
-    // Operation pattern analysis:
-    // - 100 files created initially
-    // - For each file (0..99): op_id % 4 == 2 means delete
-    // - 25 deletions (files 2, 6, 10, 14, ..., 98)
-    // Expected: 100 - 25 = 75 files remaining
-    assert!(
-        (70..=80).contains(&graph_file_count),
-        "Expected 70-80 files after mixed operations, got {}",
-        graph_file_count
-    );
+                thread::spawn(move || {
+                    for op_id in 0..10 {
+                        let file_id = thread_id * 10 + op_id;
+                        let file_path = temp_dir.join(format!("file_{}.rs", file_id));
 
-    // Verify: No duplicate file entries
-    let file_nodes = graph.all_file_nodes().unwrap();
-    assert_eq!(
-        file_nodes.len(),
-        graph_file_count,
-        "File count mismatch: count_files()={}, all_file_nodes()={}",
-        graph_file_count,
-        file_nodes.len()
-    );
+                        // Operation pattern: Modify, Modify, Delete, Modify, Delete, ...
+                        match op_id % 4 {
+                            0 | 1 | 3 => {
+                                // Modify existing file
+                                if file_path.exists() {
+                                    let content =
+                                        format!("fn modified_{}_{}() {{}}", thread_id, op_id);
+                                    fs::write(&file_path, content).unwrap();
+                                }
+                            }
+                            2 => {
+                                // Delete file
+                                if file_path.exists() {
+                                    fs::remove_file(&file_path).unwrap();
+                                }
+                            }
+                            _ => unreachable!(),
+                        }
+                    }
+                })
+            })
+            .collect();
+
+        // Wait for all mixed operations to complete
+        for handle in mixed_handles {
+            handle.join().unwrap();
+        }
+
+        let op_duration = start.elapsed();
+        println!(
+            "stress_mixed_operations: mixed operations completed in {:?}",
+            op_duration
+        );
+
+        // Phase 3: Sequential indexing (index all remaining files)
+        let mut graph = CodeGraph::open(&db_path).unwrap();
+
+        // Collect all .rs files that still exist
+        for entry in fs::read_dir(temp_dir.path()).unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+
+            if path.extension().and_then(|s| s.to_str()) == Some("rs") {
+                let path_key = magellan::validation::normalize_path(&path)
+                    .unwrap_or_else(|_| path.to_string_lossy().to_string());
+                let _ = graph.reconcile_file_path(&path, &path_key);
+            }
+        }
+
+        let total_duration = start.elapsed();
+        println!(
+            "stress_mixed_operations: total completed in {:?}",
+            total_duration
+        );
+
+        // Verify: Database is consistent (no orphaned references)
+        let graph_file_count = graph.count_files().unwrap();
+
+        // Operation pattern analysis:
+        // - 100 files created initially
+        // - For each file (0..99): op_id % 4 == 2 means delete
+        // - 25 deletions (files 2, 6, 10, 14, ..., 98)
+        // Expected: 100 - 25 = 75 files remaining
+        assert!(
+            (70..=80).contains(&graph_file_count),
+            "Expected 70-80 files after mixed operations, got {}",
+            graph_file_count
+        );
+
+        // Verify: No duplicate file entries
+        let file_nodes = graph.all_file_nodes().unwrap();
+        assert_eq!(
+            file_nodes.len(),
+            graph_file_count,
+            "File count mismatch: count_files()={}, all_file_nodes()={}",
+            graph_file_count,
+            file_nodes.len()
+        );
     })
     .expect("Test should complete without deadlock");
 }
@@ -459,66 +460,63 @@ fn stress_mixed_operations() {
 #[test]
 fn stress_pipeline_shared_state() {
     with_deadlock_timeout(Duration::from_secs(30), || {
-    // Create PipelineSharedState-like structure
-    let dirty_paths: Arc<Mutex<BTreeSet<PathBuf>>> = Arc::new(Mutex::new(BTreeSet::new()));
-    let (wakeup_tx, _wakeup_rx) = sync_channel(1);
+        // Create PipelineSharedState-like structure
+        let dirty_paths: Arc<Mutex<BTreeSet<PathBuf>>> = Arc::new(Mutex::new(BTreeSet::new()));
+        let (wakeup_tx, _wakeup_rx) = sync_channel(1);
 
-    let start = Instant::now();
+        let start = Instant::now();
 
-    // Spawn 10 threads, each inserting 100 paths
-    let handles: Vec<_> = (0..10)
-        .map(|thread_id| {
-            let dirty_paths = dirty_paths.clone();
-            let wakeup_tx = wakeup_tx.clone();
+        // Spawn 10 threads, each inserting 100 paths
+        let handles: Vec<_> = (0..10)
+            .map(|thread_id| {
+                let dirty_paths = dirty_paths.clone();
+                let wakeup_tx = wakeup_tx.clone();
 
-            thread::spawn(move || {
-                for i in 0..100 {
-                    let path = PathBuf::from(format!("/tmp/file_{}_{}.rs", thread_id, i));
+                thread::spawn(move || {
+                    for i in 0..100 {
+                        let path = PathBuf::from(format!("/tmp/file_{}_{}.rs", thread_id, i));
 
-                    // Insert into dirty_paths (following lock ordering: dirty_paths first)
-                    {
-                        let mut paths = dirty_paths.lock().unwrap();
-                        paths.insert(path);
+                        // Insert into dirty_paths (following lock ordering: dirty_paths first)
+                        {
+                            let mut paths = dirty_paths.lock().unwrap();
+                            paths.insert(path);
+                        }
+
+                        // Send wakeup tick (never send while holding other locks)
+                        let _ = wakeup_tx.try_send(());
                     }
-
-                    // Send wakeup tick (never send while holding other locks)
-                    let _ = wakeup_tx.try_send(());
-                }
+                })
             })
-        })
-        .collect();
+            .collect();
 
-    // Join all threads
-    for handle in handles {
-        handle.join().unwrap();
-    }
+        // Join all threads
+        for handle in handles {
+            handle.join().unwrap();
+        }
 
-    let duration = start.elapsed();
-    println!(
-        "stress_pipeline_shared_state: completed in {:?}",
-        duration
-    );
+        let duration = start.elapsed();
+        println!("stress_pipeline_shared_state: completed in {:?}", duration);
 
-    // Verify: drain_dirty_paths() returns exactly 1000 paths
-    let mut paths = dirty_paths.lock().unwrap();
-    let drained: Vec<_> = paths.iter().cloned().collect();
-    paths.clear();
+        // Verify: drain_dirty_paths() returns exactly 1000 paths
+        let mut paths = dirty_paths.lock().unwrap();
+        let drained: Vec<_> = paths.iter().cloned().collect();
+        paths.clear();
 
-    assert_eq!(
-        drained.len(),
-        1000,
-        "Expected 1000 paths after concurrent inserts, got {}",
-        drained.len()
-    );
+        assert_eq!(
+            drained.len(),
+            1000,
+            "Expected 1000 paths after concurrent inserts, got {}",
+            drained.len()
+        );
 
-    // Verify: No duplicates (all paths are unique)
-    let unique: std::collections::HashSet<_> = drained.into_iter().collect();
-    assert_eq!(
-        unique.len(),
-        1000,
-        "Expected 1000 unique paths, got {}",
-        unique.len()
-    );
+        // Verify: No duplicates (all paths are unique)
+        let unique: std::collections::HashSet<_> = drained.into_iter().collect();
+        assert_eq!(
+            unique.len(),
+            1000,
+            "Expected 1000 unique paths, got {}",
+            unique.len()
+        );
     })
     .expect("Test should complete without deadlock");
 }
@@ -539,110 +537,107 @@ fn stress_pipeline_shared_state() {
 #[test]
 fn stress_database_integrity() {
     with_deadlock_timeout(Duration::from_secs(60), || {
-    let temp_dir = TempDir::new().unwrap();
-    let db_path = temp_dir.path().join("test.db");
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.db");
 
-    let start = Instant::now();
+        let start = Instant::now();
 
-    // Phase 1: Create 500 files concurrently (25 threads × 20 files)
-    let handles: Vec<_> = (0..25)
-        .map(|thread_id| {
-            let temp_dir = temp_dir.path().to_path_buf();
+        // Phase 1: Create 500 files concurrently (25 threads × 20 files)
+        let handles: Vec<_> = (0..25)
+            .map(|thread_id| {
+                let temp_dir = temp_dir.path().to_path_buf();
 
-            thread::spawn(move || {
-                for i in 0..20 {
-                    let file_id = thread_id * 20 + i;
-                    let file_path = temp_dir.join(format!("file_{:04}.rs", file_id));
-                    let content = format!("fn function_{}() {{}}", file_id);
-                    fs::write(&file_path, content).unwrap();
-                }
+                thread::spawn(move || {
+                    for i in 0..20 {
+                        let file_id = thread_id * 20 + i;
+                        let file_path = temp_dir.join(format!("file_{:04}.rs", file_id));
+                        let content = format!("fn function_{}() {{}}", file_id);
+                        fs::write(&file_path, content).unwrap();
+                    }
+                })
             })
-        })
-        .collect();
+            .collect();
 
-    // Wait for all threads to complete
-    for handle in handles {
-        handle.join().unwrap();
-    }
-
-    let create_duration = start.elapsed();
-    println!(
-        "stress_database_integrity: created 500 files in {:?}",
-        create_duration
-    );
-
-    // Phase 2: Sequential indexing
-    let mut graph = CodeGraph::open(&db_path).unwrap();
-
-    let mut indexed_count = 0;
-    for entry in fs::read_dir(temp_dir.path()).unwrap() {
-        let entry = entry.unwrap();
-        let path = entry.path();
-
-        if path.extension().and_then(|s| s.to_str()) == Some("rs") {
-            let path_key = magellan::validation::normalize_path(&path)
-                .unwrap_or_else(|_| path.to_string_lossy().to_string());
-            let _ = graph.reconcile_file_path(&path, &path_key);
-            indexed_count += 1;
+        // Wait for all threads to complete
+        for handle in handles {
+            handle.join().unwrap();
         }
-    }
 
-    let total_duration = start.elapsed();
-    println!(
-        "stress_database_integrity: indexed {} files in {:?}",
-        indexed_count, total_duration
-    );
+        let create_duration = start.elapsed();
+        println!(
+            "stress_database_integrity: created 500 files in {:?}",
+            create_duration
+        );
 
-    // Verify: File count matches expected (500 files)
-    let file_count = graph.count_files().unwrap();
-    assert_eq!(
-        file_count, 500,
-        "Expected 500 files, got {}",
-        file_count
-    );
+        // Phase 2: Sequential indexing
+        let mut graph = CodeGraph::open(&db_path).unwrap();
 
-    // Verify: Symbol count >= file count (each file has at least one symbol)
-    let file_nodes = graph.all_file_nodes().unwrap();
+        let mut indexed_count = 0;
+        for entry in fs::read_dir(temp_dir.path()).unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
 
-    // Count total symbols across all files
-    let mut total_symbols = 0;
-    for _file_node in file_nodes.values() {
-        // Each file should have at least one symbol
-        // We verify by checking file_nodes consistency
-        total_symbols += 1; // Placeholder - actual symbol counting would require more queries
-    }
+            if path.extension().and_then(|s| s.to_str()) == Some("rs") {
+                let path_key = magellan::validation::normalize_path(&path)
+                    .unwrap_or_else(|_| path.to_string_lossy().to_string());
+                let _ = graph.reconcile_file_path(&path, &path_key);
+                indexed_count += 1;
+            }
+        }
 
-    assert!(
-        total_symbols >= file_count,
-        "Symbol count {} < file count {} (data corruption)",
-        total_symbols, file_count
-    );
+        let total_duration = start.elapsed();
+        println!(
+            "stress_database_integrity: indexed {} files in {:?}",
+            indexed_count, total_duration
+        );
 
-    // Verify: No duplicate file entries
-    assert_eq!(
-        file_nodes.len(),
-        file_count,
-        "File count mismatch: count_files()={}, all_file_nodes()={}",
-        file_count,
-        file_nodes.len()
-    );
+        // Verify: File count matches expected (500 files)
+        let file_count = graph.count_files().unwrap();
+        assert_eq!(file_count, 500, "Expected 500 files, got {}", file_count);
 
-    // Verify: All file paths are unique
-    let mut paths: Vec<_> = file_nodes.keys().collect();
-    paths.sort();
-    let unique_paths: std::collections::HashSet<_> = paths.into_iter().collect();
-    assert_eq!(
-        unique_paths.len(),
-        file_count,
-        "Expected {} unique paths, got {} (duplicates detected)",
-        file_count,
-        unique_paths.len()
-    );
+        // Verify: Symbol count >= file count (each file has at least one symbol)
+        let file_nodes = graph.all_file_nodes().unwrap();
 
-    println!(
-        "stress_database_integrity: verified integrity for {} files, {} symbols",
-        file_count, total_symbols
-    );
+        // Count total symbols across all files
+        let mut total_symbols = 0;
+        for _file_node in file_nodes.values() {
+            // Each file should have at least one symbol
+            // We verify by checking file_nodes consistency
+            total_symbols += 1; // Placeholder - actual symbol counting would require more queries
+        }
+
+        assert!(
+            total_symbols >= file_count,
+            "Symbol count {} < file count {} (data corruption)",
+            total_symbols,
+            file_count
+        );
+
+        // Verify: No duplicate file entries
+        assert_eq!(
+            file_nodes.len(),
+            file_count,
+            "File count mismatch: count_files()={}, all_file_nodes()={}",
+            file_count,
+            file_nodes.len()
+        );
+
+        // Verify: All file paths are unique
+        let mut paths: Vec<_> = file_nodes.keys().collect();
+        paths.sort();
+        let unique_paths: std::collections::HashSet<_> = paths.into_iter().collect();
+        assert_eq!(
+            unique_paths.len(),
+            file_count,
+            "Expected {} unique paths, got {} (duplicates detected)",
+            file_count,
+            unique_paths.len()
+        );
+
+        println!(
+            "stress_database_integrity: verified integrity for {} files, {} symbols",
+            file_count, total_symbols
+        );
     })
     .expect("Test should complete without deadlock");
 }
@@ -662,117 +657,118 @@ fn stress_database_integrity() {
 #[test]
 fn stress_symbol_consistency() {
     with_deadlock_timeout(Duration::from_secs(30), || {
-    let temp_dir = TempDir::new().unwrap();
-    let db_path = temp_dir.path().join("test.db");
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.db");
 
-    let start = Instant::now();
+        let start = Instant::now();
 
-    // Phase 1: Create 100 files with unique function names
-    let file_count = 100;
-    for i in 0..file_count {
-        let file_path = temp_dir.path().join(format!("test_{:03}.rs", i));
-        let content = format!("fn unique_function_{}() {{}}", i);
-        fs::write(&file_path, content).unwrap();
-    }
+        // Phase 1: Create 100 files with unique function names
+        let file_count = 100;
+        for i in 0..file_count {
+            let file_path = temp_dir.path().join(format!("test_{:03}.rs", i));
+            let content = format!("fn unique_function_{}() {{}}", i);
+            fs::write(&file_path, content).unwrap();
+        }
 
-    let create_duration = start.elapsed();
-    println!(
-        "stress_symbol_consistency: created {} files in {:?}",
-        file_count, create_duration
-    );
-
-    // Phase 2: Concurrent modify operations (20 threads)
-    let handles: Vec<_> = (0..20)
-        .map(|thread_id| {
-            let temp_dir = temp_dir.path().to_path_buf();
-
-            thread::spawn(move || {
-                // Modify every 5th file
-                for i in (0..file_count).skip(5).step_by(5) {
-                    let file_path = temp_dir.join(format!("test_{:03}.rs", i));
-                    if file_path.exists() {
-                        let content = format!("fn modified_by_thread_{}() {{}}", thread_id);
-                        fs::write(&file_path, content).unwrap();
-                    }
-                }
-            })
-        })
-        .collect();
-
-    // Wait for all threads to complete
-    for handle in handles {
-        handle.join().unwrap();
-    }
-
-    let modify_duration = start.elapsed();
-    println!(
-        "stress_symbol_consistency: modifications completed in {:?}",
-        modify_duration
-    );
-
-    // Phase 3: Index all files
-    let mut graph = CodeGraph::open(&db_path).unwrap();
-
-    for i in 0..file_count {
-        let file_path = temp_dir.path().join(format!("test_{:03}.rs", i));
-        let path_key = magellan::validation::normalize_path(&file_path)
-            .unwrap_or_else(|_| file_path.to_string_lossy().to_string());
-        let _ = graph.reconcile_file_path(&file_path, &path_key);
-    }
-
-    let total_duration = start.elapsed();
-    println!(
-        "stress_symbol_consistency: total completed in {:?}",
-        total_duration
-    );
-
-    // Verify: All files indexed
-    let graph_file_count = graph.count_files().unwrap();
-    assert_eq!(
-        graph_file_count, file_count,
-        "Expected {} files, got {}",
-        file_count, graph_file_count
-    );
-
-    // Verify: Symbol consistency for a sample of files
-    // Check every 10th file to keep test fast
-    let sample_files: Vec<_> = (0..file_count).step_by(10).collect();
-
-    for i in &sample_files {
-        let file_path = temp_dir.path().join(format!("test_{:03}.rs", i));
-        let path_key = magellan::validation::normalize_path(&file_path)
-            .unwrap_or_else(|_| file_path.to_string_lossy().to_string());
-
-        // Read actual file content
-        let content = fs::read_to_string(&file_path).unwrap();
-
-        // Get symbols from graph
-        let symbols = graph.symbols_in_file(&path_key).unwrap();
-
-        // Verify: File has at least one symbol
-        assert!(
-            !symbols.is_empty(),
-            "File {} has no symbols (data corruption)",
-            i
+        let create_duration = start.elapsed();
+        println!(
+            "stress_symbol_consistency: created {} files in {:?}",
+            file_count, create_duration
         );
 
-        // Verify: Symbol name appears in file content
-        // (This is a basic sanity check - full content matching would be more complex)
-        for symbol in &symbols {
-            if let Some(ref symbol_name) = symbol.name {
-                assert!(
-                    content.contains(symbol_name),
-                    "Symbol '{}' not found in file {} content (cross-file contamination?)",
-                    symbol_name, i
-                );
+        // Phase 2: Concurrent modify operations (20 threads)
+        let handles: Vec<_> = (0..20)
+            .map(|thread_id| {
+                let temp_dir = temp_dir.path().to_path_buf();
+
+                thread::spawn(move || {
+                    // Modify every 5th file
+                    for i in (0..file_count).skip(5).step_by(5) {
+                        let file_path = temp_dir.join(format!("test_{:03}.rs", i));
+                        if file_path.exists() {
+                            let content = format!("fn modified_by_thread_{}() {{}}", thread_id);
+                            fs::write(&file_path, content).unwrap();
+                        }
+                    }
+                })
+            })
+            .collect();
+
+        // Wait for all threads to complete
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        let modify_duration = start.elapsed();
+        println!(
+            "stress_symbol_consistency: modifications completed in {:?}",
+            modify_duration
+        );
+
+        // Phase 3: Index all files
+        let mut graph = CodeGraph::open(&db_path).unwrap();
+
+        for i in 0..file_count {
+            let file_path = temp_dir.path().join(format!("test_{:03}.rs", i));
+            let path_key = magellan::validation::normalize_path(&file_path)
+                .unwrap_or_else(|_| file_path.to_string_lossy().to_string());
+            let _ = graph.reconcile_file_path(&file_path, &path_key);
+        }
+
+        let total_duration = start.elapsed();
+        println!(
+            "stress_symbol_consistency: total completed in {:?}",
+            total_duration
+        );
+
+        // Verify: All files indexed
+        let graph_file_count = graph.count_files().unwrap();
+        assert_eq!(
+            graph_file_count, file_count,
+            "Expected {} files, got {}",
+            file_count, graph_file_count
+        );
+
+        // Verify: Symbol consistency for a sample of files
+        // Check every 10th file to keep test fast
+        let sample_files: Vec<_> = (0..file_count).step_by(10).collect();
+
+        for i in &sample_files {
+            let file_path = temp_dir.path().join(format!("test_{:03}.rs", i));
+            let path_key = magellan::validation::normalize_path(&file_path)
+                .unwrap_or_else(|_| file_path.to_string_lossy().to_string());
+
+            // Read actual file content
+            let content = fs::read_to_string(&file_path).unwrap();
+
+            // Get symbols from graph
+            let symbols = graph.symbols_in_file(&path_key).unwrap();
+
+            // Verify: File has at least one symbol
+            assert!(
+                !symbols.is_empty(),
+                "File {} has no symbols (data corruption)",
+                i
+            );
+
+            // Verify: Symbol name appears in file content
+            // (This is a basic sanity check - full content matching would be more complex)
+            for symbol in &symbols {
+                if let Some(ref symbol_name) = symbol.name {
+                    assert!(
+                        content.contains(symbol_name),
+                        "Symbol '{}' not found in file {} content (cross-file contamination?)",
+                        symbol_name,
+                        i
+                    );
+                }
             }
         }
-    }
 
-    println!(
-        "stress_symbol_consistency: verified {} files with no cross-file contamination",
-        sample_files.len()
-    );
+        println!(
+            "stress_symbol_consistency: verified {} files with no cross-file contamination",
+            sample_files.len()
+        );
     })
     .expect("Test should complete without deadlock");
 }

@@ -242,7 +242,8 @@ fn test_concurrent_legacy_event_access() {
         temp_dir.path().to_path_buf(),
         WatcherConfig::default(),
         shutdown,
-    ).unwrap();
+    )
+    .unwrap();
 
     // Give watcher time to start
     sleep(Duration::from_millis(200));
@@ -350,10 +351,7 @@ fn test_gitignore_aware_watcher_skips_target_files() {
     }
 
     // Assert: src file generates event, target file does not
-    assert!(
-        found_src,
-        "Should receive event for src/lib.rs"
-    );
+    assert!(found_src, "Should receive event for src/lib.rs");
     assert!(
         !found_target,
         "Should NOT receive event for target/debug.rs (ignored by .gitignore)"
@@ -421,10 +419,7 @@ fn test_gitignore_aware_false_indexes_all_files() {
     }
 
     // Assert: Both files generate events when gitignore_aware is false
-    assert!(
-        found_src,
-        "Should receive event for src/lib.rs"
-    );
+    assert!(found_src, "Should receive event for src/lib.rs");
     assert!(
         found_target,
         "Should receive event for target/debug.rs when gitignore_aware=false"
@@ -508,10 +503,7 @@ fn test_gitignore_aware_internal_ignored_dirs() {
     }
 
     // Assert: Only src file generates event (internal ignores apply)
-    assert!(
-        found_src,
-        "Should receive event for src/lib.rs"
-    );
+    assert!(found_src, "Should receive event for src/lib.rs");
     assert!(
         !found_target,
         "Should NOT receive event for target/debug/lib.rs (internal ignore)"
@@ -670,9 +662,5 @@ fn test_gitignore_filter_matches_build_directory() {
 
     // src/lib.rs should NOT be skipped
     let result2 = filter.should_skip(&root.join("src/lib.rs"));
-    assert_eq!(
-        result2,
-        None,
-        "src/lib.rs should not be ignored"
-    );
+    assert_eq!(result2, None, "src/lib.rs should not be ignored");
 }

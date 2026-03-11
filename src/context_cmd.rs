@@ -3,7 +3,10 @@
 //! Provides summarized, paginated context queries for LLMs.
 
 use anyhow::Result;
-use magellan::context::{build_context_index, get_or_build_context_index, get_file_context, get_symbol_detail, list_symbols, ListQuery};
+use magellan::context::{
+    build_context_index, get_file_context, get_or_build_context_index, get_symbol_detail,
+    list_symbols, ListQuery,
+};
 use magellan::output::generate_execution_id;
 use magellan::CodeGraph;
 use std::path::PathBuf;
@@ -73,11 +76,17 @@ pub fn run_context_list(
     let result = list_symbols(&mut graph, &query)?;
 
     // Print results
-    println!("Page {} of {} ({} total symbols)", result.page, result.total_pages, result.total_items);
+    println!(
+        "Page {} of {} ({} total symbols)",
+        result.page, result.total_pages, result.total_items
+    );
     println!();
 
     for item in &result.items {
-        println!("  {}:{}  {}  ({})", item.file, item.line, item.name, item.kind);
+        println!(
+            "  {}:{}  {}  ({})",
+            item.file, item.line, item.name, item.kind
+        );
     }
 
     // Print pagination info
@@ -146,12 +155,15 @@ pub fn run_context_symbol(
         Err(_) => {
             // Symbol not found - provide suggestions
             eprintln!("Error: Symbol '{}' not found", name);
-            
+
             // Try to find similar symbols
             let all_symbols = graph.get_symbols_by_label(&name).unwrap_or_default();
             if !all_symbols.is_empty() {
                 eprintln!();
-                eprintln!("Found {} similar symbol(s) in other files:", all_symbols.len());
+                eprintln!(
+                    "Found {} similar symbol(s) in other files:",
+                    all_symbols.len()
+                );
                 for (i, sym) in all_symbols.iter().take(5).enumerate() {
                     eprintln!("  {}. {} (in {})", i + 1, sym.name, sym.file_path);
                 }
@@ -159,7 +171,10 @@ pub fn run_context_symbol(
                     eprintln!("  ... and {} more", all_symbols.len() - 5);
                 }
                 eprintln!();
-                eprintln!("Try: magellan context symbol --db code.db --name \"{}\" --file <path>", name);
+                eprintln!(
+                    "Try: magellan context symbol --db code.db --name \"{}\" --file <path>",
+                    name
+                );
             } else {
                 // Try fuzzy search - look for symbols containing the name
                 eprintln!();

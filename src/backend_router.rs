@@ -215,24 +215,28 @@ impl MagellanBackend {
                 })
             }
             MagellanBackend::SQLite(graph) => {
-                let stats = graph.get_stats()?;
+                let symbol_count = graph.count_symbols().unwrap_or(0);
+                let file_count = graph.count_files().unwrap_or(0);
+                let cfg_block_count = 0; // TODO: Get actual CFG block count
                 Ok(BackendStats {
-                    node_count: stats.node_count,
-                    symbol_count: stats.symbol_count,
-                    file_count: stats.file_count,
-                    cfg_block_count: stats.cfg_block_count,
+                    node_count: symbol_count,
+                    symbol_count,
+                    file_count,
+                    cfg_block_count,
                 })
             }
         }
         #[cfg(not(feature = "geometric-backend"))]
         match self {
             MagellanBackend::SQLite(graph) => {
-                let stats = graph.get_stats()?;
+                let symbol_count = graph.count_symbols().unwrap_or(0);
+                let file_count = graph.count_files().unwrap_or(0);
+                let cfg_block_count = 0; // TODO: Get actual CFG block count
                 Ok(BackendStats {
-                    node_count: stats.node_count,
-                    symbol_count: stats.symbol_count,
-                    file_count: stats.file_count,
-                    cfg_block_count: stats.cfg_block_count,
+                    node_count: symbol_count,
+                    symbol_count,
+                    file_count,
+                    cfg_block_count,
                 })
             }
         }

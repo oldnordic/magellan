@@ -12,7 +12,7 @@
 
 mod harness;
 
-use criterion::{black_box, Criterion, Throughput, criterion_group, criterion_main};
+use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
 use harness::{setup_high_fanout_graph, setup_large_graph, setup_test_graph};
 
 /// B1: Neighbor Expansion Benchmark
@@ -52,10 +52,10 @@ fn benchmark_b1_neighbor_expansion(c: &mut Criterion) {
         b.iter(|| {
             for &node_id in &node_ids {
                 // Use clustered adjacency if available
-                let _neighbors: Result<Vec<i64>, _> = black_box(
-                    backend
-                        .neighbors_clustered(black_box(node_id), black_box(sqlitegraph::BackendDirection::Outgoing))
-                );
+                let _neighbors: Result<Vec<i64>, _> = black_box(backend.neighbors_clustered(
+                    black_box(node_id),
+                    black_box(sqlitegraph::BackendDirection::Outgoing),
+                ));
             }
         })
     });
@@ -190,7 +190,11 @@ fn benchmark_b3_symbol_lookup(c: &mut Criterion) {
 
     // Create a test file with known symbols for lookup
     let test_names = vec![
-        "function_1", "function_2", "branch_root", "branch_a", "fan_out_source",
+        "function_1",
+        "function_2",
+        "branch_root",
+        "branch_a",
+        "fan_out_source",
     ];
 
     group.throughput(Throughput::Elements(test_names.len() as u64));
@@ -199,7 +203,8 @@ fn benchmark_b3_symbol_lookup(c: &mut Criterion) {
     group.bench_function("baseline", |b| {
         b.iter(|| {
             for name in &test_names {
-                let _result = black_box(graph.symbol_id_by_name(black_box("test.rs"), black_box(name)));
+                let _result =
+                    black_box(graph.symbol_id_by_name(black_box("test.rs"), black_box(name)));
             }
         })
     });

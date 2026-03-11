@@ -48,10 +48,16 @@ fn match_function(x: i32) {
     let all_cfg = graph.cfg_ops.get_cfg_for_file(path).unwrap();
 
     // Should have CFG blocks for at least one function
-    assert!(!all_cfg.is_empty(), "CFG should be extracted for Rust files");
+    assert!(
+        !all_cfg.is_empty(),
+        "CFG should be extracted for Rust files"
+    );
 
     // Count total CFG blocks across all functions
-    let total_blocks: usize = all_cfg.iter().map(|(_, blocks): &(_, Vec<_>)| blocks.len()).sum();
+    let total_blocks: usize = all_cfg
+        .iter()
+        .map(|(_, blocks): &(_, Vec<_>)| blocks.len())
+        .sum();
     assert!(total_blocks > 0, "Should have at least one CFG block");
 
     // Verify some expected block kinds exist
@@ -94,26 +100,49 @@ fn test_function() {
 
     // Get CFG count after first index
     let cfg1 = graph.cfg_ops.get_cfg_for_file(path).unwrap();
-    let initial_count: usize = cfg1.iter().map(|(_, blocks): &(_, Vec<_>)| blocks.len()).sum();
+    let initial_count: usize = cfg1
+        .iter()
+        .map(|(_, blocks): &(_, Vec<_>)| blocks.len())
+        .sum();
 
     // Re-index with different source
     let _ = graph.index_file(path, source2.as_bytes());
 
     // Get CFG count after re-index
     let cfg2 = graph.cfg_ops.get_cfg_for_file(path).unwrap();
-    let after_count: usize = cfg2.iter().map(|(_, blocks): &(_, Vec<_>)| blocks.len()).sum();
+    let after_count: usize = cfg2
+        .iter()
+        .map(|(_, blocks): &(_, Vec<_>)| blocks.len())
+        .sum();
 
     // CFG should be cleaned up and re-extracted
-    assert!(initial_count > 0, "Should have CFG blocks after first index");
+    assert!(
+        initial_count > 0,
+        "Should have CFG blocks after first index"
+    );
     assert!(after_count > 0, "Should have CFG blocks after re-index");
 
     // The block kinds should differ between versions
-    let blocks1: Vec<_> = cfg1.iter().flat_map(|(_, b): &(_, Vec<_>)| b).map(|b| b.kind.as_str()).collect();
-    let blocks2: Vec<_> = cfg2.iter().flat_map(|(_, b): &(_, Vec<_>)| b).map(|b| b.kind.as_str()).collect();
+    let blocks1: Vec<_> = cfg1
+        .iter()
+        .flat_map(|(_, b): &(_, Vec<_>)| b)
+        .map(|b| b.kind.as_str())
+        .collect();
+    let blocks2: Vec<_> = cfg2
+        .iter()
+        .flat_map(|(_, b): &(_, Vec<_>)| b)
+        .map(|b| b.kind.as_str())
+        .collect();
 
     // source1 has "if", source2 has "loop"
-    assert!(blocks1.contains(&"if") || blocks1.contains(&"else"), "First version should have if/else blocks");
-    assert!(blocks2.contains(&"loop"), "Second version should have loop block");
+    assert!(
+        blocks1.contains(&"if") || blocks1.contains(&"else"),
+        "First version should have if/else blocks"
+    );
+    assert!(
+        blocks2.contains(&"loop"),
+        "Second version should have loop block"
+    );
 }
 
 #[test]
@@ -177,8 +206,16 @@ fn func_three() {
 
     // Each function should have at least an entry block
     for (func_id, blocks) in &all_cfg {
-        assert!(!blocks.is_empty(), "Function {} should have CFG blocks", func_id);
-        assert!(blocks.iter().any(|b| b.kind == "entry"), "Function {} should have entry block", func_id);
+        assert!(
+            !blocks.is_empty(),
+            "Function {} should have CFG blocks",
+            func_id
+        );
+        assert!(
+            blocks.iter().any(|b| b.kind == "entry"),
+            "Function {} should have entry block",
+            func_id
+        );
     }
 }
 
@@ -206,5 +243,8 @@ fn simple() {
     // Should have an entry block with fallthrough terminator
     let (_func_id, blocks) = &all_cfg[0];
     assert!(!blocks.is_empty(), "Function should have CFG blocks");
-    assert!(blocks.iter().any(|b| b.kind == "entry"), "Should have entry block");
+    assert!(
+        blocks.iter().any(|b| b.kind == "entry"),
+        "Should have entry block"
+    );
 }

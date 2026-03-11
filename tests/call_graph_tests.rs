@@ -231,12 +231,20 @@ pub fn callee() {
 "#;
 
     // Index both files
-    graph.index_file(caller_path, caller_source.as_bytes()).unwrap();
-    graph.index_file(callee_path, callee_source.as_bytes()).unwrap();
+    graph
+        .index_file(caller_path, caller_source.as_bytes())
+        .unwrap();
+    graph
+        .index_file(callee_path, callee_source.as_bytes())
+        .unwrap();
 
     // Index calls for both files
-    graph.index_calls(caller_path, caller_source.as_bytes()).unwrap();
-    graph.index_calls(callee_path, callee_source.as_bytes()).unwrap();
+    graph
+        .index_calls(caller_path, caller_source.as_bytes())
+        .unwrap();
+    graph
+        .index_calls(callee_path, callee_source.as_bytes())
+        .unwrap();
 
     // Verify symbols are indexed
     let caller_symbols = graph.symbols_in_file(caller_path).unwrap();
@@ -247,11 +255,7 @@ pub fn callee() {
     );
 
     let callee_symbols = graph.symbols_in_file(callee_path).unwrap();
-    assert_eq!(
-        callee_symbols.len(),
-        1,
-        "Should have 1 symbol in callee.rs"
-    );
+    assert_eq!(callee_symbols.len(), 1, "Should have 1 symbol in callee.rs");
 
     // Get symbol IDs
     let _caller_id = graph

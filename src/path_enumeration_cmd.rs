@@ -3,9 +3,7 @@
 //! Enumerates execution paths between symbols using bounded DFS.
 
 use anyhow::Result;
-use magellan::graph::{
-    ExecutionPath, PathEnumerationResult, PathStatistics, SymbolInfo,
-};
+use magellan::graph::{ExecutionPath, PathEnumerationResult, PathStatistics, SymbolInfo};
 use magellan::output::{output_json, JsonResponse, OutputFormat};
 use magellan::CodeGraph;
 use std::path::PathBuf;
@@ -86,35 +84,23 @@ pub fn run_paths(
         .unwrap_or_default();
 
     if result.paths.is_empty() {
-        println!(
-            "No paths found from \"{}\"{}",
-            start_symbol_id, end_label
-        );
+        println!("No paths found from \"{}\"{}", start_symbol_id, end_label);
     } else {
-        println!(
-            "Execution paths from \"{}\"{}:",
-            start_symbol_id, end_label
-        );
+        println!("Execution paths from \"{}\"{}:", start_symbol_id, end_label);
         println!("  Total paths enumerated: {}", result.total_enumerated);
         println!("  Paths returned: {}", result.paths.len());
         if result.bounded_hit {
-            println!("  Note: Enumeration hit bounds (max_depth={}, max_paths={})", max_depth, max_paths);
+            println!(
+                "  Note: Enumeration hit bounds (max_depth={}, max_paths={})",
+                max_depth, max_paths
+            );
         }
 
         println!("\nStatistics:");
         println!("  Average length: {:.2}", result.statistics.avg_length);
-        println!(
-            "  Min length: {}",
-            result.statistics.min_length
-        );
-        println!(
-            "  Max length: {}",
-            result.statistics.max_length
-        );
-        println!(
-            "  Unique symbols: {}",
-            result.statistics.unique_symbols
-        );
+        println!("  Min length: {}", result.statistics.min_length);
+        println!("  Max length: {}", result.statistics.max_length);
+        println!("  Unique symbols: {}", result.statistics.unique_symbols);
 
         println!("\nPaths:");
         for (i, path) in result.paths.iter().enumerate() {
@@ -237,8 +223,11 @@ fn output_json_mode(
     exec_id: &str,
     output_format: OutputFormat,
 ) -> Result<()> {
-    let paths_json: Vec<ExecutionPathJson> =
-        result.paths.into_iter().map(ExecutionPathJson::from).collect();
+    let paths_json: Vec<ExecutionPathJson> = result
+        .paths
+        .into_iter()
+        .map(ExecutionPathJson::from)
+        .collect();
 
     let response = PathsResponse {
         start_symbol_id: start_symbol_id.to_string(),

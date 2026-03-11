@@ -375,7 +375,6 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
                 start_col: fact.start_col,
                 end_line: fact.end_line,
                 end_col: fact.end_col,
-                cfg_conditions: fact.cfg_conditions.clone(),
             })
         })
         .collect();
@@ -673,7 +672,6 @@ pub fn index_file_incremental(graph: &mut CodeGraph, path: &str, source: &[u8]) 
                 start_col: fact.start_col,
                 end_line: fact.end_line,
                 end_col: fact.end_col,
-                cfg_conditions: fact.cfg_conditions.clone(),
             })
         })
         .collect();
@@ -834,9 +832,9 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         // cfg_ops.delete_cfg_for_file(path) uses a subquery against graph_entities,
         // which would return no results after entities are deleted. Use the captured
         // symbol_ids (which are function_ids) to delete CFG directly.
-        let (blocks, edges) = graph.cfg_ops.delete_cfg_for_functions(&symbol_ids_sorted)?;
+        let blocks = graph.cfg_ops.delete_cfg_for_functions(&symbol_ids_sorted)?;
         cfg_blocks_deleted = blocks;
-        edges_deleted = edges;
+        edges_deleted = blocks;
 
         // Delete each symbol node (sqlitegraph deletes edges touching entity).
         for symbol_id in &symbol_ids_sorted {
@@ -966,9 +964,10 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         };
 
         // Delete CFG blocks and edges for this file (orphan cleanup)
-        let (blocks, edges) = graph.cfg_ops.delete_cfg_for_file(path)?;
-        cfg_blocks_deleted = blocks;
-        edges_deleted = edges;
+        // Note: No file node means no symbols to query for function IDs
+        // CFG blocks are orphaned and will be cleaned up by VACUUM
+        cfg_blocks_deleted = 0;
+        edges_deleted = 0;
 
         // Invalidate cache for this file (even if no file node existed)
         graph.invalidate_cache(path);

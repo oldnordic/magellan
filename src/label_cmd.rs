@@ -121,5 +121,3 @@ pub fn run_label(
     tracker.finish(&graph)?;
     Ok(())
 }
-
-
