@@ -28,7 +28,8 @@ fn test_migration_creates_backup() {
             created_at INTEGER NOT NULL
         )",
         [],
-    ).unwrap();
+    )
+    .unwrap();
     conn.execute(
         "INSERT INTO magellan_meta (id, magellan_schema_version, sqlitegraph_schema_version, created_at)
          VALUES (1, 3, 1, 1000000000)",
@@ -41,7 +42,10 @@ fn test_migration_creates_backup() {
 
     assert!(result.success);
     assert_eq!(result.old_version, 3);
-    assert_eq!(result.new_version, magellan::migrate_cmd::MAGELLAN_SCHEMA_VERSION);
+    assert_eq!(
+        result.new_version,
+        magellan::migrate_cmd::MAGELLAN_SCHEMA_VERSION
+    );
     assert!(result.backup_path.is_some());
 
     // Verify backup exists
@@ -65,7 +69,8 @@ fn test_migration_dry_run() {
             created_at INTEGER NOT NULL
         )",
         [],
-    ).unwrap();
+    )
+    .unwrap();
     conn.execute(
         "INSERT INTO magellan_meta (id, magellan_schema_version, sqlitegraph_schema_version, created_at)
          VALUES (1, 3, 1, 1000000000)",
@@ -83,11 +88,13 @@ fn test_migration_dry_run() {
 
     // Verify version didn't change
     let conn = rusqlite::Connection::open(&db_path).unwrap();
-    let version: i64 = conn.query_row(
-        "SELECT magellan_schema_version FROM magellan_meta WHERE id=1",
-        [],
-        |row| row.get(0),
-    ).unwrap();
+    let version: i64 = conn
+        .query_row(
+            "SELECT magellan_schema_version FROM magellan_meta WHERE id=1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
     assert_eq!(version, 3);
 }
 
@@ -135,7 +142,8 @@ fn test_migration_no_backup_flag() {
             created_at INTEGER NOT NULL
         )",
         [],
-    ).unwrap();
+    )
+    .unwrap();
     conn.execute(
         "INSERT INTO magellan_meta (id, magellan_schema_version, sqlitegraph_schema_version, created_at)
          VALUES (1, 3, 1, 1000000000)",
@@ -150,9 +158,15 @@ fn test_migration_no_backup_flag() {
     assert!(result.backup_path.is_none());
 
     // Verify no backup file created
-    let backups = std::fs::read_dir(temp_dir.path()).unwrap()
+    let backups = std::fs::read_dir(temp_dir.path())
+        .unwrap()
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().map(|ext| ext == "bak").unwrap_or(false))
+        .filter(|e| {
+            e.path()
+                .extension()
+                .map(|ext| ext == "bak")
+                .unwrap_or(false)
+        })
         .count();
     assert_eq!(backups, 0);
 }
@@ -513,7 +527,9 @@ fn test_json_export_includes_version() {
     let file_path = temp_dir.path().join("test.rs");
     std::fs::write(&file_path, "fn test() {}").unwrap();
     let source = std::fs::read(&file_path).unwrap();
-    graph.index_file(&file_path.to_string_lossy(), &source).unwrap();
+    graph
+        .index_file(&file_path.to_string_lossy(), &source)
+        .unwrap();
 
     // Export to JSON
     let config = ExportConfig::new(ExportFormat::Json);
@@ -534,7 +550,9 @@ fn test_jsonl_export_includes_version_record() {
     let file_path = temp_dir.path().join("test.rs");
     std::fs::write(&file_path, "fn test() {}").unwrap();
     let source = std::fs::read(&file_path).unwrap();
-    graph.index_file(&file_path.to_string_lossy(), &source).unwrap();
+    graph
+        .index_file(&file_path.to_string_lossy(), &source)
+        .unwrap();
 
     // Export to JSONL
     let jsonl = export_jsonl(&mut graph).unwrap();
@@ -556,7 +574,9 @@ fn test_csv_export_includes_version_header() {
     let file_path = temp_dir.path().join("test.rs");
     std::fs::write(&file_path, "fn test() {}").unwrap();
     let source = std::fs::read(&file_path).unwrap();
-    graph.index_file(&file_path.to_string_lossy(), &source).unwrap();
+    graph
+        .index_file(&file_path.to_string_lossy(), &source)
+        .unwrap();
 
     // Export to CSV
     let config = ExportConfig::new(ExportFormat::Csv);
@@ -577,7 +597,9 @@ fn test_symbol_export_has_new_fields() {
     let file_path = temp_dir.path().join("test.rs");
     std::fs::write(&file_path, "fn my_function() {}").unwrap();
     let source = std::fs::read(&file_path).unwrap();
-    graph.index_file(&file_path.to_string_lossy(), &source).unwrap();
+    graph
+        .index_file(&file_path.to_string_lossy(), &source)
+        .unwrap();
 
     // Export to JSON
     let config = ExportConfig::new(ExportFormat::Json);
@@ -604,5 +626,3 @@ fn test_symbol_export_has_new_fields() {
         }
     }
 }
-
-

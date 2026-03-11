@@ -53,12 +53,7 @@ pub fn run_cycles(
         graph
             .execution_log()
             .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
-        return output_json_mode(
-            symbol_id.as_deref(),
-            cycles,
-            &exec_id,
-            output_format,
-        );
+        return output_json_mode(symbol_id.as_deref(), cycles, &exec_id, output_format);
     }
 
     // Human mode
@@ -72,9 +67,7 @@ pub fn run_cycles(
                 let fqn_display = member.fqn.as_deref().unwrap_or("?");
                 println!(
                     "      {} ({}) in {}",
-                    fqn_display,
-                    member.kind,
-                    member.file_path
+                    fqn_display, member.kind, member.file_path
                 );
             }
         }
@@ -130,7 +123,11 @@ impl From<Cycle> for CycleJson {
     fn from(cycle: Cycle) -> Self {
         Self {
             kind: cycle_kind_json(&cycle.kind),
-            members: cycle.members.into_iter().map(SymbolInfoJson::from).collect(),
+            members: cycle
+                .members
+                .into_iter()
+                .map(SymbolInfoJson::from)
+                .collect(),
         }
     }
 }
@@ -160,8 +157,7 @@ fn output_json_mode(
     exec_id: &str,
     output_format: OutputFormat,
 ) -> Result<()> {
-    let cycles_json: Vec<CycleJson> =
-        cycles.into_iter().map(CycleJson::from).collect();
+    let cycles_json: Vec<CycleJson> = cycles.into_iter().map(CycleJson::from).collect();
 
     let response = CyclesResponse {
         symbol_id: symbol_id.map(|s| s.to_string()),

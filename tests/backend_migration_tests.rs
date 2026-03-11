@@ -57,11 +57,9 @@ fn get_side_table_counts(db_path: &Path) -> Result<HashMap<String, i64>> {
 
     for table in side_tables {
         let count: i64 = conn
-            .query_row(
-                &format!("SELECT COUNT(*) FROM {}", table),
-                [],
-                |row| row.get(0),
-            )
+            .query_row(&format!("SELECT COUNT(*) FROM {}", table), [], |row| {
+                row.get(0)
+            })
             .unwrap_or(0);
         counts.insert(table.to_string(), count);
     }
@@ -221,8 +219,12 @@ impl MyStruct {
         let file1_path = "src/main.rs";
         let file2_path = "src/lib.rs";
 
-        graph.index_file(file1_path, source_code_1.as_bytes()).unwrap();
-        graph.index_file(file2_path, source_code_2.as_bytes()).unwrap();
+        graph
+            .index_file(file1_path, source_code_1.as_bytes())
+            .unwrap();
+        graph
+            .index_file(file2_path, source_code_2.as_bytes())
+            .unwrap();
 
         // Verify we indexed some symbols
         let symbol_count = graph.count_symbols().unwrap();
@@ -271,7 +273,11 @@ impl MyStruct {
             .ok()
             .and_then(|s| {
                 let ids: Vec<i64> = s.split(',').filter_map(|x| x.parse().ok()).collect();
-                if ids.len() >= 3 { Some(ids) } else { None }
+                if ids.len() >= 3 {
+                    Some(ids)
+                } else {
+                    None
+                }
             })
             .unwrap_or_else(|| vec![100, 101, 102]); // Fallback IDs
 
@@ -376,7 +382,14 @@ impl MyStruct {
             );
 
             // Verify side table counts match
-            for table in ["code_chunks", "file_metrics", "symbol_metrics", "execution_log", "ast_nodes", "cfg_blocks"] {
+            for table in [
+                "code_chunks",
+                "file_metrics",
+                "symbol_metrics",
+                "execution_log",
+                "ast_nodes",
+                "cfg_blocks",
+            ] {
                 let source_count = *source_side_counts.get(table).unwrap_or(&0);
                 let target_count = *target_side_counts.get(table).unwrap_or(&0);
                 assert_eq!(
@@ -435,7 +448,10 @@ fn test_migration_dry_run() {
     let result = run_migrate_backend(source_db, target_db.clone(), None, true).unwrap();
 
     assert!(result.success);
-    assert!(!target_db.exists(), "Target should not be created in dry-run mode");
+    assert!(
+        !target_db.exists(),
+        "Target should not be created in dry-run mode"
+    );
     assert_eq!(result.entities_migrated, 0);
     assert_eq!(result.edges_migrated, 0);
     assert!(!result.side_tables_migrated);
@@ -445,7 +461,6 @@ fn test_migration_dry_run() {
 #[test]
 fn test_migration_preserves_chunk_content() {
     use magellan::generation::{ChunkStore, CodeChunk};
-    
 
     let temp_dir = TempDir::new().unwrap();
     let source_db = temp_dir.path().join("source.db");
@@ -472,7 +487,9 @@ fn test_migration_preserves_chunk_content() {
     // Get original content from SQLite
     let _original_content: String = {
         let conn = rusqlite::Connection::open(&source_db).unwrap();
-        let mut stmt = conn.prepare("SELECT content FROM code_chunks WHERE file_path = 'test.rs'").unwrap();
+        let mut stmt = conn
+            .prepare("SELECT content FROM code_chunks WHERE file_path = 'test.rs'")
+            .unwrap();
         stmt.query_row([], |row| row.get(0)).unwrap()
     };
 
@@ -481,12 +498,12 @@ fn test_migration_preserves_chunk_content() {
 
     // Verify SQLite side table copy worked
     let conn = rusqlite::Connection::open(&native_db).unwrap();
-    let mut stmt = conn.prepare("SELECT content FROM code_chunks WHERE file_path = 'test.rs'").unwrap();
+    let mut stmt = conn
+        .prepare("SELECT content FROM code_chunks WHERE file_path = 'test.rs'")
+        .unwrap();
     let content: String = stmt.query_row([], |row| row.get(0)).unwrap();
     assert_eq!(content, utf8_content, "UTF-8 content should be preserved");
 }
-
-
 
 /// Test: Cross-file reference indexing (XREF-01 requirement)
 ///
@@ -551,7 +568,9 @@ fn main() {
         let main_path_str = main_path.to_string_lossy().to_string();
         let main_source = std::fs::read(&main_path).unwrap();
         graph.index_file(&main_path_str, &main_source).unwrap();
-        graph.index_references(&main_path_str, &main_source).unwrap();
+        graph
+            .index_references(&main_path_str, &main_source)
+            .unwrap();
     }
 
     // Now query references to helper() symbol
@@ -559,8 +578,13 @@ fn main() {
         let mut graph = CodeGraph::open(&db_path).unwrap();
 
         // Find the helper symbol node ID
-        let helper_path_str = temp_dir.path().join("src/helper.rs").to_string_lossy().to_string();
-        let symbols = magellan::graph::query::symbols_in_file(&mut graph, &helper_path_str).unwrap();
+        let helper_path_str = temp_dir
+            .path()
+            .join("src/helper.rs")
+            .to_string_lossy()
+            .to_string();
+        let symbols =
+            magellan::graph::query::symbols_in_file(&mut graph, &helper_path_str).unwrap();
 
         let _helper_symbol = symbols
             .iter()
@@ -568,14 +592,14 @@ fn main() {
             .expect("helper symbol should exist");
 
         // Get the node ID for helper symbol
-        let symbol_id = magellan::graph::query::symbol_id_by_name(
-            &mut graph,
-            &helper_path_str,
-            "helper"
-        ).unwrap().expect("helper symbol should have node ID");
+        let symbol_id =
+            magellan::graph::query::symbol_id_by_name(&mut graph, &helper_path_str, "helper")
+                .unwrap()
+                .expect("helper symbol should have node ID");
 
         // Query all references to helper
-        let references = magellan::graph::query::references_to_symbol(&mut graph, symbol_id).unwrap();
+        let references =
+            magellan::graph::query::references_to_symbol(&mut graph, symbol_id).unwrap();
 
         // Verify we have references from multiple files
         // lib.rs should reference helper
@@ -673,7 +697,9 @@ pub fn other_function() {
         other_path_str = other_path.to_string_lossy().to_string();
         let other_source = std::fs::read(&other_path).unwrap();
         graph.index_file(&other_path_str, &other_source).unwrap();
-        graph.index_references(&other_path_str, &other_source).unwrap();
+        graph
+            .index_references(&other_path_str, &other_source)
+            .unwrap();
     }
 
     // Query references to helper() from lib.rs (the one defined there)
@@ -681,14 +707,14 @@ pub fn other_function() {
         let mut graph = CodeGraph::open(&db_path).unwrap();
 
         // Get the helper symbol from lib.rs
-        let symbol_id = magellan::graph::query::symbol_id_by_name(
-            &mut graph,
-            &lib_path_str,
-            "helper"
-        ).unwrap().expect("helper symbol should exist in lib.rs");
+        let symbol_id =
+            magellan::graph::query::symbol_id_by_name(&mut graph, &lib_path_str, "helper")
+                .unwrap()
+                .expect("helper symbol should exist in lib.rs");
 
         // Query all references to this helper symbol
-        let references = magellan::graph::query::references_to_symbol(&mut graph, symbol_id).unwrap();
+        let references =
+            magellan::graph::query::references_to_symbol(&mut graph, symbol_id).unwrap();
 
         // Verify we have references from multiple files
         let other_refs: Vec<_> = references
@@ -717,9 +743,9 @@ pub fn other_function() {
         // Verify each reference has correct file_path
         for ref_fact in &references {
             assert!(
-                ref_fact.file_path.ends_with("src/lib.rs") ||
-                ref_fact.file_path.ends_with("src/other.rs") ||
-                ref_fact.file_path.ends_with("src/helper.rs"),
+                ref_fact.file_path.ends_with("src/lib.rs")
+                    || ref_fact.file_path.ends_with("src/other.rs")
+                    || ref_fact.file_path.ends_with("src/helper.rs"),
                 "Reference file_path should be one of the indexed files, got: {}",
                 ref_fact.file_path.display()
             );
@@ -787,16 +813,12 @@ pub fn unique_to_file2() -> i32 {
         let mut graph = CodeGraph::open(&db_path).unwrap();
 
         // Get symbols from file1
-        let symbols_file1 = magellan::graph::query::symbols_in_file(
-            &mut graph,
-            &file1_path_str
-        ).unwrap();
+        let symbols_file1 =
+            magellan::graph::query::symbols_in_file(&mut graph, &file1_path_str).unwrap();
 
         // Get symbols from file2
-        let symbols_file2 = magellan::graph::query::symbols_in_file(
-            &mut graph,
-            &file2_path_str
-        ).unwrap();
+        let symbols_file2 =
+            magellan::graph::query::symbols_in_file(&mut graph, &file2_path_str).unwrap();
 
         // Verify both files have common_function
         let common_in_file1 = symbols_file1
@@ -809,8 +831,14 @@ pub fn unique_to_file2() -> i32 {
             .filter(|s| s.name.as_deref() == Some("common_function"))
             .count();
 
-        assert_eq!(common_in_file1, 1, "file1.rs should have one common_function");
-        assert_eq!(common_in_file2, 1, "file2.rs should have one common_function");
+        assert_eq!(
+            common_in_file1, 1,
+            "file1.rs should have one common_function"
+        );
+        assert_eq!(
+            common_in_file2, 1,
+            "file2.rs should have one common_function"
+        );
 
         // Verify each symbol has correct file_path
         for symbol in &symbols_file1 {
@@ -834,5 +862,3 @@ pub fn unique_to_file2() -> i32 {
         println!("  file2.rs: {} symbols", symbols_file2.len());
     }
 }
-
-

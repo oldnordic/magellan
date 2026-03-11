@@ -185,7 +185,8 @@ fn check_regression(current_ms: u128) -> Result<(), f64> {
     let baseline = load_baseline();
 
     if let Some(baseline) = baseline {
-        let regression = (current_ms as f64 - baseline.duration_ms as f64) / baseline.duration_ms as f64;
+        let regression =
+            (current_ms as f64 - baseline.duration_ms as f64) / baseline.duration_ms as f64;
 
         println!("[PERF] {}", baseline.test_name);
         println!("[PERF]   Current: {}ms", current_ms);
@@ -234,7 +235,10 @@ fn test_baseline_indexing_performance() {
     fs::create_dir_all(&test_dir).unwrap();
     let files = create_rust_files(&test_dir, 100);
 
-    println!("[PERF] Testing baseline indexing performance with {} files", files.len());
+    println!(
+        "[PERF] Testing baseline indexing performance with {} files",
+        files.len()
+    );
 
     // Open database
     let mut graph = CodeGraph::open(&db_path).unwrap();
@@ -284,7 +288,10 @@ fn test_parser_pool_effectiveness() {
     fs::create_dir_all(&test_dir).unwrap();
     let files = create_rust_files(&test_dir, 50);
 
-    println!("[PERF] Testing parser pool effectiveness with {} files", files.len());
+    println!(
+        "[PERF] Testing parser pool effectiveness with {} files",
+        files.len()
+    );
 
     // Benchmark WITH parser pool (current implementation)
     let mut graph_pool = CodeGraph::open(&db_path_pool).unwrap();
@@ -303,22 +310,23 @@ fn test_parser_pool_effectiveness() {
     // Benchmark WITHOUT parser pool (naive implementation)
     // We simulate this by forcing parser re-initialization
     let mut graph_nopool = CodeGraph::open(&db_path_nopool).unwrap();
-    let (_indexed_nopool, duration_nopool) = measure_duration("indexing_without_parser_pool", || {
-        // Process files sequentially without parser pooling
-        let mut indexed = 0;
-        for file in &files {
-            let source = fs::read(file).unwrap();
-            let path_str = file.to_string_lossy().to_string();
+    let (_indexed_nopool, duration_nopool) =
+        measure_duration("indexing_without_parser_pool", || {
+            // Process files sequentially without parser pooling
+            let mut indexed = 0;
+            for file in &files {
+                let source = fs::read(file).unwrap();
+                let path_str = file.to_string_lossy().to_string();
 
-            // Force fresh parser creation for each file (naive approach)
-            let _ = graph_nopool.delete_file(&path_str);
-            let _ = graph_nopool.index_file(&path_str, &source);
-            let _ = graph_nopool.index_references(&path_str, &source);
+                // Force fresh parser creation for each file (naive approach)
+                let _ = graph_nopool.delete_file(&path_str);
+                let _ = graph_nopool.index_file(&path_str, &source);
+                let _ = graph_nopool.index_references(&path_str, &source);
 
-            indexed += 1;
-        }
-        indexed
-    });
+                indexed += 1;
+            }
+            indexed
+        });
 
     // Calculate speedup
     let speedup = duration_nopool as f64 / duration_pool as f64;
@@ -366,18 +374,17 @@ fn test_sequential_vs_parallel_indexing() {
 
     // Benchmark parallel scan (current implementation)
     let mut graph = CodeGraph::open(&db_path).unwrap();
-    let (indexed, duration_parallel) =
-        measure_duration("parallel_scan_100_files", || {
-            let filter = FileFilter::new(temp_dir.path(), &[], &[]).unwrap();
-            magellan::graph::scan::scan_directory_with_filter(
-                &mut graph,
-                temp_dir.path(),
-                &filter,
-                None,
-            )
-            .unwrap()
-            .indexed
-        });
+    let (indexed, duration_parallel) = measure_duration("parallel_scan_100_files", || {
+        let filter = FileFilter::new(temp_dir.path(), &[], &[]).unwrap();
+        magellan::graph::scan::scan_directory_with_filter(
+            &mut graph,
+            temp_dir.path(),
+            &filter,
+            None,
+        )
+        .unwrap()
+        .indexed
+    });
 
     println!(
         "[PERF] Parallel scan: {}ms for {} files",
@@ -489,7 +496,10 @@ mod additional_diagnostics {
             0.0
         };
 
-        println!("[PERF]   Standalone File I/O: {}ms ({:.1}%)", io_duration, io_pct);
+        println!(
+            "[PERF]   Standalone File I/O: {}ms ({:.1}%)",
+            io_duration, io_pct
+        );
         println!(
             "[PERF]   Scan with I/O + Parsing + DB: {}ms ({:.1}%)",
             index_duration, index_pct

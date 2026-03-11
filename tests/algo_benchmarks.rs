@@ -52,7 +52,10 @@ fn benchmark_reachability_100_symbols() {
     println!("Reachability (100 symbols): {:?}", elapsed);
     println!("  Found {} reachable symbols", result.len());
 
-    assert!(elapsed.as_millis() < 100, "Reachability on 100 symbols should complete in <100ms");
+    assert!(
+        elapsed.as_millis() < 100,
+        "Reachability on 100 symbols should complete in <100ms"
+    );
 }
 
 #[test]
@@ -84,7 +87,10 @@ fn benchmark_reachability_1000_symbols() {
     println!("Reachability (1000 symbols): {:?}", elapsed);
     println!("  Found {} reachable symbols", result.len());
 
-    assert!(elapsed.as_secs() < 1, "Reachability on 1000 symbols should complete in <1s");
+    assert!(
+        elapsed.as_secs() < 1,
+        "Reachability on 1000 symbols should complete in <1s"
+    );
 }
 
 #[test]
@@ -116,7 +122,10 @@ fn benchmark_scc_detection_100_symbols() {
     println!("SCC detection (100 symbols): {:?}", elapsed);
     println!("  Found {} cycles", result.cycles.len());
 
-    assert!(elapsed.as_millis() < 100, "SCC detection on 100 symbols should complete in <100ms");
+    assert!(
+        elapsed.as_millis() < 100,
+        "SCC detection on 100 symbols should complete in <100ms"
+    );
 }
 
 #[test]
@@ -148,7 +157,10 @@ fn benchmark_scc_detection_1000_symbols() {
     println!("SCC detection (1000 symbols): {:?}", elapsed);
     println!("  Found {} cycles", result.cycles.len());
 
-    assert!(elapsed.as_secs() < 1, "SCC detection on 1000 symbols should complete in <1s");
+    assert!(
+        elapsed.as_secs() < 1,
+        "SCC detection on 1000 symbols should complete in <1s"
+    );
 }
 
 #[test]
@@ -177,10 +189,20 @@ fn benchmark_path_enumeration_with_bounds() {
     let result = graph.enumerate_paths("main", None, 10, 100).unwrap();
     let elapsed = start.elapsed();
 
-    println!("Path enumeration with bounds (100 symbols, max_depth=10, max_paths=100): {:?}", elapsed);
-    println!("  Found {} paths, enumerated {}", result.paths.len(), result.total_enumerated);
+    println!(
+        "Path enumeration with bounds (100 symbols, max_depth=10, max_paths=100): {:?}",
+        elapsed
+    );
+    println!(
+        "  Found {} paths, enumerated {}",
+        result.paths.len(),
+        result.total_enumerated
+    );
 
-    assert!(elapsed.as_secs() < 5, "Path enumeration with bounds should complete in <5s");
+    assert!(
+        elapsed.as_secs() < 5,
+        "Path enumeration with bounds should complete in <5s"
+    );
 }
 
 #[test]
@@ -212,7 +234,10 @@ fn benchmark_backward_slice_100_symbols() {
     println!("Backward slice (100 symbols, from middle): {:?}", elapsed);
     println!("  Slice size: {}", result.slice.symbol_count);
 
-    assert!(elapsed.as_millis() < 100, "Backward slice on 100 symbols should complete in <100ms");
+    assert!(
+        elapsed.as_millis() < 100,
+        "Backward slice on 100 symbols should complete in <100ms"
+    );
 }
 
 #[test]
@@ -244,7 +269,10 @@ fn benchmark_forward_slice_100_symbols() {
     println!("Forward slice (100 symbols, from middle): {:?}", elapsed);
     println!("  Slice size: {}", result.slice.symbol_count);
 
-    assert!(elapsed.as_millis() < 100, "Forward slice on 100 symbols should complete in <100ms");
+    assert!(
+        elapsed.as_millis() < 100,
+        "Forward slice on 100 symbols should complete in <100ms"
+    );
 }
 
 #[test]
@@ -276,7 +304,10 @@ fn benchmark_dead_code_detection_1000_symbols() {
     println!("Dead code detection (1000 symbols): {:?}", elapsed);
     println!("  Found {} dead symbols", result.len());
 
-    assert!(elapsed.as_secs() < 1, "Dead code detection on 1000 symbols should complete in <1s");
+    assert!(
+        elapsed.as_secs() < 1,
+        "Dead code detection on 1000 symbols should complete in <1s"
+    );
 }
 
 #[test]
@@ -308,7 +339,10 @@ fn benchmark_condensation_1000_symbols() {
     println!("Condensation (1000 symbols): {:?}", elapsed);
     println!("  Created {} supernodes", result.graph.supernodes.len());
 
-    assert!(elapsed.as_secs() < 1, "Condensation on 1000 symbols should complete in <1s");
+    assert!(
+        elapsed.as_secs() < 1,
+        "Condensation on 1000 symbols should complete in <1s"
+    );
 }
 
 #[test]
@@ -333,7 +367,12 @@ fn benchmark_branching_graph_reachability() {
             for child in 0..branching_factor {
                 let name = format!("branch_{}_{}", level, count);
                 if level < depth - 1 {
-                    source.push_str(&format!("fn {}() {{ branch_{}_{}(); }}\n", name, level + 1, child * branching_factor + child));
+                    source.push_str(&format!(
+                        "fn {}() {{ branch_{}_{}(); }}\n",
+                        name,
+                        level + 1,
+                        child * branching_factor + child
+                    ));
                 } else {
                     source.push_str(&format!("fn {}() {{}}\n", name));
                 }
@@ -353,8 +392,14 @@ fn benchmark_branching_graph_reachability() {
     let result = graph.reachable_symbols("main", None).unwrap();
     let elapsed = start.elapsed();
 
-    println!("Reachability on branching graph (3 branches, depth 5): {:?}", elapsed);
+    println!(
+        "Reachability on branching graph (3 branches, depth 5): {:?}",
+        elapsed
+    );
     println!("  Found {} reachable symbols", result.len());
 
-    assert!(elapsed.as_millis() < 100, "Reachability on branching graph should complete in <100ms");
+    assert!(
+        elapsed.as_millis() < 100,
+        "Reachability on branching graph should complete in <100ms"
+    );
 }

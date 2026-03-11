@@ -1,5 +1,4 @@
 #![allow(dead_code)]
-
 #![allow(unused_imports)]
 //! Magellan: A dumb, deterministic codebase mapping tool
 //!
@@ -46,7 +45,10 @@
 //! - **`llvm-cfg`**: LLVM IR-based CFG extraction for C/C++ (requires clang)
 //! - **`bytecode-cfg`**: Java bytecode-based CFG extraction (requires Java bytecode library)
 
+pub mod backend_router;
+pub mod capabilities;
 pub mod common;
+pub mod context;
 pub mod diagnostics;
 pub mod error_codes;
 pub mod generation;
@@ -55,7 +57,6 @@ pub mod indexer;
 pub mod ingest;
 pub mod lsif;
 pub mod lsp;
-pub mod context;
 #[cfg(feature = "web-ui")]
 pub mod web_ui;
 
@@ -64,30 +65,30 @@ pub mod migrate_cmd;
 
 // Re-export backend detection for CLI commands
 pub use migrate_backend_cmd::{detect_backend_format, BackendFormat};
+pub use backend_router::{MagellanBackend, UnifiedSymbolInfo};
+pub use capabilities::all_capabilities;
 pub mod output;
 pub mod references;
 pub mod validation;
 pub mod verify;
 pub mod watcher;
 
-
-
 pub use common::{
-    detect_language_from_path, extract_context_safe, extract_symbol_content_safe, format_symbol_kind,
-    parse_symbol_kind, resolve_path,
+    detect_language_from_path, detect_project_root, extract_context_safe, extract_symbol_content_safe,
+    format_symbol_kind, parse_symbol_kind, resolve_path,
 };
 pub use diagnostics::{DiagnosticStage, SkipReason, WatchDiagnostic};
 pub use generation::{ChunkStore, CodeChunk};
 pub use graph::filter::FileFilter;
 pub use graph::query::{cross_file_references_to, SymbolQueryResult};
-pub use graph::CrossFileRef;
 pub use graph::scan::ScanResult;
 pub use graph::test_helpers::{delete_file_facts_with_injection, FailPoint};
+pub use graph::CrossFileRef;
 pub use graph::{
-    CodeGraph, CondensationGraph, CondensationResult, Cycle, CycleKind, CycleReport,
-    DeadSymbol, DeleteResult, ExecutionPath, ExportConfig, ExportFormat, PathEnumerationResult,
-    PathStatistics, ProgramSlice, ReconcileOutcome, ScanProgress, SliceDirection, SliceResult,
-    SliceStatistics, Supernode, SymbolInfo, MAGELLAN_SCHEMA_VERSION,
+    CodeGraph, CondensationGraph, CondensationResult, Cycle, CycleKind, CycleReport, DeadSymbol,
+    DeleteResult, ExecutionPath, ExportConfig, ExportFormat, PathEnumerationResult, PathStatistics,
+    ProgramSlice, ReconcileOutcome, ScanProgress, SliceDirection, SliceResult, SliceStatistics,
+    Supernode, SymbolInfo, MAGELLAN_SCHEMA_VERSION,
 };
 pub use indexer::{run_indexer, run_indexer_n, run_watch_pipeline, WatchPipelineConfig};
 pub use ingest::detect::{detect_language, Language};

@@ -261,10 +261,7 @@ fn test_verify_after_calls_deleted() {
     // NOTE: sqlitegraph doesn't support rollback. File, symbols, references, and calls
     // are all deleted before we stopped.
     let file_node = graph.get_file_node(path).unwrap();
-    assert!(
-        file_node.is_none(),
-        "File node should be deleted"
-    );
+    assert!(file_node.is_none(), "File node should be deleted");
 
     // Symbols are already deleted - can't query via symbols_in_file since file is gone
     // Just verify chunks remain for now
@@ -366,10 +363,7 @@ fn test_verify_before_file_deleted() {
     // NOTE: sqlitegraph doesn't support rollback. File, symbols, references, and calls
     // are all deleted before we stopped.
     let file_node = graph.get_file_node(path).unwrap();
-    assert!(
-        file_node.is_none(),
-        "File node should be deleted"
-    );
+    assert!(file_node.is_none(), "File node should be deleted");
 
     // Symbols are already deleted - can't query via symbols_in_file since file is gone
     // Just verify chunks remain for now

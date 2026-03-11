@@ -56,13 +56,7 @@ pub fn run_reachable(
         graph
             .execution_log()
             .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
-        return output_json_mode(
-            &symbol_id,
-            reverse,
-            symbols,
-            &exec_id,
-            output_format,
-        );
+        return output_json_mode(&symbol_id, reverse, symbols, &exec_id, output_format);
     }
 
     // Human mode
@@ -80,9 +74,7 @@ pub fn run_reachable(
             let fqn_display = symbol.fqn.as_deref().unwrap_or("?");
             println!(
                 "  {} ({}) in {}",
-                fqn_display,
-                symbol.kind,
-                symbol.file_path
+                fqn_display, symbol.kind, symbol.file_path
             );
         }
     }
@@ -140,8 +132,7 @@ fn output_json_mode(
 ) -> Result<()> {
     let direction = if reverse { "reverse" } else { "forward" }.to_string();
 
-    let symbols_json: Vec<SymbolInfoJson> =
-        symbols.into_iter().map(SymbolInfoJson::from).collect();
+    let symbols_json: Vec<SymbolInfoJson> = symbols.into_iter().map(SymbolInfoJson::from).collect();
 
     let response = ReachableResponse {
         symbol_id: symbol_id.to_string(),

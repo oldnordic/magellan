@@ -7,10 +7,10 @@
 //!
 //! Run with: cargo bench --bench kv_metadata_bench --features native-v2
 
-use criterion::{black_box, Criterion, criterion_group, criterion_main};
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use magellan::generation::{ChunkStore, CodeChunk};
-use magellan::graph::{ExecutionLog, MetricsOps};
 use magellan::graph::metrics::FileMetrics;
+use magellan::graph::{ExecutionLog, MetricsOps};
 use magellan::CodeGraph;
 use tempfile::TempDir;
 
@@ -64,7 +64,7 @@ fn benchmark_chunk_operations(c: &mut Criterion) {
 
             // Retrieve chunks
             let chunk_store = ChunkStore::new(&db_path);
-            
+
             for i in 0..100 {
                 black_box(chunk_store.get_chunks_for_file(&format!("file_{}.rs", i))).unwrap();
             }
@@ -86,11 +86,15 @@ fn benchmark_execution_log_ops(c: &mut Criterion) {
             let execution_log = ExecutionLog::new(&db_path);
 
             let args = vec!["scan".to_string()];
-            
+
             for i in 0..100 {
                 let exec_id = format!("exec_{}", i);
-                execution_log.start_execution(&exec_id, "2.1.0", &args, None, "/test.db").unwrap();
-                execution_log.finish_execution(&exec_id, "success", None, i, i * 2, i * 3).unwrap();
+                execution_log
+                    .start_execution(&exec_id, "2.1.0", &args, None, "/test.db")
+                    .unwrap();
+                execution_log
+                    .finish_execution(&exec_id, "success", None, i, i * 2, i * 3)
+                    .unwrap();
             }
         })
     });
@@ -149,7 +153,7 @@ pub fn helper() {
 "#;
 
             let mut graph = CodeGraph::open(&db_path).unwrap();
-            
+
             // Index file (creates graph entities/edges)
             black_box(graph.index_file("test.rs", source_code.as_bytes())).unwrap();
 
@@ -170,8 +174,12 @@ pub fn helper() {
             let execution_log = ExecutionLog::new(&db_path);
 
             let args = vec!["scan".to_string()];
-            execution_log.start_execution("scan", "2.1.0", &args, None, "/test.db").unwrap();
-            execution_log.finish_execution("scan", "success", None, 2, 5, 10).unwrap();
+            execution_log
+                .start_execution("scan", "2.1.0", &args, None, "/test.db")
+                .unwrap();
+            execution_log
+                .finish_execution("scan", "success", None, 2, 5, 10)
+                .unwrap();
 
             // Store metrics
             let metrics = MetricsOps::new(&db_path);

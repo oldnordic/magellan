@@ -34,10 +34,8 @@ fn shared() {}
     let mut graph = CodeGraph::open(&db_path).unwrap();
     let path_str = file_path.to_string_lossy().to_string();
 
-    graph.index_file(&path_str, source.as_bytes())
-        .unwrap();
-    graph.index_calls(&path_str, source.as_bytes())
-        .unwrap();
+    graph.index_file(&path_str, source.as_bytes()).unwrap();
+    graph.index_calls(&path_str, source.as_bytes()).unwrap();
 
     // Get main's FQN
     let symbols = graph.symbols_in_file(&path_str).unwrap();
@@ -64,10 +62,7 @@ fn shared() {}
     );
 
     // Verify we find the expected symbols
-    let fqn_names: Vec<_> = reachable
-        .iter()
-        .filter_map(|s| s.fqn.as_deref())
-        .collect();
+    let fqn_names: Vec<_> = reachable.iter().filter_map(|s| s.fqn.as_deref()).collect();
 
     // helper_a and helper_b should be directly reachable from main
     assert!(
@@ -104,10 +99,8 @@ fn unused_function() {
     let mut graph = CodeGraph::open(&db_path).unwrap();
     let path_str = file_path.to_string_lossy().to_string();
 
-    graph.index_file(&path_str, source.as_bytes())
-        .unwrap();
-    graph.index_calls(&path_str, source.as_bytes())
-        .unwrap();
+    graph.index_file(&path_str, source.as_bytes()).unwrap();
+    graph.index_calls(&path_str, source.as_bytes()).unwrap();
 
     // Get main's FQN
     let symbols = graph.symbols_in_file(&path_str).unwrap();
@@ -167,10 +160,8 @@ fn shared() {}
     let mut graph = CodeGraph::open(&db_path).unwrap();
     let path_str = file_path.to_string_lossy().to_string();
 
-    graph.index_file(&path_str, source.as_bytes())
-        .unwrap();
-    graph.index_calls(&path_str, source.as_bytes())
-        .unwrap();
+    graph.index_file(&path_str, source.as_bytes()).unwrap();
+    graph.index_calls(&path_str, source.as_bytes()).unwrap();
 
     // Get shared's FQN
     let symbols = graph.symbols_in_file(&path_str).unwrap();
@@ -189,10 +180,7 @@ fn shared() {}
     let callers = graph.reverse_reachable_symbols(shared_fqn, None).unwrap();
 
     // helper_a and helper_b should both call shared
-    let caller_fqns: Vec<_> = callers
-        .iter()
-        .filter_map(|s| s.fqn.as_deref())
-        .collect();
+    let caller_fqns: Vec<_> = callers.iter().filter_map(|s| s.fqn.as_deref()).collect();
 
     assert!(
         !callers.is_empty(),
@@ -240,15 +228,11 @@ fn test_algorithm_nonexistent_symbol() {
     let mut graph = CodeGraph::open(&db_path).unwrap();
     let path_str = file_path.to_string_lossy().to_string();
 
-    graph.index_file(&path_str, source.as_bytes())
-        .unwrap();
+    graph.index_file(&path_str, source.as_bytes()).unwrap();
 
     // Querying nonexistent symbol should error
     let result = graph.reachable_symbols("this_symbol_does_not_exist", None);
-    assert!(
-        result.is_err(),
-        "Should error when symbol ID not found"
-    );
+    assert!(result.is_err(), "Should error when symbol ID not found");
 }
 
 // Program slicing tests (Phase 40-04)
@@ -278,10 +262,8 @@ fn leaf() {}
     let mut graph = CodeGraph::open(&db_path).unwrap();
     let path_str = file_path.to_string_lossy().to_string();
 
-    graph.index_file(&path_str, source.as_bytes())
-        .unwrap();
-    graph.index_calls(&path_str, source.as_bytes())
-        .unwrap();
+    graph.index_file(&path_str, source.as_bytes()).unwrap();
+    graph.index_calls(&path_str, source.as_bytes()).unwrap();
 
     // Get leaf's FQN
     let symbols = graph.symbols_in_file(&path_str).unwrap();
@@ -345,10 +327,8 @@ fn leaf() {}
     let mut graph = CodeGraph::open(&db_path).unwrap();
     let path_str = file_path.to_string_lossy().to_string();
 
-    graph.index_file(&path_str, source.as_bytes())
-        .unwrap();
-    graph.index_calls(&path_str, source.as_bytes())
-        .unwrap();
+    graph.index_file(&path_str, source.as_bytes()).unwrap();
+    graph.index_calls(&path_str, source.as_bytes()).unwrap();
 
     // Get main's FQN
     let symbols = graph.symbols_in_file(&path_str).unwrap();
@@ -416,10 +396,8 @@ fn shared() {}
     let mut graph = CodeGraph::open(&db_path).unwrap();
     let path_str = file_path.to_string_lossy().to_string();
 
-    graph.index_file(&path_str, source.as_bytes())
-        .unwrap();
-    graph.index_calls(&path_str, source.as_bytes())
-        .unwrap();
+    graph.index_file(&path_str, source.as_bytes()).unwrap();
+    graph.index_calls(&path_str, source.as_bytes()).unwrap();
 
     // Get shared's FQN
     let symbols = graph.symbols_in_file(&path_str).unwrap();
@@ -479,10 +457,8 @@ fn other_function() {
     let mut graph = CodeGraph::open(&db_path).unwrap();
     let path_str = file_path.to_string_lossy().to_string();
 
-    graph.index_file(&path_str, source.as_bytes())
-        .unwrap();
-    graph.index_calls(&path_str, source.as_bytes())
-        .unwrap();
+    graph.index_file(&path_str, source.as_bytes()).unwrap();
+    graph.index_calls(&path_str, source.as_bytes()).unwrap();
 
     // Get isolated_function's FQN
     let symbols = graph.symbols_in_file(&path_str).unwrap();
@@ -536,10 +512,8 @@ fn c() {}
     let mut graph = CodeGraph::open(&db_path).unwrap();
     let path_str = file_path.to_string_lossy().to_string();
 
-    graph.index_file(&path_str, source.as_bytes())
-        .unwrap();
-    graph.index_calls(&path_str, source.as_bytes())
-        .unwrap();
+    graph.index_file(&path_str, source.as_bytes()).unwrap();
+    graph.index_calls(&path_str, source.as_bytes()).unwrap();
 
     // Get b's FQN
     let symbols = graph.symbols_in_file(&path_str).unwrap();
@@ -604,10 +578,8 @@ fn leaf() {}
     let mut graph = CodeGraph::open(&db_path).unwrap();
     let path_str = file_path.to_string_lossy().to_string();
 
-    graph.index_file(&path_str, source.as_bytes())
-        .unwrap();
-    graph.index_calls(&path_str, source.as_bytes())
-        .unwrap();
+    graph.index_file(&path_str, source.as_bytes()).unwrap();
+    graph.index_calls(&path_str, source.as_bytes()).unwrap();
 
     // Get main's FQN
     let symbols = graph.symbols_in_file(&path_str).unwrap();
@@ -692,10 +664,8 @@ fn target() {}
     let mut graph = CodeGraph::open(&db_path).unwrap();
     let path_str = file_path.to_string_lossy().to_string();
 
-    graph.index_file(&path_str, source.as_bytes())
-        .unwrap();
-    graph.index_calls(&path_str, source.as_bytes())
-        .unwrap();
+    graph.index_file(&path_str, source.as_bytes()).unwrap();
+    graph.index_calls(&path_str, source.as_bytes()).unwrap();
 
     // Get main's and target's FQNs
     let symbols = graph.symbols_in_file(&path_str).unwrap();
@@ -775,10 +745,8 @@ fn y() {}
     let mut graph = CodeGraph::open(&db_path).unwrap();
     let path_str = file_path.to_string_lossy().to_string();
 
-    graph.index_file(&path_str, source.as_bytes())
-        .unwrap();
-    graph.index_calls(&path_str, source.as_bytes())
-        .unwrap();
+    graph.index_file(&path_str, source.as_bytes()).unwrap();
+    graph.index_calls(&path_str, source.as_bytes()).unwrap();
 
     // Get main's FQN
     let symbols = graph.symbols_in_file(&path_str).unwrap();
@@ -832,10 +800,8 @@ fn b() {
     let mut graph = CodeGraph::open(&db_path).unwrap();
     let path_str = file_path.to_string_lossy().to_string();
 
-    graph.index_file(&path_str, source.as_bytes())
-        .unwrap();
-    graph.index_calls(&path_str, source.as_bytes())
-        .unwrap();
+    graph.index_file(&path_str, source.as_bytes()).unwrap();
+    graph.index_calls(&path_str, source.as_bytes()).unwrap();
 
     // Detect cycles
     let report = graph.detect_cycles().unwrap();
@@ -847,16 +813,17 @@ fn b() {
     );
 
     // Find the cycle with mutual recursion
-    let mutual_cycle = report.cycles.iter()
+    let mutual_cycle = report
+        .cycles
+        .iter()
         .find(|c| matches!(c.kind, magellan::graph::CycleKind::MutualRecursion));
 
-    assert!(
-        mutual_cycle.is_some(),
-        "Should find mutual recursion cycle"
-    );
+    assert!(mutual_cycle.is_some(), "Should find mutual recursion cycle");
 
     let cycle = mutual_cycle.unwrap();
-    let cycle_fqns: Vec<_> = cycle.members.iter()
+    let cycle_fqns: Vec<_> = cycle
+        .members
+        .iter()
         .filter_map(|s| s.fqn.as_deref())
         .collect();
 
@@ -898,10 +865,8 @@ fn c() {}
     let mut graph = CodeGraph::open(&db_path).unwrap();
     let path_str = file_path.to_string_lossy().to_string();
 
-    graph.index_file(&path_str, source.as_bytes())
-        .unwrap();
-    graph.index_calls(&path_str, source.as_bytes())
-        .unwrap();
+    graph.index_file(&path_str, source.as_bytes()).unwrap();
+    graph.index_calls(&path_str, source.as_bytes()).unwrap();
 
     // Detect cycles
     let report = graph.detect_cycles().unwrap();
@@ -912,10 +877,7 @@ fn c() {}
         "Should detect no cycles in DAG code (found {})",
         report.total_count
     );
-    assert!(
-        report.cycles.is_empty(),
-        "Cycle list should be empty"
-    );
+    assert!(report.cycles.is_empty(), "Cycle list should be empty");
 }
 
 #[test]
@@ -953,10 +915,8 @@ fn y() {
     let mut graph = CodeGraph::open(&db_path).unwrap();
     let path_str = file_path.to_string_lossy().to_string();
 
-    graph.index_file(&path_str, source.as_bytes())
-        .unwrap();
-    graph.index_calls(&path_str, source.as_bytes())
-        .unwrap();
+    graph.index_file(&path_str, source.as_bytes()).unwrap();
+    graph.index_calls(&path_str, source.as_bytes()).unwrap();
 
     // Get FQN for function 'a'
     let symbols = graph.symbols_in_file(&path_str).unwrap();
@@ -975,13 +935,12 @@ fn y() {
     let cycles = graph.find_cycles_containing(a_fqn).unwrap();
 
     // Should find one cycle containing 'a'
-    assert!(
-        !cycles.is_empty(),
-        "Should find cycles containing 'a'"
-    );
+    assert!(!cycles.is_empty(), "Should find cycles containing 'a'");
 
     // Verify the cycle contains 'a'
-    let cycle_fqns: Vec<_> = cycles[0].members.iter()
+    let cycle_fqns: Vec<_> = cycles[0]
+        .members
+        .iter()
         .filter_map(|s| s.fqn.as_deref())
         .collect();
 
@@ -1023,10 +982,8 @@ fn c() {}
     let mut graph = CodeGraph::open(&db_path).unwrap();
     let path_str = file_path.to_string_lossy().to_string();
 
-    graph.index_file(&path_str, source.as_bytes())
-        .unwrap();
-    graph.index_calls(&path_str, source.as_bytes())
-        .unwrap();
+    graph.index_file(&path_str, source.as_bytes()).unwrap();
+    graph.index_calls(&path_str, source.as_bytes()).unwrap();
 
     // Get FQN for function 'a' (not in a cycle)
     let symbols = graph.symbols_in_file(&path_str).unwrap();
@@ -1080,10 +1037,8 @@ fn c() {}
     let mut graph = CodeGraph::open(&db_path).unwrap();
     let path_str = file_path.to_string_lossy().to_string();
 
-    graph.index_file(&path_str, source.as_bytes())
-        .unwrap();
-    graph.index_calls(&path_str, source.as_bytes())
-        .unwrap();
+    graph.index_file(&path_str, source.as_bytes()).unwrap();
+    graph.index_calls(&path_str, source.as_bytes()).unwrap();
 
     // Condense the call graph
     let result = graph.condense_call_graph().unwrap();
@@ -1095,13 +1050,10 @@ fn c() {}
     );
 
     // One supernode should contain the cycle {a, b}
-    let cycle_supernode = result.graph.supernodes.iter()
-        .find(|s| {
-            let fqns: Vec<_> = s.members.iter()
-                .filter_map(|m| m.fqn.as_deref())
-                .collect();
-            fqns.iter().any(|f| f.contains("a")) && fqns.iter().any(|f| f.contains("b"))
-        });
+    let cycle_supernode = result.graph.supernodes.iter().find(|s| {
+        let fqns: Vec<_> = s.members.iter().filter_map(|m| m.fqn.as_deref()).collect();
+        fqns.iter().any(|f| f.contains("a")) && fqns.iter().any(|f| f.contains("b"))
+    });
 
     assert!(
         cycle_supernode.is_some(),
@@ -1143,16 +1095,17 @@ fn c() {}
     let mut graph = CodeGraph::open(&db_path).unwrap();
     let path_str = file_path.to_string_lossy().to_string();
 
-    graph.index_file(&path_str, source.as_bytes())
-        .unwrap();
-    graph.index_calls(&path_str, source.as_bytes())
-        .unwrap();
+    graph.index_file(&path_str, source.as_bytes()).unwrap();
+    graph.index_calls(&path_str, source.as_bytes()).unwrap();
 
     // Condense the call graph
     let result = graph.condense_call_graph().unwrap();
 
     // Each non-cyclic function should be its own supernode
-    let single_member_supernodes: Vec<_> = result.graph.supernodes.iter()
+    let single_member_supernodes: Vec<_> = result
+        .graph
+        .supernodes
+        .iter()
         .filter(|s| s.members.len() == 1)
         .collect();
 
@@ -1186,23 +1139,21 @@ fn b() {}
     let mut graph = CodeGraph::open(&db_path).unwrap();
     let path_str = file_path.to_string_lossy().to_string();
 
-    graph.index_file(&path_str, source.as_bytes())
-        .unwrap();
-    graph.index_calls(&path_str, source.as_bytes())
-        .unwrap();
+    graph.index_file(&path_str, source.as_bytes()).unwrap();
+    graph.index_calls(&path_str, source.as_bytes()).unwrap();
 
     // Condense the call graph
     let result = graph.condense_call_graph().unwrap();
 
     // Find the supernode containing 'main'
-    let main_supernode = result.graph.supernodes.iter()
-        .find(|s| {
-            s.members.iter().any(|m| {
-                m.fqn.as_deref()
-                    .map(|f| f.contains("main"))
-                    .unwrap_or(false)
-            })
-        });
+    let main_supernode = result.graph.supernodes.iter().find(|s| {
+        s.members.iter().any(|m| {
+            m.fqn
+                .as_deref()
+                .map(|f| f.contains("main"))
+                .unwrap_or(false)
+        })
+    });
 
     assert!(
         main_supernode.is_some(),
@@ -1259,10 +1210,8 @@ fn helper() {}
     let mut graph = CodeGraph::open(&db_path).unwrap();
     let path_str = file_path.to_string_lossy().to_string();
 
-    graph.index_file(&path_str, source.as_bytes())
-        .unwrap();
-    graph.index_calls(&path_str, source.as_bytes())
-        .unwrap();
+    graph.index_file(&path_str, source.as_bytes()).unwrap();
+    graph.index_calls(&path_str, source.as_bytes()).unwrap();
 
     // Test FQN fallback - should work with just "main" instead of full symbol_id
     let reachable = graph.reachable_symbols("main", None).unwrap();
@@ -1292,10 +1241,8 @@ fn test_single_symbol_graph() {
     let mut graph = CodeGraph::open(&db_path).unwrap();
     let path_str = file_path.to_string_lossy().to_string();
 
-    graph.index_file(&path_str, source.as_bytes())
-        .unwrap();
-    graph.index_calls(&path_str, source.as_bytes())
-        .unwrap();
+    graph.index_file(&path_str, source.as_bytes()).unwrap();
+    graph.index_calls(&path_str, source.as_bytes()).unwrap();
 
     // Single symbol should have no reachable symbols
     let reachable = graph.reachable_symbols("main", None).unwrap();
@@ -1346,20 +1293,17 @@ fn helper_b() {}
     let mut graph = CodeGraph::open(&db_path).unwrap();
     let path_str = file_path.to_string_lossy().to_string();
 
-    graph.index_file(&path_str, source.as_bytes())
-        .unwrap();
-    graph.index_calls(&path_str, source.as_bytes())
-        .unwrap();
+    graph.index_file(&path_str, source.as_bytes()).unwrap();
+    graph.index_calls(&path_str, source.as_bytes()).unwrap();
 
     // Reachability from main should not reach standalone_function
     let reachable_from_main = graph.reachable_symbols("main", None).unwrap();
-    let standalone_found = reachable_from_main
-        .iter()
-        .any(|s| {
-            s.fqn.as_deref()
-                .map(|f| f.contains("standalone_function"))
-                .unwrap_or(false)
-        });
+    let standalone_found = reachable_from_main.iter().any(|s| {
+        s.fqn
+            .as_deref()
+            .map(|f| f.contains("standalone_function"))
+            .unwrap_or(false)
+    });
 
     assert!(
         !standalone_found,
@@ -1367,14 +1311,15 @@ fn helper_b() {}
     );
 
     // Verify standalone_function has its own reachable callees
-    let reachable_from_standalone = graph.reachable_symbols("standalone_function", None).unwrap();
-    let helper_b_found = reachable_from_standalone
-        .iter()
-        .any(|s| {
-            s.fqn.as_deref()
-                .map(|f| f.contains("helper_b"))
-                .unwrap_or(false)
-        });
+    let reachable_from_standalone = graph
+        .reachable_symbols("standalone_function", None)
+        .unwrap();
+    let helper_b_found = reachable_from_standalone.iter().any(|s| {
+        s.fqn
+            .as_deref()
+            .map(|f| f.contains("helper_b"))
+            .unwrap_or(false)
+    });
 
     assert!(
         helper_b_found,
@@ -1411,10 +1356,8 @@ fn shared() {}
     let mut graph = CodeGraph::open(&db_path).unwrap();
     let path_str = file_path.to_string_lossy().to_string();
 
-    graph.index_file(&path_str, source.as_bytes())
-        .unwrap();
-    graph.index_calls(&path_str, source.as_bytes())
-        .unwrap();
+    graph.index_file(&path_str, source.as_bytes()).unwrap();
+    graph.index_calls(&path_str, source.as_bytes()).unwrap();
 
     // First condense the graph
     let _condensed = graph.condense_call_graph().unwrap();
@@ -1428,13 +1371,14 @@ fn shared() {}
     );
 
     // The slice should include main (caller of helper_a)
-    let main_found = slice_result.slice.included_symbols
-        .iter()
-        .any(|s: &magellan::graph::algorithms::SymbolInfo| {
-            s.fqn.as_deref()
+    let main_found = slice_result.slice.included_symbols.iter().any(
+        |s: &magellan::graph::algorithms::SymbolInfo| {
+            s.fqn
+                .as_deref()
                 .map(|f: &str| f.contains("main"))
                 .unwrap_or(false)
-        });
+        },
+    );
 
     assert!(
         main_found,
@@ -1476,22 +1420,20 @@ fn unused_cycle_end() {
     let mut graph = CodeGraph::open(&db_path).unwrap();
     let path_str = file_path.to_string_lossy().to_string();
 
-    graph.index_file(&path_str, source.as_bytes())
-        .unwrap();
-    graph.index_calls(&path_str, source.as_bytes())
-        .unwrap();
+    graph.index_file(&path_str, source.as_bytes()).unwrap();
+    graph.index_calls(&path_str, source.as_bytes()).unwrap();
 
     // Dead code detection should find the unused cycle
     let dead = graph.dead_symbols("main").unwrap();
 
     // dead_symbols returns Vec<DeadSymbol> directly
-    let unused_found = dead
-        .iter()
-        .any(|s| {
-            s.symbol.fqn.as_deref()
-                .map(|f| f.contains("unused_cycle"))
-                .unwrap_or(false)
-        });
+    let unused_found = dead.iter().any(|s| {
+        s.symbol
+            .fqn
+            .as_deref()
+            .map(|f| f.contains("unused_cycle"))
+            .unwrap_or(false)
+    });
 
     assert!(
         unused_found,
@@ -1529,17 +1471,12 @@ fn cycle_end() {
     let mut graph = CodeGraph::open(&db_path).unwrap();
     let path_str = file_path.to_string_lossy().to_string();
 
-    graph.index_file(&path_str, source.as_bytes())
-        .unwrap();
-    graph.index_calls(&path_str, source.as_bytes())
-        .unwrap();
+    graph.index_file(&path_str, source.as_bytes()).unwrap();
+    graph.index_calls(&path_str, source.as_bytes()).unwrap();
 
     // First verify we have a cycle
     let cycles = graph.detect_cycles().unwrap();
-    assert!(
-        !cycles.cycles.is_empty(),
-        "Should detect the cycle"
-    );
+    assert!(!cycles.cycles.is_empty(), "Should detect the cycle");
 
     // Slice should still work within the cycle (use backward_slice)
     let slice_result = graph.backward_slice("cycle_middle").unwrap();

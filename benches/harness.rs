@@ -249,7 +249,6 @@ fn generate_fanout_graph(num_nodes: usize, fanout: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    
 
     #[test]
     fn test_setup_test_graph() {

@@ -493,7 +493,8 @@ fn helper() {
     );
 
     // Find the actual CSV header (skip comment lines starting with #)
-    let header = lines.iter()
+    let header = lines
+        .iter()
         .find(|line| !line.starts_with('#') && !line.is_empty())
         .expect("CSV should have a header row");
     // Header should contain record_type as first column
@@ -504,7 +505,8 @@ fn helper() {
     );
 
     // Verify each data line is valid CSV (skip comment and header lines)
-    let header_idx = lines.iter()
+    let header_idx = lines
+        .iter()
         .position(|line| !line.starts_with('#') && !line.is_empty())
         .expect("Should find header line");
 
@@ -930,7 +932,9 @@ fn main() {
     // Verify all data rows have record_type="Symbol"
     for result in rdr.records() {
         let record = result.expect("CSV record should be valid");
-        let record_type = record.get(0).expect("Record should have record_type column");
+        let record_type = record
+            .get(0)
+            .expect("Record should have record_type column");
 
         assert_eq!(
             record_type, "Symbol",
@@ -1468,7 +1472,11 @@ fn main() {
     // If we have multiple record types, verify the Phase 27 fix works
     if record_types.len() > 1 {
         // Multiple record types present with consistent headers confirms the fix
-        eprintln!("Found {} record types: {:?}", record_types.len(), record_types);
+        eprintln!(
+            "Found {} record types: {:?}",
+            record_types.len(),
+            record_types
+        );
     }
 }
 
@@ -1559,7 +1567,7 @@ fn main() {
 
         // Get record_type column value by name
         let record_type = record
-.get(0)
+            .get(0)
             .expect("Each record should have record_type column");
 
         assert_eq!(
@@ -1570,7 +1578,10 @@ fn main() {
 
         // Verify no Symbol or Reference records exist
         assert_ne!(record_type, "Symbol", "Should not have Symbol records");
-        assert_ne!(record_type, "Reference", "Should not have Reference records");
+        assert_ne!(
+            record_type, "Reference",
+            "Should not have Reference records"
+        );
     }
 
     // Note: Call node generation depends on the Rust parser's call extraction.

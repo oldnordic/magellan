@@ -53,8 +53,7 @@ fn test_concurrent_watcher_batch_access() {
     use std::sync::Mutex;
 
     // Simulate the internal state of FileSystemWatcher
-    let legacy_pending_batch: Arc<Mutex<Option<Vec<PathBuf>>>> =
-        Arc::new(Mutex::new(None));
+    let legacy_pending_batch: Arc<Mutex<Option<Vec<PathBuf>>>> = Arc::new(Mutex::new(None));
     let legacy_pending_index: Arc<Mutex<usize>> = Arc::new(Mutex::new(0));
 
     // Create a sample batch
@@ -202,8 +201,7 @@ fn test_legacy_pending_batch_concurrent_access() {
     use std::sync::Mutex;
 
     // Simulate the legacy_pending_batch and legacy_pending_index fields
-    let legacy_pending_batch: Arc<Mutex<Option<Vec<PathBuf>>>> =
-        Arc::new(Mutex::new(None));
+    let legacy_pending_batch: Arc<Mutex<Option<Vec<PathBuf>>>> = Arc::new(Mutex::new(None));
     let legacy_pending_index: Arc<Mutex<usize>> = Arc::new(Mutex::new(0));
 
     // Spawn multiple threads that will try to consume the batch concurrently

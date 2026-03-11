@@ -5,15 +5,15 @@
 use anyhow::Result;
 use magellan::output::generate_execution_id;
 use magellan::CodeGraph;
-use std::path::PathBuf;
 use std::fs;
+use std::path::PathBuf;
 
 /// Run the doctor command
 ///
 /// Diagnoses common issues with Magellan installation and database.
 pub fn run_doctor(db_path: PathBuf, fix: bool) -> Result<()> {
     println!("🔍 Magellan Doctor - Diagnosing issues...\n");
-    
+
     let mut issues_found = 0;
     let mut issues_fixed = 0;
 
@@ -24,7 +24,10 @@ pub fn run_doctor(db_path: PathBuf, fix: bool) -> Result<()> {
     } else {
         println!("❌ MISSING");
         println!("   Database not found at: {:?}", db_path);
-        println!("   Fix: Run 'magellan watch --root . --db {:?} --scan-initial'", db_path);
+        println!(
+            "   Fix: Run 'magellan watch --root . --db {:?} --scan-initial'",
+            db_path
+        );
         issues_found += 1;
     }
 
@@ -33,7 +36,7 @@ pub fn run_doctor(db_path: PathBuf, fix: bool) -> Result<()> {
     match CodeGraph::open(&db_path) {
         Ok(mut graph) => {
             println!("✅ OK");
-            
+
             // Check 3: Schema version via status
             print!("Checking schema version... ");
             match graph.count_files() {
@@ -56,7 +59,10 @@ pub fn run_doctor(db_path: PathBuf, fix: bool) -> Result<()> {
                     } else {
                         println!("⚠️  EMPTY");
                         println!("   No symbols indexed");
-                        println!("   Fix: Run 'magellan watch --root . --db {:?} --scan-initial'", db_path);
+                        println!(
+                            "   Fix: Run 'magellan watch --root . --db {:?} --scan-initial'",
+                            db_path
+                        );
                         issues_found += 1;
                     }
                 }
@@ -75,7 +81,10 @@ pub fn run_doctor(db_path: PathBuf, fix: bool) -> Result<()> {
                     } else {
                         println!("⚠️  EMPTY");
                         println!("   No files indexed");
-                        println!("   Fix: Run 'magellan watch --root . --db {:?} --scan-initial'", db_path);
+                        println!(
+                            "   Fix: Run 'magellan watch --root . --db {:?} --scan-initial'",
+                            db_path
+                        );
                         issues_found += 1;
                     }
                 }
@@ -109,7 +118,9 @@ pub fn run_doctor(db_path: PathBuf, fix: bool) -> Result<()> {
                 let size_mb = metadata.len() as f64 / (1024.0 * 1024.0);
                 if size_mb > 1000.0 {
                     println!("⚠️  LARGE ({:.1} MB)", size_mb);
-                    println!("   Consider running 'magellan export --format json' and starting fresh");
+                    println!(
+                        "   Consider running 'magellan export --format json' and starting fresh"
+                    );
                     if fix {
                         println!("   Auto-fix: Not implemented yet");
                     }
@@ -146,11 +157,12 @@ pub fn run_doctor(db_path: PathBuf, fix: bool) -> Result<()> {
 
             // Check 9: Context index (for v3.0.0+)
             print!("Checking context index (v3.0.0)... ");
-            let context_path = db_path.parent()
+            let context_path = db_path
+                .parent()
                 .map(|p| p.join(db_path.file_name().unwrap_or_default()))
                 .unwrap_or_else(|| db_path.clone())
                 .with_extension("context.json");
-            
+
             if context_path.exists() {
                 println!("✅ OK");
             } else {
@@ -172,7 +184,6 @@ pub fn run_doctor(db_path: PathBuf, fix: bool) -> Result<()> {
                 }
                 issues_found += 1;
             }
-
         }
         Err(e) => {
             println!("❌ ERROR");
@@ -187,11 +198,20 @@ pub fn run_doctor(db_path: PathBuf, fix: bool) -> Result<()> {
     if issues_found == 0 {
         println!("✅ No issues found! Your Magellan installation is healthy.");
     } else {
-        println!("⚠️  Found {} issue(s), {} fixed", issues_found, issues_fixed);
+        println!(
+            "⚠️  Found {} issue(s), {} fixed",
+            issues_found, issues_fixed
+        );
         println!();
         println!("Quick fixes:");
-        println!("  - Rebuild database: magellan watch --root . --db {:?} --scan-initial", db_path);
-        println!("  - Build context:    magellan context build --db {:?}", db_path);
+        println!(
+            "  - Rebuild database: magellan watch --root . --db {:?} --scan-initial",
+            db_path
+        );
+        println!(
+            "  - Build context:    magellan context build --db {:?}",
+            db_path
+        );
         println!("  - Check status:     magellan status --db {:?}", db_path);
         println!();
         println!("Run with --fix to auto-fix some issues");

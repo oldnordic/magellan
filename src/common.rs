@@ -209,7 +209,11 @@ pub fn safe_str_slice(source: &str, start: usize, end: usize) -> Option<&str> {
 /// let content = extract_symbol_content_safe(source.as_bytes(), 0, source.len());
 /// assert!(content.is_some());
 /// ```
-pub fn extract_symbol_content_safe(source: &[u8], byte_start: usize, byte_end: usize) -> Option<String> {
+pub fn extract_symbol_content_safe(
+    source: &[u8],
+    byte_start: usize,
+    byte_end: usize,
+) -> Option<String> {
     // Validate bounds
     if byte_start > byte_end || byte_end > source.len() {
         return None;
@@ -230,7 +234,9 @@ pub fn extract_symbol_content_safe(source: &[u8], byte_start: usize, byte_end: u
     let adjusted_end = find_char_boundary_before(source_str, byte_end);
 
     // Extract content using the adjusted end offset
-    source_str.get(byte_start..adjusted_end).map(|s| s.to_string())
+    source_str
+        .get(byte_start..adjusted_end)
+        .map(|s| s.to_string())
 }
 
 /// Safely extract context lines from source bytes around a byte span
@@ -454,8 +460,8 @@ mod tests {
         // If end is in middle of emoji, should adjust to complete character
         // Emoji \u{1f44b} is 4 bytes in UTF-8: [0xF0, 0x9F, 0x91, 0x8B]
         let source: Vec<u8> = vec![
-            b'h', b'i',  // "hi"
-            0xF0, 0x9F, 0x91, 0x8B,  // emoji
+            b'h', b'i', // "hi"
+            0xF0, 0x9F, 0x91, 0x8B, // emoji
         ];
         // Emoji bytes at positions 2,3,4,5
         // If we end at position 4 (in middle of emoji), should adjust
@@ -539,7 +545,7 @@ mod tests {
     #[test]
     fn test_find_char_boundary_before() {
         let s = "a\u{1f44b}b"; // "a" + emoji + "b"
-        // Emoji starts at position 1, ends at position 5 (4 bytes)
+                               // Emoji starts at position 1, ends at position 5 (4 bytes)
         assert_eq!(find_char_boundary_before(s, 5), 5); // Already at boundary
         assert_eq!(find_char_boundary_before(s, 4), 1); // In middle of emoji, go to start
         assert_eq!(find_char_boundary_before(s, 3), 1); // In middle of emoji, go to start
@@ -551,7 +557,7 @@ mod tests {
     #[test]
     fn test_find_char_boundary_after() {
         let s = "a\u{1f44b}b"; // "a" + emoji + "b"
-        // Emoji starts at position 1, ends at position 5 (4 bytes)
+                               // Emoji starts at position 1, ends at position 5 (4 bytes)
         assert_eq!(find_char_boundary_after(s, 0), 0); // Already at boundary
         assert_eq!(find_char_boundary_after(s, 1), 1); // At boundary
         assert_eq!(find_char_boundary_after(s, 2), 5); // In middle of emoji, go to end
@@ -566,4 +572,51 @@ mod tests {
         let result = extract_symbol_content_safe(source, 0, 3);
         assert_eq!(result, None);
     }
+}
+
+/// Detect the project root directory from the current working directory
+///
+/// Searches upward for common project markers like:
+/// - `.git` directory
+/// - `Cargo.toml` (Rust)
+/// - `package.json` (JavaScript/TypeScript)
+/// - `go.mod` (Go)
+/// - `pyproject.toml` or `setup.py` (Python)
+/// - `pom.xml` (Maven/Java)
+/// - `build.gradle` (Gradle)
+///
+/// # Returns
+/// PathBuf pointing to the detected project root, or current directory if not found
+pub fn detect_project_root() -> PathBuf {
+    let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let mut current = current_dir.as_path();
+
+    // Search upward for project markers
+    while current.parent().is_some() {
+        // Check for common markers
+        for marker in &[
+            ".git",
+            "Cargo.toml",
+            "package.json",
+            "go.mod",
+            "pyproject.toml",
+            "setup.py",
+            "pom.xml",
+            "build.gradle",
+        ] {
+            if current.join(marker).exists() {
+                return current.to_path_buf();
+            }
+        }
+
+        // Move up one directory
+        if let Some(parent) = current.parent() {
+            current = parent;
+        } else {
+            break;
+        }
+    }
+
+    // No marker found, return current directory
+    current_dir
 }

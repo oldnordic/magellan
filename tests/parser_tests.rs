@@ -72,7 +72,7 @@ fn test_trait_definition() {
 
     // Should extract trait + method inside it
     assert!(facts.len() >= 1, "Should extract at least the trait");
-    
+
     // Find the trait
     let traits: Vec<_> = facts
         .iter()

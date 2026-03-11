@@ -111,14 +111,8 @@ fn test_chunk_storage_during_indexing() {
         );
 
         // Verify symbol metadata exists
-        assert!(
-            chunk.symbol_name.is_some(),
-            "Symbol name should be set"
-        );
-        assert!(
-            chunk.symbol_kind.is_some(),
-            "Symbol kind should be set"
-        );
+        assert!(chunk.symbol_name.is_some(), "Symbol name should be set");
+        assert!(chunk.symbol_kind.is_some(), "Symbol kind should be set");
 
         // Verify content hash is non-empty (SHA-256 = 64 hex chars)
         assert_eq!(
@@ -204,8 +198,12 @@ pub fn helper_function(x: i32) -> i32 {
     let path2 = "file2.rs";
 
     // Index both files
-    graph.index_file(path1, identical_function.as_bytes()).unwrap();
-    graph.index_file(path2, identical_function.as_bytes()).unwrap();
+    graph
+        .index_file(path1, identical_function.as_bytes())
+        .unwrap();
+    graph
+        .index_file(path2, identical_function.as_bytes())
+        .unwrap();
 
     // Get chunks from both files
     let chunks1 = graph.get_code_chunks(path1).unwrap();
@@ -285,7 +283,10 @@ impl Processor {
     let process_chunks = graph.get_code_chunks_for_symbol(path, "process").unwrap();
 
     // We should have multiple chunks for "process" (module-level, method, etc.)
-    assert!(!process_chunks.is_empty(), "Should find chunks for 'process'");
+    assert!(
+        !process_chunks.is_empty(),
+        "Should find chunks for 'process'"
+    );
 
     // Verify all returned chunks have matching symbol name
     for chunk in &process_chunks {
@@ -294,11 +295,16 @@ impl Processor {
             Some("process"),
             "All chunks should have symbol_name 'process'"
         );
-        assert_eq!(chunk.file_path, path, "All chunks should be from the same file");
+        assert_eq!(
+            chunk.file_path, path,
+            "All chunks should be from the same file"
+        );
     }
 
     // Query for non-existent symbol
-    let nonexistent_chunks = graph.get_code_chunks_for_symbol(path, "nonexistent").unwrap();
+    let nonexistent_chunks = graph
+        .get_code_chunks_for_symbol(path, "nonexistent")
+        .unwrap();
     assert_eq!(
         nonexistent_chunks.len(),
         0,
@@ -335,21 +341,19 @@ fn test_chunk_by_span_query() {
             found_chunk.id, chunk.id,
             "Should return the exact same chunk (same ID)"
         );
-        assert_eq!(
-            found_chunk.content, chunk.content,
-            "Content should match"
-        );
+        assert_eq!(found_chunk.content, chunk.content, "Content should match");
         assert_eq!(
             found_chunk.byte_start, chunk.byte_start,
             "Byte start should match"
         );
-        assert_eq!(found_chunk.byte_end, chunk.byte_end, "Byte end should match");
+        assert_eq!(
+            found_chunk.byte_end, chunk.byte_end,
+            "Byte end should match"
+        );
     }
 
     // Test querying for non-existent span
-    let nonexistent = graph
-        .get_code_chunk_by_span(path, 99999, 100000)
-        .unwrap();
+    let nonexistent = graph.get_code_chunk_by_span(path, 99999, 100000).unwrap();
     assert!(
         nonexistent.is_none(),
         "Should return None for non-existent span"
@@ -385,18 +389,15 @@ fn test_chunk_count_matches_symbol_count() {
     // For simple files without impl blocks, chunk count should be close to symbol count
     // (impl blocks may create extra SymbolFacts but we only chunk functions/structs/enums)
     assert!(!chunks.is_empty(), "Should have at least some chunks");
-    assert!(chunks.len() <= symbols.len(), "Chunks should not exceed symbols");
+    assert!(
+        chunks.len() <= symbols.len(),
+        "Chunks should not exceed symbols"
+    );
 
     // All chunks should have valid symbol metadata
     for chunk in &chunks {
-        assert!(
-            chunk.symbol_name.is_some(),
-            "Chunk should have symbol_name"
-        );
-        assert!(
-            chunk.symbol_kind.is_some(),
-            "Chunk should have symbol_kind"
-        );
+        assert!(chunk.symbol_name.is_some(), "Chunk should have symbol_name");
+        assert!(chunk.symbol_kind.is_some(), "Chunk should have symbol_kind");
     }
 }
 
@@ -509,7 +510,8 @@ fn test_chunk_content_matches_source() {
         // Verify byte length matches content length
         let expected_len = chunk.byte_end - chunk.byte_start;
         assert_eq!(
-            chunk.content.len(), expected_len,
+            chunk.content.len(),
+            expected_len,
             "Content length should match byte span length"
         );
     }

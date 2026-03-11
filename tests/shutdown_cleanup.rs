@@ -16,7 +16,7 @@
 //! - Panic payload extraction for debugging
 //! - Graceful continuation even if thread doesn't finish
 
-use magellan::{CodeGraph, WatcherConfig, WatchPipelineConfig};
+use magellan::{CodeGraph, WatchPipelineConfig, WatcherConfig};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::Path;
@@ -120,9 +120,7 @@ fn test_clean_watch_pipeline_shutdown() {
 
     // Run in a thread so we can test shutdown
     let shutdown_clone = shutdown.clone();
-    let handle = thread::spawn(move || {
-        magellan::run_watch_pipeline(config, shutdown_clone)
-    });
+    let handle = thread::spawn(move || magellan::run_watch_pipeline(config, shutdown_clone));
 
     // Wait for scan to complete
     thread::sleep(Duration::from_millis(500));
@@ -142,12 +140,19 @@ fn test_clean_watch_pipeline_shutdown() {
     );
 
     // Verify: No panic occurred (result is Ok)
-    assert!(result.is_ok(), "run_watch_pipeline returned error: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "run_watch_pipeline returned error: {:?}",
+        result
+    );
 
     // Verify: Return value is Ok(processed_count)
     let processed_count = result.unwrap();
 
-    println!("Shutdown completed in {:?}, processed {} paths", elapsed, processed_count);
+    println!(
+        "Shutdown completed in {:?}, processed {} paths",
+        elapsed, processed_count
+    );
 }
 
 #[test]
@@ -328,7 +333,10 @@ fn test_shutdown_during_file_processing() {
     // Verify: Some files may be processed, but shutdown doesn't hang
     let processed = result.unwrap();
 
-    println!("Shutdown during processing completed, processed {} files", processed);
+    println!(
+        "Shutdown during processing completed, processed {} files",
+        processed
+    );
 }
 
 #[test]
@@ -395,11 +403,7 @@ fn test_timeout_based_shutdown_recovery() {
     let result = magellan::run_watch_pipeline(config, shutdown);
     let elapsed = start.elapsed();
 
-    assert!(
-        result.is_ok(),
-        "Shutdown should complete: {:?}",
-        result
-    );
+    assert!(result.is_ok(), "Shutdown should complete: {:?}", result);
 
     // Verify: No deadlock (function returns)
     assert!(
@@ -524,8 +528,16 @@ fn test_sqlite_connection_cleanup() {
         "Journal file should not exist: {:?}",
         journal_path
     );
-    assert!(!wal_path.exists(), "WAL file should not exist: {:?}", wal_path);
-    assert!(!shm_path.exists(), "SHM file should not exist: {:?}", shm_path);
+    assert!(
+        !wal_path.exists(),
+        "WAL file should not exist: {:?}",
+        wal_path
+    );
+    assert!(
+        !shm_path.exists(),
+        "SHM file should not exist: {:?}",
+        shm_path
+    );
 
     println!("SQLite connection cleaned up successfully");
 }
@@ -594,22 +606,30 @@ fn test_cleanup_timing() {
     let db_path = temp_dir.path().join("test.db");
 
     // Test various cleanup operations
-    assert_cleanup_complete("database_open", || {
-        let _graph = CodeGraph::open(&db_path).unwrap();
-    }, Duration::from_millis(100));
+    assert_cleanup_complete(
+        "database_open",
+        || {
+            let _graph = CodeGraph::open(&db_path).unwrap();
+        },
+        Duration::from_millis(100),
+    );
 
-    assert_cleanup_complete("pipeline_shutdown", || {
-        let shutdown = Arc::new(AtomicBool::new(false));
-        let config = WatchPipelineConfig::new(
-            root_path.clone(),
-            db_path.clone(),
-            WatcherConfig::default(),
-            false,
-        );
+    assert_cleanup_complete(
+        "pipeline_shutdown",
+        || {
+            let shutdown = Arc::new(AtomicBool::new(false));
+            let config = WatchPipelineConfig::new(
+                root_path.clone(),
+                db_path.clone(),
+                WatcherConfig::default(),
+                false,
+            );
 
-        shutdown.store(true, Ordering::SeqCst);
-        let _ = magellan::run_watch_pipeline(config, shutdown);
-    }, Duration::from_secs(2));
+            shutdown.store(true, Ordering::SeqCst);
+            let _ = magellan::run_watch_pipeline(config, shutdown);
+        },
+        Duration::from_secs(2),
+    );
 
     println!("All cleanup operations completed within expected time");
 }

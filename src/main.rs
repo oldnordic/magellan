@@ -3,43 +3,43 @@
 //! Usage: magellan <command> [arguments]
 
 mod ast_cmd;
+mod cli;
 mod collisions_cmd;
+mod condense_cmd;
+mod context_cmd;
+mod cycles_cmd;
 mod dead_code_cmd;
+mod doctor_cmd;
 mod enrich_cmd;
 mod export_cmd;
-mod import_lsif_cmd;
-mod label_cmd;
-mod migrate_cmd;
 mod files_cmd;
 mod find_cmd;
 mod get_cmd;
+mod import_lsif_cmd;
+mod label_cmd;
+mod migrate_cmd;
 mod path_enumeration_cmd;
 mod query_cmd;
 mod reachable_cmd;
 mod refs_cmd;
-mod condense_cmd;
-mod cycles_cmd;
 mod slice_cmd;
-mod verify_cmd;
-mod watch_cmd;
 mod status_cmd;
-mod context_cmd;
-mod doctor_cmd;
+mod verify_cmd;
+mod version;
+mod watch_cmd;
 #[cfg(feature = "web-ui")]
 mod web_ui_cmd;
-mod version;
-mod cli;
 
 use magellan::output::{output_json, JsonResponse, MigrateResponse, OutputFormat};
 use magellan::CodeGraph;
+use std::path::PathBuf;
 use std::process::ExitCode;
 
-use cli::{Command, parse_args};
+use cli::{parse_args, Command};
 use status_cmd::run_status;
 
 // Re-export for other command modules that use crate::generate_execution_id
 pub use magellan::output::generate_execution_id;
-
 
 fn print_short_usage() {
     cli::print_short_usage();
@@ -61,6 +61,10 @@ fn main() -> ExitCode {
             }
             "--help-full" | "-H" => {
                 print_full_usage();
+                return ExitCode::SUCCESS;
+            }
+            "--backends" => {
+                cli::print_backend_info();
                 return ExitCode::SUCCESS;
             }
             _ => {}
@@ -112,34 +116,48 @@ fn main() -> ExitCode {
             }
             ExitCode::SUCCESS
         }
-        Ok(Command::ImportLsif { db_path, lsif_paths }) => {
+        Ok(Command::ImportLsif {
+            db_path,
+            lsif_paths,
+        }) => {
             if let Err(e) = import_lsif_cmd::run_import_lsif(db_path, lsif_paths) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
             ExitCode::SUCCESS
         }
-        Ok(Command::Enrich { db_path, files, timeout_secs }) => {
+        Ok(Command::Enrich {
+            db_path,
+            files,
+            timeout_secs,
+        }) => {
             if let Err(e) = enrich_cmd::run_enrich(db_path, files, timeout_secs) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
             ExitCode::SUCCESS
         }
-        Ok(Command::Context { subcommand, db_path }) => {
+        Ok(Command::Context {
+            subcommand,
+            db_path,
+        }) => {
             use cli::ContextSubcommand;
             let result = match subcommand {
                 ContextSubcommand::Build => context_cmd::run_context_build(db_path),
                 ContextSubcommand::Summary => context_cmd::run_context_summary(db_path),
-                ContextSubcommand::List { kind, page, page_size, cursor } => {
-                    context_cmd::run_context_list(db_path, kind, page, page_size, cursor)
-                }
-                ContextSubcommand::Symbol { name, file, callers, callees } => {
-                    context_cmd::run_context_symbol(db_path, name, file, callers, callees)
-                }
-                ContextSubcommand::File { path } => {
-                    context_cmd::run_context_file(db_path, path)
-                }
+                ContextSubcommand::List {
+                    kind,
+                    page,
+                    page_size,
+                    cursor,
+                } => context_cmd::run_context_list(db_path, kind, page, page_size, cursor),
+                ContextSubcommand::Symbol {
+                    name,
+                    file,
+                    callers,
+                    callees,
+                } => context_cmd::run_context_symbol(db_path, name, file, callers, callees),
+                ContextSubcommand::File { path } => context_cmd::run_context_file(db_path, path),
                 ContextSubcommand::Server { port, host } => {
                     context_cmd::run_context_server(db_path, port, host)
                 }
@@ -158,7 +176,11 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         #[cfg(feature = "web-ui")]
-        Ok(Command::WebUi { db_path, host, port }) => {
+        Ok(Command::WebUi {
+            db_path,
+            host,
+            port,
+        }) => {
             if let Err(e) = web_ui_cmd::run_web_ui(db_path, host, port) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
@@ -258,7 +280,7 @@ fn main() -> ExitCode {
                 db_path,
                 name,
                 root,
-                path,
+                path.unwrap_or_else(|| PathBuf::from(".")),
                 symbol_id,
                 direction,
                 output_format,
@@ -302,39 +324,42 @@ fn main() -> ExitCode {
             output_format,
         }) => {
             match migrate_cmd::run_migrate(db_path, dry_run, no_backup) {
-                Ok(result) => {
-                    match output_format {
-                        OutputFormat::Json | OutputFormat::Pretty => {
-                            let response = MigrateResponse {
-                                success: result.success,
-                                backup_path: result.backup_path.map(|p| p.to_string_lossy().to_string()),
-                                old_version: result.old_version,
-                                new_version: result.new_version,
-                                message: result.message,
-                            };
-                            let exec_id = generate_execution_id();
-                            let json_response = JsonResponse::new(response, &exec_id);
-                            if let Err(e) = output_json(&json_response, output_format) {
-                                eprintln!("Error: {}", e);
-                                return ExitCode::from(1);
-                            }
-                        }
-                        OutputFormat::Human => {
-                            if result.success {
-                                println!("{}", result.message);
-                                if result.old_version != result.new_version {
-                                    println!("Version: {} -> {}", result.old_version, result.new_version);
-                                }
-                                if let Some(ref backup) = result.backup_path {
-                                    println!("Backup: {}", backup.display());
-                                }
-                            } else {
-                                eprintln!("Migration failed: {}", result.message);
-                                return ExitCode::from(1);
-                            }
+                Ok(result) => match output_format {
+                    OutputFormat::Json | OutputFormat::Pretty => {
+                        let response = MigrateResponse {
+                            success: result.success,
+                            backup_path: result
+                                .backup_path
+                                .map(|p| p.to_string_lossy().to_string()),
+                            old_version: result.old_version,
+                            new_version: result.new_version,
+                            message: result.message,
+                        };
+                        let exec_id = generate_execution_id();
+                        let json_response = JsonResponse::new(response, &exec_id);
+                        if let Err(e) = output_json(&json_response, output_format) {
+                            eprintln!("Error: {}", e);
+                            return ExitCode::from(1);
                         }
                     }
-                }
+                    OutputFormat::Human => {
+                        if result.success {
+                            println!("{}", result.message);
+                            if result.old_version != result.new_version {
+                                println!(
+                                    "Version: {} -> {}",
+                                    result.old_version, result.new_version
+                                );
+                            }
+                            if let Some(ref backup) = result.backup_path {
+                                println!("Backup: {}", backup.display());
+                            }
+                        } else {
+                            eprintln!("Migration failed: {}", result.message);
+                            return ExitCode::from(1);
+                        }
+                    }
+                },
                 Err(e) => {
                     eprintln!("Error: {}", e);
                     return ExitCode::from(1);
@@ -349,7 +374,9 @@ fn main() -> ExitCode {
             dry_run,
             output_format,
         }) => {
-            match magellan::migrate_backend_cmd::run_migrate_backend(input_db, output_db, export_dir, dry_run) {
+            match magellan::migrate_backend_cmd::run_migrate_backend(
+                input_db, output_db, export_dir, dry_run,
+            ) {
                 Ok(result) => {
                     match output_format {
                         OutputFormat::Json | OutputFormat::Pretty => {
@@ -365,7 +392,9 @@ fn main() -> ExitCode {
                                 "message": result.message,
                                 "execution_id": exec_id,
                             });
-                            if let Err(e) = output_json(&JsonResponse::new(json_data, &exec_id), output_format) {
+                            if let Err(e) =
+                                output_json(&JsonResponse::new(json_data, &exec_id), output_format)
+                            {
                                 eprintln!("Error: {}", e);
                                 return ExitCode::from(1);
                             }
@@ -373,7 +402,10 @@ fn main() -> ExitCode {
                         OutputFormat::Human => {
                             if result.success {
                                 println!("{}", result.message);
-                                println!("Format: {:?} -> {:?}", result.source_format, result.target_format);
+                                println!(
+                                    "Format: {:?} -> {:?}",
+                                    result.source_format, result.target_format
+                                );
                                 println!("Entities: {}", result.entities_migrated);
                                 println!("Edges: {}", result.edges_migrated);
                                 if result.side_tables_migrated {
@@ -432,7 +464,9 @@ fn main() -> ExitCode {
             file_filter,
             kind_filter,
         }) => {
-            if let Err(e) = get_cmd::run_chunks(db_path, output_format, limit, file_filter, kind_filter) {
+            if let Err(e) =
+                get_cmd::run_chunks(db_path, output_format, limit, file_filter, kind_filter)
+            {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
@@ -445,7 +479,9 @@ fn main() -> ExitCode {
             byte_end,
             output_format,
         }) => {
-            if let Err(e) = get_cmd::run_chunk_by_span(db_path, file_path, byte_start, byte_end, output_format) {
+            if let Err(e) =
+                get_cmd::run_chunk_by_span(db_path, file_path, byte_start, byte_end, output_format)
+            {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
@@ -457,7 +493,9 @@ fn main() -> ExitCode {
             output_format,
             file_filter,
         }) => {
-            if let Err(e) = get_cmd::run_chunk_by_symbol(db_path, symbol_name, output_format, file_filter) {
+            if let Err(e) =
+                get_cmd::run_chunk_by_symbol(db_path, symbol_name, output_format, file_filter)
+            {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
@@ -537,8 +575,7 @@ fn main() -> ExitCode {
             reverse,
             output_format,
         }) => {
-            if let Err(e) =
-                reachable_cmd::run_reachable(db_path, symbol_id, reverse, output_format)
+            if let Err(e) = reachable_cmd::run_reachable(db_path, symbol_id, reverse, output_format)
             {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
@@ -550,14 +587,13 @@ fn main() -> ExitCode {
             entry_symbol_id,
             output_format,
         }) => {
-            if let Err(e) =
-                dead_code_cmd::run_dead_code(db_path, entry_symbol_id, output_format)
-            {
+            if let Err(e) = dead_code_cmd::run_dead_code(db_path, entry_symbol_id, output_format) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
             ExitCode::SUCCESS
         }
+        #[cfg(feature = "geometric-backend")]
         Ok(Command::Paths {
             db_path,
             start_symbol_id,
@@ -584,22 +620,19 @@ fn main() -> ExitCode {
             symbol_id,
             output_format,
         }) => {
-            if let Err(e) =
-                cycles_cmd::run_cycles(db_path, symbol_id, output_format)
-            {
+            if let Err(e) = cycles_cmd::run_cycles(db_path, symbol_id, output_format) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
             ExitCode::SUCCESS
         }
+        #[cfg(feature = "geometric-backend")]
         Ok(Command::Condense {
             db_path,
             show_members,
             output_format,
         }) => {
-            if let Err(e) =
-                condense_cmd::run_condense(db_path, show_members, output_format)
-            {
+            if let Err(e) = condense_cmd::run_condense(db_path, show_members, output_format) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
@@ -619,13 +652,9 @@ fn main() -> ExitCode {
                     return ExitCode::from(1);
                 }
             };
-            if let Err(e) = slice_cmd::run_slice(
-                db_path,
-                target,
-                cli_direction,
-                verbose,
-                output_format,
-            ) {
+            if let Err(e) =
+                slice_cmd::run_slice(db_path, target, cli_direction, verbose, output_format)
+            {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
