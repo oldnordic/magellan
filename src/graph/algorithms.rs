@@ -299,7 +299,7 @@ impl CodeGraph {
     ///
     /// # Errors
     /// Returns an error if the symbol is not found in the database
-    fn resolve_symbol_entity(&self, symbol_id_or_fqn: &str) -> Result<i64> {
+    pub fn resolve_symbol_entity(&self, symbol_id_or_fqn: &str) -> Result<i64> {
         let conn = self.chunks.connect()?;
 
         // First try: lookup by symbol_id

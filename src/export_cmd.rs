@@ -15,6 +15,45 @@ use std::fs::File;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
+/// Format file size in human-readable format (KB, MB, etc.)
+fn format_file_size(size_bytes: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = KB * 1024;
+    const GB: u64 = MB * 1024;
+
+    if size_bytes >= GB {
+        format!("{:.1} GB", size_bytes as f64 / GB as f64)
+    } else if size_bytes >= MB {
+        format!("{:.1} MB", size_bytes as f64 / MB as f64)
+    } else if size_bytes >= KB {
+        format!("{:.1} KB", size_bytes as f64 / KB as f64)
+    } else {
+        format!("{} B", size_bytes)
+    }
+}
+
+/// Print export success message
+fn print_export_summary(output_path: &PathBuf, format: ExportFormat, graph: &mut CodeGraph) -> Result<()> {
+    // Get file size
+    let metadata = std::fs::metadata(output_path)?;
+    let size = format_file_size(metadata.len());
+
+    // Get counts from database
+    let files = graph.count_files()?;
+    let symbols = graph.count_symbols()?;
+    let calls = graph.count_calls()?;
+
+    // Print summary (to stderr so it doesn't interfere with stdout exports)
+    eprintln!("Export complete: {}", output_path.display());
+    eprintln!("  Format: {}", format_name(format));
+    eprintln!("  Size: {}", size);
+    eprintln!("  Files: {}", files);
+    eprintln!("  Symbols: {}", symbols);
+    eprintln!("  Calls: {}", calls);
+
+    Ok(())
+}
+
 /// Run the export command
 ///
 /// Exports graph data to JSON/JSONL/CSV/DOT/SCIP format with stable IDs.
@@ -123,6 +162,7 @@ pub fn run_export(
             Some(path) => {
                 let mut file = File::create(&path)?;
                 file.write_all(&scip_bytes)?;
+                print_export_summary(&path, format, &mut graph)?;
             }
             None => {
                 // SCIP is binary, warn user but still write to stdout
@@ -142,9 +182,9 @@ pub fn run_export(
         // Export to LSIF
         match output {
             Some(path) => {
-                let count =
+                let _count =
                     lsif::export::export_lsif(&mut graph, &path, &package_name, &package_version)?;
-                eprintln!("Exported {} symbols to {:?}", count, path);
+                print_export_summary(&path, format, &mut graph)?;
             }
             None => {
                 eprintln!("Warning: LSIF format requires --output file.lsif");
@@ -171,9 +211,10 @@ pub fn run_export(
                 // Use minified version if requested
                 if minify {
                     match output {
-                        Some(path) => {
-                            let mut file = File::create(&path)?;
+                        Some(ref path) => {
+                            let mut file = File::create(path)?;
                             stream_json_minified(&mut graph, &config, &mut file)?;
+                            print_export_summary(path, format, &mut graph)?;
                         }
                         None => {
                             let stdout = io::stdout();
@@ -183,9 +224,10 @@ pub fn run_export(
                     }
                 } else {
                     match output {
-                        Some(path) => {
-                            let mut file = File::create(&path)?;
+                        Some(ref path) => {
+                            let mut file = File::create(path)?;
                             stream_json(&mut graph, &config, &mut file)?;
+                            print_export_summary(path, format, &mut graph)?;
                         }
                         None => {
                             let stdout = io::stdout();
@@ -198,9 +240,10 @@ pub fn run_export(
             ExportFormat::JsonL => {
                 // Stream JSONL output (naturally streaming-friendly)
                 match output {
-                    Some(path) => {
-                        let mut file = File::create(&path)?;
+                    Some(ref path) => {
+                        let mut file = File::create(path)?;
                         stream_ndjson(&mut graph, &config, &mut file)?;
+                        print_export_summary(path, format, &mut graph)?;
                     }
                     None => {
                         let stdout = io::stdout();
@@ -215,10 +258,11 @@ pub fn run_export(
 
                 // Write output
                 match output {
-                    Some(path) => {
-                        let mut file = File::create(&path)?;
+                    Some(ref path) => {
+                        let mut file = File::create(path)?;
                         file.write_all(exported_data.as_bytes())?;
                         file.write_all(b"\n")?;
+                        print_export_summary(path, format, &mut graph)?;
                     }
                     None => {
                         println!("{}", exported_data);
@@ -320,7 +364,15 @@ fn run_export_geometric(
     if let Some(output_path) = output {
         let mut file = File::create(&output_path)?;
         file.write_all(json_output.as_bytes())?;
-        println!("Exported geometric database to {}", output_path.display());
+
+        // Print summary for geometric export
+        let metadata = std::fs::metadata(&output_path)?;
+        let size = format_file_size(metadata.len());
+        eprintln!("Export complete: {}", output_path.display());
+        eprintln!("  Format: {}", format_name(format));
+        eprintln!("  Size: {}", size);
+        // Note: Geometric backend doesn't expose count methods directly
+        // The export contains the data, but counts would need to be parsed from the output
     } else {
         println!("{}", json_output);
     }

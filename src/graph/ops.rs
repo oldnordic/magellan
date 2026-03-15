@@ -816,14 +816,31 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
     if let Some(file_id) = graph.files.find_file_node(path)? {
         // Capture symbol IDs before deletion.
         let snapshot = SnapshotId::current();
-        let symbol_ids = graph.files.backend.neighbors(
+        let symbol_ids = match graph.files.backend.neighbors(
             snapshot,
             file_id.as_i64(),
             sqlitegraph::NeighborQuery {
                 direction: sqlitegraph::BackendDirection::Outgoing,
                 edge_type: Some("DEFINES".to_string()),
             },
-        )?;
+        ) {
+            Ok(ids) => ids,
+            Err(sqlitegraph::SqliteGraphError::NotFound(_)) => {
+                // Stale entry in file_index - entity was deleted but index not updated
+                // Remove stale entry and return empty result
+                graph.files.file_index.remove(path);
+                return Ok(DeleteResult {
+                    symbols_deleted: 0,
+                    references_deleted: 0,
+                    calls_deleted: 0,
+                    chunks_deleted: 0,
+                    ast_nodes_deleted: 0,
+                    cfg_blocks_deleted: 0,
+                    edges_deleted: 0,
+                });
+            }
+            Err(e) => return Err(e.into()),
+        };
 
         let mut symbol_ids_sorted = symbol_ids;
         symbol_ids_sorted.sort_unstable();
@@ -1474,15 +1491,25 @@ pub fn reconcile_file_path(
     // 3) Check if hash matches stored file node
     let snapshot = SnapshotId::current();
     let unchanged = if let Some(file_id) = graph.files.find_file_node(path_key)? {
-        let node = graph.files.backend.get_node(snapshot, file_id.as_i64())?;
-        let file_node: crate::graph::schema::FileNode = serde_json::from_value(node.data)
-            .unwrap_or_else(|_| crate::graph::schema::FileNode {
-                path: path_key.to_string(),
-                hash: String::new(),
-                last_indexed_at: 0,
-                last_modified: 0,
-            });
-        file_node.hash == new_hash
+        match graph.files.backend.get_node(snapshot, file_id.as_i64()) {
+            Ok(node) => {
+                let file_node: crate::graph::schema::FileNode = serde_json::from_value(node.data)
+                    .unwrap_or_else(|_| crate::graph::schema::FileNode {
+                        path: path_key.to_string(),
+                        hash: String::new(),
+                        last_indexed_at: 0,
+                        last_modified: 0,
+                    });
+                file_node.hash == new_hash
+            }
+            Err(sqlitegraph::SqliteGraphError::NotFound(_)) => {
+                // Stale entry in file_index - entity was deleted but index not updated
+                // Remove stale entry and treat as new file
+                graph.files.file_index.remove(path_key);
+                false // File needs to be re-indexed
+            }
+            Err(e) => return Err(e.into()),
+        }
     } else {
         false // File doesn't exist in DB, needs to be indexed
     };

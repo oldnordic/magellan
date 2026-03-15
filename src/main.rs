@@ -21,6 +21,7 @@ mod migrate_cmd;
 mod path_enumeration_cmd;
 mod query_cmd;
 mod reachable_cmd;
+mod refresh_cmd;
 mod refs_cmd;
 mod slice_cmd;
 mod status_cmd;
@@ -32,7 +33,6 @@ mod web_ui_cmd;
 
 use magellan::output::{output_json, JsonResponse, MigrateResponse, OutputFormat};
 use magellan::CodeGraph;
-use std::path::PathBuf;
 use std::process::ExitCode;
 
 use cli::{parse_args, Command};
@@ -280,7 +280,7 @@ fn main() -> ExitCode {
                 db_path,
                 name,
                 root,
-                path.unwrap_or_else(|| PathBuf::from(".")),
+                path,
                 symbol_id,
                 direction,
                 output_format,
@@ -593,7 +593,6 @@ fn main() -> ExitCode {
             }
             ExitCode::SUCCESS
         }
-        #[cfg(feature = "geometric-backend")]
         Ok(Command::Paths {
             db_path,
             start_symbol_id,
@@ -626,7 +625,6 @@ fn main() -> ExitCode {
             }
             ExitCode::SUCCESS
         }
-        #[cfg(feature = "geometric-backend")]
         Ok(Command::Condense {
             db_path,
             show_members,
@@ -659,6 +657,50 @@ fn main() -> ExitCode {
                 return ExitCode::from(1);
             }
             ExitCode::SUCCESS
+        }
+        Ok(Command::Refresh {
+            db_path,
+            dry_run,
+            include_untracked,
+            staged,
+            unstaged,
+            force,
+            output_format,
+        }) => {
+            let args = refresh_cmd::RefreshArgs {
+                db_path,
+                dry_run,
+                include_untracked,
+                staged,
+                unstaged,
+                force,
+                output_format,
+            };
+            match refresh_cmd::run_refresh(&args) {
+                Ok(report) => {
+                    // Output report based on output_format
+                    match output_format {
+                        OutputFormat::Json | OutputFormat::Pretty => {
+                            println!("{}", serde_json::to_string_pretty(&report).unwrap_or_default());
+                        }
+                        OutputFormat::Human => {
+                            println!("Refresh complete:");
+                            println!("  Updated: {}", report.updated.len());
+                            println!("  Deleted: {}", report.deleted.len());
+                            println!("  Added: {}", report.added.len());
+                            println!("  Unchanged: {}", report.unchanged);
+                            if report.dry_run {
+                                println!("  (dry run - no changes applied)");
+                            }
+                        }
+                    }
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    ExitCode::from(1)
+                }
+            }
         }
         Err(e) => {
             eprintln!("Error: {}", e);

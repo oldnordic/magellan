@@ -32,7 +32,63 @@ struct FoundSymbol {
     end_col: usize,
     node_id: i64,
     symbol_id: Option<String>,
+    canonical_fqn: Option<String>,
+    display_fqn: Option<String>,
 }
+
+/// Score a symbol based on relevance criteria
+///
+/// Scoring criteria (highest score first):
+/// 1. Exact name match (+100) vs substring match (+10)
+/// 2. Public API (+50) vs private/internal (0)
+/// 3. Non-test files (+30) vs test files (0)
+/// 4. Shorter FQN (+20) - prefer top-level definitions
+/// 5. Kind priority (+10 for Functions/Structs, +5 for Modules, 0 for impl methods)
+fn score_symbol(symbol: &FoundSymbol, query: &str) -> i32 {
+    let mut score = 0;
+
+    // 1. Exact match bonus vs substring match
+    if symbol.name == query {
+        score += 100;
+    } else if symbol.name.contains(query) {
+        score += 10;
+    }
+
+    // 2. Public API vs private/internal
+    // Check if symbol name starts with '_' or is in a private module
+    let is_private = symbol.name.starts_with('_')
+        || symbol.file.contains("/private/")
+        || symbol.file.contains("/internal/")
+        || (symbol.file.contains("/mod.rs") && symbol.name.starts_with('_'));
+    if !is_private {
+        score += 50;
+    }
+
+    // 3. Non-test files vs test files
+    let is_test_file = symbol.file.contains("/test")
+        || symbol.file.contains("/tests/")
+        || symbol.file.contains("_test.")
+        || symbol.file.contains("_tests.");
+    if !is_test_file {
+        score += 30;
+    }
+
+    // 4. Shorter FQN - prefer top-level definitions
+    // Score = 20 / (number of '::' in kind_normalized + 1)
+    let scope_depth = symbol.kind_normalized.matches("::").count() as i32 + 1;
+    score += 20 / scope_depth;
+
+    // 5. Kind priority
+    match symbol.kind {
+        SymbolKind::Function | SymbolKind::Class => score += 10,
+        SymbolKind::Module => score += 5,
+        SymbolKind::Method => score += 0, // impl methods get no bonus
+        _ => score += 2, // Other kinds get small bonus
+    }
+
+    score
+}
+
 
 /// Find a symbol in a specific file by name
 ///
@@ -58,6 +114,8 @@ fn find_in_file(graph: &mut CodeGraph, file_path: &str, name: &str) -> Result<Op
                     end_col: symbol.end_col,
                     node_id,
                     symbol_id,
+                    canonical_fqn: symbol.canonical_fqn.clone(),
+                    display_fqn: symbol.display_fqn.clone(),
                 }));
             }
         }
@@ -68,19 +126,21 @@ fn find_in_file(graph: &mut CodeGraph, file_path: &str, name: &str) -> Result<Op
 
 /// Find a symbol across all files by name
 ///
-/// Returns all matching symbols
+/// Returns matching symbols sorted by relevance score (highest first),
+/// limited to top 10 results.
 fn find_all_files(graph: &mut CodeGraph, name: &str) -> Result<Vec<FoundSymbol>> {
     let mut results = Vec::new();
 
     // Get all indexed files
     let file_nodes = graph.all_file_nodes()?;
 
-    // Search each file for the symbol
+    // Search each file for the symbol (exact or substring match)
     for file_path in file_nodes.keys() {
         let entries = query::symbol_nodes_in_file_with_ids(graph, file_path)?;
         for (node_id, symbol, symbol_id) in entries {
             if let Some(symbol_name) = &symbol.name {
-                if symbol_name == name {
+                // Match exact name or substring
+                if symbol_name == name || symbol_name.contains(name) {
                     results.push(FoundSymbol {
                         name: symbol_name.clone(),
                         kind: symbol.kind.clone(),
@@ -96,15 +156,27 @@ fn find_all_files(graph: &mut CodeGraph, name: &str) -> Result<Vec<FoundSymbol>>
                         end_col: symbol.end_col,
                         node_id,
                         symbol_id,
+                        canonical_fqn: symbol.canonical_fqn.clone(),
+                        display_fqn: symbol.display_fqn.clone(),
                     });
-                    break; // Found in this file, move to next
                 }
             }
         }
     }
 
+    // Score and sort by relevance (highest score first)
+    results.sort_by(|a, b| {
+        let score_a = score_symbol(a, name);
+        let score_b = score_symbol(b, name);
+        score_b.cmp(&score_a) // Descending order
+    });
+
+    // Limit to top 10 results
+    results.truncate(10);
+
     Ok(results)
 }
+
 
 /// Run the find command
 ///
@@ -371,14 +443,45 @@ pub fn run_find(
                     println!("  Location: Line {}, Column {}", symbol.line, symbol.col);
                     println!("  Node ID:  {}", symbol.node_id);
                 } else {
-                    // Ambiguous, no --first: show error with guidance
+                    // Ambiguous, no --first: show ranked list of candidates
                     eprintln!(
                         "Ambiguous symbol name '{}': found {} candidates",
                         name,
                         results.len()
                     );
-                    eprintln!("Use --ambiguous <name> to see all candidates");
-                    eprintln!("Use --first to use first match (deprecated)");
+                    eprintln!();
+                    eprintln!("Top matches:");
+
+                    // Show up to 10 candidates with numbered options
+                    let display_count = results.len().min(10);
+                    for (i, symbol) in results.iter().take(display_count).enumerate() {
+                        let fqn = symbol
+                            .display_fqn
+                            .as_ref()
+                            .or(symbol.canonical_fqn.as_ref())
+                            .map(|s| s.as_str())
+                            .unwrap_or("<unknown>");
+                        let sid = symbol.symbol_id.as_deref().unwrap_or("<none>");
+
+                        eprintln!(
+                            "  [{}] {} ({}) in {}:{}",
+                            i + 1,
+                            symbol.name,
+                            symbol.kind_normalized,
+                            symbol.file,
+                            symbol.line
+                        );
+                        eprintln!("      Symbol ID: {}", sid);
+                        eprintln!("      FQN: {}", fqn);
+                    }
+
+                    if results.len() > 10 {
+                        eprintln!();
+                        eprintln!("  ... and {} more", results.len() - 10);
+                    }
+
+                    eprintln!();
+                    eprintln!("Use --path <file> to disambiguate, or --symbol-id <id> for precise lookup");
                 }
             }
 
@@ -622,6 +725,8 @@ fn run_glob_listing(
                         end_col: fact.end_col,
                         node_id,
                         symbol_id,
+                        canonical_fqn: fact.canonical_fqn.clone(),
+                        display_fqn: fact.display_fqn.clone(),
                     });
                 }
             }

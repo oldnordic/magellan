@@ -1,6 +1,6 @@
 # Magellan Operator Manual
 
-**Version 3.1.0** | *Last Updated: 2026-03-10*
+**Version 3.1.1** | *Last Updated: 2026-03-15*
 
 Comprehensive instructions for operating Magellan.
 
@@ -497,7 +497,53 @@ magellan watch --root . --db ./magellan.db --no-gitignore
 - `.git/` (Git metadata)
 - `.magellan.db` (Magellan database itself)
 
-### 4.2 status
+### 4.2 refresh
+
+```bash
+magellan refresh --db <FILE> [--dry-run] [--include-untracked] [--staged] [--unstaged] [--force] [--output <FORMAT>]
+```
+
+Synchronizes the graph database with the current git working tree state. Use this command after branch switches, pull operations, or when files were modified while Magellan was not running in watch mode.
+
+| Argument | Type | Default | Description |
+|----------|------|---------|-------------|
+| `--db <FILE>` | Path | - | Database path (required) |
+| `--dry-run` | Flag | - | Preview changes without applying |
+| `--include-untracked` | Flag | - | Include untracked files in the refresh |
+| `--staged` | Flag | - | Only process staged changes |
+| `--unstaged` | Flag | - | Only process unstaged changes |
+| `--force` | Flag | - | Force re-index all tracked files |
+| `--output <FORMAT>` | String | human | Output format: human, json, or pretty |
+
+**Basic usage:**
+```bash
+# Refresh index after branch switch
+magellan refresh --db ./magellan.db
+
+# Preview changes without applying
+magellan refresh --db ./magellan.db --dry-run
+
+# Include untracked files
+magellan refresh --db ./magellan.db --include-untracked
+
+# Only staged changes with JSON output
+magellan refresh --db ./magellan.db --staged --output json
+```
+
+**How it works:**
+1. Reads git status to detect modified, deleted, and new files
+2. Compares with files currently in the database
+3. Computes delta (files to update, delete, or add)
+4. Applies changes using `reconcile_file_path()` for updates/adds
+5. Removes deleted files from the database
+
+**Exit codes:**
+- 0: Success (changes applied or none needed)
+- 1: General error
+- 2: Git repository not found
+- 3: Database not found
+
+### 4.3 status
 
 ```bash
 magellan status --db <FILE>
@@ -581,9 +627,34 @@ Found "main":
   Location: Line 229, Column 0
 ```
 
-### Ambiguous Symbol Resolution
+### Ambiguous Symbol Resolution (v3.1.1+)
 
-The `--ambiguous` flag shows all candidates when a `display_fqn` matches multiple symbols.
+When a symbol name matches multiple symbols, the top 10 candidates are displayed with ranking:
+
+```bash
+$ magellan find --db ./magellan.db --name "new"
+Ambiguous symbol name 'new': found 40 candidates
+
+Top matches:
+  [1] new (fn) in /path/to/src/ingest/pool.rs:245
+      Symbol ID: f27eae23bbfe2a02
+      FQN: ingest::pool::new
+  [2] new (fn) in /path/to/src/graph/mod.rs:89
+      Symbol ID: 53d6b0534df65877
+      FQN: graph::CodeGraph::new
+  ...
+
+Use --path <file> to disambiguate, or --symbol-id <id> for precise lookup
+```
+
+**Ranking criteria (in order of priority):**
+1. Exact name match > substring match
+2. Public API > private/internal
+3. Non-test files > test files
+4. Shorter FQN > longer FQN (prefer top-level)
+5. Functions/Structs > impl methods
+
+The `--ambiguous` flag still works for display_fqn-based queries:
 
 **Important:** `--ambiguous` requires the full `display_fqn`, not just the symbol name.
 
@@ -622,19 +693,39 @@ The output shows the `display_fqn` for each symbol:
 ### 3.6 refs
 
 ```bash
-magellan refs --db <FILE> --name <NAME> --path <PATH> [--direction <in|out>]
+magellan refs --db <FILE> --name <NAME> [--path <PATH>] [--direction <in|out>]
 ```
 
-Shows incoming or outgoing calls. Incoming calls include callers from other
-indexed files when the target symbol name is unique in the database.
+Shows incoming or outgoing calls. When multiple symbols match the name, a
+ranked list is displayed for selection.
 
 | Argument | Description |
 |----------|-------------|
 | `--db <FILE>` | Database path (required) |
 | `--name <NAME>` | Symbol name (required) |
-| `--path <PATH>` | File path containing symbol (required) |
+| `--path <PATH>` | File path containing symbol (optional, v3.1.1+) |
 | `--direction <in|out>` | Direction (default: in) |
 
+**Single match (auto-selected):**
+```
+$ magellan refs --db ./magellan.db --name parse_args
+Found 'parse_args' in /path/to/src/cli.rs
+Calls TO "parse_args":
+  From: main at /path/to/src/main.rs:79
+```
+
+**Multiple matches (shows list):**
+```
+$ magellan refs --db ./magellan.db --name "new"
+Symbol 'new' found in multiple locations:
+  [1] /path/to/src/ingest/pool.rs
+  [2] /path/to/src/graph/mod.rs
+  ...
+
+Use --path <file> to disambiguate
+```
+
+**With explicit path:**
 ```
 $ magellan refs --db ./magellan.db --name main --path src/main.rs --direction out
 Calls FROM "main":
@@ -1283,7 +1374,7 @@ magellan reachable --db ./magellan.db --symbol main --output json
 ### 4.18 dead-code
 
 ```bash
-magellan dead-code --db <FILE> --entry <SYMBOL_ID> [--output <FORMAT>]
+magellan dead-code --db <FILE> --entry <NAME> [--path <PATH>] [--output <FORMAT>]
 ```
 
 Finds code unreachable from an entry point using call graph reachability analysis.
@@ -1291,7 +1382,8 @@ Finds code unreachable from an entry point using call graph reachability analysi
 | Argument | Type | Default | Description |
 |----------|------|---------|-------------|
 | `--db <FILE>` | Path | - | Database path (required) |
-| `--entry <SYMBOL_ID>` | String | - | Entry point symbol ID (required) |
+| `--entry <NAME>` | String | - | Entry point symbol name (v3.1.1+, was symbol ID) |
+| `--path <PATH>` | Path | - | File path for disambiguation (optional) |
 | `--output <FORMAT>` | Format | human | Output: human, json, or pretty |
 
 **Examples:**
@@ -1299,6 +1391,9 @@ Finds code unreachable from an entry point using call graph reachability analysi
 ```bash
 # Find dead code unreachable from main
 magellan dead-code --db ./magellan.db --entry main
+
+# With path disambiguation (when multiple symbols match)
+magellan dead-code --db ./magellan.db --entry run --path src/main.rs
 
 # Output as JSON
 magellan dead-code --db ./magellan.db --entry main --output json
@@ -1465,7 +1560,7 @@ magellan reachable --db ./magellan.db --symbol main --output json
 #### dead-code
 
 ```bash
-magellan dead-code --db <FILE> --entry <SYMBOL_ID> [--output <FORMAT>]
+magellan dead-code --db <FILE> --entry <NAME> [--path <PATH>] [--output <FORMAT>]
 ```
 
 Finds code unreachable from an entry point using call graph reachability analysis.
@@ -1473,7 +1568,8 @@ Finds code unreachable from an entry point using call graph reachability analysi
 | Argument | Type | Default | Description |
 |----------|------|---------|-------------|
 | `--db <FILE>` | Path | - | Database path (required) |
-| `--entry <SYMBOL_ID>` | String | - | Entry point symbol ID (required) |
+| `--entry <NAME>` | String | - | Entry point symbol name (v3.1.1+, was symbol ID) |
+| `--path <PATH>` | Path | - | File path for disambiguation (optional) |
 | `--output <FORMAT>` | Format | human | Output: human, json, or pretty |
 
 **Examples:**
@@ -1481,6 +1577,9 @@ Finds code unreachable from an entry point using call graph reachability analysi
 ```bash
 # Find dead code unreachable from main
 magellan dead-code --db ./magellan.db --entry main
+
+# With path disambiguation
+magellan dead-code --db ./magellan.db --entry run --path src/main.rs
 
 # Output as JSON
 magellan dead-code --db ./magellan.db --entry main --output json

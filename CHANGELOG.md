@@ -4,6 +4,77 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [3.1.2] - 2026-03-15
+
+### Added
+- **`refresh` command** - Git-aware database synchronization
+  - `magellan refresh --db code.db` - Sync index with git working tree
+  - `--dry-run` - Preview changes without applying
+  - `--include-untracked` - Index new untracked files
+  - `--staged` / `--unstaged` - Filter by git stage status
+  - `--force` - Force re-index all tracked files
+  - Uses `git2` crate for efficient git operations
+  - Detects modified, deleted, and added files automatically
+
+### Fixed
+- **`entity not found` watch error** - Fixed stale `file_index` entries
+  - Handle `NotFound` errors when file nodes were deleted but index not updated
+  - Clean up stale index entries gracefully
+
+### Changed
+- **Help documentation** - Added `refresh` command to `--help` and `--help-full`
+- **`--scan-initial` flag** - Now documented in watch command help
+
+## [3.1.1] - 2026-03-15
+
+### Added
+- **Symbol Ranking** - Search results now intelligently ranked by relevance
+  - Exact name matches prioritized (+100 points)
+  - Public API symbols ranked higher than private (+50 points)
+  - Non-test files prioritized over test files (+30 points)
+  - Top-level definitions preferred over nested (+20/depth points)
+  - Functions/Structs ranked above impl methods
+
+- **GraphStats API** - Added `GraphStats` struct and `get_stats()` method to `CodeGraph`
+  - Returns symbol count, file count, CFG block count
+  - Used by churn harness tests and status commands
+
+- **count_cfg_blocks()** method on `CodeGraph`
+  - Returns 0 for SQLite backend (CFG not stored)
+  - Allows unified API across all backends
+
+### Fixed
+- **`find` command disambiguation UX** - Now shows top 10 candidates when ambiguous
+  - Displays Symbol ID, FQN, file path, and kind for each candidate
+  - No longer requires separate `--ambiguous` flag to see candidates
+  - Shows helpful hint about `--path` or `--symbol-id` for disambiguation
+
+- **`refs` command** - `--path` is now optional
+  - Searches all files when path not specified
+  - Auto-selects when exactly one match found
+  - Shows ranked list when multiple matches found
+
+- **`dead-code` command** - Now accepts symbol names instead of raw IDs
+  - `--entry "main"` works instead of requiring `--entry "abc123..."`
+  - Supports `--path` for disambiguation when multiple symbols match
+
+- **Analysis commands enabled for SQLite backend**
+  - `condense` - Graph condensation/SCC analysis
+  - `paths` - Path enumeration between symbols
+  - `slice` - Program slicing
+  - `verify` - Verification/rules checking
+  - `context` - Context extraction
+  - `get` - Get symbol details by ID
+  - `import-lsif` - Import LSIF data
+
+- **`PaginatedResult::new()`** now properly slices items to requested page
+  - Previously returned all items regardless of page size
+  - Now correctly returns only page_size items starting at page offset
+
+### Changed
+- Minimum supported Rust version remains 1.70+
+
 ## [3.1.0] - 2026-03-10
 
 ### Added

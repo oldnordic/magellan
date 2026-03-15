@@ -19,7 +19,7 @@ pub mod async_io;
 #[cfg(any(feature = "debug-prints", feature = "geometric-backend"))]
 macro_rules! debug_print {
     ($($arg:tt)*) => {
-        eprintln!($($arg)*);
+        { eprintln!($($arg)*); }
     };
 }
 
@@ -29,7 +29,7 @@ macro_rules! debug_print {
     ($($arg:tt)*) => {
         // Optimized out when debug-prints feature is disabled
         // Always return () to work in expression context
-        ()
+        { () }
     };
 }
 
@@ -629,6 +629,7 @@ pub fn run_watch_pipeline_geometric(
                     pb.finish_with_message(format!("Scanned {} files", HumanCount(total as u64)));
                 }
             }),
+            geo_index::IndexingMode::CfgFirst,
         ) {
             Ok(count) => {
                 println!("Initial scan complete: indexed {} files", count);
@@ -699,7 +700,7 @@ fn process_dirty_paths_geometric(
     backend: &crate::graph::geometric_backend::GeometricBackend,
     dirty_paths: &[PathBuf],
 ) -> Result<usize> {
-    use crate::graph::geometric_backend::extract_symbols_and_cfg_from_file;
+    use crate::graph::geometric_backend::extract_symbols_cfg_and_calls_from_file;
     use crate::ingest::detect_language;
     use std::fs;
 
@@ -719,12 +720,13 @@ fn process_dirty_paths_geometric(
             Err(_) => continue,
         };
 
-        match extract_symbols_and_cfg_from_file(path, &content, language) {
-            Ok((symbols, cfg_blocks, cfg_edges)) => {
-                let sym_count = symbols.len();
+        match extract_symbols_cfg_and_calls_from_file(path, &content, language) {
+            Ok((symbols, cfg_blocks, cfg_edges, _call_edges)) => {
+                let sym_count: usize = symbols.len();
                 let symbol_ids = backend.insert_symbols(symbols)?;
 
-                if !cfg_blocks.is_empty() {
+                let cfg_blocks_nonempty: bool = !cfg_blocks.is_empty();
+                if cfg_blocks_nonempty {
                     // Track block indices to their logical IDs for edge insertion
                     // Note: CfgBlock.id is the logical ID stored in NodeRec, not the storage ID
                     let mut block_id_map: std::collections::HashMap<usize, u64> =
@@ -741,14 +743,16 @@ fn process_dirty_paths_geometric(
                         let _ = backend.insert_cfg_block(block);
                     }
 
-                    // Insert edges using the block logical ID map
+                    // Insert edges - CfgEdge from geographdb_core has src_id/dst_id as block IDs
                     for edge in cfg_edges {
-                        if let (Some(&src_id), Some(&dst_id)) = (
-                            block_id_map.get(&edge.source_idx),
-                            block_id_map.get(&edge.target_idx),
-                        ) {
-                            let _ = backend.insert_edge(src_id, dst_id, edge.edge_type.as_str());
-                        }
+                        // edge.src_id and edge.dst_id are already block IDs
+                        // edge_type is u32: 0=normal, 1=branch_true, 2=branch_false
+                        let edge_type_str = match edge.edge_type {
+                            1 => "branch_true",
+                            2 => "branch_false",
+                            _ => "normal",
+                        };
+                        let _ = backend.insert_edge(edge.src_id, edge.dst_id, edge_type_str);
                     }
                 }
 
