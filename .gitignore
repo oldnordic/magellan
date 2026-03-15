@@ -23,9 +23,27 @@ Thumbs.db
 *.v3-journal
 *.v3-shm
 *.v3-wal
+*.geo
+*.geo-journal
+*.geo-shm
+*.geo-wal
+
+# Backup files
+*.bak
+*.backup
+*.old
 
 # Test databases
 test*.db
+test*.geo
+code.geo
+downstream_test.geo
+geometric_*.geo
+manual_audit.db
+
+# AI assistant configs
+opencode.json
+.mcp.json
 
 # Temporary files
 tmp/
