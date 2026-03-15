@@ -201,4 +201,4 @@ Both backends have **full feature parity** (v2.4.0):
 
 ## License
 
-GPL-3.0-or-later
+GPL-3.0
