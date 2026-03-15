@@ -53,6 +53,26 @@ pub enum SymbolKind {
     Unknown,
 }
 
+impl SymbolKind {
+    /// Convert a u8 value to SymbolKind
+    ///
+    /// This is used for deserializing symbol kind from compact storage formats.
+    pub fn from_u8(value: u8) -> Self {
+        match value {
+            0 => SymbolKind::Function,
+            1 => SymbolKind::Method,
+            2 => SymbolKind::Class,
+            3 => SymbolKind::Interface,
+            4 => SymbolKind::Enum,
+            5 => SymbolKind::Module,
+            6 => SymbolKind::Union,
+            7 => SymbolKind::Namespace,
+            8 => SymbolKind::TypeAlias,
+            _ => SymbolKind::Unknown,
+        }
+    }
+}
+
 /// Separator character for FQN construction per language
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScopeSeparator {
@@ -325,6 +345,44 @@ impl Parser {
 
         // Detect crate name for FQN computation
         // Use current directory as project root for crate detection
+        let project_root = std::path::Path::new(".");
+        let crate_name = detect_crate_name(project_root, &file_path);
+
+        let root_node = tree.root_node();
+        let mut facts = Vec::new();
+        let mut scope_stack = ScopeStack::new(ScopeSeparator::DoubleColon);
+
+        // Walk tree with scope tracking
+        Self::walk_tree_with_scope_static(
+            &root_node,
+            source,
+            &file_path,
+            &mut facts,
+            &mut scope_stack,
+            &crate_name,
+        );
+
+        facts
+    }
+
+    /// Extract symbol facts from a pre-parsed tree.
+    ///
+    /// This static method allows extracting symbols without re-parsing,
+    /// which is useful when the tree is already available from a previous parse.
+    ///
+    /// # Arguments
+    /// * `tree` - The pre-parsed tree-sitter tree
+    /// * `file_path` - Path to the file (for context only, not accessed)
+    /// * `source` - Source code content as bytes
+    ///
+    /// # Returns
+    /// Vector of symbol facts found in the source
+    pub fn extract_symbols_from_tree(
+        tree: &tree_sitter::Tree,
+        file_path: PathBuf,
+        source: &[u8],
+    ) -> Vec<SymbolFact> {
+        // Detect crate name for FQN computation
         let project_root = std::path::Path::new(".");
         let crate_name = detect_crate_name(project_root, &file_path);
 

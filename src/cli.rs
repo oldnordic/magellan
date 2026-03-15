@@ -19,6 +19,7 @@ pub fn print_short_usage() {
     eprintln!("  watch       Index codebase: magellan watch --root . --db code.db");
     eprintln!("  status      Show database stats: magellan status --db code.db");
     eprintln!("  doctor      Diagnose issues: magellan doctor --db code.db [--fix]");
+    eprintln!("  refresh     Refresh from git: magellan refresh --db code.db");
     #[cfg(feature = "web-ui")]
     eprintln!("  web-ui      Start web interface: magellan web-ui --db code.db [--port 8080]");
     eprintln!("  find        Find symbols: magellan find --db code.db --name main");
@@ -88,7 +89,7 @@ pub fn print_full_usage() {
     eprintln!("  magellan --help");
     eprintln!("  magellan --backends    Show available storage backends and features");
     eprintln!();
-    eprintln!("  magellan watch --root <DIR> --db <FILE> [--debounce-ms <N>] [--watch-only] [--validate] [--validate-only]");
+    eprintln!("  magellan watch --root <DIR> --db <FILE> [--debounce-ms <N>] [--scan-initial] [--watch-only] [--validate] [--validate-only]");
     eprintln!(
         "  magellan export --db <FILE> [--format json|jsonl|csv|scip|dot|lsif] [--output <PATH>] [--minify] [--cluster]"
     );
@@ -109,6 +110,7 @@ pub fn print_full_usage() {
     eprintln!("  magellan migrate --db <FILE> [--dry-run] [--no-backup] [--output <FORMAT>]");
     eprintln!("  magellan migrate-backend --input <DB> --output <DB> [--export-dir <DIR>] [--dry-run] [--output <FORMAT>]");
     eprintln!("  magellan verify --root <DIR> --db <FILE>");
+    eprintln!("  magellan refresh --db <FILE> [--dry-run] [--include-untracked] [--staged] [--unstaged] [--force] [--output <FORMAT>]");
     eprintln!("  magellan ast --db <FILE> --file <PATH> [--position <OFFSET>] [--output <FORMAT>]");
     eprintln!("  magellan find-ast --db <FILE> --kind <KIND> [--output <FORMAT>]");
     eprintln!(
@@ -116,9 +118,7 @@ pub fn print_full_usage() {
     );
     eprintln!("  magellan dead-code --db <FILE> --entry <SYMBOL_ID> [--output <FORMAT>]");
     eprintln!("  magellan cycles --db <FILE> [--symbol <SYMBOL_ID>] [--output <FORMAT>]");
-    #[cfg(feature = "geometric-backend")]
     eprintln!("  magellan condense --db <FILE> [--members] [--output <FORMAT>]");
-    #[cfg(feature = "geometric-backend")]
     eprintln!("  magellan paths --db <FILE> --start <SYMBOL_ID> [--end <SYMBOL_ID>] [--max-depth <N>] [--max-paths <N>] [--output <FORMAT>]");
     eprintln!("  magellan slice --db <FILE> --target <SYMBOL_ID> [--direction <backward|forward>] [--verbose] [--output <FORMAT>]");
     eprintln!();
@@ -140,14 +140,13 @@ pub fn print_full_usage() {
     eprintln!("  migrate         Upgrade database to current schema version");
     eprintln!("  migrate-backend Migrate database between SQLite backends");
     eprintln!("  verify          Verify database vs filesystem");
+    eprintln!("  refresh         Refresh index from git changes");
     eprintln!("  ast             Query AST nodes for a file");
     eprintln!("  find-ast        Find AST nodes by kind");
     eprintln!("  reachable       Show symbols reachable from a given symbol");
     eprintln!("  dead-code       Find dead code unreachable from an entry point");
     eprintln!("  cycles          Detect strongly connected components (cycles) in the call graph");
-    #[cfg(feature = "geometric-backend")]
     eprintln!("  condense        Show call graph condensation (SCCs collapsed into supernodes)");
-    #[cfg(feature = "geometric-backend")]
     eprintln!("  paths           Enumerate execution paths between symbols");
     eprintln!("  slice           Program slicing (backward/forward) from a target symbol");
     eprintln!();
@@ -269,6 +268,15 @@ pub fn print_full_usage() {
     eprintln!("Verify arguments:");
     eprintln!("  --root <DIR>        Directory to verify against");
     eprintln!("  --db <FILE>         Path to sqlitegraph database");
+    eprintln!();
+    eprintln!("Refresh arguments:");
+    eprintln!("  --db <FILE>         Path to sqlitegraph database");
+    eprintln!("  --dry-run           Preview changes without applying them");
+    eprintln!("  --include-untracked Include untracked files in the refresh");
+    eprintln!("  --staged            Only process staged changes");
+    eprintln!("  --unstaged          Only process unstaged changes");
+    eprintln!("  --force             Force re-index all tracked files");
+    eprintln!("  --output <FORMAT>   Output format: human (default), json, or pretty");
     eprintln!();
     eprintln!("Slice arguments:");
     eprintln!("  --db <FILE>         Path to sqlitegraph database");
@@ -516,6 +524,16 @@ pub enum Command {
         root_path: PathBuf,
         db_path: PathBuf,
     },
+    /// Refresh index based on git changes
+    Refresh {
+        db_path: PathBuf,
+        dry_run: bool,
+        include_untracked: bool,
+        staged: bool,
+        unstaged: bool,
+        force: bool,
+        output_format: OutputFormat,
+    },
     /// Query symbols by label (Phase 2: Label integration)
     Label {
         db_path: PathBuf,
@@ -590,7 +608,6 @@ pub enum Command {
         output_format: OutputFormat,
     },
     /// Condensation graph (Phase 40)
-    #[cfg(feature = "geometric-backend")]
     Condense {
         db_path: PathBuf,
         show_members: bool,
@@ -602,7 +619,6 @@ pub enum Command {
         output_format: OutputFormat,
     },
     /// Path enumeration (Phase 40)
-    #[cfg(feature = "geometric-backend")]
     Paths {
         db_path: PathBuf,
         start_symbol_id: String,
@@ -1540,6 +1556,7 @@ where
         "get-file" => parse_get_file_args(&args[2..]),
         "files" => parse_files_args(&args[2..]),
         "verify" => parse_verify_args(&args[2..]),
+        "refresh" => parse_refresh_args(&args[2..]),
         "label" => parse_label_args(&args[2..]),
         "collisions" => parse_collisions_args(&args[2..]),
         "migrate" => parse_migrate_args(&args[2..]),
@@ -1552,9 +1569,7 @@ where
         "reachable" => parse_reachable_args(&args[2..]),
         "dead-code" => parse_dead_code_args(&args[2..]),
         "cycles" => parse_cycles_args(&args[2..]),
-        #[cfg(feature = "geometric-backend")]
         "condense" => parse_condense_args(&args[2..]),
-        #[cfg(feature = "geometric-backend")]
         "paths" => parse_paths_args(&args[2..]),
         "slice" => parse_slice_args(&args[2..]),
         #[cfg(feature = "geometric-backend")]
@@ -1863,6 +1878,80 @@ fn parse_verify_args(args: &[String]) -> Result<Command> {
     let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
 
     Ok(Command::Verify { root_path, db_path })
+}
+
+/// Parse the `refresh` command arguments
+fn parse_refresh_args(args: &[String]) -> Result<Command> {
+    let mut db_path: Option<PathBuf> = None;
+    let mut dry_run = false;
+    let mut include_untracked = false;
+    let mut staged = false;
+    let mut unstaged = false;
+    let mut force = false;
+    let mut output_format = OutputFormat::Human;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--db" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--db requires an argument"));
+                }
+                db_path = Some(PathBuf::from(&args[i + 1]));
+                i += 2;
+            }
+            "--dry-run" => {
+                dry_run = true;
+                i += 1;
+            }
+            "--include-untracked" => {
+                include_untracked = true;
+                i += 1;
+            }
+            "--staged" => {
+                staged = true;
+                i += 1;
+            }
+            "--unstaged" => {
+                unstaged = true;
+                i += 1;
+            }
+            "--force" => {
+                force = true;
+                i += 1;
+            }
+            "--output" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--output requires an argument"));
+                }
+                output_format = match args[i + 1].as_str() {
+                    "human" => OutputFormat::Human,
+                    "json" => OutputFormat::Json,
+                    "pretty" => OutputFormat::Pretty,
+                    _ => {
+                        return Err(anyhow::anyhow!(
+                            "Invalid output format: {}. Must be human, json, or pretty",
+                            args[i + 1]
+                        ))
+                    }
+                };
+                i += 2;
+            }
+            _ => return Err(anyhow::anyhow!("Unknown argument: {}", args[i])),
+        }
+    }
+
+    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+
+    Ok(Command::Refresh {
+        db_path,
+        dry_run,
+        include_untracked,
+        staged,
+        unstaged,
+        force,
+        output_format,
+    })
 }
 
 /// Parse the `label` command arguments
@@ -2757,7 +2846,6 @@ fn parse_cycles_args(args: &[String]) -> Result<Command> {
 }
 
 /// Parse the `condense` command arguments
-#[cfg(feature = "geometric-backend")]
 fn parse_condense_args(args: &[String]) -> Result<Command> {
     let mut db_path: Option<PathBuf> = None;
     let mut show_members = false;
@@ -2808,7 +2896,6 @@ fn parse_condense_args(args: &[String]) -> Result<Command> {
 }
 
 /// Parse the `paths` command arguments
-#[cfg(feature = "geometric-backend")]
 fn parse_paths_args(args: &[String]) -> Result<Command> {
     let mut db_path: Option<PathBuf> = None;
     let mut start_symbol_id: Option<String> = None;

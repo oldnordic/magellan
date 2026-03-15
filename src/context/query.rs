@@ -112,6 +112,15 @@ impl<T> PaginatedResult<T> {
             None
         };
 
+        // Slice items to only return the requested page
+        let start_idx = (page.saturating_sub(1)) * page_size;
+        let end_idx = (start_idx + page_size).min(items.len());
+        let paged_items = if start_idx < items.len() {
+            items.into_iter().skip(start_idx).take(end_idx - start_idx).collect()
+        } else {
+            Vec::new()
+        };
+
         Self {
             page,
             total_pages,
@@ -119,7 +128,7 @@ impl<T> PaginatedResult<T> {
             total_items,
             next_cursor,
             prev_cursor,
-            items,
+            items: paged_items,
         }
     }
 

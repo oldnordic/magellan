@@ -24,7 +24,11 @@ pub mod backend;
 mod ast_extractor;
 
 #[cfg(feature = "geometric-backend")]
+pub mod geo_index;
+#[cfg(feature = "geometric-backend")]
 pub mod geometric_backend;
+#[cfg(feature = "geometric-backend")]
+pub mod geometric_calls;
 mod ast_node;
 mod ast_ops;
 
@@ -106,6 +110,19 @@ pub use export::{ExportConfig, ExportFormat};
 pub use freshness::{check_freshness, FreshnessStatus, STALE_THRESHOLD_SECS};
 pub use metrics::MetricsOps;
 pub use schema::{CallNode, CfgBlock, CfgEdge, CrossFileRef, FileNode, ReferenceNode, SymbolNode};
+
+/// Statistics for a CodeGraph database
+///
+/// Contains counts of various entity types in the graph.
+#[derive(Debug, Clone)]
+pub struct GraphStats {
+    /// Number of symbols in the graph
+    pub symbol_count: usize,
+    /// Number of files in the graph
+    pub file_count: usize,
+    /// Number of CFG blocks (0 for SQLite backend without CFG)
+    pub cfg_block_count: usize,
+}
 
 /// Progress callback for scan_directory
 ///
@@ -630,6 +647,27 @@ impl CodeGraph {
     /// Count total number of calls in the graph
     pub fn count_calls(&self) -> Result<usize> {
         count::count_calls(self)
+    }
+
+    /// Count total number of CFG blocks in the graph
+    ///
+    /// Note: Returns 0 for SQLite backend. CFG blocks are only stored
+    /// in geometric backend databases.
+    pub fn count_cfg_blocks(&self) -> Result<usize> {
+        // CFG blocks not tracked in SQLite backend
+        // Geometric backend has its own implementation
+        Ok(0)
+    }
+
+    /// Get combined statistics for the graph
+    ///
+    /// Returns symbol count, file count, and cfg block count
+    pub fn get_stats(&self) -> Result<GraphStats> {
+        Ok(GraphStats {
+            symbol_count: self.count_symbols()?,
+            file_count: self.count_files()?,
+            cfg_block_count: 0, // CFG blocks not tracked in SQLite backend
+        })
     }
 
     /// Reconcile a file path against filesystem + content hash.

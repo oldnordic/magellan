@@ -84,6 +84,65 @@ use magellan::graph::AstNode;
 use magellan::output::{generate_execution_id, output_json, JsonResponse, OutputFormat};
 use magellan::CodeGraph;
 
+/// Normalize user-provided kind names to tree-sitter kind names
+///
+/// Users may provide TitleCase names like "Function" or "Struct" based on
+/// common programming terminology. This function maps those to the actual
+/// tree-sitter kind names stored in the database.
+fn normalize_user_kind(kind: &str) -> String {
+    // Map TitleCase and common variations to tree-sitter kinds
+    let normalized = match kind {
+        // TitleCase mappings (from ast_node::kinds constants)
+        "Function" => "function_item",
+        "Struct" => "struct_item",
+        "Enum" => "enum_item",
+        "Trait" => "trait_item",
+        "Impl" => "impl_item",
+        "Module" | "Mod" => "mod_item",
+        "If" => "if_expression",
+        "Match" => "match_expression",
+        "While" => "while_expression",
+        "For" => "for_expression",
+        "Loop" => "loop_expression",
+        "Return" => "return_expression",
+        "Break" => "break_expression",
+        "Continue" => "continue_expression",
+        "Block" => "block",
+        "Call" => "call_expression",
+        "Assign" => "assignment_expression",
+        "Let" => "let_statement",
+        "Const" => "const_item",
+        "Static" => "static_item",
+        "Attribute" => "attribute_item",
+        "Class" => "class_definition",
+        "Interface" => "interface_definition",
+
+        // Snake_case variations that might be intuitive
+        "fn" => "function_item",
+        "mod" => "mod_item",
+        "struct" => "struct_item",
+        "enum" => "enum_item",
+        "trait" => "trait_item",
+        "impl" => "impl_item",
+        "const" => "const_item",
+        "static" => "static_item",
+        "if" => "if_expression",
+        "match" => "match_expression",
+        "while" => "while_expression",
+        "for" => "for_expression",
+        "loop" => "loop_expression",
+        "return" => "return_expression",
+        "break" => "break_expression",
+        "continue" => "continue_expression",
+        "let" => "let_statement",
+
+        // Already normalized tree-sitter kinds (pass through)
+        _ => kind,
+    };
+
+    normalized.to_string()
+}
+
 /// Run the 'ast' command
 ///
 /// Displays AST nodes for a file, optionally filtering by position.
@@ -167,10 +226,18 @@ pub fn run_find_ast_command(
     let graph = CodeGraph::open(&db_path)?;
     let exec_id = generate_execution_id();
 
-    let nodes = graph.get_ast_nodes_by_kind(&kind)?;
+    // Normalize user-friendly kind names to tree-sitter kind names
+    let normalized_kind = normalize_user_kind(&kind);
+
+    let nodes = graph.get_ast_nodes_by_kind(&normalized_kind)?;
 
     if nodes.is_empty() {
-        eprintln!("No AST nodes found with kind '{}'", kind);
+        // Show what kind we actually searched for (in case normalization changed it)
+        if normalized_kind != kind {
+            eprintln!("No AST nodes found with kind '{}' (normalized to '{}')", kind, normalized_kind);
+        } else {
+            eprintln!("No AST nodes found with kind '{}'", kind);
+        }
         std::process::exit(1);
     }
 
@@ -288,4 +355,68 @@ mod tests {
 
     //
     // Future phase: Add KV support for position-based AST queries if needed.
-}
+
+    /// Test: normalize_user_kind - TitleCase mappings
+    ///
+    /// Verifies that TitleCase kind names are normalized to tree-sitter kinds.
+    #[test]
+    fn test_normalize_user_kind_titlecase() {
+        assert_eq!(normalize_user_kind("Function"), "function_item");
+        assert_eq!(normalize_user_kind("Struct"), "struct_item");
+        assert_eq!(normalize_user_kind("Enum"), "enum_item");
+        assert_eq!(normalize_user_kind("Trait"), "trait_item");
+        assert_eq!(normalize_user_kind("Impl"), "impl_item");
+        assert_eq!(normalize_user_kind("Module"), "mod_item");
+        assert_eq!(normalize_user_kind("Mod"), "mod_item");
+        assert_eq!(normalize_user_kind("If"), "if_expression");
+        assert_eq!(normalize_user_kind("Match"), "match_expression");
+        assert_eq!(normalize_user_kind("While"), "while_expression");
+        assert_eq!(normalize_user_kind("For"), "for_expression");
+        assert_eq!(normalize_user_kind("Loop"), "loop_expression");
+        assert_eq!(normalize_user_kind("Return"), "return_expression");
+        assert_eq!(normalize_user_kind("Break"), "break_expression");
+        assert_eq!(normalize_user_kind("Continue"), "continue_expression");
+        assert_eq!(normalize_user_kind("Block"), "block");
+        assert_eq!(normalize_user_kind("Call"), "call_expression");
+        assert_eq!(normalize_user_kind("Assign"), "assignment_expression");
+        assert_eq!(normalize_user_kind("Let"), "let_statement");
+        assert_eq!(normalize_user_kind("Const"), "const_item");
+        assert_eq!(normalize_user_kind("Static"), "static_item");
+        assert_eq!(normalize_user_kind("Attribute"), "attribute_item");
+    }
+
+    /// Test: normalize_user_kind - snake_case mappings
+    ///
+    /// Verifies that snake_case/Rust keyword kind names are normalized.
+    #[test]
+    fn test_normalize_user_kind_snake_case() {
+        assert_eq!(normalize_user_kind("fn"), "function_item");
+        assert_eq!(normalize_user_kind("mod"), "mod_item");
+        assert_eq!(normalize_user_kind("struct"), "struct_item");
+        assert_eq!(normalize_user_kind("enum"), "enum_item");
+        assert_eq!(normalize_user_kind("trait"), "trait_item");
+        assert_eq!(normalize_user_kind("impl"), "impl_item");
+        assert_eq!(normalize_user_kind("const"), "const_item");
+        assert_eq!(normalize_user_kind("static"), "static_item");
+        assert_eq!(normalize_user_kind("if"), "if_expression");
+        assert_eq!(normalize_user_kind("match"), "match_expression");
+        assert_eq!(normalize_user_kind("while"), "while_expression");
+        assert_eq!(normalize_user_kind("for"), "for_expression");
+        assert_eq!(normalize_user_kind("loop"), "loop_expression");
+        assert_eq!(normalize_user_kind("return"), "return_expression");
+        assert_eq!(normalize_user_kind("break"), "break_expression");
+        assert_eq!(normalize_user_kind("continue"), "continue_expression");
+        assert_eq!(normalize_user_kind("let"), "let_statement");
+    }
+
+    /// Test: normalize_user_kind - passthrough
+    ///
+    /// Verifies that already-normalized tree-sitter kinds pass through unchanged.
+    #[test]
+    fn test_normalize_user_kind_passthrough() {
+        assert_eq!(normalize_user_kind("function_item"), "function_item");
+        assert_eq!(normalize_user_kind("if_expression"), "if_expression");
+        assert_eq!(normalize_user_kind("block"), "block");
+        assert_eq!(normalize_user_kind("call_expression"), "call_expression");
+        assert_eq!(normalize_user_kind("unknown_kind"), "unknown_kind");
+    }}

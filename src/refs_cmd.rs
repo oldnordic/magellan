@@ -12,13 +12,48 @@ use magellan::output::{
 use magellan::{CallFact, CodeGraph};
 use std::path::PathBuf;
 
+/// Represents a found symbol with its file path for refs lookup
+struct RefsSymbol {
+    #[allow(dead_code)]
+    name: String,
+    file_path: String,
+}
+
+/// Find a symbol across all files by name
+///
+/// Returns all matching symbols with their file paths
+fn find_symbol_all_files(graph: &mut CodeGraph, name: &str) -> Result<Vec<RefsSymbol>> {
+    let mut results = Vec::new();
+
+    // Get all indexed files
+    let file_nodes = graph.all_file_nodes()?;
+
+    // Search each file for the symbol
+    for file_path in file_nodes.keys() {
+        let entries = query::symbol_nodes_in_file_with_ids(graph, file_path)?;
+        for (_node_id, symbol, _symbol_id) in entries {
+            if let Some(symbol_name) = &symbol.name {
+                if symbol_name == name {
+                    results.push(RefsSymbol {
+                        name: symbol_name.clone(),
+                        file_path: file_path.clone(),
+                    });
+                    break; // Found in this file, move to next
+                }
+            }
+        }
+    }
+
+    Ok(results)
+}
+
 /// Run the refs command
 ///
 /// # Arguments
 /// * `db_path` - Path to the sqlitegraph database
 /// * `name` - Symbol name to query
 /// * `root` - Optional root directory for resolving relative paths
-/// * `path` - File path containing the symbol
+/// * `path` - Optional file path containing the symbol (if None, searches all files)
 /// * `symbol_id` - Optional stable SymbolId for precise lookup
 /// * `direction` - "in" for callers, "out" for calls
 /// * `output_format` - Output format (Human or Json)
@@ -33,7 +68,7 @@ pub fn run_refs(
     db_path: PathBuf,
     name: String,
     root: Option<PathBuf>,
-    path: PathBuf,
+    path: Option<PathBuf>,
     symbol_id: Option<String>,
     direction: String,
     output_format: OutputFormat,
@@ -50,8 +85,10 @@ pub fn run_refs(
         args.push("--root".to_string());
         args.push(root_path.to_string_lossy().to_string());
     }
-    args.push("--path".to_string());
-    args.push(path.to_string_lossy().to_string());
+    if let Some(ref p) = path {
+        args.push("--path".to_string());
+        args.push(p.to_string_lossy().to_string());
+    }
     if let Some(ref sid) = symbol_id {
         args.push("--symbol-id".to_string());
         args.push(sid.clone());
@@ -85,8 +122,22 @@ pub fn run_refs(
                     // Use existing FQN-based reference query via name/path
                     // For now, we use the name from the symbol
                     let symbol_name = symbol.name.clone().unwrap_or_else(|| fqn.clone());
-                    // Use the provided path for FQN lookup
-                    let path_str = resolve_path(&path, &root);
+                    // Use the provided path for FQN lookup (required when using --symbol-id)
+                    let path_str = match path {
+                        Some(p) => resolve_path(&p, &root),
+                        None => {
+                            graph.execution_log().finish_execution(
+                                &exec_id,
+                                "error",
+                                Some("--path is required when using --symbol-id"),
+                                0,
+                                0,
+                                0,
+                            )?;
+                            eprintln!("Error: --path is required when using --symbol-id");
+                            return Ok(());
+                        }
+                    };
 
                     let calls: Vec<CallFact> = match direction.as_str() {
                         "in" | "incoming" => {
@@ -196,7 +247,58 @@ pub fn run_refs(
         }
     }
 
-    let path_str = resolve_path(&path, &root);
+    // Determine the file path to use for the symbol lookup
+    let path_str = match path {
+        Some(p) => {
+            // User provided a specific path - use existing behavior
+            resolve_path(&p, &root)
+        }
+        None => {
+            // No path provided - search all files for the symbol
+            let mut graph_mut = CodeGraph::open(&db_path)?;
+            let matches = find_symbol_all_files(&mut graph_mut, &name)?;
+
+            match matches.len() {
+                0 => {
+                    graph.execution_log().finish_execution(
+                        &exec_id,
+                        "error",
+                        Some("Symbol not found"),
+                        0,
+                        0,
+                        0,
+                    )?;
+                    eprintln!("Symbol '{}' not found anywhere", name);
+                    return Ok(());
+                }
+                1 => {
+                    // Exactly one match - use it automatically
+                    let matched_symbol = &matches[0];
+                    if output_format == OutputFormat::Human {
+                        println!("Found '{}' in {}", name, matched_symbol.file_path);
+                    }
+                    matched_symbol.file_path.clone()
+                }
+                _ => {
+                    // Multiple matches - show ranked list
+                    graph.execution_log().finish_execution(
+                        &exec_id,
+                        "error",
+                        Some("Ambiguous symbol name"),
+                        0,
+                        0,
+                        0,
+                    )?;
+                    eprintln!("Symbol '{}' found in multiple locations:", name);
+                    for (i, matched_symbol) in matches.iter().enumerate() {
+                        eprintln!("  [{}] {}", i + 1, matched_symbol.file_path);
+                    }
+                    eprintln!("\nUse --path <file> to specify which one to use");
+                    return Ok(());
+                }
+            }
+        }
+    };
 
     let calls: Vec<CallFact> = match direction.as_str() {
         "in" | "incoming" => {
