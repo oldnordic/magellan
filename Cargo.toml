@@ -120,7 +120,9 @@ native-v3 = ["sqlitegraph/native-v3"]
 
 # GeoGraphDB backend (experimental - 3D spatial indexing for CFG)
 # Provides O(log n) path queries instead of O(2^n) enumeration
-geometric-backend = ["dep:geographdb-core"]
+# NOTE: This feature requires geographdb-core which is not on crates.io.
+# Use `cargo build --features geometric-backend` when building from source.
+geometric-backend = []
 
 # Java bytecode CFG (placeholder for future ASM integration)
 bytecode-cfg = []
@@ -139,11 +141,13 @@ windows = []
 web-ui = ["dep:axum", "dep:tower", "dep:tower-http"]
 
 # Benchmarks for performance testing
-benchmarks = ["geometric-backend"]
+# NOTE: geometric-backend requires geographdb-core which is not on crates.io
+# benchmarks = ["geometric-backend"]
 
 # Debug instrumentation (disabled by default for performance)
 # Enable with: cargo build --features debug-prints
-debug-prints = ["geographdb-core/debug-prints"]
+# NOTE: Requires geographdb-core which is not on crates.io
+# debug-prints = ["geographdb-core/debug-prints"]
 
 # Optional LLVM IR-based CFG extraction for C/C++ (requires clang)
 [dependencies]
@@ -187,7 +191,9 @@ tempfile = "3.10"
 glam = { version = "0.27", features = ["serde"] }
 
 # GeoGraphDB spatial indexing (optional - for geometric-backend feature)
-geographdb-core = { path = "../geographdb-core", optional = true }
+# Note: geographdb-core is not published to crates.io, so geometric-backend
+# feature is only available when building from source with --features geometric-backend
+# geographdb-core = { path = "../geographdb-core", optional = true }
 
 # Java bytecode CFG analysis (ASM library)
 
