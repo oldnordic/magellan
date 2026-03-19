@@ -84,14 +84,14 @@ impl ExecutionLog {
 
     /// Get a connection to the database (SQLite backend only).
     ///
-    /// # Panics
-    /// Panics if called when using SideTables backend.
+    /// Returns an error when using SideTables backend (V3) since direct SQLite
+    /// connections are not available with that backend.
     pub fn connect(&self) -> Result<rusqlite::Connection, rusqlite::Error> {
         match &self.backend {
             ExecutionLogBackend::Sqlite(path) => rusqlite::Connection::open(path),
-            ExecutionLogBackend::SideTables(_) => {
-                panic!("connect() is not available when using SideTables backend")
-            }
+            ExecutionLogBackend::SideTables(_) => Err(rusqlite::Error::InvalidParameterName(
+                "SQLite connection not available for SideTables backend".to_string(),
+            )),
         }
     }
 

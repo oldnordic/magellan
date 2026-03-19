@@ -12,7 +12,9 @@ use crate::graph::geometric_backend::{
     GeometricBackend, GeometricBackendStats, SymbolInfo as GeometricSymbolInfo,
 };
 use crate::graph::CodeGraph;
+use crate::graph::schema::SymbolNode;
 use crate::ingest::SymbolKind;
+use sqlitegraph::{GraphBackend, SnapshotId};
 
 /// Unified symbol information across all backends
 #[derive(Debug, Clone)]
@@ -136,17 +138,49 @@ impl MagellanBackend {
                     Ok(None)
                 }
             }
-            MagellanBackend::SQLite(_graph) => {
-                // TODO: Implement SQLite symbol lookup via graph
-                let _ = fqn;
+            MagellanBackend::SQLite(graph) => {
+                // Try to parse as numeric ID first
+                if let Ok(id) = fqn.parse::<i64>() {
+                    let snapshot = SnapshotId::current();
+                    if let Ok(node) = graph.calls.backend.get_node(snapshot, id) {
+                        if node.kind == "Symbol" {
+                            if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data) {
+                                return Ok(Some(Self::convert_symbol_node(&symbol_node, id)));
+                            }
+                        }
+                    }
+                }
+                // Otherwise search by FQN
+                let symbols = Self::get_all_sqlite_symbols(graph)?;
+                for (entity_id, symbol) in symbols {
+                    if symbol.fqn.as_deref() == Some(fqn) {
+                        return Ok(Some(Self::convert_symbol_node(&symbol, entity_id)));
+                    }
+                }
                 Ok(None)
             }
         }
         #[cfg(not(feature = "geometric-backend"))]
         match self {
-            MagellanBackend::SQLite(_graph) => {
-                // TODO: Implement SQLite symbol lookup via graph
-                let _ = fqn;
+            MagellanBackend::SQLite(graph) => {
+                // Try to parse as numeric ID first
+                if let Ok(id) = fqn.parse::<i64>() {
+                    let snapshot = SnapshotId::current();
+                    if let Ok(node) = graph.calls.backend.get_node(snapshot, id) {
+                        if node.kind == "Symbol" {
+                            if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data) {
+                                return Ok(Some(Self::convert_symbol_node(&symbol_node, id)));
+                            }
+                        }
+                    }
+                }
+                // Otherwise search by FQN
+                let symbols = Self::get_all_sqlite_symbols(graph)?;
+                for (entity_id, symbol) in symbols {
+                    if symbol.fqn.as_deref() == Some(fqn) {
+                        return Ok(Some(Self::convert_symbol_node(&symbol, entity_id)));
+                    }
+                }
                 Ok(None)
             }
         }
@@ -159,16 +193,32 @@ impl MagellanBackend {
             MagellanBackend::Geometric(backend) => backend
                 .find_symbol_by_id_info(id)
                 .map(|info| Self::convert_geometric_symbol(&info)),
-            MagellanBackend::SQLite(_graph) => {
-                let _ = id;
-                None
+            MagellanBackend::SQLite(graph) => {
+                let snapshot = SnapshotId::current();
+                graph.calls.backend.get_node(snapshot, id as i64).ok().and_then(|node| {
+                    if node.kind == "Symbol" {
+                        serde_json::from_value::<SymbolNode>(node.data)
+                            .ok()
+                            .map(|symbol| Self::convert_symbol_node(&symbol, id as i64))
+                    } else {
+                        None
+                    }
+                })
             }
         }
         #[cfg(not(feature = "geometric-backend"))]
         match self {
-            MagellanBackend::SQLite(_graph) => {
-                let _ = id;
-                None
+            MagellanBackend::SQLite(graph) => {
+                let snapshot = SnapshotId::current();
+                graph.calls.backend.get_node(snapshot, id as i64).ok().and_then(|node| {
+                    if node.kind == "Symbol" {
+                        serde_json::from_value::<SymbolNode>(node.data)
+                            .ok()
+                            .map(|symbol| Self::convert_symbol_node(&symbol, id as i64))
+                    } else {
+                        None
+                    }
+                })
             }
         }
     }
@@ -185,18 +235,26 @@ impl MagellanBackend {
                     .collect();
                 Ok(results)
             }
-            MagellanBackend::SQLite(_graph) => {
-                // TODO: Implement SQLite symbol lookup by name
-                let _ = name;
-                Ok(Vec::new())
+            MagellanBackend::SQLite(graph) => {
+                let symbols = Self::get_all_sqlite_symbols(graph)?;
+                let results: Vec<UnifiedSymbolInfo> = symbols
+                    .into_iter()
+                    .filter(|(_, symbol)| symbol.name.as_deref() == Some(name))
+                    .map(|(entity_id, symbol)| Self::convert_symbol_node(&symbol, entity_id))
+                    .collect();
+                Ok(results)
             }
         }
         #[cfg(not(feature = "geometric-backend"))]
         match self {
-            MagellanBackend::SQLite(_graph) => {
-                // TODO: Implement SQLite symbol lookup by name
-                let _ = name;
-                Ok(Vec::new())
+            MagellanBackend::SQLite(graph) => {
+                let symbols = Self::get_all_sqlite_symbols(graph)?;
+                let results: Vec<UnifiedSymbolInfo> = symbols
+                    .into_iter()
+                    .filter(|(_, symbol)| symbol.name.as_deref() == Some(name))
+                    .map(|(entity_id, symbol)| Self::convert_symbol_node(&symbol, entity_id))
+                    .collect();
+                Ok(results)
             }
         }
     }
@@ -261,6 +319,44 @@ impl MagellanBackend {
             end_col: info.end_col as u64,
             language: language_str,
         }
+    }
+
+    /// Convert SymbolNode to unified format
+    fn convert_symbol_node(node: &SymbolNode, entity_id: i64) -> UnifiedSymbolInfo {
+        UnifiedSymbolInfo {
+            id: entity_id as u64,
+            name: node.name.clone().unwrap_or_default(),
+            fqn: node.fqn.clone().unwrap_or_default(),
+            kind: SymbolKind::from_str(&node.kind).unwrap_or(SymbolKind::Unknown),
+            file_path: String::new(), // Will be populated from node data if available
+            byte_start: node.byte_start as u64,
+            byte_end: node.byte_end as u64,
+            start_line: node.start_line as u64,
+            start_col: node.start_col as u64,
+            end_line: node.end_line as u64,
+            end_col: node.end_col as u64,
+            language: None,
+        }
+    }
+
+    /// Helper to get all symbols from SQLite backend
+    fn get_all_sqlite_symbols(graph: &CodeGraph) -> Result<Vec<(i64, SymbolNode)>> {
+        let backend = &graph.calls.backend;
+        let entity_ids = backend.entity_ids()?;
+        let snapshot = SnapshotId::current();
+        let mut symbols = Vec::new();
+
+        for entity_id in entity_ids {
+            if let Ok(node) = backend.get_node(snapshot, entity_id) {
+                if node.kind == "Symbol" {
+                    if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data) {
+                        symbols.push((entity_id, symbol_node));
+                    }
+                }
+            }
+        }
+
+        Ok(symbols)
     }
 
     /// Export database to JSON format
