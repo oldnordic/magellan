@@ -62,45 +62,384 @@
 //! \`\`\`
 
 use anyhow::Result;
-use ahash::AHashSet;
+use ahash::{AHashMap, AHashSet};
 use rusqlite::params;
-use sqlitegraph::{algo, GraphBackend, SnapshotId, SqliteGraphBackend};
-use std::collections::{HashMap, HashSet};
+use sqlitegraph::errors::SqliteGraphError;
+use sqlitegraph::{GraphBackend, SnapshotId};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
 use crate::graph::schema::SymbolNode;
 
 use super::CodeGraph;
 
-/// Helper to get the underlying SqliteGraph from a trait object
+/// Backend-agnostic reachable_from implementation
 ///
-/// This is a temporary workaround until algorithm methods are added to GraphBackend trait.
-/// For SQLite backend, this extracts the concrete SqliteGraphBackend and calls .graph().
-///
-/// # Safety
-/// 
-/// This function uses unsafe pointer casting because the GraphBackend trait doesn't
-/// provide downcasting methods. It's safe as long as:
-/// - The backend is actually a SqliteGraphBackend (not V3 or other backend)
-/// - The Arc hasn't been cloned/reinterpreted
-///
-/// TODO: Remove this when sqlitegraph adds `as_any()` to GraphBackend trait
-fn get_sqlite_graph(backend: &Arc<dyn GraphBackend>) -> Result<&sqlitegraph::graph::SqliteGraph, anyhow::Error> {
-    // SAFETY: This is a temporary workaround. We use pointer casting to downcast
-    // from Arc<dyn GraphBackend> to Arc<SqliteGraphBackend>. This is safe because:
-    // 1. We only call this when we know the backend is SqliteGraphBackend
-    // 2. The Arc layout is stable for trait objects
-    // 3. We only read, don't modify
-    unsafe {
-        let ptr = Arc::as_ptr(backend);
-        // Double-check pointer is non-null before dereferencing
-        if ptr.is_null() {
-            return Err(anyhow::anyhow!("Null backend pointer"));
+/// Uses `fetch_outgoing` from GraphBackend trait instead of requiring SqliteGraph.
+fn reachable_from(backend: &dyn GraphBackend, start: i64) -> Result<AHashSet<i64>, SqliteGraphError> {
+    let mut visited = AHashSet::new();
+    let mut queue = VecDeque::new();
+
+    visited.insert(start);
+    queue.push_back(start);
+
+    while let Some(node) = queue.pop_front() {
+        for neighbor in backend.fetch_outgoing(node)? {
+            if visited.insert(neighbor) {
+                queue.push_back(neighbor);
+            }
         }
-        // Reinterpret as SqliteGraphBackend pointer
-        let concrete = &*(ptr as *const SqliteGraphBackend);
-        Ok(concrete.graph())
     }
+
+    Ok(visited)
+}
+
+/// Backend-agnostic reverse_reachable_from implementation
+///
+/// Uses `fetch_incoming` from GraphBackend trait instead of requiring SqliteGraph.
+fn reverse_reachable_from(backend: &dyn GraphBackend, start: i64) -> Result<AHashSet<i64>, SqliteGraphError> {
+    let mut visited = AHashSet::new();
+    let mut queue = VecDeque::new();
+
+    visited.insert(start);
+    queue.push_back(start);
+
+    while let Some(node) = queue.pop_front() {
+        for neighbor in backend.fetch_incoming(node)? {
+            if visited.insert(neighbor) {
+                queue.push_back(neighbor);
+            }
+        }
+    }
+
+    Ok(visited)
+}
+
+/// Result of SCC collapse operation
+#[derive(Debug, Clone)]
+struct SccCollapseResult {
+    /// Maps each original node ID to its SCC supernode ID
+    node_to_supernode: AHashMap<i64, i64>,
+    /// Maps each supernode ID to the set of original node IDs in that SCC
+    supernode_members: AHashMap<i64, AHashSet<i64>>,
+    /// Edges between supernodes in the condensed DAG
+    supernode_edges: Vec<(i64, i64)>,
+    /// Total number of SCCs found
+    num_sccs: usize,
+}
+
+/// Backend-agnostic collapse_sccs implementation
+///
+/// Uses `all_entity_ids` and `fetch_outgoing` from GraphBackend trait.
+fn collapse_sccs(backend: &dyn GraphBackend) -> Result<SccCollapseResult, SqliteGraphError> {
+    // Step 1: Compute SCCs using our backend-agnostic implementation
+    let scc_result = strongly_connected_components(backend)?;
+
+    // Step 2: Handle empty graph
+    if scc_result.components.is_empty() {
+        return Ok(SccCollapseResult {
+            node_to_supernode: AHashMap::new(),
+            supernode_members: AHashMap::new(),
+            supernode_edges: Vec::new(),
+            num_sccs: 0,
+        });
+    }
+
+    // Step 3: Build node_to_supernode and supernode_members mappings
+    let mut node_to_supernode: AHashMap<i64, i64> = AHashMap::new();
+    let mut supernode_members: AHashMap<i64, AHashSet<i64>> = AHashMap::new();
+
+    for component in &scc_result.components {
+        let supernode_id = component[0]; // Use first member as supernode ID
+        let mut members = AHashSet::new();
+        for &node in component {
+            node_to_supernode.insert(node, supernode_id);
+            members.insert(node);
+        }
+        supernode_members.insert(supernode_id, members);
+    }
+
+    // Step 4: Build supernode edges (condensed graph)
+    let mut supernode_edges: Vec<(i64, i64)> = Vec::new();
+    let mut seen_edges: HashSet<(i64, i64)> = HashSet::new();
+
+    for (&node, &supernode) in &node_to_supernode {
+        for neighbor in backend.fetch_outgoing(node)? {
+            if let Some(&neighbor_supernode) = node_to_supernode.get(&neighbor) {
+                // Only add edge if it's between different supernodes
+                if supernode != neighbor_supernode {
+                    let edge = (supernode, neighbor_supernode);
+                    if seen_edges.insert(edge) {
+                        supernode_edges.push(edge);
+                    }
+                }
+            }
+        }
+    }
+
+    // Sort edges for deterministic output
+    supernode_edges.sort();
+
+    Ok(SccCollapseResult {
+        node_to_supernode,
+        supernode_members,
+        supernode_edges,
+        num_sccs: scc_result.components.len(),
+    })
+}
+
+/// Path enumeration result for backend-agnostic implementation
+#[derive(Debug, Clone)]
+struct InternalPathEnumerationResult {
+    /// All found paths (each path is a sequence of node IDs)
+    paths: Vec<Vec<i64>>,
+    /// Total number of paths found (before max_paths limit)
+    total_found: usize,
+    /// Number of paths pruned by bounds (max_depth, max_paths)
+    pruned_by_bounds: usize,
+    /// Maximum depth reached during enumeration
+    max_depth_reached: usize,
+}
+
+/// Configuration for path enumeration
+#[derive(Debug, Clone)]
+struct PathEnumerationConfig {
+    /// Maximum depth to explore
+    max_depth: usize,
+    /// Maximum number of paths to return
+    max_paths: usize,
+    /// Maximum times to revisit a node (prevents infinite loops)
+    revisit_cap: usize,
+    /// Optional set of nodes that terminate path exploration
+    exit_nodes: Option<AHashSet<i64>>,
+    /// Optional set of nodes that represent errors
+    error_nodes: Option<AHashSet<i64>>,
+}
+
+impl Default for PathEnumerationConfig {
+    fn default() -> Self {
+        Self {
+            max_depth: 100,
+            max_paths: 1000,
+            revisit_cap: 100,
+            exit_nodes: None,
+            error_nodes: None,
+        }
+    }
+}
+
+/// Backend-agnostic enumerate_paths implementation
+///
+/// Uses `fetch_outgoing` from GraphBackend trait.
+fn enumerate_paths(
+    backend: &dyn GraphBackend,
+    entry: i64,
+    config: &PathEnumerationConfig,
+) -> Result<InternalPathEnumerationResult, SqliteGraphError> {
+    let mut paths = Vec::new();
+    let mut current_path = Vec::new();
+    let mut visit_count: AHashMap<i64, usize> = AHashMap::new();
+    let mut total_found = 0usize;
+    let mut pruned_by_bounds = 0usize;
+    let mut max_depth_reached = 0usize;
+
+    dfs_enumerate(
+        backend,
+        entry,
+        config,
+        &mut current_path,
+        &mut visit_count,
+        &mut paths,
+        &mut total_found,
+        &mut pruned_by_bounds,
+        &mut max_depth_reached,
+    )?;
+
+    Ok(InternalPathEnumerationResult {
+        paths,
+        total_found,
+        pruned_by_bounds,
+        max_depth_reached,
+    })
+}
+
+/// DFS helper for path enumeration
+#[allow(clippy::too_many_arguments)]
+fn dfs_enumerate(
+    backend: &dyn GraphBackend,
+    node: i64,
+    config: &PathEnumerationConfig,
+    current_path: &mut Vec<i64>,
+    visit_count: &mut AHashMap<i64, usize>,
+    all_paths: &mut Vec<Vec<i64>>,
+    total_found: &mut usize,
+    pruned_by_bounds: &mut usize,
+    max_depth_reached: &mut usize,
+) -> Result<(), SqliteGraphError> {
+    // Update visit count for this node
+    let count = visit_count.entry(node).or_insert(0);
+    *count += 1;
+
+    // Check revisit cap
+    if *count > config.revisit_cap {
+        visit_count.entry(node).and_modify(|e| *e -= 1);
+        return Ok(());
+    }
+
+    // Add node to current path
+    current_path.push(node);
+    let current_depth = current_path.len();
+    *max_depth_reached = (*max_depth_reached).max(current_depth);
+
+    // Check max depth
+    if current_depth >= config.max_depth {
+        *pruned_by_bounds += 1;
+        current_path.pop();
+        visit_count.entry(node).and_modify(|e| *e -= 1);
+        return Ok(());
+    }
+
+    // Check if this is an exit node
+    if let Some(ref exits) = config.exit_nodes {
+        if exits.contains(&node) && current_depth > 1 {
+            // Save this path (exclude entry, include exit)
+            if all_paths.len() < config.max_paths {
+                all_paths.push(current_path.clone());
+            }
+            *total_found += 1;
+            current_path.pop();
+            visit_count.entry(node).and_modify(|e| *e -= 1);
+            return Ok(());
+        }
+    }
+
+    // Explore neighbors
+    let neighbors = backend.fetch_outgoing(node)?;
+    let mut had_successors = false;
+
+    for neighbor in neighbors {
+        had_successors = true;
+        dfs_enumerate(
+            backend,
+            neighbor,
+            config,
+            current_path,
+            visit_count,
+            all_paths,
+            total_found,
+            pruned_by_bounds,
+            max_depth_reached,
+        )?;
+    }
+
+    // If no successors and no exit nodes specified, save path
+    if !had_successors && config.exit_nodes.is_none() && current_depth > 1 {
+        if all_paths.len() < config.max_paths {
+            all_paths.push(current_path.clone());
+        }
+        *total_found += 1;
+    }
+
+    // Backtrack
+    current_path.pop();
+    visit_count.entry(node).and_modify(|e| *e -= 1);
+
+    Ok(())
+}
+
+/// Result of strongly connected components computation
+#[derive(Debug, Clone)]
+struct SccResult {
+    /// List of SCCs, each is a vector of node IDs
+    components: Vec<Vec<i64>>,
+    /// Mapping from node ID to component index
+    node_to_component: AHashMap<i64, usize>,
+}
+
+/// Backend-agnostic strongly_connected_components implementation
+///
+/// Uses `all_entity_ids` and `fetch_outgoing` from GraphBackend trait.
+/// Implements Tarjan's SCC algorithm.
+fn strongly_connected_components(backend: &dyn GraphBackend) -> Result<SccResult, SqliteGraphError> {
+    let all_ids = backend.all_entity_ids()?;
+
+    if all_ids.is_empty() {
+        return Ok(SccResult {
+            components: Vec::new(),
+            node_to_component: AHashMap::new(),
+        });
+    }
+
+    let mut index = 0usize;
+    let mut stack: Vec<i64> = Vec::new();
+    let mut on_stack: HashSet<i64> = HashSet::new();
+    let mut indices: AHashMap<i64, usize> = AHashMap::new();
+    let mut lowlinks: AHashMap<i64, usize> = AHashMap::new();
+    let mut components: Vec<Vec<i64>> = Vec::new();
+    let mut node_to_component: AHashMap<i64, usize> = AHashMap::new();
+
+    fn strongconnect(
+        v: i64,
+        backend: &dyn GraphBackend,
+        index: &mut usize,
+        stack: &mut Vec<i64>,
+        on_stack: &mut HashSet<i64>,
+        indices: &mut AHashMap<i64, usize>,
+        lowlinks: &mut AHashMap<i64, usize>,
+        components: &mut Vec<Vec<i64>>,
+        node_to_component: &mut AHashMap<i64, usize>,
+    ) -> Result<(), SqliteGraphError> {
+        indices.insert(v, *index);
+        lowlinks.insert(v, *index);
+        *index += 1;
+        stack.push(v);
+        on_stack.insert(v);
+
+        for w in backend.fetch_outgoing(v)? {
+            if !indices.contains_key(&w) {
+                strongconnect(
+                    w, backend, index, stack, on_stack, indices, lowlinks, components, node_to_component,
+                )?;
+                let v_low = lowlinks[&v];
+                let w_low = lowlinks[&w];
+                lowlinks.insert(v, v_low.min(w_low));
+            } else if on_stack.contains(&w) {
+                let v_low = lowlinks[&v];
+                let w_idx = indices[&w];
+                lowlinks.insert(v, v_low.min(w_idx));
+            }
+        }
+
+        if lowlinks[&v] == indices[&v] {
+            let mut component = Vec::new();
+            loop {
+                let w = stack.pop().unwrap();
+                on_stack.remove(&w);
+                node_to_component.insert(w, components.len());
+                component.push(w);
+                if w == v {
+                    break;
+                }
+            }
+            components.push(component);
+        }
+
+        Ok(())
+    }
+
+    for &node in &all_ids {
+        if !indices.contains_key(&node) {
+            strongconnect(
+                node, backend, &mut index, &mut stack, &mut on_stack,
+                &mut indices, &mut lowlinks, &mut components, &mut node_to_component,
+            )?;
+        }
+    }
+
+    Ok(SccResult {
+        components,
+        node_to_component,
+    })
 }
 
 /// Symbol information for algorithm results
@@ -443,12 +782,11 @@ impl CodeGraph {
         _max_depth: Option<usize>,
     ) -> Result<Vec<SymbolInfo>> {
         let entity_id = self.resolve_symbol_entity(symbol_id)?;
-        let backend = &self.calls.backend;
+        let backend = &*self.calls.backend;
 
-        // Use sqlitegraph's reachable_from algorithm
+        // Use backend-agnostic reachable_from implementation
         // This traverses outgoing edges from the start node
-        // Note: sqlitegraph 1.3.0 API takes (graph, start), not (backend, snapshot, start, depth)
-        let reachable_entity_ids = algo::reachable_from(get_sqlite_graph(backend)?, entity_id)?;
+        let reachable_entity_ids = reachable_from(backend, entity_id)?;
 
         // Convert entity IDs to SymbolInfo
         let mut symbols = Vec::new();
@@ -505,12 +843,11 @@ impl CodeGraph {
         _max_depth: Option<usize>,
     ) -> Result<Vec<SymbolInfo>> {
         let entity_id = self.resolve_symbol_entity(symbol_id)?;
-        let backend = &self.calls.backend;
+        let backend = &*self.calls.backend;
 
-        // Use sqlitegraph's reverse_reachable_from algorithm
+        // Use backend-agnostic reverse_reachable_from implementation
         // This traverses incoming edges to the target node
-        // Note: sqlitegraph 1.3.0 API takes (graph, target)
-        let reachable_entity_ids = algo::reverse_reachable_from(get_sqlite_graph(backend)?, entity_id)?;
+        let reachable_entity_ids = reverse_reachable_from(backend, entity_id)?;
 
         // Convert entity IDs to SymbolInfo
         let mut symbols = Vec::new();
@@ -576,15 +913,13 @@ impl CodeGraph {
     /// \`\`\`
     pub fn dead_symbols(&self, entry_symbol_id: &str) -> Result<Vec<DeadSymbol>> {
         let entry_entity = self.resolve_symbol_entity(entry_symbol_id)?;
-        let backend = &self.calls.backend;
 
         // Get all call graph entities
         let all_entities = self.all_call_graph_entities()?;
 
         // Find all entities reachable from the entry point
-        // Note: sqlitegraph 1.3.0 API takes (graph, start)
-        let reachable_ids =
-            algo::reachable_from(get_sqlite_graph(backend)?, entry_entity)?;
+        let backend = &*self.calls.backend;
+        let reachable_ids = reachable_from(backend, entry_entity)?;
 
         // Dead symbols = all entities - reachable entities
         let reachable_set: HashSet<i64> = reachable_ids.into_iter().collect();
@@ -652,10 +987,10 @@ impl CodeGraph {
     /// }
     /// \`\`\`
     pub fn detect_cycles(&self) -> Result<CycleReport> {
-        let backend = &self.calls.backend;
+        let backend = &*self.calls.backend;
 
-        // Use sqlitegraph's strongly_connected_components algorithm
-        let scc_result = algo::strongly_connected_components(get_sqlite_graph(backend)?)?;
+        // Use backend-agnostic strongly_connected_components implementation
+        let scc_result = strongly_connected_components(backend)?;
 
         // Filter to SCCs with >1 member (mutual recursion)
         let cycles: Vec<_> = scc_result
@@ -727,10 +1062,10 @@ impl CodeGraph {
     /// \`\`\`
     pub fn find_cycles_containing(&self, symbol_id: &str) -> Result<Vec<Cycle>> {
         let entity_id = self.resolve_symbol_entity(symbol_id)?;
-        let backend = &self.calls.backend;
+        let backend = &*self.calls.backend;
 
-        // Use sqlitegraph's strongly_connected_components algorithm
-        let scc_result = algo::strongly_connected_components(get_sqlite_graph(backend)?)?;
+        // Use backend-agnostic strongly_connected_components implementation
+        let scc_result = strongly_connected_components(backend)?;
 
         // Find which SCC contains this entity
         let target_component_idx = scc_result.node_to_component.get(&entity_id);
@@ -796,10 +1131,10 @@ impl CodeGraph {
     /// }
     /// \`\`\`
     pub fn condense_call_graph(&self) -> Result<CondensationResult> {
-        let backend = &self.calls.backend;
+        let backend = &*self.calls.backend;
 
-        // Use sqlitegraph's collapse_sccs algorithm
-        let collapse_result = algo::collapse_sccs(get_sqlite_graph(backend)?)?;
+        // Use backend-agnostic collapse_sccs implementation
+        let collapse_result = collapse_sccs(backend)?;
 
         // Build supernodes with SymbolInfo members
         let mut supernodes = Vec::new();
@@ -880,14 +1215,14 @@ impl CodeGraph {
     /// \`\`\`
     pub fn backward_slice(&self, symbol_id: &str) -> Result<SliceResult> {
         let entity_id = self.resolve_symbol_entity(symbol_id)?;
-        let backend = &self.calls.backend;
+        let backend = &*self.calls.backend;
 
         // Get target symbol info
         let target = self.symbol_by_entity_id(entity_id)?;
 
-        // Fallback: Use reverse reachable on call graph
+        // Use backend-agnostic reverse_reachable_from on call graph
         // This finds all callers that directly or indirectly call this symbol
-        let caller_entity_ids = algo::reverse_reachable_from(get_sqlite_graph(backend)?, entity_id)?;
+        let caller_entity_ids = reverse_reachable_from(backend, entity_id)?;
 
         // Convert entity IDs to SymbolInfo
         let mut included_symbols = Vec::new();
@@ -969,14 +1304,14 @@ impl CodeGraph {
     /// \`\`\`
     pub fn forward_slice(&self, symbol_id: &str) -> Result<SliceResult> {
         let entity_id = self.resolve_symbol_entity(symbol_id)?;
-        let backend = &self.calls.backend;
+        let backend = &*self.calls.backend;
 
         // Get target symbol info
         let target = self.symbol_by_entity_id(entity_id)?;
 
-        // Fallback: Use forward reachable on call graph
+        // Use backend-agnostic reachable_from on call graph
         // This finds all callees that this symbol directly or indirectly calls
-        let callee_entity_ids = algo::reachable_from(get_sqlite_graph(backend)?, entity_id)?;
+        let callee_entity_ids = reachable_from(backend, entity_id)?;
 
         // Convert entity IDs to SymbolInfo
         let mut included_symbols = Vec::new();
@@ -1066,8 +1401,7 @@ impl CodeGraph {
         max_paths: usize,
     ) -> Result<PathEnumerationResult> {
         let start_entity_id = self.resolve_symbol_entity(start_symbol_id)?;
-        let backend = &self.calls.backend;
-        let graph = get_sqlite_graph(backend)?;
+        let backend = &*self.calls.backend;
 
         // Build exit_nodes set for target symbol
         let exit_nodes: Option<AHashSet<i64>> = if let Some(end_id) = end_symbol_id {
@@ -1079,8 +1413,8 @@ impl CodeGraph {
             None
         };
 
-        // Use sqlitegraph's path enumeration with bounds
-        let config = algo::PathEnumerationConfig {
+        // Use backend-agnostic path enumeration
+        let config = PathEnumerationConfig {
             max_depth,
             max_paths,
             revisit_cap: 100, // Prevent infinite loops in cyclic graphs
@@ -1088,20 +1422,20 @@ impl CodeGraph {
             error_nodes: None,
         };
 
-        let sqlite_result = algo::enumerate_paths(graph, start_entity_id, &config)?;
+        let enum_result = enumerate_paths(backend, start_entity_id, &config)?;
 
-        // Convert sqlitegraph's path result to our format
+        // Convert path enumeration result to our format
         let mut paths = Vec::new();
         let mut all_symbols = HashSet::new();
         let mut min_length = usize::MAX;
         let mut max_length = 0;
         let mut total_length = 0;
 
-        for path in sqlite_result.paths {
+        for path in enum_result.paths {
             let mut symbols = Vec::new();
 
-            for entity_id in &path.nodes {
-                if let Ok(info) = self.symbol_by_entity_id(*entity_id) {
+            for &entity_id in &path {
+                if let Ok(info) = self.symbol_by_entity_id(entity_id) {
                     all_symbols.insert(info.symbol_id.clone().unwrap_or_default());
                     symbols.push(info);
                 }
@@ -1144,11 +1478,11 @@ impl CodeGraph {
         };
 
         // Determine if we hit bounds
-        let bounded_hit = sqlite_result.paths_pruned_by_bounds > 0;
+        let bounded_hit = enum_result.pruned_by_bounds > 0;
 
         Ok(PathEnumerationResult {
             paths,
-            total_enumerated: sqlite_result.total_paths_found,
+            total_enumerated: enum_result.total_found,
             bounded_hit,
             statistics: PathStatistics {
                 avg_length,

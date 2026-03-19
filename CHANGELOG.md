@@ -5,6 +5,24 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **ExecutionLog panic on SideTables backend**
+  - Replaced `panic!()` with proper error return in `ExecutionLog::connect()`
+  - Now returns `rusqlite::Error::InvalidParameterName` for SideTables backend
+  - Consistent with `MetricsOps::connect()` error handling pattern
+  - Location: `src/graph/execution_log.rs:93`
+
+- **Unsafe pointer casting in algorithms.rs**
+  - Removed `get_sqlite_graph()` function that used `unsafe` pointer casting (lines 88-104)
+  - Replaced with backend-agnostic algorithm implementations:
+    - `reachable_from()` - BFS using `fetch_outgoing()` trait method
+    - `reverse_reachable_from()` - BFS using `fetch_incoming()` trait method
+    - `strongly_connected_components()` - Tarjan's algorithm using `all_entity_ids()` and `fetch_outgoing()`
+    - `collapse_sccs()` - SCC condensation using backend trait methods
+    - `enumerate_paths()` - DFS path enumeration using `fetch_outgoing()`
+  - All algorithms now work with any `GraphBackend` implementation (SQLite, V3, etc.)
+  - Location: `src/graph/algorithms.rs`
+
 ## [3.1.2] - 2026-03-15
 
 ### Added
