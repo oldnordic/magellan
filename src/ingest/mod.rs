@@ -71,6 +71,38 @@ impl SymbolKind {
             _ => SymbolKind::Unknown,
         }
     }
+
+    /// Convert a string representation to SymbolKind
+    ///
+    /// Accepts both the enum variant names (e.g., "Function", "Method")
+    /// and normalized keys (e.g., "fn", "method").
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            // Enum variant names (from Debug format)
+            "Function" => Some(SymbolKind::Function),
+            "Method" => Some(SymbolKind::Method),
+            "Class" => Some(SymbolKind::Class),
+            "Interface" => Some(SymbolKind::Interface),
+            "Enum" => Some(SymbolKind::Enum),
+            "Module" => Some(SymbolKind::Module),
+            "Union" => Some(SymbolKind::Union),
+            "Namespace" => Some(SymbolKind::Namespace),
+            "TypeAlias" => Some(SymbolKind::TypeAlias),
+            "Unknown" => Some(SymbolKind::Unknown),
+            // Normalized keys
+            "fn" => Some(SymbolKind::Function),
+            "method" => Some(SymbolKind::Method),
+            "struct" => Some(SymbolKind::Class),
+            "trait" => Some(SymbolKind::Interface),
+            "enum" => Some(SymbolKind::Enum),
+            "mod" => Some(SymbolKind::Module),
+            "union" => Some(SymbolKind::Union),
+            "namespace" => Some(SymbolKind::Namespace),
+            "type_alias" => Some(SymbolKind::TypeAlias),
+            "unknown" => Some(SymbolKind::Unknown),
+            _ => None,
+        }
+    }
 }
 
 /// Separator character for FQN construction per language

@@ -12,7 +12,7 @@ use crate::graph::geometric_backend::{
     GeometricBackend, GeometricBackendStats, SymbolInfo as GeometricSymbolInfo,
 };
 use crate::graph::CodeGraph;
-use crate::graph::schema::SymbolNode;
+use crate::graph::SymbolNode;
 use crate::ingest::SymbolKind;
 use sqlitegraph::{GraphBackend, SnapshotId};
 
@@ -142,7 +142,7 @@ impl MagellanBackend {
                 // Try to parse as numeric ID first
                 if let Ok(id) = fqn.parse::<i64>() {
                     let snapshot = SnapshotId::current();
-                    if let Ok(node) = graph.calls.backend.get_node(snapshot, id) {
+                    if let Ok(node) = graph.backend().get_node(snapshot, id) {
                         if node.kind == "Symbol" {
                             if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data) {
                                 return Ok(Some(Self::convert_symbol_node(&symbol_node, id)));
@@ -166,7 +166,7 @@ impl MagellanBackend {
                 // Try to parse as numeric ID first
                 if let Ok(id) = fqn.parse::<i64>() {
                     let snapshot = SnapshotId::current();
-                    if let Ok(node) = graph.calls.backend.get_node(snapshot, id) {
+                    if let Ok(node) = graph.backend().get_node(snapshot, id) {
                         if node.kind == "Symbol" {
                             if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data) {
                                 return Ok(Some(Self::convert_symbol_node(&symbol_node, id)));
@@ -195,7 +195,7 @@ impl MagellanBackend {
                 .map(|info| Self::convert_geometric_symbol(&info)),
             MagellanBackend::SQLite(graph) => {
                 let snapshot = SnapshotId::current();
-                graph.calls.backend.get_node(snapshot, id as i64).ok().and_then(|node| {
+                graph.backend().get_node(snapshot, id as i64).ok().and_then(|node| {
                     if node.kind == "Symbol" {
                         serde_json::from_value::<SymbolNode>(node.data)
                             .ok()
@@ -210,7 +210,7 @@ impl MagellanBackend {
         match self {
             MagellanBackend::SQLite(graph) => {
                 let snapshot = SnapshotId::current();
-                graph.calls.backend.get_node(snapshot, id as i64).ok().and_then(|node| {
+                graph.backend().get_node(snapshot, id as i64).ok().and_then(|node| {
                     if node.kind == "Symbol" {
                         serde_json::from_value::<SymbolNode>(node.data)
                             .ok()
@@ -341,7 +341,7 @@ impl MagellanBackend {
 
     /// Helper to get all symbols from SQLite backend
     fn get_all_sqlite_symbols(graph: &CodeGraph) -> Result<Vec<(i64, SymbolNode)>> {
-        let backend = &graph.calls.backend;
+        let backend = graph.backend();
         let entity_ids = backend.entity_ids()?;
         let snapshot = SnapshotId::current();
         let mut symbols = Vec::new();

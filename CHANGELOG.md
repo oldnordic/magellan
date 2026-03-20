@@ -5,6 +5,17 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [3.1.4] - 2026-03-19
+
+### Fixed
+- **SQLite backend CLI query issues**
+  - Fixed `backend_router.rs` accessing private `graph.calls` field
+  - Added public `backend()` method to `CodeGraph` for backend access
+  - Added `SymbolKind::from_str()` method for string-to-enum conversion
+  - Fixed import path for `SymbolNode` (using re-exported path)
+  - All CLI commands now work correctly: `status`, `query`, `find`, `refs`
+  - Location: `src/backend_router.rs`, `src/graph/mod.rs`, `src/ingest/mod.rs`
+
 ### Fixed
 - **ExecutionLog panic on SideTables backend**
   - Replaced `panic!()` with proper error return in `ExecutionLog::connect()`
