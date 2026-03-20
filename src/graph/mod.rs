@@ -59,6 +59,7 @@ pub mod scan;
 mod schema;
 pub mod side_tables;
 mod symbol_index;
+mod symbol_lookup;
 mod symbols;
 pub mod validation;
 
@@ -424,6 +425,7 @@ impl CodeGraph {
             files,
             symbols: symbols::SymbolOps {
                 backend: Arc::clone(&backend),
+                lookup: symbol_lookup::SymbolLookup::new(),
             },
             references: references::ReferenceOps {
                 backend: Arc::clone(&backend),
@@ -446,6 +448,12 @@ impl CodeGraph {
         // Build module index for path resolution
         // This enables import resolution during indexing
         let _ = graph.module_resolver.build_module_index();
+
+        // Build symbol lookup index for O(1) resolution
+        // This is a one-time cost (~50-100ms for 10k symbols) that enables fast lookups
+        if let Err(e) = graph.symbols.lookup.rebuild_from_backend(&*backend) {
+            eprintln!("Warning: Failed to build symbol lookup index: {}", e);
+        }
 
         // Trigger backfill if we have existing symbols but no metrics
         if needs_backfill {
@@ -915,6 +923,19 @@ impl CodeGraph {
     /// transactional and caching layers.
     #[doc(hidden)]
     pub fn __backend_for_watcher(&self) -> &std::sync::Arc<dyn sqlitegraph::GraphBackend> {
+        &self.files.backend
+    }
+
+    /// Get backend reference for backend router operations.
+    ///
+    /// This method provides access to the underlying graph backend for
+    /// backend-agnostic operations across SQLite and V3 backends.
+    ///
+    /// # WARNING
+    /// This is internal API. Direct backend access bypasses CodeGraph's
+    /// transactional and caching layers.
+    #[doc(hidden)]
+    pub fn backend(&self) -> &std::sync::Arc<dyn sqlitegraph::GraphBackend> {
         &self.files.backend
     }
 

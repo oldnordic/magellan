@@ -3,10 +3,8 @@
 //! Handles call indexing and query operations for CALLS edges.
 
 use anyhow::Result;
-use sqlitegraph::{GraphBackend, SnapshotId};
 use std::collections::HashMap;
 
-use crate::graph::schema::SymbolNode;
 use crate::references::CallFact;
 
 use super::CodeGraph;
@@ -20,41 +18,15 @@ use super::CodeGraph;
 ///
 /// # Returns
 /// Number of calls indexed
+///
+/// # Performance
+/// Uses in-memory SymbolLookup for O(1) symbol resolution instead of O(n) database scan.
 pub fn index_calls(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<usize> {
-    // Build map: FQN -> node ID from ALL symbols in database.
-    // Prefer symbols defined in the current file for duplicate names.
-    let mut symbol_fqn_to_id: HashMap<String, (i64, bool)> = HashMap::new();
-    let entity_ids = graph.files.backend.entity_ids()?;
-    let snapshot = SnapshotId::current();
-    for entity_id in entity_ids {
-        if let Ok(node) = graph.files.backend.get_node(snapshot, entity_id) {
-            if node.kind != "Symbol" {
-                continue;
-            }
+    // Use in-memory lookup for O(1) symbol resolution
+    // This replaces the previous O(n) database scan
+    let symbol_fqn_to_id_with_file = graph.symbols.lookup.fqn_to_id_with_current_file(path);
 
-            let symbol_node: SymbolNode = match serde_json::from_value(node.data.clone()) {
-                Ok(value) => value,
-                Err(_) => continue,
-            };
-
-            // Use FQN as key, fall back to name
-            let fqn = symbol_node.fqn.or(symbol_node.name).unwrap_or_default();
-
-            if fqn.is_empty() {
-                continue;
-            }
-
-            let is_current_file = node.file_path.as_deref() == Some(path);
-            match symbol_fqn_to_id.get(&fqn) {
-                Some((_, existing_is_current)) if *existing_is_current || !is_current_file => {}
-                _ => {
-                    symbol_fqn_to_id.insert(fqn, (entity_id, is_current_file));
-                }
-            }
-        }
-    }
-
-    let symbol_fqn_to_id: HashMap<String, i64> = symbol_fqn_to_id
+    let symbol_fqn_to_id: HashMap<String, i64> = symbol_fqn_to_id_with_file
         .into_iter()
         .map(|(fqn, (id, _))| (fqn, id))
         .collect();
