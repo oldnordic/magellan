@@ -346,6 +346,87 @@ impl ReferenceOps {
         Ok(references.len())
     }
 
+    /// Index references with pre-computed symbol facts (O(1) variant)
+    ///
+    /// This variant accepts pre-computed symbol facts from SymbolLookup,
+    /// avoiding the O(n) database scan of `index_references_with_symbol_id`.
+    ///
+    /// # Arguments
+    /// * `path` - File path
+    /// * `source` - File contents as bytes
+    /// * `symbol_id_to_id` - Map of SymbolId to entity_id (primary lookup)
+    /// * `fqn_to_id` - Map of FQN to entity_id (fallback for backward compatibility)
+    /// * `all_symbol_facts` - Pre-computed symbol facts from SymbolLookup
+    ///
+    /// # Returns
+    /// Number of references indexed
+    pub fn index_references_with_facts(
+        &self,
+        path: &str,
+        source: &[u8],
+        symbol_id_to_id: &HashMap<String, i64>,
+        fqn_to_id: &HashMap<String, i64>,
+        all_symbol_facts: &[crate::ingest::SymbolFact],
+    ) -> Result<usize> {
+        let path_buf = PathBuf::from(path);
+        let language = detect_language(&path_buf);
+
+        // Extract references using language-specific parser
+        // Pass all_symbol_facts to enable cross-file reference matching
+        let references = match language {
+            Some(Language::Rust) => {
+                let mut parser = Parser::new()?;
+                parser.extract_references(path_buf.clone(), source, all_symbol_facts)
+            }
+            Some(Language::Python) => {
+                let mut parser = PythonParser::new()?;
+                parser.extract_references(path_buf.clone(), source, all_symbol_facts)
+            }
+            Some(Language::C) => {
+                let mut parser = CParser::new()?;
+                parser.extract_references(path_buf.clone(), source, all_symbol_facts)
+            }
+            Some(Language::Cpp) => {
+                let mut parser = CppParser::new()?;
+                parser.extract_references(path_buf.clone(), source, all_symbol_facts)
+            }
+            Some(Language::Java) => {
+                let mut parser = JavaParser::new()?;
+                parser.extract_references(path_buf.clone(), source, all_symbol_facts)
+            }
+            Some(Language::JavaScript) => {
+                let mut parser = JavaScriptParser::new()?;
+                parser.extract_references(path_buf.clone(), source, all_symbol_facts)
+            }
+            Some(Language::TypeScript) => {
+                let mut parser = TypeScriptParser::new()?;
+                parser.extract_references(path_buf.clone(), source, all_symbol_facts)
+            }
+            None => Vec::new(),
+        };
+
+        // Insert reference nodes and REFERENCES edges
+        for reference in &references {
+            let target_symbol_id = symbol_id_to_id
+                .get(&reference.referenced_symbol)
+                .or_else(|| fqn_to_id.get(&reference.referenced_symbol));
+
+            if let Some(&target_symbol_id) = target_symbol_id {
+                let reference_id = self.insert_reference_node(reference)?;
+                self.insert_references_edge(
+                    reference_id,
+                    NodeId::from(target_symbol_id),
+                    reference,
+                )?;
+            }
+        }
+
+        // Also store cross-file references for efficient lookup
+        self.store_cross_file_refs(path, &references, symbol_id_to_id, fqn_to_id)?;
+
+        Ok(references.len())
+    }
+
     /// Store cross-file references in side tables for efficient lookup
     fn store_cross_file_refs(
         &self,

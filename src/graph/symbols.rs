@@ -199,6 +199,9 @@ fn generate_span_id(file_path: &str, byte_start: usize, byte_end: usize) -> Stri
 /// Symbol operations for CodeGraph
 pub struct SymbolOps {
     pub backend: Arc<dyn GraphBackend>,
+    /// In-memory lookup index for O(1) symbol resolution
+    /// Built on startup and maintained incrementally
+    pub lookup: super::symbol_lookup::SymbolLookup,
 }
 
 impl SymbolOps {
@@ -207,7 +210,9 @@ impl SymbolOps {
     /// This method generates a stable symbol_id based on the symbol's language,
     /// fully-qualified name, and defining span. The symbol_id is stored in the
     /// SymbolNode and can be used to correlate symbols across indexing runs.
-    pub fn insert_symbol_node(&self, fact: &SymbolFact) -> Result<NodeId> {
+    ///
+    /// Also updates the in-memory lookup index for O(1) resolution.
+    pub fn insert_symbol_node(&mut self, fact: &SymbolFact) -> Result<NodeId> {
         // Detect language (default to "unknown" if detection fails)
         let language = detect_language(&fact.file_path)
             .map(|l| l.as_str().to_string())
@@ -221,6 +226,7 @@ impl SymbolOps {
         // FQN prevents collisions; span_id ensures uniqueness within FQN
         let fqn_for_id = fact.fqn.as_deref().unwrap_or("");
         let symbol_id = generate_symbol_id(&language, fqn_for_id, &span_id);
+        let stable_symbol_id = symbol_id.clone(); // Clone for lookup index
 
         let symbol_node = SymbolNode {
             symbol_id: Some(symbol_id),
@@ -253,6 +259,9 @@ impl SymbolOps {
         let id = self.backend.insert_node(node_spec)?;
         let node_id = NodeId::from(id);
 
+        // Update the in-memory lookup index with stable symbol_id for O(1) resolution
+        self.lookup.insert_with_symbol_id(id, &file_path_str, fact, stable_symbol_id);
+
         // Note: Labels (language, symbol kind) are added during indexing in ops.rs
         // using graph.add_label() which delegates to SideTables for backend-agnostic storage.
         // This keeps symbol insertion separate from labeling concerns.
@@ -274,7 +283,9 @@ impl SymbolOps {
     }
 
     /// Delete all symbols and DEFINES edges for a file
-    pub fn delete_file_symbols(&self, file_id: NodeId) -> Result<()> {
+    ///
+    /// Also updates the in-memory lookup index to remove deleted symbols.
+    pub fn delete_file_symbols(&mut self, file_id: NodeId) -> Result<()> {
         // Find all outgoing DEFINES edges
         let snapshot = SnapshotId::current();
         let neighbor_ids = self.backend.neighbors(
@@ -286,9 +297,17 @@ impl SymbolOps {
             },
         )?;
 
+        // Collect entity IDs to remove from lookup index
+        let entity_ids_to_remove: Vec<i64> = neighbor_ids.clone();
+
         // Delete each symbol node (edges are cascade deleted)
         for symbol_node_id in neighbor_ids {
             self.backend.delete_entity(symbol_node_id)?;
+        }
+
+        // Remove from in-memory lookup index
+        for entity_id in entity_ids_to_remove {
+            self.lookup.remove(entity_id);
         }
 
         Ok(())
