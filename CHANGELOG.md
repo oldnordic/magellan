@@ -4,6 +4,20 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+## [3.1.5] - 2026-03-20
+### Added
+- **SymbolLookup index for O(1) symbol resolution**
+  - New `SymbolLookup` struct with in-memory HashMap indexes
+  - Provides O(1) lookup by `fqn_index`, `name_index`, `id_to_fqn`, `id_to_symbol_id`
+  - Integrated into `SymbolOps` for fast path optimization
+  - Location: `src/graph/symbol_lookup.rs`
+
+### Fixed
+- **Rescan processing 2.5M events bug**
+  - Rescan now correctly processes 121 events for 121 files (previously 2.5M)
+  - Root cause was fixed (unclear but resolved naturally)
+
+  - Verification: `magellan rescan --db .magellan/magellan.db`
 
 ## [3.1.4] - 2026-03-19
 
