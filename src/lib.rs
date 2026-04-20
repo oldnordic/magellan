@@ -53,6 +53,7 @@ pub mod diagnostics;
 pub mod error_codes;
 pub mod generation;
 pub mod geo_builder;
+pub mod geo_staleness;
 pub mod graph;
 pub mod indexer;
 pub mod ingest;
