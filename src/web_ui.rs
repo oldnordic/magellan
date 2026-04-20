@@ -13,7 +13,6 @@ use axum::{
 use serde::Deserialize;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 
@@ -22,25 +21,17 @@ use crate::graph::CodeGraph;
 /// Application state shared across handlers
 pub struct AppState {
     pub db_path: PathBuf,
-    pub graph: Arc<Mutex<CodeGraph>>,
 }
 
-/// Start the web server
-pub async fn run_web_server(db_path: PathBuf, host: String, port: u16) -> anyhow::Result<()> {
-    let graph = CodeGraph::open(&db_path)?;
-    let state = Arc::new(AppState {
-        db_path,
-        graph: Arc::new(Mutex::new(graph)),
-    });
-
+/// Build the axum router with the given state
+pub fn create_app(state: Arc<AppState>) -> Router {
     // CORS for local development
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
         .allow_headers(Any);
 
-    // Build router with API routes and static file serving
-    let app = Router::new()
+    Router::new()
         // API routes
         .route("/api/summary", get(handle_summary))
         .route("/api/symbols", get(handle_list_symbols))
@@ -49,7 +40,13 @@ pub async fn run_web_server(db_path: PathBuf, host: String, port: u16) -> anyhow
         // Static files (serve from ./web-ui directory)
         .nest_service("/", ServeDir::new("web-ui"))
         .with_state(state)
-        .layer(cors);
+        .layer(cors)
+}
+
+/// Start the web server
+pub async fn run_web_server(db_path: PathBuf, host: String, port: u16) -> anyhow::Result<()> {
+    let state = Arc::new(AppState { db_path: db_path.clone() });
+    let app = create_app(state);
 
     let addr = format!("{}:{}", host, port);
     println!("🌐 Magellan Web UI starting at http://{}", addr);
@@ -73,43 +70,37 @@ pub async fn run_web_server(db_path: PathBuf, host: String, port: u16) -> anyhow
 /// GET /api/summary - Project overview
 async fn handle_summary(
     State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
-    let graph = state.graph.lock().await;
-    
-    // Get basic stats from the graph
-    let files = match graph.count_files() {
-        Ok(c) => c,
-        Err(e) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
-    };
-    
-    let symbols = match graph.count_symbols() {
-        Ok(c) => c,
-        Err(e) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
-    };
-    
-    let calls = match graph.count_calls() {
-        Ok(c) => c,
-        Err(e) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
-    };
-    
-    let summary = SummaryResponse {
+) -> Result<Json<SummaryResponse>, StatusCode> {
+    let graph = CodeGraph::open(&state.db_path)
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
+    let files = graph.count_files()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let symbols = graph.count_symbols()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let calls = graph.count_calls()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(SummaryResponse {
         total_files: files,
         total_symbols: symbols,
         total_calls: calls,
-    };
-    
-    Json(summary).into_response()
+    }))
 }
 
 /// GET /api/symbols - List symbols with pagination
 async fn handle_list_symbols(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Query(params): Query<SymbolListParams>,
-) -> impl IntoResponse {
-    // For now, return empty list - full implementation would query the graph
+) -> Result<Json<ListResponse<SymbolItem>>, StatusCode> {
+    let _graph = CodeGraph::open(&state.db_path)
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
     let page = params.page.unwrap_or(1);
     let page_size = params.page_size.unwrap_or(50);
-    
+
     let result = ListResponse::<SymbolItem> {
         page,
         total_pages: 0,
@@ -119,36 +110,35 @@ async fn handle_list_symbols(
         prev_cursor: None,
         items: vec![],
     };
-    
-    Json(result).into_response()
+
+    Ok(Json(result))
 }
 
 /// GET /api/symbol/:name - Get symbol detail
 async fn handle_get_symbol(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Path(_name): Path<String>,
-) -> impl IntoResponse {
-    // Placeholder - would query graph for symbol details
-    error_response(StatusCode::NOT_FOUND, "Symbol not found")
+) -> Result<Json<SymbolItem>, StatusCode> {
+    let _graph = CodeGraph::open(&state.db_path)
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
+    Err(StatusCode::NOT_FOUND)
 }
 
 /// GET /api/file/:path - Get file context
 async fn handle_get_file(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Path(_file_path): Path<String>,
-) -> impl IntoResponse {
-    // Placeholder - would query graph for file context
-    error_response(StatusCode::NOT_FOUND, "File not found")
+) -> Result<Json<FileResponse>, StatusCode> {
+    let _graph = CodeGraph::open(&state.db_path)
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
+    Err(StatusCode::NOT_FOUND)
 }
 
 // ============================================================================
 // Helper Functions
 // ============================================================================
-
-fn error_response(status: StatusCode, message: &str) -> (StatusCode, &'static str) {
-    // Leak the string to get a static reference (acceptable for error responses)
-    (status, Box::leak(message.to_string().into_boxed_str()))
-}
 
 // ============================================================================
 // Query Parameters
@@ -196,6 +186,13 @@ struct SymbolItem {
     line: usize,
 }
 
+#[derive(Debug, serde::Serialize)]
+struct FileResponse {
+    path: String,
+    content: String,
+    symbols: Vec<SymbolItem>,
+}
+
 // ============================================================================
 // Embedded HTML UI
 // ============================================================================
@@ -208,6 +205,7 @@ pub fn get_index_html() -> Html<&'static str> {
 const INDEX_HTML: &str = r#"<!DOCTYPE html>
 <html>
 <head>
+    <meta charset="utf-8">
     <title>Magellan Code Explorer</title>
     <style>
         body { font-family: system-ui; margin: 2rem; }
@@ -221,13 +219,13 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     </style>
 </head>
 <body>
-    <h1>🔍 Magellan Code Explorer</h1>
-    
+    <h1>Magellan Code Explorer</h1>
+
     <div id="summary" class="card">
         <h2>Project Summary</h2>
         <div id="stats">Loading...</div>
     </div>
-    
+
     <div class="card">
         <h2>Symbols</h2>
         <input type="text" id="search" placeholder="Search symbols..." style="width: 100%; padding: 0.5rem; margin-bottom: 1rem;">
@@ -242,39 +240,65 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
             <tbody id="symbols"><tr><td colspan="3">Loading...</td></tr></tbody>
         </table>
     </div>
-    
+
     <script>
-        // Load summary
         fetch('/api/summary')
             .then(r => r.json())
             .then(data => {
-                document.getElementById('stats').innerHTML = `
-                    <div class="stat"><div class="stat-value">${data.total_files}</div>Files</div>
-                    <div class="stat"><div class="stat-value">${data.total_symbols}</div>Symbols</div>
-                    <div class="stat"><div class="stat-value">${data.total_calls}</div>Calls</div>
-                `;
+                const stats = document.getElementById('stats');
+                stats.textContent = '';
+                const s1 = document.createElement('div');
+                s1.className = 'stat';
+                const v1 = document.createElement('div');
+                v1.className = 'stat-value';
+                v1.textContent = data.total_files;
+                s1.appendChild(v1);
+                s1.appendChild(document.createTextNode('Files'));
+                stats.appendChild(s1);
+                const s2 = document.createElement('div');
+                s2.className = 'stat';
+                const v2 = document.createElement('div');
+                v2.className = 'stat-value';
+                v2.textContent = data.total_symbols;
+                s2.appendChild(v2);
+                s2.appendChild(document.createTextNode('Symbols'));
+                stats.appendChild(s2);
+                const s3 = document.createElement('div');
+                s3.className = 'stat';
+                const v3 = document.createElement('div');
+                v3.className = 'stat-value';
+                v3.textContent = data.total_calls;
+                s3.appendChild(v3);
+                s3.appendChild(document.createTextNode('Calls'));
+                stats.appendChild(s3);
             })
             .catch(e => {
-                document.getElementById('stats').innerHTML = 'Error loading summary: ' + e;
+                document.getElementById('stats').textContent = 'Error: ' + e;
             });
-        
-        // Load symbols
+
         fetch('/api/symbols?page=1&page_size=50')
             .then(r => r.json())
             .then(data => {
                 const tbody = document.getElementById('symbols');
                 if (data.total_items === 0) {
-                    tbody.innerHTML = '<tr><td colspan="3">No symbols found. Use magellan context list for now.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="3">No symbols found.</td></tr>';
                     return;
                 }
-                tbody.innerHTML = '';
+                tbody.textContent = '';
                 data.items.forEach(sym => {
                     const tr = document.createElement('tr');
-                    tr.innerHTML = `
-                        <td><a href="/api/symbol/${sym.name}">${sym.name}</a></td>
-                        <td>${sym.kind}</td>
-                        <td>${sym.file}:${sym.line}</td>
-                    `;
+                    const td1 = document.createElement('td');
+                    const a = document.createElement('a');
+                    a.href = '/api/symbol/' + encodeURIComponent(sym.name);
+                    a.textContent = sym.name;
+                    td1.appendChild(a);
+                    tr.appendChild(td1);
+                    const td2 = document.createElement('td');
+                    td2.textContent = sym.kind;
+                    tr.appendChild(td2);
+                    const td3 = document.createElement('td');
+                    td3.textContent = sym.file + ':' + sym.line;
+                    tr.appendChild(td3);
                     tbody.appendChild(tr);
                 });
             })
