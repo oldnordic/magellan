@@ -440,16 +440,8 @@ pub fn list_symbols(
     };
 
     let total_items = all_symbols.len();
-    let start = (page - 1) * page_size;
-    let end = std::cmp::min(start + page_size, total_items);
 
-    let items = if start < total_items {
-        all_symbols[start..end].to_vec()
-    } else {
-        Vec::new()
-    };
-
-    Ok(PaginatedResult::new(items, page, page_size, total_items))
+    Ok(PaginatedResult::new(all_symbols, page, page_size, total_items))
 }
 
 /// Symbol list item for pagination
