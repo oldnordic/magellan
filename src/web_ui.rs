@@ -38,6 +38,8 @@ pub fn create_app(state: Arc<AppState>) -> Router {
         .route("/api/symbols", get(handle_list_symbols))
         .route("/api/symbol", get(handle_get_symbol))
         .route("/api/file", get(handle_get_file))
+        .route("/api/callers", get(handle_get_callers))
+        .route("/api/callees", get(handle_get_callees))
         // Static files (serve from ./web-ui directory)
         .nest_service("/", ServeDir::new("web-ui"))
         .with_state(state)
@@ -56,12 +58,51 @@ pub async fn run_web_server(db_path: PathBuf, host: String, port: u16) -> anyhow
     println!("   - GET /api/symbols");
     println!("   - GET /api/symbol?name=<name>");
     println!("   - GET /api/file?path=...");
+    println!("   - GET /api/callers?name=<name>&file=<path>");
+    println!("   - GET /api/callees?name=<name>&file=<path>");
     println!("   - Static files served from ./web-ui/");
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+#[derive(Debug, Deserialize)]
+struct CallersQuery {
+    name: String,
+    #[serde(default)]
+    file: Option<String>,
+}
+
+async fn handle_get_callers(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<CallersQuery>,
+) -> Result<Json<Vec<context::query::SymbolListItem>>, StatusCode> {
+    let mut graph = CodeGraph::open(&state.db_path)
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    match context::query::get_callers(&mut graph, &params.name, params.file.as_deref()) {
+        Ok(callers) => Ok(Json(callers)),
+        Err(e) => {
+            eprintln!("Callers query failed: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
+async fn handle_get_callees(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<CallersQuery>,
+) -> Result<Json<Vec<context::query::SymbolListItem>>, StatusCode> {
+    let mut graph = CodeGraph::open(&state.db_path)
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    match context::query::get_callees(&mut graph, &params.name, params.file.as_deref()) {
+        Ok(callees) => Ok(Json(callees)),
+        Err(e) => {
+            eprintln!("Callees query failed: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
 }
 
 // ============================================================================
