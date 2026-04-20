@@ -32,11 +32,9 @@
 
 pub mod build;
 pub mod query;
-pub mod server;
 
 pub use build::{build_context_index, get_or_build_context_index, ContextIndex};
 pub use query::{
     ListQuery, PaginatedResult, SymbolDetail, FileContext, ProjectSummary, SymbolCounts,
     get_project_summary, get_file_context, get_symbol_detail, list_symbols,
 };
-pub use server::{run_context_server, ServerConfig};

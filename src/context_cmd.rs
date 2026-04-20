@@ -222,17 +222,3 @@ pub fn run_context_file(db_path: PathBuf, path: String) -> Result<()> {
 
     Ok(())
 }
-
-/// Run the context server command
-pub fn run_context_server(db_path: PathBuf, port: u16, host: String) -> Result<()> {
-    use magellan::context::{run_context_server as run_server, ServerConfig};
-
-    let config = ServerConfig {
-        db_path,
-        port,
-        host,
-        cors: true,
-    };
-
-    run_server(config)
-}
