@@ -94,25 +94,24 @@ async fn handle_summary(
 /// GET /api/symbols - List symbols with pagination
 async fn handle_list_symbols(
     State(state): State<Arc<AppState>>,
-    Query(params): Query<SymbolListParams>,
-) -> Result<Json<ListResponse<SymbolItem>>, StatusCode> {
-    let _graph = CodeGraph::open(&state.db_path)
+    Query(params): Query<ListSymbolsParams>,
+) -> Result<Json<context::query::PaginatedResult<context::query::SymbolListItem>>, StatusCode> {
+    let mut graph = CodeGraph::open(&state.db_path)
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-
-    let page = params.page.unwrap_or(1);
-    let page_size = params.page_size.unwrap_or(50);
-
-    let result = ListResponse::<SymbolItem> {
-        page,
-        total_pages: 0,
-        page_size,
-        total_items: 0,
-        next_cursor: None,
-        prev_cursor: None,
-        items: vec![],
+    let query = context::query::ListQuery {
+        kind: params.kind,
+        file_pattern: None,
+        page: params.page,
+        page_size: Some(params.page_size),
+        cursor: params.cursor,
     };
-
-    Ok(Json(result))
+    match context::query::list_symbols(&mut graph, &query) {
+        Ok(result) => Ok(Json(result)),
+        Err(e) => {
+            eprintln!("List symbols query failed: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
 }
 
 /// GET /api/symbol/:name - Get symbol detail
@@ -146,16 +145,18 @@ async fn handle_get_file(
 // ============================================================================
 
 #[derive(Debug, Deserialize)]
-struct SymbolListParams {
+struct ListSymbolsParams {
     #[serde(default)]
     kind: Option<String>,
     #[serde(default)]
     page: Option<usize>,
-    #[serde(default)]
-    page_size: Option<usize>,
+    #[serde(default = "default_page_size")]
+    page_size: usize,
     #[serde(default)]
     cursor: Option<String>,
 }
+
+fn default_page_size() -> usize { 50 }
 
 // ============================================================================
 // Response Types
@@ -166,17 +167,6 @@ struct SummaryResponse {
     total_files: usize,
     total_symbols: usize,
     total_calls: usize,
-}
-
-#[derive(Debug, serde::Serialize)]
-struct ListResponse<T> {
-    page: usize,
-    total_pages: usize,
-    page_size: usize,
-    total_items: usize,
-    next_cursor: Option<String>,
-    prev_cursor: Option<String>,
-    items: Vec<T>,
 }
 
 #[derive(Debug, serde::Serialize)]
