@@ -17,7 +17,10 @@ use std::path::{Path, PathBuf};
 /// v6: AST nodes file_id column for per-file tracking
 /// v7: CFG blocks table for control flow graph storage
 /// v8: cfg_blocks.cfg_hash column for cache invalidation
-pub const MAGELLAN_SCHEMA_VERSION: i64 = 8;
+/// v9: cfg_blocks.statements column for AST snippets
+/// v10: cfg_blocks 4D spatial-temporal coordinate columns
+/// v11: geo_index_meta table for lazy geometric index tracking
+pub const MAGELLAN_SCHEMA_VERSION: i64 = 11;
 
 /// Migration result summary
 #[derive(Debug, Clone)]
@@ -270,6 +273,37 @@ fn migrate_from_version(tx: &Transaction, old_version: i64) -> Result<()> {
         tx.execute(
             "CREATE INDEX IF NOT EXISTS idx_cfg_blocks_hash
              ON cfg_blocks(cfg_hash)",
+            [],
+        )?;
+    }
+
+    if old_version < 9 {
+        // v8 -> v9: Add statements column to cfg_blocks for AST snippets
+        tx.execute("ALTER TABLE cfg_blocks ADD COLUMN statements TEXT", [])?;
+    }
+
+    if old_version < 10 {
+        // v9 -> v10: Add 4D spatial-temporal coordinate columns to cfg_blocks
+        tx.execute("ALTER TABLE cfg_blocks ADD COLUMN coord_x INTEGER DEFAULT 0", [])?;
+        tx.execute("ALTER TABLE cfg_blocks ADD COLUMN coord_y INTEGER DEFAULT 0", [])?;
+        tx.execute("ALTER TABLE cfg_blocks ADD COLUMN coord_z INTEGER DEFAULT 0", [])?;
+        tx.execute("ALTER TABLE cfg_blocks ADD COLUMN coord_t TEXT", [])?;
+    }
+
+    if old_version < 11 {
+        // v10 -> v11: Add geo_index_meta table for lazy geometric index tracking
+        // This table records when a .geo file was built from the SQLite database
+        tx.execute(
+            "CREATE TABLE IF NOT EXISTS geo_index_meta (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                geo_path TEXT NOT NULL,
+                built_at INTEGER NOT NULL,
+                schema_version INTEGER NOT NULL,
+                symbol_count INTEGER NOT NULL,
+                call_count INTEGER NOT NULL,
+                cfg_block_count INTEGER NOT NULL,
+                checksum TEXT NOT NULL
+            )",
             [],
         )?;
     }
