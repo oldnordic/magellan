@@ -4,7 +4,7 @@
 //! Uses axum (like codemcp) for the HTTP server.
 
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Query, State},
     http::StatusCode,
     response::{Html, IntoResponse, Json},
     routing::get,
@@ -37,7 +37,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
         .route("/api/summary", get(handle_summary))
         .route("/api/symbols", get(handle_list_symbols))
         .route("/api/symbol", get(handle_get_symbol))
-        .route("/api/file/:path", get(handle_get_file))
+        .route("/api/file", get(handle_get_file))
         // Static files (serve from ./web-ui directory)
         .nest_service("/", ServeDir::new("web-ui"))
         .with_state(state)
@@ -55,7 +55,7 @@ pub async fn run_web_server(db_path: PathBuf, host: String, port: u16) -> anyhow
     println!("   - GET /api/summary");
     println!("   - GET /api/symbols");
     println!("   - GET /api/symbol?name=<name>");
-    println!("   - GET /api/file/:path");
+    println!("   - GET /api/file?path=...");
     println!("   - Static files served from ./web-ui/");
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
@@ -142,15 +142,30 @@ async fn handle_get_symbol(
     }
 }
 
-/// GET /api/file/:path - Get file context
+#[derive(Debug, Deserialize)]
+struct FileQuery {
+    path: String,
+}
+
+/// GET /api/file?path=... - Get file context
 async fn handle_get_file(
     State(state): State<Arc<AppState>>,
-    Path(_file_path): Path<String>,
-) -> Result<Json<FileResponse>, StatusCode> {
-    let _graph = CodeGraph::open(&state.db_path)
+    Query(params): Query<FileQuery>,
+) -> Result<Json<context::query::FileContext>, StatusCode> {
+    let mut graph = CodeGraph::open(&state.db_path)
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-
-    Err(StatusCode::NOT_FOUND)
+    match context::query::get_file_context(&mut graph, &params.path) {
+        Ok(context) => Ok(Json(context)),
+        Err(e) => {
+            let err_str = format!("{}", e);
+            if err_str.contains("not found") {
+                Err(StatusCode::NOT_FOUND)
+            } else {
+                eprintln!("File context query failed: {}", e);
+                Err(StatusCode::INTERNAL_SERVER_ERROR)
+            }
+        }
+    }
 }
 
 // ============================================================================
@@ -184,12 +199,6 @@ struct SummaryResponse {
     total_files: usize,
     total_symbols: usize,
     total_calls: usize,
-}
-
-#[derive(Debug, serde::Serialize)]
-struct FileResponse {
-    path: String,
-    content: String,
 }
 
 // ============================================================================
