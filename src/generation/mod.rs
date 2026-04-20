@@ -195,6 +195,23 @@ impl ChunkStore {
             [],
         ).expect("Failed to create cfg_blocks hash index");
 
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS cfg_edges (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                function_id INTEGER NOT NULL,
+                source_idx INTEGER NOT NULL,
+                target_idx INTEGER NOT NULL,
+                edge_type TEXT NOT NULL,
+                FOREIGN KEY (function_id) REFERENCES graph_entities(id) ON DELETE CASCADE
+            )",
+            [],
+        ).expect("Failed to create cfg_edges table in ChunkStore");
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cfg_edges_function ON cfg_edges(function_id)",
+            [],
+        ).expect("Failed to create cfg_edges function index");
+
         Self {
             backend: ChunkStoreBackend::Owned(db_path),
         }

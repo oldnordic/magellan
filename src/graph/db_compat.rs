@@ -10,7 +10,7 @@ pub fn expected_sqlitegraph_schema_version() -> i64 {
     sqlitegraph::schema::SCHEMA_VERSION
 }
 
-pub const MAGELLAN_SCHEMA_VERSION: i64 = 11;
+pub use crate::migrate_cmd::MAGELLAN_SCHEMA_VERSION;
 
 pub fn ensure_magellan_meta(db_path: &Path) -> Result<(), DbCompatError> {
     if is_in_memory_path(db_path) { return Ok(()); }
@@ -107,6 +107,15 @@ pub fn ensure_cfg_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatErro
     )", []).map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
     conn.execute("CREATE INDEX IF NOT EXISTS idx_cfg_blocks_function ON cfg_blocks(function_id)", []).map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
     conn.execute("CREATE INDEX IF NOT EXISTS idx_cfg_blocks_hash ON cfg_blocks(cfg_hash)", []).map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    conn.execute("CREATE TABLE IF NOT EXISTS cfg_edges (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        function_id INTEGER NOT NULL,
+        source_idx INTEGER NOT NULL,
+        target_idx INTEGER NOT NULL,
+        edge_type TEXT NOT NULL,
+        FOREIGN KEY (function_id) REFERENCES graph_entities(id) ON DELETE CASCADE
+    )", []).map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_cfg_edges_function ON cfg_edges(function_id)", []).map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
     Ok(())
 }
 
@@ -233,3 +242,32 @@ pub fn preflight_sqlitegraph_compat(db_path: &Path) -> Result<PreflightOk, DbCom
 fn is_in_memory_path(db_path: &Path) -> bool { db_path == Path::new(":memory:") }
 fn map_sqlite_open_err(path: &Path, _e: rusqlite::Error) -> DbCompatError { DbCompatError::PreflightSqliteFailure { path: path.to_path_buf() } }
 fn map_sqlite_query_err(path: &Path, _e: rusqlite::Error) -> DbCompatError { DbCompatError::PreflightSqliteFailure { path: path.to_path_buf() } }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cfg_edges_schema_created() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        ensure_cfg_schema(&conn).unwrap();
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='cfg_edges'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+
+        // Verify index was also created
+        let idx_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_cfg_edges_function'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(idx_count, 1);
+    }
+}
