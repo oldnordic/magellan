@@ -3,11 +3,11 @@
 use tempfile::TempDir;
 
 #[test]
-fn test_new_database_has_v8_schema() {
+fn test_new_database_has_v11_schema() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
 
-    // Open a new database (should create with v8)
+    // Open a new database (should create with v11)
     let _graph = magellan::CodeGraph::open(&db_path).unwrap();
 
     // Verify schema version
@@ -20,7 +20,7 @@ fn test_new_database_has_v8_schema() {
         )
         .unwrap();
 
-    assert_eq!(version, 8, "New databases should have schema version 8");
+    assert_eq!(version, 11, "New databases should have schema version 11");
 
     // Verify ast_nodes table exists
     let has_ast_table: bool = conn
@@ -63,10 +63,52 @@ fn test_new_database_has_v8_schema() {
         has_cfg_hash,
         "cfg_hash column should exist in cfg_blocks (v8)"
     );
+
+    // Verify statements column exists (v9 addition)
+    let has_statements: bool = conn
+        .query_row(
+            "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='statements'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+
+    assert!(
+        has_statements,
+        "statements column should exist in cfg_blocks (v9)"
+    );
+
+    // Verify 4D coordinate columns exist (v10 addition)
+    let has_coord_x: bool = conn
+        .query_row(
+            "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='coord_x'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+
+    assert!(
+        has_coord_x,
+        "coord_x column should exist in cfg_blocks (v10)"
+    );
+
+    // Verify geo_index_meta table exists (v11 addition)
+    let has_geo_meta: bool = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='geo_index_meta'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+
+    assert!(
+        has_geo_meta,
+        "geo_index_meta table should exist in new databases (v11)"
+    );
 }
 
 #[test]
-fn test_fresh_database_creation_v8() {
+fn test_fresh_database_creation_v11() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("fresh.db");
 
@@ -86,7 +128,7 @@ fn test_fresh_database_creation_v8() {
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(version, 8);
+    assert_eq!(version, 11);
 
     // Check ast_nodes table
     let count: i64 = conn
@@ -97,6 +139,12 @@ fn test_fresh_database_creation_v8() {
     // Check cfg_blocks table (v7)
     let count: i64 = conn
         .query_row("SELECT COUNT(*) FROM cfg_blocks", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(count, 0); // Empty but exists
+
+    // Check geo_index_meta table (v11)
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM geo_index_meta", [], |r| r.get(0))
         .unwrap();
     assert_eq!(count, 0); // Empty but exists
 
@@ -113,11 +161,11 @@ fn test_fresh_database_creation_v8() {
     assert!(indexes.contains(&"idx_ast_nodes_span".to_string()));
 }
 
-/// Test that v4->v8 migration creates the required tables
+/// Test that v4->v11 migration creates the required tables
 #[test]
-fn test_migration_v4_to_v8_creates_required_tables() {
+fn test_migration_v4_to_v11_creates_required_tables() {
     let temp_dir = TempDir::new().unwrap();
-    let db_path = temp_dir.path().join("test_v4_to_v8.db");
+    let db_path = temp_dir.path().join("test_v4_to_v11.db");
 
     // Create a v4 database (without ast_nodes table)
     let conn = rusqlite::Connection::open(&db_path).unwrap();
@@ -143,7 +191,7 @@ fn test_migration_v4_to_v8_creates_required_tables() {
     let result = magellan::migrate_cmd::run_migrate(db_path.clone(), false, true).unwrap();
     assert!(result.success);
     assert_eq!(result.old_version, 4);
-    assert_eq!(result.new_version, 8);
+    assert_eq!(result.new_version, 11);
 
     // Verify ast_nodes table exists
     let conn = rusqlite::Connection::open(&db_path).unwrap();
@@ -176,6 +224,36 @@ fn test_migration_v4_to_v8_creates_required_tables() {
         .unwrap_or(false);
     assert!(has_cfg_hash, "cfg_hash column should be created (v8)");
 
+    // Verify statements column exists (v9)
+    let has_statements: bool = conn
+        .query_row(
+            "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='statements'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+    assert!(has_statements, "statements column should be created (v9)");
+
+    // Verify 4D coordinate columns exist (v10)
+    let has_coord_x: bool = conn
+        .query_row(
+            "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='coord_x'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+    assert!(has_coord_x, "coord_x column should be created (v10)");
+
+    // Verify geo_index_meta table exists (v11)
+    let has_geo_meta: bool = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='geo_index_meta'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+    assert!(has_geo_meta, "geo_index_meta table should be created (v11)");
+
     // Verify indexes exist
     let has_parent_index: bool = conn
         .query_row(
@@ -203,12 +281,12 @@ fn test_migration_v4_to_v8_creates_required_tables() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(version, 8, "schema version should be 8 after migration");
+    assert_eq!(version, 11, "schema version should be 11 after migration");
 }
 
-/// Test that opening a v4 database auto-upgrades to v8
+/// Test that opening a v4 database auto-upgrades to v11
 #[test]
-fn test_opening_v4_database_auto_upgrades_to_v8() {
+fn test_opening_v4_database_auto_upgrades_to_v11() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test_v4_auto.db");
 
@@ -235,10 +313,10 @@ fn test_opening_v4_database_auto_upgrades_to_v8() {
     .unwrap();
     drop(conn);
 
-    // Open the database with CodeGraph (should auto-upgrade to v8)
+    // Open the database with CodeGraph (should auto-upgrade to v11)
     let _graph = magellan::CodeGraph::open(&db_path).unwrap();
 
-    // Verify schema version is now 8
+    // Verify schema version is now 11
     let conn = rusqlite::Connection::open(&db_path).unwrap();
     let version: i64 = conn
         .query_row(
@@ -248,7 +326,7 @@ fn test_opening_v4_database_auto_upgrades_to_v8() {
         )
         .unwrap();
 
-    assert_eq!(version, 8, "Opening v4 database should auto-upgrade to v8");
+    assert_eq!(version, 11, "Opening v4 database should auto-upgrade to v11");
 
     // Verify ast_nodes table exists
     let has_ast_table: bool = conn
@@ -276,5 +354,47 @@ fn test_opening_v4_database_auto_upgrades_to_v8() {
     assert!(
         has_cfg_hash,
         "cfg_hash column should be created during auto-upgrade (v8)"
+    );
+
+    // Verify statements column exists (v9)
+    let has_statements: bool = conn
+        .query_row(
+            "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='statements'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+
+    assert!(
+        has_statements,
+        "statements column should be created during auto-upgrade (v9)"
+    );
+
+    // Verify 4D coordinate columns exist (v10)
+    let has_coord_x: bool = conn
+        .query_row(
+            "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='coord_x'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+
+    assert!(
+        has_coord_x,
+        "coord_x column should be created during auto-upgrade (v10)"
+    );
+
+    // Verify geo_index_meta table exists (v11)
+    let has_geo_meta: bool = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='geo_index_meta'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+
+    assert!(
+        has_geo_meta,
+        "geo_index_meta table should be created during auto-upgrade (v11)"
     );
 }

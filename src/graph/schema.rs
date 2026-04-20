@@ -125,6 +125,11 @@ pub struct EdgeEndpoints {
 /// and single exit point (via terminator).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CfgBlock {
+    /// Hash of the MIR/AST for cache invalidation
+    pub cfg_hash: Option<String>,
+
+    /// High-fidelity statements (MIR instructions or AST snippets)
+    pub statements: Option<Vec<String>>,
     /// Function symbol ID this block belongs to
     pub function_id: i64,
 
@@ -151,6 +156,28 @@ pub struct CfgBlock {
 
     /// Column where block ends (0-indexed)
     pub end_col: u64,
+
+    // --- 4D Spatial-Temporal Coordinates (Schema v10+) ---
+
+    /// X coordinate: Dominator depth (structural hierarchy depth)
+    /// 0 = entry block, increases with nesting depth
+    #[serde(default)]
+    pub coord_x: i64,
+
+    /// Y coordinate: Loop nesting level (iterative complexity)
+    /// 0 = no loops, increases with nested loop depth
+    #[serde(default)]
+    pub coord_y: i64,
+
+    /// Z coordinate: Branch count (decision density)
+    /// Number of branch decisions from entry to this block
+    #[serde(default)]
+    pub coord_z: i64,
+
+    /// T coordinate: Time/version (git commit or trace timestamp)
+    /// None for current version, Some(commit_hash) for historical queries
+    #[serde(default)]
+    pub coord_t: Option<String>,
 }
 
 /// Control Flow Edge payload stored in graph_edges table
@@ -356,4 +383,90 @@ pub fn delete_edges_touching_entities(
         .map_err(|e| anyhow::anyhow!("Failed to delete edges touching entities: {}", e))?;
 
     Ok(affected)
+}
+
+/// Metadata about a lazy-built geometric index (.geo file)
+///
+/// Stored in the `geo_index_meta` table to track when the .geo file
+/// was last built from the SQLite database and whether it needs rebuilding.
+#[derive(Debug, Clone)]
+pub struct GeoIndexMeta {
+    pub geo_path: String,
+    pub built_at: i64,
+    pub schema_version: i64,
+    pub symbol_count: i64,
+    pub call_count: i64,
+    pub cfg_block_count: i64,
+    pub checksum: String,
+}
+
+impl GeoIndexMeta {
+    /// Record that a .geo index was built, overwriting any previous record.
+    pub fn record_geo_index_built(
+        conn: &rusqlite::Connection,
+        geo_path: &str,
+        symbol_count: i64,
+        call_count: i64,
+        cfg_block_count: i64,
+        checksum: &str,
+    ) -> Result<()> {
+        let schema_version = Self::current_schema_version();
+        let built_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_secs() as i64;
+
+        conn.execute(
+            "INSERT INTO geo_index_meta (id, geo_path, built_at, schema_version, symbol_count, call_count, cfg_block_count, checksum)
+             VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(id) DO UPDATE SET
+               geo_path = excluded.geo_path,
+               built_at = excluded.built_at,
+               schema_version = excluded.schema_version,
+               symbol_count = excluded.symbol_count,
+               call_count = excluded.call_count,
+               cfg_block_count = excluded.cfg_block_count,
+               checksum = excluded.checksum",
+            rusqlite::params![
+                geo_path,
+                built_at,
+                schema_version,
+                symbol_count,
+                call_count,
+                cfg_block_count,
+                checksum
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Get the last recorded geo index metadata.
+    pub fn get_geo_index_meta(
+        conn: &rusqlite::Connection,
+    ) -> Result<Option<GeoIndexMeta>> {
+        let mut stmt = conn.prepare(
+            "SELECT geo_path, built_at, schema_version, symbol_count, call_count, cfg_block_count, checksum
+             FROM geo_index_meta WHERE id = 1"
+        )?;
+        let result = stmt.query_row([], |row| {
+            Ok(GeoIndexMeta {
+                geo_path: row.get(0)?,
+                built_at: row.get(1)?,
+                schema_version: row.get(2)?,
+                symbol_count: row.get(3)?,
+                call_count: row.get(4)?,
+                cfg_block_count: row.get(5)?,
+                checksum: row.get(6)?,
+            })
+        });
+        match result {
+            Ok(meta) => Ok(Some(meta)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Return the current Magellan schema version.
+    pub fn current_schema_version() -> i64 {
+        crate::migrate_cmd::MAGELLAN_SCHEMA_VERSION
+    }
 }
