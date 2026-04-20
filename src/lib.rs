@@ -52,6 +52,7 @@ pub mod context;
 pub mod diagnostics;
 pub mod error_codes;
 pub mod generation;
+pub mod geo_builder;
 pub mod graph;
 pub mod indexer;
 pub mod ingest;
@@ -86,7 +87,8 @@ pub use graph::test_helpers::{delete_file_facts_with_injection, FailPoint};
 pub use graph::CrossFileRef;
 pub use graph::{
     CodeGraph, CondensationGraph, CondensationResult, Cycle, CycleKind, CycleReport, DeadSymbol,
-    DeleteResult, ExecutionPath, ExportConfig, ExportFormat, PathEnumerationResult, PathStatistics,
+    DeleteResult, ExecutionPath, ExportConfig, ExportFormat, GraphSymbol, MemoryGraph,
+    PathEnumerationResult, PathStatistics,
     ProgramSlice, ReconcileOutcome, ScanProgress, SliceDirection, SliceResult, SliceStatistics,
     Supernode, SymbolInfo, MAGELLAN_SCHEMA_VERSION,
 };
