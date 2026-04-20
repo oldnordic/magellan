@@ -16,6 +16,7 @@ use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 
+use crate::context;
 use crate::graph::CodeGraph;
 
 /// Application state shared across handlers
@@ -71,23 +72,26 @@ pub async fn run_web_server(db_path: PathBuf, host: String, port: u16) -> anyhow
 async fn handle_summary(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<SummaryResponse>, StatusCode> {
-    let graph = CodeGraph::open(&state.db_path)
+    let mut graph = CodeGraph::open(&state.db_path)
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
-    let files = graph.count_files()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let symbols = graph.count_symbols()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let calls = graph.count_calls()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    Ok(Json(SummaryResponse {
-        total_files: files,
-        total_symbols: symbols,
-        total_calls: calls,
-    }))
+    match context::query::get_project_summary(&mut graph) {
+        Ok(summary) => Ok(Json(SummaryResponse {
+            total_files: summary.total_files,
+            total_symbols: summary.total_symbols,
+            total_calls: summary.symbol_counts.functions
+                + summary.symbol_counts.methods
+                + summary.symbol_counts.structs
+                + summary.symbol_counts.traits
+                + summary.symbol_counts.enums
+                + summary.symbol_counts.modules
+                + summary.symbol_counts.other,
+        })),
+        Err(e) => {
+            eprintln!("Summary query failed: {}", e);
+            Err(StatusCode::SERVICE_UNAVAILABLE)
+        }
+    }
 }
 
 /// GET /api/symbols - List symbols with pagination
