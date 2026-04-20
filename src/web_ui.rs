@@ -75,17 +75,14 @@ async fn handle_summary(
     let mut graph = CodeGraph::open(&state.db_path)
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
+    let total_calls = graph.count_calls()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
     match context::query::get_project_summary(&mut graph) {
         Ok(summary) => Ok(Json(SummaryResponse {
             total_files: summary.total_files,
             total_symbols: summary.total_symbols,
-            total_calls: summary.symbol_counts.functions
-                + summary.symbol_counts.methods
-                + summary.symbol_counts.structs
-                + summary.symbol_counts.traits
-                + summary.symbol_counts.enums
-                + summary.symbol_counts.modules
-                + summary.symbol_counts.other,
+            total_calls,
         })),
         Err(e) => {
             eprintln!("Summary query failed: {}", e);
