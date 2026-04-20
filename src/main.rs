@@ -28,6 +28,7 @@ mod status_cmd;
 mod verify_cmd;
 mod version;
 mod watch_cmd;
+
 #[cfg(feature = "web-ui")]
 mod web_ui_cmd;
 
@@ -158,9 +159,6 @@ fn main() -> ExitCode {
                     callees,
                 } => context_cmd::run_context_symbol(db_path, name, file, callers, callees),
                 ContextSubcommand::File { path } => context_cmd::run_context_file(db_path, path),
-                ContextSubcommand::Server { port, host } => {
-                    context_cmd::run_context_server(db_path, port, host)
-                }
             };
             if let Err(e) = result {
                 eprintln!("Error: {}", e);
