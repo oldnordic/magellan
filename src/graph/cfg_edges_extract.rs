@@ -118,7 +118,7 @@ fn find_function_node<'a>(root: &'a Node<'a>) -> Option<Node<'a>> {
 }
 
 /// Extract CFG from a function node
-fn extract_cfg_from_function_node(
+pub fn extract_cfg_from_function_node(
     func_node: &Node,
     function_id: i64,
     source: &str,
@@ -164,6 +164,60 @@ fn extract_cfg_from_function_node(
         blocks,
         edges,
         function_id,
+    }
+}
+
+/// Scan a node's children for control-flow expressions and extract them.
+/// Used for let/assignment bindings where the RHS may contain control flow.
+fn extract_control_flow_children(
+    node: &tree_sitter::Node,
+    function_id: i64,
+    source: &str,
+    blocks: &mut Vec<CfgBlock>,
+    edges: &mut Vec<CfgEdge>,
+    previous_block_idx: &mut Option<usize>,
+    loop_header: Option<usize>,
+) {
+    let control_flow_kinds = [
+        "if_expression",
+        "if_statement",
+        "match_expression",
+        "match_statement",
+        "loop_expression",
+        "for_expression",
+        "while_expression",
+        "for_statement",
+        "while_statement",
+        "do_statement",
+        "return_expression",
+        "return_statement",
+        "break_expression",
+        "break_statement",
+        "continue_expression",
+        "continue_statement",
+        "try_expression",
+        "await_expression",
+        "closure_expression",
+    ];
+    let mut cursor = node.walk();
+    if cursor.goto_first_child() {
+        loop {
+            let child = cursor.node();
+            if control_flow_kinds.contains(&child.kind()) {
+                extract_blocks_from_node_with_fallthrough(
+                    &child,
+                    function_id,
+                    source,
+                    blocks,
+                    edges,
+                    previous_block_idx,
+                    loop_header,
+                );
+            }
+            if !cursor.goto_next_sibling() {
+                break;
+            }
+        }
     }
 }
 
@@ -362,6 +416,25 @@ fn extract_blocks_from_node_with_fallthrough(
                 });
             }
             *previous_block_idx = Some(source_idx);
+
+            // For let/assignment, scan RHS for nested control flow expressions
+            if matches!(
+                node_kind,
+                "let_declaration"
+                    | "let_statement"
+                    | "assignment_expression"
+                    | "assignment_statement"
+            ) {
+                extract_control_flow_children(
+                    node,
+                    function_id,
+                    source,
+                    blocks,
+                    edges,
+                    previous_block_idx,
+                    loop_header,
+                );
+            }
         }
 
         // Expression statement - unwrap and process the inner expression
@@ -390,6 +463,9 @@ fn extract_blocks_from_node_with_fallthrough(
                         | "break_statement"
                         | "continue_expression"
                         | "continue_statement"
+                        | "try_expression"
+                        | "await_expression"
+                        | "closure_expression"
                 ) {
                     extract_blocks_from_node_with_fallthrough(
                         &inner,
@@ -416,6 +492,124 @@ fn extract_blocks_from_node_with_fallthrough(
                     }
                     *previous_block_idx = Some(source_idx);
                 }
+            }
+        }
+
+        // Try expression (? operator / try blocks)
+        "try_expression" => {
+            let block = create_block_from_node(node, function_id, source, "try", "conditional");
+            let try_idx = blocks.len();
+            blocks.push(block);
+
+            if let Some(prev_idx) = *previous_block_idx {
+                edges.push(CfgEdge {
+                    source_idx: prev_idx,
+                    target_idx: try_idx,
+                    edge_type: CfgEdgeType::Fallthrough,
+                });
+            }
+
+            // Try body: the expression inside try
+            let mut cursor = node.walk();
+            if cursor.goto_first_child() {
+                loop {
+                    let child = cursor.node();
+                    // Skip "try" keyword, process body
+                    if child.kind() != "try" {
+                        extract_blocks_from_node_with_fallthrough(
+                            &child,
+                            function_id,
+                            source,
+                            blocks,
+                            edges,
+                            &mut Some(try_idx),
+                            loop_header,
+                        );
+                    }
+                    if !cursor.goto_next_sibling() {
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Await expression: suspension point, treat as call-like
+        "await_expression" => {
+            let block = create_block_from_node(node, function_id, source, "await", "fallthrough");
+            let await_idx = blocks.len();
+            blocks.push(block);
+
+            if let Some(prev_idx) = *previous_block_idx {
+                edges.push(CfgEdge {
+                    source_idx: prev_idx,
+                    target_idx: await_idx,
+                    edge_type: CfgEdgeType::Fallthrough,
+                });
+            }
+
+            // Process the expression being awaited (usually a call)
+            let mut cursor = node.walk();
+            if cursor.goto_first_child() {
+                loop {
+                    let child = cursor.node();
+                    if child.kind() != "await" {
+                        extract_blocks_from_node_with_fallthrough(
+                            &child,
+                            function_id,
+                            source,
+                            blocks,
+                            edges,
+                            &mut Some(await_idx),
+                            loop_header,
+                        );
+                    }
+                    if !cursor.goto_next_sibling() {
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Closure expression: extract body as inline block
+        "closure_expression" => {
+            // Find the body block inside the closure
+            let mut body_node = None;
+            let mut cursor = node.walk();
+            if cursor.goto_first_child() {
+                loop {
+                    let child = cursor.node();
+                    if child.kind() == "block" {
+                        body_node = Some(child);
+                        break;
+                    }
+                    if !cursor.goto_next_sibling() {
+                        break;
+                    }
+                }
+            }
+
+            let closure_idx = blocks.len();
+            let block = create_block_from_node(node, function_id, source, "closure", "fallthrough");
+            blocks.push(block);
+
+            if let Some(prev_idx) = *previous_block_idx {
+                edges.push(CfgEdge {
+                    source_idx: prev_idx,
+                    target_idx: closure_idx,
+                    edge_type: CfgEdgeType::Fallthrough,
+                });
+            }
+
+            if let Some(body) = body_node {
+                extract_blocks_from_node_with_fallthrough(
+                    &body,
+                    function_id,
+                    source,
+                    blocks,
+                    edges,
+                    &mut Some(closure_idx),
+                    loop_header,
+                );
             }
         }
 
@@ -474,6 +668,12 @@ fn create_entry_block(func_node: &Node, function_id: i64, _source: &str) -> CfgB
         start_col: func_node.start_position().column as u64,
         end_line: func_node.end_position().row as u64 + 1,
         end_col: func_node.end_position().column as u64,
+        cfg_hash: None,
+        statements: None,
+        coord_x: 0,
+        coord_y: 0,
+        coord_z: 0,
+        coord_t: None,
     }
 }
 
@@ -631,6 +831,12 @@ fn extract_if_blocks_with_fallthrough(
         start_col: 0,
         end_line: 0,
         end_col: 0,
+        cfg_hash: None,
+        statements: None,
+        coord_x: 0,
+        coord_y: 0,
+        coord_z: 0,
+        coord_t: None,
     };
     blocks.push(merge_block);
 
@@ -738,6 +944,12 @@ fn extract_loop_blocks_with_fallthrough(
         start_col: 0,
         end_line: 0,
         end_col: 0,
+        cfg_hash: None,
+        statements: None,
+        coord_x: 0,
+        coord_y: 0,
+        coord_z: 0,
+        coord_t: None,
     };
     blocks.push(exit_block);
 
@@ -859,6 +1071,12 @@ fn extract_match_blocks_with_fallthrough(
         start_col: 0,
         end_line: 0,
         end_col: 0,
+        cfg_hash: None,
+        statements: None,
+        coord_x: 0,
+        coord_y: 0,
+        coord_z: 0,
+        coord_t: None,
     };
     blocks.push(merge_block);
 
@@ -895,6 +1113,12 @@ fn create_block_from_node(
         start_col: node.start_position().column as u64,
         end_line: node.end_position().row as u64 + 1,
         end_col: node.end_position().column as u64,
+        cfg_hash: None,
+        statements: None,
+        coord_x: 0,
+        coord_y: 0,
+        coord_z: 0,
+        coord_t: None,
     }
 }
 
@@ -1020,5 +1244,49 @@ fn empty() {}
 
         assert_eq!(result.function_id, 1);
         assert!(result.blocks.len() >= 1, "Should have entry block");
+    }
+
+    #[test]
+    fn test_extract_try_expression() {
+        let source = r#"
+fn test() -> Result<i32, ()> {
+    let x = try_result()?;
+    Ok(x)
+}
+"#;
+        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
+        let try_blocks: Vec<_> = result.blocks.iter().filter(|b| b.kind == "try").collect();
+        assert!(!try_blocks.is_empty(), "Should have try blocks");
+    }
+
+    #[test]
+    fn test_extract_await_expression() {
+        let source = r#"
+async fn test() -> i32 {
+    let x = some_async().await;
+    x
+}
+"#;
+        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
+        let await_blocks: Vec<_> = result.blocks.iter().filter(|b| b.kind == "await").collect();
+        assert!(!await_blocks.is_empty(), "Should have await blocks");
+    }
+
+    #[test]
+    fn test_extract_closure_expression() {
+        let source = r#"
+fn test() {
+    let f = |x: i32| {
+        if x > 0 { x } else { 0 }
+    };
+    println!("{}", f(1));
+}
+"#;
+        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
+        let closure_blocks: Vec<_> = result.blocks.iter().filter(|b| b.kind == "closure").collect();
+        assert!(!closure_blocks.is_empty(), "Should have closure blocks");
+        // Closure body should have nested if
+        let if_blocks: Vec<_> = result.blocks.iter().filter(|b| b.kind == "if").collect();
+        assert!(!if_blocks.is_empty(), "Closure body should contain if blocks");
     }
 }
