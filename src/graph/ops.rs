@@ -86,10 +86,7 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
     use crate::ingest::c::CParser;
     use crate::ingest::cpp::CppParser;
     use crate::ingest::java::JavaParser;
-    use crate::ingest::javascript::JavaScriptParser;
     use crate::ingest::pool;
-    use crate::ingest::python::PythonParser;
-    use crate::ingest::typescript::TypeScriptParser;
     use crate::ingest::{detect::Language, detect_language, Parser};
 
     let hash = graph.files.compute_hash(source);
@@ -107,12 +104,6 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
     let language = detect_language(&path_buf);
 
     let symbol_facts = match language {
-        Some(Language::Python) => {
-            // Use parser pool for Python
-            pool::with_parser(Language::Python, |parser| {
-                PythonParser::extract_symbols_with_parser(parser, path_buf.clone(), source)
-            })?
-        }
         Some(Language::Rust) => {
             // Use parser pool for Rust
             pool::with_parser(Language::Rust, |parser| {
@@ -135,18 +126,6 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
             // Use parser pool for Java
             pool::with_parser(Language::Java, |parser| {
                 JavaParser::extract_symbols_with_parser(parser, path_buf.clone(), source)
-            })?
-        }
-        Some(Language::JavaScript) => {
-            // Use parser pool for JavaScript
-            pool::with_parser(Language::JavaScript, |parser| {
-                JavaScriptParser::extract_symbols_with_parser(parser, path_buf.clone(), source)
-            })?
-        }
-        Some(Language::TypeScript) => {
-            // Use parser pool for TypeScript
-            pool::with_parser(Language::TypeScript, |parser| {
-                TypeScriptParser::extract_symbols_with_parser(parser, path_buf.clone(), source)
             })?
         }
         // Unknown language — return empty
@@ -332,11 +311,12 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
                 // Find matching function symbol by byte range
                 if let Some((_, entity_id, _, _)) = function_symbol_ids
                     .iter()
-                    .find(|(_, _, start, end)| func_start == *start && func_end == *end)
+                    .find(|(_, _, start, end)| func_start >= *start && func_end <= *end)
                 {
+                    // Use the new 4D coordinate function that accepts a function node
                     let _ = graph
                         .cfg_ops
-                        .index_cfg_for_function(&func_node, source, *entity_id);
+                        .index_cfg_with_4d_coordinates_from_node(&func_node, source, *entity_id);
                 }
             }
 
@@ -435,10 +415,7 @@ pub fn index_file_incremental(graph: &mut CodeGraph, path: &str, source: &[u8]) 
     use crate::ingest::c::CParser;
     use crate::ingest::cpp::CppParser;
     use crate::ingest::java::JavaParser;
-    use crate::ingest::javascript::JavaScriptParser;
     use crate::ingest::pool;
-    use crate::ingest::python::PythonParser;
-    use crate::ingest::typescript::TypeScriptParser;
     use crate::ingest::{detect::Language, detect_language, Parser};
     use std::collections::{HashMap, HashSet};
 
@@ -462,9 +439,6 @@ pub fn index_file_incremental(graph: &mut CodeGraph, path: &str, source: &[u8]) 
     let language = detect_language(&path_buf);
 
     let new_symbol_facts = match language {
-        Some(Language::Python) => pool::with_parser(Language::Python, |parser| {
-            PythonParser::extract_symbols_with_parser(parser, path_buf.clone(), source)
-        })?,
         Some(Language::Rust) => pool::with_parser(Language::Rust, |parser| {
             Parser::extract_symbols_with_parser(parser, path_buf.clone(), source)
         })?,
@@ -476,12 +450,6 @@ pub fn index_file_incremental(graph: &mut CodeGraph, path: &str, source: &[u8]) 
         })?,
         Some(Language::Java) => pool::with_parser(Language::Java, |parser| {
             JavaParser::extract_symbols_with_parser(parser, path_buf.clone(), source)
-        })?,
-        Some(Language::JavaScript) => pool::with_parser(Language::JavaScript, |parser| {
-            JavaScriptParser::extract_symbols_with_parser(parser, path_buf.clone(), source)
-        })?,
-        Some(Language::TypeScript) => pool::with_parser(Language::TypeScript, |parser| {
-            TypeScriptParser::extract_symbols_with_parser(parser, path_buf.clone(), source)
         })?,
         _ => Vec::new(),
     };
@@ -638,11 +606,12 @@ pub fn index_file_incremental(graph: &mut CodeGraph, path: &str, source: &[u8]) 
 
                 if let Some((_, entity_id, _, _)) = function_symbol_ids
                     .iter()
-                    .find(|(_, _, start, end)| func_start == *start && func_end == *end)
+                    .find(|(_, _, start, end)| func_start >= *start && func_end <= *end)
                 {
+                    // Use the new 4D coordinate function that accepts a function node
                     let _ = graph
                         .cfg_ops
-                        .index_cfg_for_function(&func_node, source, *entity_id);
+                        .index_cfg_with_4d_coordinates_from_node(&func_node, source, *entity_id);
                 }
             }
 

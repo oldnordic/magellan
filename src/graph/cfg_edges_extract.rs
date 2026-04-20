@@ -821,16 +821,23 @@ fn extract_if_blocks_with_fallthrough(
 
     // Create merge block and set it as the next block for fallthrough
     let merge_idx = blocks.len();
+    let merge_byte_start = node.end_byte() as u64;
+    let merge_byte_end = merge_byte_start;
+    let merge_start_line = node.end_position().row as u64 + 1;
+    let merge_start_col = node.end_position().column as u64;
+    let merge_end_line = merge_start_line;
+    let merge_end_col = merge_start_col;
+
     let merge_block = CfgBlock {
         function_id,
         kind: "merge".to_string(),
         terminator: "fallthrough".to_string(),
-        byte_start: 0,
-        byte_end: 0,
-        start_line: 0,
-        start_col: 0,
-        end_line: 0,
-        end_col: 0,
+        byte_start: merge_byte_start,
+        byte_end: merge_byte_end,
+        start_line: merge_start_line,
+        start_col: merge_start_col,
+        end_line: merge_end_line,
+        end_col: merge_end_col,
         cfg_hash: None,
         statements: None,
         coord_x: 0,
@@ -1061,16 +1068,23 @@ fn extract_match_blocks_with_fallthrough(
 
     // Create merge block after match
     let merge_idx = blocks.len();
+    let merge_byte_start = node.end_byte() as u64;
+    let merge_byte_end = merge_byte_start;
+    let merge_start_line = node.end_position().row as u64 + 1;
+    let merge_start_col = node.end_position().column as u64;
+    let merge_end_line = merge_start_line;
+    let merge_end_col = merge_start_col;
+
     let merge_block = CfgBlock {
         function_id,
         kind: "merge".to_string(),
         terminator: "fallthrough".to_string(),
-        byte_start: 0,
-        byte_end: 0,
-        start_line: 0,
-        start_col: 0,
-        end_line: 0,
-        end_col: 0,
+        byte_start: merge_byte_start,
+        byte_end: merge_byte_end,
+        start_line: merge_start_line,
+        start_col: merge_start_col,
+        end_line: merge_end_line,
+        end_col: merge_end_col,
         cfg_hash: None,
         statements: None,
         coord_x: 0,
@@ -1288,5 +1302,23 @@ fn test() {
         // Closure body should have nested if
         let if_blocks: Vec<_> = result.blocks.iter().filter(|b| b.kind == "if").collect();
         assert!(!if_blocks.is_empty(), "Closure body should contain if blocks");
+    }
+
+    #[test]
+    fn test_merge_block_has_nonzero_range() {
+        let source = r#"
+fn test() {
+    if x { a } else { b }
+}
+"#;
+        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
+        let merge_blocks: Vec<_> = result.blocks.iter().filter(|b| b.kind == "merge").collect();
+        assert!(!merge_blocks.is_empty(), "Should have merge blocks");
+        for merge in merge_blocks {
+            assert!(
+                merge.byte_start > 0 || merge.start_line > 0,
+                "Merge block should have non-zero position"
+            );
+        }
     }
 }
