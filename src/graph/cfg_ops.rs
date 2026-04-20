@@ -467,11 +467,7 @@ pub fn compute_dominator_depth(cfg: &CfgWithEdges) -> HashMap<usize, i64> {
             continue;
         }
 
-        let doms = if let Some(d) = dominators.get(&i) {
-            d.clone()
-        } else {
-            HashSet::new()
-        };
+        let doms = dominators.get(&i).cloned().unwrap_or_default();
 
         let mut idom = None;
 
@@ -480,15 +476,13 @@ pub fn compute_dominator_depth(cfg: &CfgWithEdges) -> HashMap<usize, i64> {
                 continue;
             }
 
-            // Check if d strictly dominates i
-            let is_strict = doms.contains(d) && *d != i;
-
-            // Check if all other strict dominators dominate d
-            let is_idom = doms.iter().all(|&other| {
-                other == i || other == *d || doms.contains(d)
+            // idom(i) is the unique strict dominator of i that does NOT
+            // strictly dominate any other strict dominator of i.
+            let dominates_another = doms.iter().any(|&s| {
+                s != i && s != *d && dominators.get(&s).map(|set| set.contains(d)).unwrap_or(false)
             });
 
-            if is_strict && is_idom {
+            if !dominates_another {
                 idom = Some(*d);
                 break;
             }
@@ -756,6 +750,100 @@ mod spatial_tests {
 
         // All blocks should have a depth
         assert_eq!(depths.len(), cfg.blocks.len());
+    }
+
+    #[test]
+    fn test_compute_dominator_depth_linear_chain() {
+        // Manually construct a 4-block linear chain to verify idom selection
+        let cfg = CfgWithEdges {
+            function_id: 1,
+            blocks: vec![
+                CfgBlock {
+                    function_id: 1,
+                    kind: "ENTRY".to_string(),
+                    terminator: "FALLTHROUGH".to_string(),
+                    byte_start: 0,
+                    byte_end: 10,
+                    start_line: 1,
+                    start_col: 0,
+                    end_line: 1,
+                    end_col: 10,
+                    cfg_hash: None,
+                    statements: None,
+                    coord_x: 0,
+                    coord_y: 0,
+                    coord_z: 0,
+                    coord_t: None,
+                },
+                CfgBlock {
+                    function_id: 1,
+                    kind: "BASIC".to_string(),
+                    terminator: "FALLTHROUGH".to_string(),
+                    byte_start: 10,
+                    byte_end: 20,
+                    start_line: 2,
+                    start_col: 0,
+                    end_line: 2,
+                    end_col: 10,
+                    cfg_hash: None,
+                    statements: None,
+                    coord_x: 0,
+                    coord_y: 0,
+                    coord_z: 0,
+                    coord_t: None,
+                },
+                CfgBlock {
+                    function_id: 1,
+                    kind: "BASIC".to_string(),
+                    terminator: "FALLTHROUGH".to_string(),
+                    byte_start: 20,
+                    byte_end: 30,
+                    start_line: 3,
+                    start_col: 0,
+                    end_line: 3,
+                    end_col: 10,
+                    cfg_hash: None,
+                    statements: None,
+                    coord_x: 0,
+                    coord_y: 0,
+                    coord_z: 0,
+                    coord_t: None,
+                },
+                CfgBlock {
+                    function_id: 1,
+                    kind: "EXIT".to_string(),
+                    terminator: "RETURN".to_string(),
+                    byte_start: 30,
+                    byte_end: 40,
+                    start_line: 4,
+                    start_col: 0,
+                    end_line: 4,
+                    end_col: 10,
+                    cfg_hash: None,
+                    statements: None,
+                    coord_x: 0,
+                    coord_y: 0,
+                    coord_z: 0,
+                    coord_t: None,
+                },
+            ],
+            edges: vec![
+                CfgEdge { source_idx: 0, target_idx: 1, edge_type: CfgEdgeType::Fallthrough },
+                CfgEdge { source_idx: 1, target_idx: 2, edge_type: CfgEdgeType::Fallthrough },
+                CfgEdge { source_idx: 2, target_idx: 3, edge_type: CfgEdgeType::Fallthrough },
+            ],
+        };
+
+        let depths = compute_dominator_depth(&cfg);
+
+        // Entry block has depth 0
+        assert_eq!(depths.get(&0), Some(&0), "entry should have depth 0");
+        // Block 1 is directly dominated by entry
+        assert_eq!(depths.get(&1), Some(&1), "block 1 should have depth 1");
+        // Block 2 is dominated by entry -> block 1
+        assert_eq!(depths.get(&2), Some(&2), "block 2 should have depth 2");
+        // Block 3 is dominated by entry -> block 1 -> block 2
+        assert_eq!(depths.get(&3), Some(&3), "block 3 should have depth 3");
     }
 
     #[test]
