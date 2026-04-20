@@ -21,6 +21,12 @@
 pub mod algorithms;
 pub mod ambiguity;
 pub mod backend;
+pub mod memory_graph;
+
+// Re-export MemoryGraph types for public API
+// Note: GraphStats is not re-exported here due to name collision with CodeGraph's GraphStats
+// Access via graph::memory_graph::GraphStats if needed
+pub use memory_graph::{GraphSymbol, MemoryGraph};
 mod ast_extractor;
 
 #[cfg(feature = "geometric-backend")]
@@ -40,10 +46,11 @@ mod call_ops;
 mod calls;
 pub mod canonical_fqn;
 mod cfg_extractor;
+pub mod cfg_edges_extract;
 mod cfg_ops;
 mod count;
 pub mod crate_name;
-mod db_compat;
+pub mod db_compat;
 pub mod execution_log;
 pub mod export;
 mod files;
@@ -56,7 +63,7 @@ mod ops;
 pub mod query;
 mod references;
 pub mod scan;
-mod schema;
+pub mod schema;
 pub mod side_tables;
 mod symbol_index;
 mod symbol_lookup;
@@ -111,6 +118,10 @@ pub use export::{ExportConfig, ExportFormat};
 pub use freshness::{check_freshness, FreshnessStatus, STALE_THRESHOLD_SECS};
 pub use metrics::MetricsOps;
 pub use schema::{CallNode, CfgBlock, CfgEdge, CrossFileRef, FileNode, ReferenceNode, SymbolNode};
+
+// Re-export geometric backend types when feature is enabled
+#[cfg(feature = "geometric-backend")]
+pub use geometric_backend::GeometricBackend;
 
 /// Statistics for a CodeGraph database
 ///
@@ -685,6 +696,18 @@ impl CodeGraph {
         ops::reconcile_file_path(self, path, path_key)
     }
 
+    /// Reconcile a file path using pre-read source bytes.
+    ///
+    /// Same as `reconcile_file_path` but avoids re-reading from disk.
+    pub fn reconcile_file_path_with_source(
+        &mut self,
+        path: &Path,
+        path_key: &str,
+        source: &[u8],
+    ) -> Result<ReconcileOutcome> {
+        ops::reconcile_file_path_with_source(self, path, path_key, source)
+    }
+
     /// Scan a directory and index all Rust files found
     ///
     /// # Behavior
@@ -788,6 +811,14 @@ impl CodeGraph {
     /// HashMap of file path -> FileNode for all files in the database
     pub fn all_file_nodes(&mut self) -> Result<std::collections::HashMap<String, FileNode>> {
         self.files.all_file_nodes()
+    }
+
+    /// Get all FileNodes from the database (read-only, doesn't require mutation).
+    ///
+    /// # Returns
+    /// HashMap of file path -> FileNode for all files in the database
+    pub fn all_file_nodes_readonly(&self) -> Result<std::collections::HashMap<String, FileNode>> {
+        self.files.all_file_nodes_readonly()
     }
 
     /// Get code chunks for a specific file.

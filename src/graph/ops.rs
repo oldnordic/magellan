@@ -1525,3 +1525,100 @@ pub fn reconcile_file_path(
         calls,
     })
 }
+
+/// Reconcile a file path using pre-read source bytes.
+///
+/// Same behavior as `reconcile_file_path` but accepts pre-read source
+/// to avoid re-reading from disk.
+pub fn reconcile_file_path_with_source(
+    graph: &mut CodeGraph,
+    path: &Path,
+    path_key: &str,
+    source: &[u8],
+) -> Result<ReconcileOutcome> {
+    // 1) Check if file exists on filesystem
+    if !path.exists() {
+        #[cfg(debug_assertions)]
+        {
+            let deleted = delete_file_facts(graph, path_key)?;
+            if !deleted.is_empty() {
+                eprintln!(
+                    "Deleted {} symbols, {} references, {} calls for missing file {}",
+                    deleted.symbols_deleted,
+                    deleted.references_deleted,
+                    deleted.calls_deleted,
+                    path_key
+                );
+            }
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            let _ = delete_file_facts(graph, path_key)?;
+        }
+        return Ok(ReconcileOutcome::Deleted);
+    }
+
+    // 2) Use provided source bytes (skip fs::read)
+    let new_hash = graph.files.compute_hash(source);
+
+    // 3) Check if hash matches stored file node
+    let snapshot = SnapshotId::current();
+    let unchanged = if let Some(file_id) = graph.files.find_file_node(path_key)? {
+        match graph.files.backend.get_node(snapshot, file_id.as_i64()) {
+            Ok(node) => {
+                let file_node: crate::graph::schema::FileNode = serde_json::from_value(node.data)
+                    .unwrap_or_else(|_| crate::graph::schema::FileNode {
+                        path: path_key.to_string(),
+                        hash: String::new(),
+                        last_indexed_at: 0,
+                        last_modified: 0,
+                    });
+                file_node.hash == new_hash
+            }
+            Err(sqlitegraph::SqliteGraphError::NotFound(_)) => {
+                graph.files.file_index.remove(path_key);
+                false
+            }
+            Err(e) => return Err(e.into()),
+        }
+    } else {
+        false
+    };
+
+    // 4) If unchanged, skip reindexing
+    if unchanged {
+        return Ok(ReconcileOutcome::Unchanged);
+    }
+
+    // 5) Delete all existing facts, then re-index
+    #[cfg(debug_assertions)]
+    {
+        let deleted = delete_file_facts(graph, path_key)?;
+        if !deleted.is_empty() {
+            eprintln!(
+                "Deleted {} symbols, {} references, {} calls for reindex of {}",
+                deleted.symbols_deleted,
+                deleted.references_deleted,
+                deleted.calls_deleted,
+                path_key
+            );
+        }
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = delete_file_facts(graph, path_key)?;
+    }
+
+    let _ = graph.module_resolver.build_module_index();
+
+    let symbols = index_file(graph, path_key, source)?;
+    query::index_references(graph, path_key, source)?;
+    let calls = count_calls_in_file(graph, path_key);
+    let references = count_references_in_file(graph, path_key);
+
+    Ok(ReconcileOutcome::Reindexed {
+        symbols,
+        references,
+        calls,
+    })
+}
