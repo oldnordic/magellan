@@ -6,7 +6,7 @@
 use axum::{
     extract::{Query, State},
     http::StatusCode,
-    response::{Html, IntoResponse, Json},
+    response::{Html, Json},
     routing::get,
     Router,
 };
@@ -14,7 +14,6 @@ use serde::Deserialize;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
-use tower_http::services::ServeDir;
 
 use crate::context;
 use crate::graph::CodeGraph;
@@ -33,6 +32,8 @@ pub fn create_app(state: Arc<AppState>) -> Router {
         .allow_headers(Any);
 
     Router::new()
+        // HTML explorer page
+        .route("/", get(|| async { get_index_html() }))
         // API routes
         .route("/api/summary", get(handle_summary))
         .route("/api/symbols", get(handle_list_symbols))
@@ -40,8 +41,6 @@ pub fn create_app(state: Arc<AppState>) -> Router {
         .route("/api/file", get(handle_get_file))
         .route("/api/callers", get(handle_get_callers))
         .route("/api/callees", get(handle_get_callees))
-        // Static files (serve from ./web-ui directory)
-        .nest_service("/", ServeDir::new("web-ui"))
         .with_state(state)
         .layer(cors)
 }
