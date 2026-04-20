@@ -144,7 +144,12 @@ impl ChunkStore {
                 start_col INTEGER NOT NULL,
                 end_line INTEGER NOT NULL,
                 end_col INTEGER NOT NULL,
-                cfg_hash TEXT
+                cfg_hash TEXT,
+                statements TEXT,
+                coord_x INTEGER DEFAULT 0,
+                coord_y INTEGER DEFAULT 0,
+                coord_z INTEGER DEFAULT 0,
+                coord_t TEXT DEFAULT NULL
             )",
             [],
         ).expect("Failed to create cfg_blocks table in ChunkStore stub");
@@ -201,8 +206,7 @@ impl ChunkStore {
                 function_id INTEGER NOT NULL,
                 source_idx INTEGER NOT NULL,
                 target_idx INTEGER NOT NULL,
-                edge_type TEXT NOT NULL,
-                FOREIGN KEY (function_id) REFERENCES graph_entities(id) ON DELETE CASCADE
+                edge_type TEXT NOT NULL
             )",
             [],
         ).expect("Failed to create cfg_edges table in ChunkStore");
