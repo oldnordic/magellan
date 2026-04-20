@@ -36,7 +36,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
         // API routes
         .route("/api/summary", get(handle_summary))
         .route("/api/symbols", get(handle_list_symbols))
-        .route("/api/symbol/:name", get(handle_get_symbol))
+        .route("/api/symbol", get(handle_get_symbol))
         .route("/api/file/:path", get(handle_get_file))
         // Static files (serve from ./web-ui directory)
         .nest_service("/", ServeDir::new("web-ui"))
@@ -54,7 +54,7 @@ pub async fn run_web_server(db_path: PathBuf, host: String, port: u16) -> anyhow
     println!("   API endpoints:");
     println!("   - GET /api/summary");
     println!("   - GET /api/symbols");
-    println!("   - GET /api/symbol/:name");
+    println!("   - GET /api/symbol?name=<name>");
     println!("   - GET /api/file/:path");
     println!("   - Static files served from ./web-ui/");
 
@@ -114,15 +114,32 @@ async fn handle_list_symbols(
     }
 }
 
-/// GET /api/symbol/:name - Get symbol detail
+#[derive(Debug, Deserialize)]
+struct SymbolQuery {
+    name: String,
+    #[serde(default)]
+    file: Option<String>,
+}
+
+/// GET /api/symbol - Get symbol detail
 async fn handle_get_symbol(
     State(state): State<Arc<AppState>>,
-    Path(_name): Path<String>,
-) -> Result<Json<SymbolItem>, StatusCode> {
-    let _graph = CodeGraph::open(&state.db_path)
+    Query(params): Query<SymbolQuery>,
+) -> Result<Json<context::query::SymbolDetail>, StatusCode> {
+    let mut graph = CodeGraph::open(&state.db_path)
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-
-    Err(StatusCode::NOT_FOUND)
+    match context::query::get_symbol_detail(&mut graph, &params.name, params.file.as_deref()) {
+        Ok(detail) => Ok(Json(detail)),
+        Err(e) => {
+            let err_str = format!("{}", e);
+            if err_str.contains("not found") {
+                Err(StatusCode::NOT_FOUND)
+            } else {
+                eprintln!("Symbol detail query failed: {}", e);
+                Err(StatusCode::INTERNAL_SERVER_ERROR)
+            }
+        }
+    }
 }
 
 /// GET /api/file/:path - Get file context
@@ -170,18 +187,9 @@ struct SummaryResponse {
 }
 
 #[derive(Debug, serde::Serialize)]
-struct SymbolItem {
-    name: String,
-    kind: String,
-    file: String,
-    line: usize,
-}
-
-#[derive(Debug, serde::Serialize)]
 struct FileResponse {
     path: String,
     content: String,
-    symbols: Vec<SymbolItem>,
 }
 
 // ============================================================================
@@ -280,7 +288,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                     const tr = document.createElement('tr');
                     const td1 = document.createElement('td');
                     const a = document.createElement('a');
-                    a.href = '/api/symbol/' + encodeURIComponent(sym.name);
+                    a.href = '/api/symbol?name=' + encodeURIComponent(sym.name);
                     a.textContent = sym.name;
                     td1.appendChild(a);
                     tr.appendChild(td1);
