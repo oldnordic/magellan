@@ -318,6 +318,80 @@ pub fn get_symbol_detail(
     })
 }
 
+/// Get symbols that call the given symbol
+pub fn get_callers(
+    graph: &mut CodeGraph,
+    symbol_name: &str,
+    file_path: Option<&str>,
+) -> Result<Vec<SymbolListItem>> {
+    let symbols = if let Some(file) = file_path {
+        graph.symbols_in_file(file)?
+            .into_iter()
+            .filter(|s| s.name.as_deref() == Some(symbol_name))
+            .collect::<Vec<_>>()
+    } else {
+        let results = graph.get_symbols_by_label(symbol_name)?;
+        results.into_iter()
+            .filter_map(|r| {
+                graph.symbols_in_file(&r.file_path).ok()
+                    .and_then(|syms| syms.into_iter().find(|s| s.name.as_deref() == Some(symbol_name)))
+            })
+            .collect::<Vec<_>>()
+    };
+
+    let symbol = symbols.first()
+        .ok_or_else(|| anyhow::anyhow!("Symbol '{}' not found", symbol_name))?;
+
+    let callers = graph.callers_of_symbol(&symbol.file_path.to_string_lossy(), symbol_name)?;
+    let items = callers.into_iter()
+        .map(|c| SymbolListItem {
+            name: c.caller,
+            kind: "function".to_string(),
+            file: c.file_path.to_string_lossy().to_string(),
+            line: c.start_line,
+        })
+        .collect();
+
+    Ok(items)
+}
+
+/// Get symbols called by the given symbol
+pub fn get_callees(
+    graph: &mut CodeGraph,
+    symbol_name: &str,
+    file_path: Option<&str>,
+) -> Result<Vec<SymbolListItem>> {
+    let symbols = if let Some(file) = file_path {
+        graph.symbols_in_file(file)?
+            .into_iter()
+            .filter(|s| s.name.as_deref() == Some(symbol_name))
+            .collect::<Vec<_>>()
+    } else {
+        let results = graph.get_symbols_by_label(symbol_name)?;
+        results.into_iter()
+            .filter_map(|r| {
+                graph.symbols_in_file(&r.file_path).ok()
+                    .and_then(|syms| syms.into_iter().find(|s| s.name.as_deref() == Some(symbol_name)))
+            })
+            .collect::<Vec<_>>()
+    };
+
+    let symbol = symbols.first()
+        .ok_or_else(|| anyhow::anyhow!("Symbol '{}' not found", symbol_name))?;
+
+    let callees = graph.calls_from_symbol(&symbol.file_path.to_string_lossy(), symbol_name)?;
+    let items = callees.into_iter()
+        .map(|c| SymbolListItem {
+            name: c.callee,
+            kind: "function".to_string(),
+            file: c.file_path.to_string_lossy().to_string(),
+            line: c.start_line,
+        })
+        .collect();
+
+    Ok(items)
+}
+
 /// List symbols with pagination
 pub fn list_symbols(
     graph: &mut CodeGraph,
