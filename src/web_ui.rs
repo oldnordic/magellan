@@ -257,14 +257,21 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     <meta charset="utf-8">
     <title>Magellan Code Explorer</title>
     <style>
-        body { font-family: system-ui; margin: 2rem; }
-        .card { border: 1px solid #ccc; padding: 1rem; margin: 1rem 0; border-radius: 8px; }
+        body { font-family: system-ui, -apple-system, sans-serif; margin: 2rem; background: #f8f9fa; color: #212529; }
+        .card { background: #fff; border: 1px solid #dee2e6; padding: 1rem; margin: 1rem 0; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
         .stat { display: inline-block; margin-right: 2rem; }
         .stat-value { font-size: 2rem; font-weight: bold; color: #007bff; }
         table { width: 100%; border-collapse: collapse; }
         th, td { padding: 0.5rem; text-align: left; border-bottom: 1px solid #eee; }
         a { color: #007bff; text-decoration: none; }
         a:hover { text-decoration: underline; }
+        .error { color: #dc3545; }
+        #search { width: 100%; padding: 0.5rem; margin-bottom: 1rem; border: 1px solid #ced4da; border-radius: 4px; box-sizing: border-box; }
+        .pagination { margin-top: 1rem; text-align: center; }
+        .pagination button { margin: 0 0.25rem; padding: 0.35rem 0.7rem; border: 1px solid #007bff; background: #fff; color: #007bff; border-radius: 4px; cursor: pointer; }
+        .pagination button:hover { background: #007bff; color: #fff; }
+        .pagination button:disabled { opacity: 0.5; cursor: not-allowed; background: #fff; color: #007bff; }
+        .pagination span { margin: 0 0.5rem; }
     </style>
 </head>
 <body>
@@ -277,83 +284,160 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
 
     <div class="card">
         <h2>Symbols</h2>
-        <input type="text" id="search" placeholder="Search symbols..." style="width: 100%; padding: 0.5rem; margin-bottom: 1rem;">
+        <input type="text" id="search" placeholder="Search symbols...">
         <table>
             <thead>
                 <tr>
                     <th>Name</th>
                     <th>Kind</th>
                     <th>File</th>
+                    <th>Line</th>
                 </tr>
             </thead>
-            <tbody id="symbols"><tr><td colspan="3">Loading...</td></tr></tbody>
+            <tbody id="symbols"></tbody>
         </table>
+        <div id="pagination" class="pagination"></div>
     </div>
 
     <script>
-        fetch('/api/summary')
-            .then(r => r.json())
-            .then(data => {
-                const stats = document.getElementById('stats');
-                stats.textContent = '';
-                const s1 = document.createElement('div');
-                s1.className = 'stat';
-                const v1 = document.createElement('div');
-                v1.className = 'stat-value';
-                v1.textContent = data.total_files;
-                s1.appendChild(v1);
-                s1.appendChild(document.createTextNode('Files'));
-                stats.appendChild(s1);
-                const s2 = document.createElement('div');
-                s2.className = 'stat';
-                const v2 = document.createElement('div');
-                v2.className = 'stat-value';
-                v2.textContent = data.total_symbols;
-                s2.appendChild(v2);
-                s2.appendChild(document.createTextNode('Symbols'));
-                stats.appendChild(s2);
-                const s3 = document.createElement('div');
-                s3.className = 'stat';
-                const v3 = document.createElement('div');
-                v3.className = 'stat-value';
-                v3.textContent = data.total_calls;
-                s3.appendChild(v3);
-                s3.appendChild(document.createTextNode('Calls'));
-                stats.appendChild(s3);
-            })
-            .catch(e => {
-                document.getElementById('stats').textContent = 'Error: ' + e;
-            });
+        (function() {
+            function setError(element, message) {
+                element.textContent = '';
+                var err = document.createElement('div');
+                err.className = 'error';
+                err.textContent = message;
+                element.appendChild(err);
+            }
 
-        fetch('/api/symbols?page=1&page_size=50')
-            .then(r => r.json())
-            .then(data => {
-                const tbody = document.getElementById('symbols');
-                if (data.total_items === 0) {
-                    tbody.innerHTML = '<tr><td colspan="3">No symbols found.</td></tr>';
+            function renderStats(data) {
+                var stats = document.getElementById('stats');
+                stats.textContent = '';
+                var labels = ['Files', 'Symbols', 'Calls'];
+                var keys = ['total_files', 'total_symbols', 'total_calls'];
+                for (var i = 0; i < keys.length; i++) {
+                    var s = document.createElement('div');
+                    s.className = 'stat';
+                    var v = document.createElement('div');
+                    v.className = 'stat-value';
+                    v.textContent = data[keys[i]];
+                    s.appendChild(v);
+                    s.appendChild(document.createTextNode(labels[i]));
+                    stats.appendChild(s);
+                }
+            }
+
+            function renderSymbols(data) {
+                var tbody = document.getElementById('symbols');
+                tbody.textContent = '';
+                if (!data.items || data.items.length === 0) {
+                    var tr = document.createElement('tr');
+                    var td = document.createElement('td');
+                    td.colSpan = 4;
+                    td.textContent = 'No symbols found.';
+                    tr.appendChild(td);
+                    tbody.appendChild(tr);
                     return;
                 }
-                tbody.textContent = '';
-                data.items.forEach(sym => {
-                    const tr = document.createElement('tr');
-                    const td1 = document.createElement('td');
-                    const a = document.createElement('a');
+                for (var i = 0; i < data.items.length; i++) {
+                    var sym = data.items[i];
+                    var tr = document.createElement('tr');
+
+                    var tdName = document.createElement('td');
+                    var a = document.createElement('a');
                     a.href = '/api/symbol?name=' + encodeURIComponent(sym.name);
                     a.textContent = sym.name;
-                    td1.appendChild(a);
-                    tr.appendChild(td1);
-                    const td2 = document.createElement('td');
-                    td2.textContent = sym.kind;
-                    tr.appendChild(td2);
-                    const td3 = document.createElement('td');
-                    td3.textContent = sym.file + ':' + sym.line;
-                    tr.appendChild(td3);
+                    tdName.appendChild(a);
+                    tr.appendChild(tdName);
+
+                    var tdKind = document.createElement('td');
+                    tdKind.textContent = sym.kind || '';
+                    tr.appendChild(tdKind);
+
+                    var tdFile = document.createElement('td');
+                    tdFile.textContent = sym.file || '';
+                    tr.appendChild(tdFile);
+
+                    var tdLine = document.createElement('td');
+                    tdLine.textContent = sym.line != null ? String(sym.line) : '';
+                    tr.appendChild(tdLine);
+
                     tbody.appendChild(tr);
+                }
+            }
+
+            function renderPagination(data, query) {
+                var pag = document.getElementById('pagination');
+                pag.textContent = '';
+                if (data.total_pages <= 1) return;
+                var current = data.page || 1;
+                var prev = document.createElement('button');
+                prev.textContent = 'Prev';
+                prev.disabled = current <= 1;
+                prev.onclick = function() { loadSymbols(current - 1, query); };
+                pag.appendChild(prev);
+
+                var info = document.createElement('span');
+                info.textContent = 'Page ' + current + ' of ' + data.total_pages;
+                pag.appendChild(info);
+
+                var next = document.createElement('button');
+                next.textContent = 'Next';
+                next.disabled = current >= data.total_pages;
+                next.onclick = function() { loadSymbols(current + 1, query); };
+                pag.appendChild(next);
+            }
+
+            function loadSymbols(page, query) {
+                page = page || 1;
+                var url = '/api/symbols?page=' + encodeURIComponent(page) + '&page_size=50';
+                if (query) {
+                    url += '&kind=' + encodeURIComponent(query);
+                }
+                var tbody = document.getElementById('symbols');
+                tbody.textContent = 'Loading...';
+                fetch(url)
+                    .then(function(r) {
+                        if (!r.ok) throw new Error('HTTP ' + r.status);
+                        return r.json();
+                    })
+                    .then(function(data) {
+                        renderSymbols(data);
+                        renderPagination(data, query);
+                    })
+                    .catch(function(e) {
+                        setError(tbody, 'Error loading symbols: ' + e.message);
+                    });
+            }
+
+            fetch('/api/summary')
+                .then(function(r) {
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    return r.json();
+                })
+                .then(function(data) {
+                    renderStats(data);
+                })
+                .catch(function(e) {
+                    setError(document.getElementById('stats'), 'Error loading summary: ' + e.message);
                 });
-            })
-            .catch(e => {
-                document.getElementById('symbols').innerHTML = '<tr><td colspan="3">Error: ' + e + '</td></tr>';
+
+            loadSymbols(1);
+
+            var searchInput = document.getElementById('search');
+            var debounceTimer;
+            searchInput.addEventListener('input', function() {
+                clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(function() {
+                    loadSymbols(1, searchInput.value.trim());
+                }, 300);
             });
+            searchInput.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') {
+                    clearTimeout(debounceTimer);
+                    loadSymbols(1, searchInput.value.trim());
+                }
+            });
+        })();
     </script>
 </body>
 </html>"#;
