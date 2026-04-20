@@ -93,3 +93,4 @@ docs/AST_NODES_*.md
 # Internal development files (not for release)
 PLAN_*.md
 QWEN.md
+.worktrees/
