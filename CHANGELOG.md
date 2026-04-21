@@ -4,6 +4,85 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+### Added
+
+- **CFG extraction: short-circuit operators (`&&` / `||`)**
+  - `&&` and `||` are now desugared into explicit conditional CFG blocks with merge blocks
+  - New block kinds: `and`, `or`
+  - New edge types: `ConditionalTrue`, `ConditionalFalse`
+  - Location: `src/graph/cfg_edges_extract.rs`
+
+- **CFG extraction: `?` operator error paths**
+  - Error paths for the `?` (try) operator are now modeled with `Return` edges
+  - Previously treated as simple fallthrough; now correctly shows early-return control flow
+  - New block kind: `try`
+  - Location: `src/graph/cfg_edges_extract.rs`
+
+- **CFG extraction: match guards**
+  - Match arms with guards (`Some(x) if x > 0 => ...`) now create explicit `match_guard` conditional blocks
+  - Emits `ConditionalTrue` / `ConditionalFalse` edges for guard evaluation
+  - New block kind: `match_guard`
+  - Location: `src/graph/cfg_edges_extract.rs`
+
+- **New edge types in CFG extraction**
+  - `ConditionalTrue`, `ConditionalFalse`, `Return`
+  - Complement existing `Fallthrough`, `Jump`, `BackEdge`, `Call` edge types
+  - Location: `src/graph/cfg_edges_extract.rs`
+
+- **xxHash64 for fast file hashing**
+  - New dependency: `xxhash-rust` for 64-bit xxHash algorithm
+  - Replaces SHA-256 for file change detection (2-3x faster hashing)
+  - Location: `Cargo.toml`, `src/ingest/detect.rs`
+
+### Changed
+
+- **Deprecated `cfg_extractor.rs` in favor of `cfg_edges_extract.rs`**
+  - `cfg_edges_extract.rs` provides 4D coordinates (`coord_x`, `coord_y`, `coord_z`) plus typed edges
+  - Public re-exports marked with `#[deprecated(since = "10.0.0")]`
+  - Location: `src/graph/cfg_extractor.rs`, `src/graph/mod.rs`
+
+- **Parse-once optimization across extractors**
+  - Source code is now parsed once and the tree is shared across AST nodes, imports, and CFG extraction
+  - Previously performed 4+ redundant parses per file
+  - Location: `src/ingest/mod.rs`, `src/graph/cfg_edges_extract.rs`
+
+- **Parser pool integration for call and reference indexing**
+  - `call_ops.rs` and `references.rs` now reuse thread-local parsers via `pool::with_parser_opt`
+  - Eliminates per-file `Parser::new()` allocations
+  - Location: `src/graph/call_ops.rs`, `src/graph/references.rs`
+
+### Fixed
+
+- **Eliminated panic paths from safety review**
+  - Multiple `unwrap()` calls replaced with graceful error handling or descriptive `expect()` messages
+  - Silent parse failures now logged instead of swallowed
+  - Invalid UTF-8 in function sources now returns proper errors instead of empty strings
+  - Location: `src/graph/cfg_edges_extract.rs`, `src/graph/call_ops.rs`, `src/graph/references.rs`
+
+- **Isolated algorithm tests with unique temp directories**
+  - Prevents test interference from shared state or concurrent test runs
+  - Location: `tests/` (algorithm test suite)
+
+- **Clippy warnings in changed files**
+  - Style fixes applied across all modified modules
+
+### Performance
+
+- **xxHash64 replaces SHA-256 for file hashing**
+  - 2-3x faster file change detection
+  - Location: `src/ingest/detect.rs`
+
+- **Parse-once optimization**
+  - Reduces per-file parsing from 4+ redundant parses to 1 shared parse
+  - Significant improvement for large codebases with many files
+  - Location: `src/ingest/mod.rs`
+
+- **Parser pool integration**
+  - `call_ops.rs` and `references.rs` reuse thread-local parsers
+  - Eliminates repeated `Parser::new()` allocations per file
+  - Location: `src/graph/call_ops.rs`, `src/graph/references.rs`
+
 ## [3.1.5] - 2026-03-20
 ### Added
 - **SymbolLookup index for O(1) symbol resolution**
