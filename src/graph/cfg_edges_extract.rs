@@ -1272,30 +1272,179 @@ fn extract_match_blocks_with_fallthrough(
 
     // Extract each arm
     let mut arm_indices = Vec::new();
+    let mut guard_indices = Vec::new(); // None for unguarded, Some(idx) for guarded
+
     for arm in &arm_nodes {
-        let arm_start_idx = blocks.len();
-        extract_blocks_from_node_with_fallthrough(
-            arm,
-            function_id,
-            source,
-            blocks,
-            edges,
-            &mut None, // Each arm starts fresh
-            None,      // No loop context in match
+        // Check if arm has a guard: look inside match_pattern for "if" token
+        let has_guard = arm.child(0)
+            .filter(|c| c.kind() == "match_pattern")
+            .map(|pat| {
+                let mut cursor = pat.walk();
+                let mut found = false;
+                if cursor.goto_first_child() {
+                    loop {
+                        if cursor.node().kind() == "if" {
+                            found = true;
+                            break;
+                        }
+                        if !cursor.goto_next_sibling() {
+                            break;
+                        }
+                    }
+                }
+                found
+            })
+            .unwrap_or(false);
+
+        if !has_guard {
+            // No guard - process arm as unguarded
+            let arm_start_idx = blocks.len();
+            extract_blocks_from_node_with_fallthrough(
+                arm,
+                function_id,
+                source,
+                blocks,
+                edges,
+                &mut None, // Each arm starts fresh
+                None,      // No loop context in match
+            );
+            let arm_end_idx = blocks.len().saturating_sub(1);
+            arm_indices.push((arm_start_idx, arm_end_idx));
+            guard_indices.push(None);
+
+            // Edge from dispatch to arm
+            edges.push(CfgEdge {
+                source_idx: dispatch_idx,
+                target_idx: arm_start_idx,
+                edge_type: CfgEdgeType::ConditionalTrue,
+            });
+            continue;
+        }
+
+        // Find the guard expression (named child after "if" inside match_pattern)
+        let match_pattern = arm.child(0).unwrap();
+        let mut guard_expr = None;
+        let mut cursor = match_pattern.walk();
+        let mut found_if = false;
+        if cursor.goto_first_child() {
+            loop {
+                let child = cursor.node();
+                if child.kind() == "if" {
+                    found_if = true;
+                } else if found_if && child.is_named() {
+                    guard_expr = Some(child);
+                    break;
+                }
+                if !cursor.goto_next_sibling() {
+                    break;
+                }
+            }
+        }
+
+        let Some(guard) = guard_expr else {
+            // Malformed AST: guard keyword found but no expression
+            let arm_start_idx = blocks.len();
+            extract_blocks_from_node_with_fallthrough(
+                arm, function_id, source, blocks, edges,
+                &mut None, None,
+            );
+            let arm_end_idx = blocks.len().saturating_sub(1);
+            arm_indices.push((arm_start_idx, arm_end_idx));
+            guard_indices.push(None);
+
+            edges.push(CfgEdge {
+                source_idx: dispatch_idx,
+                target_idx: arm_start_idx,
+                edge_type: CfgEdgeType::ConditionalTrue,
+            });
+            continue;
+        };
+
+        // Create guard block
+        let guard_block = create_block_from_node(
+            &guard, function_id, source, "match_guard", "conditional"
         );
+        let guard_idx = blocks.len();
+        blocks.push(guard_block);
+        guard_indices.push(Some(guard_idx));
+
+        // Edge from dispatch to guard
+        edges.push(CfgEdge {
+            source_idx: dispatch_idx,
+            target_idx: guard_idx,
+            edge_type: CfgEdgeType::ConditionalTrue,
+        });
+
+        // Find body expression (named child after "=>" in match_arm)
+        let mut body_node = None;
+        let mut cursor = arm.walk();
+        let mut found_arrow = false;
+        if cursor.goto_first_child() {
+            loop {
+                let child = cursor.node();
+                if child.kind() == "=>" {
+                    found_arrow = true;
+                } else if found_arrow && child.is_named() {
+                    body_node = Some(child);
+                    break;
+                }
+                if !cursor.goto_next_sibling() {
+                    break;
+                }
+            }
+        }
+
+        // Process body starting from guard
+        let arm_start_idx = blocks.len();
+        if let Some(body) = body_node {
+            extract_blocks_from_node_with_fallthrough(
+                &body,
+                function_id,
+                source,
+                blocks,
+                edges,
+                &mut Some(guard_idx),
+                None,
+            );
+        }
         let arm_end_idx = blocks.len().saturating_sub(1);
         arm_indices.push((arm_start_idx, arm_end_idx));
 
-        // Edge from dispatch to arm
-        edges.push(CfgEdge {
-            source_idx: dispatch_idx,
-            target_idx: arm_start_idx,
-            edge_type: CfgEdgeType::ConditionalTrue,
-        });
+        // Guard true -> body
+        if arm_start_idx > guard_idx {
+            edges.push(CfgEdge {
+                source_idx: guard_idx,
+                target_idx: arm_start_idx,
+                edge_type: CfgEdgeType::ConditionalTrue,
+            });
+        }
+        // Guard false -> added in second pass below
+    }
+
+    // Second pass: add guard false edges (fallthrough to next arm or merge)
+    let merge_idx = blocks.len();
+    for (i, guard_idx_opt) in guard_indices.iter().enumerate() {
+        if let Some(guard_idx) = guard_idx_opt {
+            let fallback_target = if i + 1 < arm_nodes.len() {
+                // Next arm's entry point
+                if let Some(next_guard) = guard_indices[i + 1] {
+                    next_guard
+                } else {
+                    arm_indices[i + 1].0
+                }
+            } else {
+                // Last arm - fallback to merge
+                merge_idx
+            };
+            edges.push(CfgEdge {
+                source_idx: *guard_idx,
+                target_idx: fallback_target,
+                edge_type: CfgEdgeType::ConditionalFalse,
+            });
+        }
     }
 
     // Create merge block after match
-    let merge_idx = blocks.len();
     let merge_byte_start = node.end_byte() as u64;
     let merge_byte_end = merge_byte_start;
     let merge_start_line = node.end_position().row as u64 + 1;
@@ -1674,5 +1823,117 @@ fn test() -> bool {
             assert!(cond_true, "Block {} should have ConditionalTrue edge", idx);
             assert!(cond_false, "Block {} should have ConditionalFalse edge", idx);
         }
+    }
+
+    #[test]
+    fn test_extract_match_guard() {
+        let source = r#"
+fn test_match_guard(x: Option<i32>) -> i32 {
+    match x {
+        Some(v) if v > 0 => v,
+        Some(v) => -v,
+        None => 0,
+    }
+}
+"#;
+        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
+
+        // Should have match_guard blocks
+        let guard_blocks: Vec<_> = result.blocks.iter().filter(|b| b.kind == "match_guard").collect();
+        assert_eq!(guard_blocks.len(), 1, "Should have exactly one match_guard block");
+        let guard_idx = result.blocks.iter().position(|b| b.kind == "match_guard").unwrap();
+
+        // Guard block should have ConditionalTrue edge to arm body
+        let guard_true_edges: Vec<_> = result.edges.iter()
+            .filter(|e| e.source_idx == guard_idx && e.edge_type == CfgEdgeType::ConditionalTrue)
+            .collect();
+        assert!(!guard_true_edges.is_empty(), "Guard should have ConditionalTrue edge to body");
+
+        // Guard block should have ConditionalFalse edge to next arm
+        let guard_false_edges: Vec<_> = result.edges.iter()
+            .filter(|e| e.source_idx == guard_idx && e.edge_type == CfgEdgeType::ConditionalFalse)
+            .collect();
+        assert!(!guard_false_edges.is_empty(), "Guard should have ConditionalFalse edge to next arm");
+
+        // The false edge should point to a block after the guard (next arm entry)
+        let false_target = guard_false_edges[0].target_idx;
+        assert!(false_target > guard_idx, "Guard false edge should point to a later block");
+    }
+
+    #[test]
+    fn test_extract_match_guard_chain() {
+        let source = r#"
+fn test_chain(x: Option<i32>) -> i32 {
+    match x {
+        Some(v) if v > 10 => v * 2,
+        Some(v) if v > 0 => v,
+        Some(v) => -v,
+        None => 0,
+    }
+}
+"#;
+        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
+
+        // Should have two match_guard blocks
+        let guard_blocks: Vec<_> = result.blocks.iter().filter(|b| b.kind == "match_guard").collect();
+        assert_eq!(guard_blocks.len(), 2, "Should have two match_guard blocks");
+
+        let guard_indices: Vec<usize> = result.blocks.iter().enumerate()
+            .filter(|(_, b)| b.kind == "match_guard")
+            .map(|(i, _)| i)
+            .collect();
+
+        // First guard false should point to second guard
+        let first_guard = guard_indices[0];
+        let second_guard = guard_indices[1];
+        let first_false: Vec<_> = result.edges.iter()
+            .filter(|e| e.source_idx == first_guard && e.edge_type == CfgEdgeType::ConditionalFalse)
+            .collect();
+        assert!(!first_false.is_empty(), "First guard should have ConditionalFalse edge");
+        assert_eq!(first_false[0].target_idx, second_guard,
+            "First guard false should fall through to second guard");
+
+        // Second guard false should point to an unguarded arm (not another guard)
+        let second_false: Vec<_> = result.edges.iter()
+            .filter(|e| e.source_idx == second_guard && e.edge_type == CfgEdgeType::ConditionalFalse)
+            .collect();
+        assert!(!second_false.is_empty(), "Second guard should have ConditionalFalse edge");
+        assert!(
+            !guard_indices.contains(&second_false[0].target_idx),
+            "Second guard false should point to unguarded arm, not another guard"
+        );
+    }
+
+    #[test]
+    fn test_extract_match_guard_last_arm() {
+        let source = r#"
+fn test_last(x: Option<i32>) -> i32 {
+    match x {
+        Some(v) => v,
+        None if x.is_none() => 0,
+    }
+}
+"#;
+        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
+
+        let guard_blocks: Vec<_> = result.blocks.iter().filter(|b| b.kind == "match_guard").collect();
+        assert_eq!(guard_blocks.len(), 1, "Should have one match_guard block");
+        let guard_idx = result.blocks.iter().position(|b| b.kind == "match_guard").unwrap();
+
+        // Last guard false should point to merge block
+        let guard_false: Vec<_> = result.edges.iter()
+            .filter(|e| e.source_idx == guard_idx && e.edge_type == CfgEdgeType::ConditionalFalse)
+            .collect();
+        assert!(!guard_false.is_empty(), "Last guard should have ConditionalFalse edge");
+
+        let merge_indices: Vec<usize> = result.blocks.iter().enumerate()
+            .filter(|(_, b)| b.kind == "merge")
+            .map(|(i, _)| i)
+            .collect();
+        assert!(!merge_indices.is_empty(), "Should have merge blocks");
+        assert!(
+            merge_indices.contains(&guard_false[0].target_idx),
+            "Last guard false should point to merge block"
+        );
     }
 }
