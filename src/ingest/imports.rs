@@ -115,6 +115,18 @@ impl ImportExtractor {
         };
 
         let root_node = tree.root_node();
+        self.extract_imports_from_tree(&root_node, source, &file_path)
+    }
+
+    /// Extract import facts from a pre-parsed tree-sitter tree
+    ///
+    /// This avoids re-parsing when the tree is already available.
+    pub fn extract_imports_from_tree(
+        &self,
+        root_node: &tree_sitter::Node,
+        source: &[u8],
+        file_path: &PathBuf,
+    ) -> Vec<ImportFact> {
         let mut facts = Vec::new();
 
         // Walk tree looking for use_statement, use_declaration, and mod_item nodes
@@ -122,13 +134,13 @@ impl ImportExtractor {
         for child in root_node.children(&mut cursor) {
             match child.kind() {
                 "use_statement" | "use_declaration" => {
-                    if let Some(fact) = self.extract_use_statement(&child, source, &file_path) {
+                    if let Some(fact) = self.extract_use_statement(&child, source, file_path) {
                         facts.push(fact);
                     }
                 }
                 "mod_item" => {
                     // mod declarations are also imports (they reference other files)
-                    if let Some(fact) = self.extract_mod_item(&child, source, &file_path) {
+                    if let Some(fact) = self.extract_mod_item(&child, source, file_path) {
                         facts.push(fact);
                     }
                 }
