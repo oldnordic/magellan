@@ -1503,6 +1503,19 @@ mod tests {
     use super::*;
     use crate::CodeGraph;
 
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static TEST_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    fn next_test_dir() -> std::path::PathBuf {
+        let n = TEST_DIR_COUNTER.fetch_add(1, Ordering::SeqCst);
+        std::env::temp_dir().join(format!(
+            "magellan_test_{}_{}",
+            std::process::id(),
+            n
+        ))
+    }
+
     /// Test helper to create a simple call graph for testing
     ///
     /// Creates:
@@ -1512,9 +1525,8 @@ mod tests {
     ///
     /// Returns the CodeGraph and symbol IDs for main and unused_function
     fn create_test_graph() -> Result<(CodeGraph, String, String)> {
-        // Use a persistent temp directory that won't be deleted
-        // This is necessary for V3 backend which needs files to remain accessible
-        let temp_dir = std::env::temp_dir().join(format!("magellan_test_{}", std::process::id()));
+        // Use a unique temp directory per call to avoid concurrent test interference
+        let temp_dir = next_test_dir();
         std::fs::create_dir_all(&temp_dir)?;
         let db_path = temp_dir.join("test.db");
 
