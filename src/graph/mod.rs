@@ -105,6 +105,7 @@ pub use algorithms::{
 pub use ast_extractor::{extract_ast_nodes, language_from_path, normalize_node_kind};
 pub use ast_node::{is_structural_kind, AstNode, AstNodeWithText};
 // Re-export CFG types for public API
+#[deprecated(since = "10.0.0", note = "Use cfg_edges_extract instead")]
 pub use cfg_extractor::{BlockKind, CfgExtractor, TerminatorKind};
 pub use cfg_ops::CfgOps;
 

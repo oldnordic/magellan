@@ -9,7 +9,6 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 
 use crate::graph::schema::CfgBlock;
-use crate::graph::cfg_extractor::CfgExtractor;
 use crate::graph::cfg_edges_extract::{CfgWithEdges, CfgEdge, CfgEdgeType};
 use crate::generation::ChunkStore;
 
@@ -26,22 +25,16 @@ impl CfgOps {
     }
 
     /// Extract and store CFG blocks for a function
+    ///
+    /// DEPRECATED: This is a compatibility shim. Use `index_cfg_with_4d_coordinates_from_node`
+    /// for new code.
     pub fn index_cfg_for_function(
         &self,
         func_node: &tree_sitter::Node,
         source: &[u8],
         function_id: i64,
     ) -> Result<usize> {
-        let mut extractor = CfgExtractor::new(source);
-        let blocks = extractor.extract_cfg_from_function(func_node, function_id);
-
-        if blocks.is_empty() {
-            return Ok(0);
-        }
-
-        self.insert_cfg_blocks(&blocks)?;
-
-        Ok(blocks.len())
+        self.index_cfg_with_4d_coordinates_from_node(func_node, source, function_id)
     }
 
     /// Extract and store CFG with 4D spatial coordinates (from function node)

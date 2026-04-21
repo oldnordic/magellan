@@ -1,3 +1,15 @@
+//! DEPRECATED: Use `cfg_edges_extract` instead.
+//!
+//! This module is kept for backward compatibility but new code should use
+//! `crate::graph::cfg_edges_extract` which provides:
+//! - 4D spatial coordinates (coord_x, coord_y, coord_z)
+//! - Typed control-flow edges (ConditionalTrue, ConditionalFalse, etc.)
+//! - Better coverage of Rust control-flow constructs
+//!
+//! NOTE: This module will be removed once the remaining caller in
+//! geometric_backend.rs (behind the broken `geometric-backend` feature flag)
+//! is migrated.
+
 //! AST-based CFG extraction for Rust
 //!
 //! This module extracts Control Flow Graph (CFG) information from tree-sitter
