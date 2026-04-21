@@ -201,6 +201,12 @@ impl<'a> CfgExtractor<'a> {
             start_col,
             end_line,
             end_col,
+            cfg_hash: None,
+            statements: None,
+            coord_x: 0,
+            coord_y: 0,
+            coord_z: 0,
+            coord_t: None,
         };
 
         self.blocks.push(block);
@@ -404,6 +410,12 @@ impl<'a> CfgExtractor<'a> {
             start_col,
             end_line,
             end_col,
+            cfg_hash: None,
+            statements: None,
+            coord_x: 0,
+            coord_y: 0,
+            coord_z: 0,
+            coord_t: None,
         };
 
         self.blocks.push(block);
@@ -428,6 +440,12 @@ impl<'a> CfgExtractor<'a> {
             start_col,
             end_line,
             end_col,
+            cfg_hash: None,
+            statements: None,
+            coord_x: 0,
+            coord_y: 0,
+            coord_z: 0,
+            coord_t: None,
         };
 
         self.blocks.push(block);
@@ -452,6 +470,12 @@ impl<'a> CfgExtractor<'a> {
             start_col,
             end_line,
             end_col,
+            cfg_hash: None,
+            statements: None,
+            coord_x: 0,
+            coord_y: 0,
+            coord_z: 0,
+            coord_t: None,
         };
 
         self.blocks.push(block);
