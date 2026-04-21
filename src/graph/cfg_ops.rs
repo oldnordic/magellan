@@ -267,12 +267,12 @@ impl CfgOps {
             .join(", ");
         let edge_sql = format!("DELETE FROM cfg_edges WHERE function_id IN ({})", placeholders);
         let mut edge_stmt = conn.prepare(&edge_sql)?;
-        let params: Vec<_> = function_ids.iter().copied().collect();
+        let params = function_ids.to_vec();
         edge_stmt.execute(rusqlite::params_from_iter(&params))?;
 
         let sql = format!("DELETE FROM cfg_blocks WHERE function_id IN ({})", placeholders);
         let mut stmt = conn.prepare(&sql)?;
-        let params: Vec<_> = function_ids.iter().copied().collect();
+        let params = function_ids.to_vec();
         let affected = stmt.execute(rusqlite::params_from_iter(params))?;
         Ok(affected)
     }
@@ -335,7 +335,7 @@ impl CfgOps {
              ORDER BY e.id, c.byte_start",
         )?;
 
-        let mut result = std::collections::HashMap::new();
+        let mut result: std::collections::HashMap<i64, Vec<CfgBlock>> = std::collections::HashMap::new();
         let rows = stmt.query_map(params![file_path], |row| {
             let function_id: i64 = row.get(0)?;
             let statements_json: Option<String> = row.get(11)?;
@@ -363,7 +363,7 @@ impl CfgOps {
 
         for row in rows {
             let (function_id, block) = row?;
-            result.entry(function_id).or_insert_with(Vec::new).push(block);
+            result.entry(function_id).or_default().push(block);
         }
         Ok(result.into_iter().collect())
     }
@@ -531,7 +531,7 @@ pub fn compute_loop_nesting(cfg: &CfgWithEdges) -> HashMap<usize, i64> {
     for edge in &cfg.edges {
         successors
             .entry(edge.source_idx)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(edge.target_idx);
 
         if edge.edge_type == CfgEdgeType::BackEdge {
@@ -636,7 +636,7 @@ pub fn compute_branch_distance(cfg: &CfgWithEdges) -> HashMap<usize, i64> {
         );
         successors
             .entry(edge.source_idx)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push((edge.target_idx, is_conditional));
     }
 

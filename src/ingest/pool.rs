@@ -204,7 +204,7 @@ where
             parser.set_language(&tree_sitter_rust::language())?;
             *parser_ref = Some(parser);
         }
-        Ok(f(&mut *parser_ref))
+        Ok(f(&mut parser_ref))
     })
 }
 
@@ -220,7 +220,7 @@ where
             parser.set_language(&tree_sitter_python::language())?;
             *parser_ref = Some(parser);
         }
-        Ok(f(&mut *parser_ref))
+        Ok(f(&mut parser_ref))
     })
 }
 
@@ -236,7 +236,7 @@ where
             parser.set_language(&tree_sitter_c::language())?;
             *parser_ref = Some(parser);
         }
-        Ok(f(&mut *parser_ref))
+        Ok(f(&mut parser_ref))
     })
 }
 
@@ -252,7 +252,7 @@ where
             parser.set_language(&tree_sitter_cpp::language())?;
             *parser_ref = Some(parser);
         }
-        Ok(f(&mut *parser_ref))
+        Ok(f(&mut parser_ref))
     })
 }
 
@@ -268,7 +268,7 @@ where
             parser.set_language(&tree_sitter_java::language())?;
             *parser_ref = Some(parser);
         }
-        Ok(f(&mut *parser_ref))
+        Ok(f(&mut parser_ref))
     })
 }
 
@@ -284,7 +284,7 @@ where
             parser.set_language(&tree_sitter_javascript::language())?;
             *parser_ref = Some(parser);
         }
-        Ok(f(&mut *parser_ref))
+        Ok(f(&mut parser_ref))
     })
 }
 
@@ -300,7 +300,7 @@ where
             parser.set_language(&tree_sitter_typescript::language_typescript())?;
             *parser_ref = Some(parser);
         }
-        Ok(f(&mut *parser_ref))
+        Ok(f(&mut parser_ref))
     })
 }
 
