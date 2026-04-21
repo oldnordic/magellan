@@ -198,6 +198,7 @@ fn extract_control_flow_children(
         "try_expression",
         "await_expression",
         "closure_expression",
+        "binary_expression",
     ];
     let mut cursor = node.walk();
     if cursor.goto_first_child() {
@@ -613,6 +614,38 @@ fn extract_blocks_from_node_with_fallthrough(
             }
         }
 
+        // Short-circuit operators: && and ||
+        "binary_expression" => {
+            // Check if this is && or ||
+            let operator = node
+                .children(&mut node.walk())
+                .find(|child| !child.is_named())
+                .and_then(|op| source.get(op.byte_range()))
+                .map(|s| s.trim());
+
+            match operator {
+                Some("&&") => {
+                    extract_short_circuit_blocks(
+                        node, function_id, source, blocks, edges,
+                        previous_block_idx, loop_header, true,
+                    );
+                }
+                Some("||") => {
+                    extract_short_circuit_blocks(
+                        node, function_id, source, blocks, edges,
+                        previous_block_idx, loop_header, false,
+                    );
+                }
+                _ => {
+                    // Other binary operators (+, -, *, etc.) - no control flow
+                    extract_default_blocks(
+                        node, function_id, source, blocks, edges,
+                        previous_block_idx, loop_header,
+                    );
+                }
+            }
+        }
+
         // Default: try to handle as a statement block if it has children
         _unknown_kind => {
             // For unknown node types with children, process as a block
@@ -654,6 +687,191 @@ fn extract_blocks_from_node_with_fallthrough(
             // Else: skip unnamed leaf nodes with no children (comments, etc.)
         }
     }
+}
+
+/// Extract blocks for short-circuit operators (&& and ||)
+///
+/// For `a && b`:
+///   - Block for `a` with conditional: true -> `b`, false -> merge
+///   - Block for `b` with fallthrough -> merge
+/// For `a || b`:
+///   - Block for `a` with conditional: true -> merge, false -> `b`
+///   - Block for `b` with fallthrough -> merge
+fn extract_short_circuit_blocks(
+    node: &Node,
+    function_id: i64,
+    source: &str,
+    blocks: &mut Vec<CfgBlock>,
+    edges: &mut Vec<CfgEdge>,
+    previous_block_idx: &mut Option<usize>,
+    loop_header: Option<usize>,
+    is_and: bool,
+) {
+    // Find left and right operands
+    let mut left = None;
+    let mut right = None;
+    let mut cursor = node.walk();
+    if cursor.goto_first_child() {
+        loop {
+            let child = cursor.node();
+            if child.is_named() {
+                if left.is_none() {
+                    left = Some(child);
+                } else if right.is_none() {
+                    right = Some(child);
+                    break;
+                }
+            }
+            if !cursor.goto_next_sibling() {
+                break;
+            }
+        }
+    }
+
+    // Create block for the left operand (the condition)
+    let left_block = create_block_from_node(
+        node, function_id, source,
+        if is_and { "and" } else { "or" },
+        "conditional",
+    );
+    let left_idx = blocks.len();
+    blocks.push(left_block);
+
+    if let Some(prev_idx) = *previous_block_idx {
+        edges.push(CfgEdge {
+            source_idx: prev_idx,
+            target_idx: left_idx,
+            edge_type: CfgEdgeType::Fallthrough,
+        });
+    }
+
+    // Process left operand
+    if let Some(left_node) = left {
+        extract_blocks_from_node_with_fallthrough(
+            &left_node, function_id, source, blocks, edges,
+            &mut Some(left_idx), loop_header,
+        );
+    }
+
+    // Create merge block for both branches to converge
+    let merge_block = CfgBlock {
+        function_id,
+        kind: "merge".to_string(),
+        terminator: "fallthrough".to_string(),
+        byte_start: node.end_byte() as u64,
+        byte_end: node.end_byte() as u64,
+        start_line: node.end_position().row as u64 + 1,
+        start_col: node.end_position().column as u64,
+        end_line: node.end_position().row as u64 + 1,
+        end_col: node.end_position().column as u64,
+        cfg_hash: None,
+        statements: None,
+        coord_x: 0,
+        coord_y: 0,
+        coord_z: 0,
+        coord_t: None,
+    };
+    let merge_idx = blocks.len();
+    blocks.push(merge_block);
+
+    // For &&: true branch goes to right operand, false branch skips to merge
+    // For ||: true branch skips to merge, false branch goes to right operand
+    if let Some(right_node) = right {
+        let right_block = create_block_from_node(
+            &right_node, function_id, source, "short_circuit_rhs", "fallthrough",
+        );
+        let right_idx = blocks.len();
+        blocks.push(right_block);
+
+        // Conditional edge to right operand
+        edges.push(CfgEdge {
+            source_idx: left_idx,
+            target_idx: right_idx,
+            edge_type: if is_and {
+                CfgEdgeType::ConditionalTrue
+            } else {
+                CfgEdgeType::ConditionalFalse
+            },
+        });
+
+        // Complementary conditional edge to merge (short-circuit path)
+        edges.push(CfgEdge {
+            source_idx: left_idx,
+            target_idx: merge_idx,
+            edge_type: if is_and {
+                CfgEdgeType::ConditionalFalse
+            } else {
+                CfgEdgeType::ConditionalTrue
+            },
+        });
+
+        // Process right operand
+        let mut right_last_idx = Some(right_idx);
+        extract_blocks_from_node_with_fallthrough(
+            &right_node, function_id, source, blocks, edges,
+            &mut right_last_idx, loop_header,
+        );
+
+        // Fallthrough from right branch to merge
+        if let Some(last_idx) = right_last_idx {
+            edges.push(CfgEdge {
+                source_idx: last_idx,
+                target_idx: merge_idx,
+                edge_type: CfgEdgeType::Fallthrough,
+            });
+        }
+    } else {
+        // No right operand - both conditions go directly to merge
+        edges.push(CfgEdge {
+            source_idx: left_idx,
+            target_idx: merge_idx,
+            edge_type: CfgEdgeType::Fallthrough,
+        });
+    }
+
+    *previous_block_idx = Some(merge_idx);
+}
+
+/// Default block extraction for named nodes without control flow semantics
+fn extract_default_blocks(
+    node: &Node,
+    function_id: i64,
+    source: &str,
+    blocks: &mut Vec<CfgBlock>,
+    edges: &mut Vec<CfgEdge>,
+    previous_block_idx: &mut Option<usize>,
+    loop_header: Option<usize>,
+) {
+    let block = create_block_from_node(node, function_id, source, node.kind(), "fallthrough");
+    let idx = blocks.len();
+    blocks.push(block);
+
+    if let Some(prev_idx) = *previous_block_idx {
+        edges.push(CfgEdge {
+            source_idx: prev_idx,
+            target_idx: idx,
+            edge_type: CfgEdgeType::Fallthrough,
+        });
+    }
+
+    // Process children
+    let mut cursor = node.walk();
+    if cursor.goto_first_child() {
+        loop {
+            let child = cursor.node();
+            if child.is_named() {
+                extract_blocks_from_node_with_fallthrough(
+                    &child, function_id, source, blocks, edges,
+                    &mut Some(idx), loop_header,
+                );
+            }
+            if !cursor.goto_next_sibling() {
+                break;
+            }
+        }
+    }
+
+    *previous_block_idx = Some(idx);
 }
 
 /// Create entry block for a function
@@ -1319,6 +1537,112 @@ fn test() {
                 merge.byte_start > 0 || merge.start_line > 0,
                 "Merge block should have non-zero position"
             );
+        }
+    }
+
+    #[test]
+    fn test_extract_and_operator() {
+        let source = r#"
+fn test() -> bool {
+    let a = true;
+    let b = false;
+    a && b
+}
+"#;
+        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
+
+        let and_blocks: Vec<_> = result.blocks.iter().filter(|b| b.kind == "and").collect();
+        assert!(!and_blocks.is_empty(), "Should have && blocks");
+        let and_idx = result.blocks.iter().position(|b| b.kind == "and").unwrap();
+
+        let rhs_blocks: Vec<_> = result.blocks.iter().filter(|b| b.kind == "short_circuit_rhs").collect();
+        assert!(!rhs_blocks.is_empty(), "Should have rhs blocks");
+        let rhs_idx = result.blocks.iter().position(|b| b.kind == "short_circuit_rhs").unwrap();
+
+        // Should have ConditionalTrue edge from and to rhs
+        let true_edges: Vec<_> = result.edges.iter()
+            .filter(|e| e.source_idx == and_idx && e.target_idx == rhs_idx && e.edge_type == CfgEdgeType::ConditionalTrue)
+            .collect();
+        assert!(!true_edges.is_empty(), "Should have ConditionalTrue edge from and to rhs");
+
+        // Should have ConditionalFalse edge from and to merge (short-circuit)
+        let false_edges: Vec<_> = result.edges.iter()
+            .filter(|e| e.source_idx == and_idx && e.edge_type == CfgEdgeType::ConditionalFalse)
+            .collect();
+        assert!(!false_edges.is_empty(), "Should have ConditionalFalse edge for short-circuit");
+
+        // Should have fallthrough from right branch's last block to merge
+        let merge_idx = result.blocks.iter().position(|b| b.kind == "merge").unwrap();
+        let rhs_to_merge: Vec<_> = result.edges.iter()
+            .filter(|e| e.target_idx == merge_idx && e.edge_type == CfgEdgeType::Fallthrough)
+            .collect();
+        assert!(!rhs_to_merge.is_empty(), "Should have fallthrough from right branch to merge");
+    }
+
+    #[test]
+    fn test_extract_or_operator() {
+        let source = r#"
+fn test() -> bool {
+    let a = false;
+    let b = true;
+    a || b
+}
+"#;
+        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
+
+        let or_blocks: Vec<_> = result.blocks.iter().filter(|b| b.kind == "or").collect();
+        assert!(!or_blocks.is_empty(), "Should have || blocks");
+        let or_idx = result.blocks.iter().position(|b| b.kind == "or").unwrap();
+
+        let rhs_blocks: Vec<_> = result.blocks.iter().filter(|b| b.kind == "short_circuit_rhs").collect();
+        assert!(!rhs_blocks.is_empty(), "Should have rhs blocks");
+        let rhs_idx = result.blocks.iter().position(|b| b.kind == "short_circuit_rhs").unwrap();
+
+        // Should have ConditionalFalse edge from or to rhs
+        let false_edges: Vec<_> = result.edges.iter()
+            .filter(|e| e.source_idx == or_idx && e.target_idx == rhs_idx && e.edge_type == CfgEdgeType::ConditionalFalse)
+            .collect();
+        assert!(!false_edges.is_empty(), "Should have ConditionalFalse edge from or to rhs");
+
+        // Should have ConditionalTrue edge from or to merge (short-circuit)
+        let true_edges: Vec<_> = result.edges.iter()
+            .filter(|e| e.source_idx == or_idx && e.edge_type == CfgEdgeType::ConditionalTrue)
+            .collect();
+        assert!(!true_edges.is_empty(), "Should have ConditionalTrue edge for short-circuit");
+    }
+
+    #[test]
+    fn test_extract_chained_short_circuit() {
+        let source = r#"
+fn test() -> bool {
+    a && b && c
+}
+"#;
+        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
+
+        let and_blocks: Vec<_> = result.blocks.iter().filter(|b| b.kind == "and").collect();
+        assert_eq!(and_blocks.len(), 2, "Should have two and blocks for chained &&");
+
+        // Verify no dead ends - every conditional should have at least 2 outgoing edges
+        for (idx, block) in result.blocks.iter().enumerate().filter(|(_, b)| b.kind == "and" || b.kind == "or") {
+            let outgoing = result.edges.iter().filter(|e| e.source_idx == idx).count();
+            assert!(outgoing >= 2, "Block {} ({}) should have at least 2 outgoing edges, got {}", idx, block.kind, outgoing);
+        }
+
+        // Verify the chain is connected: first and's merge should connect to second and
+        let first_and_idx = result.blocks.iter().position(|b| b.kind == "and").unwrap();
+        let merge_indices: Vec<usize> = result.blocks.iter().enumerate()
+            .filter(|(_, b)| b.kind == "merge")
+            .map(|(i, _)| i)
+            .collect();
+        assert!(!merge_indices.is_empty(), "Should have merge blocks");
+
+        // Each and block should have ConditionalTrue and ConditionalFalse outgoing edges
+        for (idx, block) in result.blocks.iter().enumerate().filter(|(_, b)| b.kind == "and" || b.kind == "or") {
+            let cond_true = result.edges.iter().any(|e| e.source_idx == idx && e.edge_type == CfgEdgeType::ConditionalTrue);
+            let cond_false = result.edges.iter().any(|e| e.source_idx == idx && e.edge_type == CfgEdgeType::ConditionalFalse);
+            assert!(cond_true, "Block {} should have ConditionalTrue edge", idx);
+            assert!(cond_false, "Block {} should have ConditionalFalse edge", idx);
         }
     }
 }
