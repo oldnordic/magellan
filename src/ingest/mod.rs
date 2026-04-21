@@ -288,7 +288,7 @@ pub struct SymbolFact {
 /// No filesystem access. No global state. No caching.
 pub struct Parser {
     /// tree-sitter parser for Rust grammar
-    parser: tree_sitter::Parser,
+    pub(crate) parser: tree_sitter::Parser,
 }
 
 impl Parser {
@@ -299,6 +299,11 @@ impl Parser {
         parser.set_language(&language)?;
 
         Ok(Self { parser })
+    }
+
+    /// Create parser wrapper from an existing tree-sitter parser
+    pub(crate) fn from_parser(parser: tree_sitter::Parser) -> Self {
+        Self { parser }
     }
 
     /// Extract symbol facts from Rust source code

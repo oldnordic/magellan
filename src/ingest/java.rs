@@ -15,7 +15,7 @@ use std::path::PathBuf;
 /// Pure function: Input (path, contents) → Output Vec<SymbolFact>
 /// No filesystem access. No global state. No caching.
 pub struct JavaParser {
-    parser: tree_sitter::Parser,
+    pub(crate) parser: tree_sitter::Parser,
 }
 
 impl JavaParser {
@@ -24,6 +24,11 @@ impl JavaParser {
         let mut parser = tree_sitter::Parser::new();
         parser.set_language(&tree_sitter_java::language())?;
         Ok(Self { parser })
+    }
+
+    /// Create parser wrapper from an existing tree-sitter parser
+    pub(crate) fn from_parser(parser: tree_sitter::Parser) -> Self {
+        Self { parser }
     }
 
     /// Extract symbol facts from Java source code.

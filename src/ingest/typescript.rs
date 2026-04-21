@@ -14,7 +14,7 @@ use std::path::PathBuf;
 /// Pure function: Input (path, contents) → Output Vec<SymbolFact>
 /// No filesystem access. No global state. No caching.
 pub struct TypeScriptParser {
-    parser: tree_sitter::Parser,
+    pub(crate) parser: tree_sitter::Parser,
 }
 
 impl TypeScriptParser {
@@ -23,6 +23,11 @@ impl TypeScriptParser {
         let mut parser = tree_sitter::Parser::new();
         parser.set_language(&tree_sitter_typescript::language_typescript())?;
         Ok(Self { parser })
+    }
+
+    /// Create parser wrapper from an existing tree-sitter parser
+    pub(crate) fn from_parser(parser: tree_sitter::Parser) -> Self {
+        Self { parser }
     }
 
     /// Extract symbol facts from TypeScript source code.
