@@ -105,11 +105,16 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
 
     // Parse source once and share the tree across all extractors
     // This eliminates redundant parsing (was 4+ parses per file)
-    let parsed_tree = language.and_then(|lang| {
-        pool::with_parser(lang, |parser| parser.parse(source, None))
-            .ok()
-            .flatten()
-    });
+    let parsed_tree = match language {
+        Some(lang) => match pool::with_parser(lang, |parser| parser.parse(source, None)) {
+            Ok(tree) => tree,
+            Err(e) => {
+                eprintln!("Warning: Failed to parse {} for indexing: {}", path, e);
+                None
+            }
+        },
+        None => None,
+    };
 
     let symbol_facts = match language {
         Some(Language::Rust) => {
