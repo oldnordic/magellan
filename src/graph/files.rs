@@ -21,7 +21,8 @@
 //! (e.g., mutex wrapper around CodeGraph).
 
 use anyhow::Result;
-use sha2::{Digest, Sha256};
+use xxhash_rust::xxh64::Xxh64;
+use std::hash::Hasher;
 use sqlitegraph::{GraphBackend, NodeId, NodeSpec, SnapshotId};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -161,12 +162,11 @@ impl FileOps {
         Ok(())
     }
 
-    /// Compute SHA-256 hash of file contents
+    /// Compute xxHash64 of file contents
     pub fn compute_hash(&self, source: &[u8]) -> String {
-        let mut hasher = Sha256::new();
-        hasher.update(source);
-        let hash = hasher.finalize();
-        hex::encode(hash)
+        let mut hasher = Xxh64::new(0);
+        hasher.write(source);
+        format!("{:016x}", hasher.finish())
     }
 
     /// Convert a symbol node to SymbolFact
@@ -269,5 +269,34 @@ impl FileOps {
         }
 
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_compute_hash_deterministic() {
+        let graph = crate::CodeGraph::open(":memory:").unwrap();
+        let ops = graph.files;
+
+        let data = b"fn main() { println!(\"hello\"); }";
+        let hash1 = ops.compute_hash(data);
+        let hash2 = ops.compute_hash(data);
+
+        assert_eq!(hash1, hash2, "Hash should be deterministic");
+        assert_eq!(hash1.len(), 16, "xxHash64 produces 16 hex chars");
+    }
+
+    #[test]
+    fn test_compute_hash_different_inputs() {
+        let graph = crate::CodeGraph::open(":memory:").unwrap();
+        let ops = graph.files;
+
+        let hash1 = ops.compute_hash(b"fn a() {}");
+        let hash2 = ops.compute_hash(b"fn b() {}");
+
+        assert_ne!(hash1, hash2, "Different inputs should produce different hashes");
     }
 }
