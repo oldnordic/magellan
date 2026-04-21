@@ -188,6 +188,139 @@ where
     })
 }
 
+// ---------------------------------------------------------------------------
+// Option-based variants (no temporary Parser::new() on every file)
+// ---------------------------------------------------------------------------
+
+/// Initialize or get the thread-local Rust parser as Option
+fn with_rust_parser_opt<F, R>(f: F) -> Result<R>
+where
+    F: FnOnce(&mut Option<tree_sitter::Parser>) -> R,
+{
+    RUST_PARSER.with(|parser_cell| {
+        let mut parser_ref = parser_cell.borrow_mut();
+        if parser_ref.is_none() {
+            let mut parser = tree_sitter::Parser::new();
+            parser.set_language(&tree_sitter_rust::language())?;
+            *parser_ref = Some(parser);
+        }
+        Ok(f(&mut *parser_ref))
+    })
+}
+
+/// Initialize or get the thread-local Python parser as Option
+fn with_python_parser_opt<F, R>(f: F) -> Result<R>
+where
+    F: FnOnce(&mut Option<tree_sitter::Parser>) -> R,
+{
+    PYTHON_PARSER.with(|parser_cell| {
+        let mut parser_ref = parser_cell.borrow_mut();
+        if parser_ref.is_none() {
+            let mut parser = tree_sitter::Parser::new();
+            parser.set_language(&tree_sitter_python::language())?;
+            *parser_ref = Some(parser);
+        }
+        Ok(f(&mut *parser_ref))
+    })
+}
+
+/// Initialize or get the thread-local C parser as Option
+fn with_c_parser_opt<F, R>(f: F) -> Result<R>
+where
+    F: FnOnce(&mut Option<tree_sitter::Parser>) -> R,
+{
+    C_PARSER.with(|parser_cell| {
+        let mut parser_ref = parser_cell.borrow_mut();
+        if parser_ref.is_none() {
+            let mut parser = tree_sitter::Parser::new();
+            parser.set_language(&tree_sitter_c::language())?;
+            *parser_ref = Some(parser);
+        }
+        Ok(f(&mut *parser_ref))
+    })
+}
+
+/// Initialize or get the thread-local C++ parser as Option
+fn with_cpp_parser_opt<F, R>(f: F) -> Result<R>
+where
+    F: FnOnce(&mut Option<tree_sitter::Parser>) -> R,
+{
+    CPP_PARSER.with(|parser_cell| {
+        let mut parser_ref = parser_cell.borrow_mut();
+        if parser_ref.is_none() {
+            let mut parser = tree_sitter::Parser::new();
+            parser.set_language(&tree_sitter_cpp::language())?;
+            *parser_ref = Some(parser);
+        }
+        Ok(f(&mut *parser_ref))
+    })
+}
+
+/// Initialize or get the thread-local Java parser as Option
+fn with_java_parser_opt<F, R>(f: F) -> Result<R>
+where
+    F: FnOnce(&mut Option<tree_sitter::Parser>) -> R,
+{
+    JAVA_PARSER.with(|parser_cell| {
+        let mut parser_ref = parser_cell.borrow_mut();
+        if parser_ref.is_none() {
+            let mut parser = tree_sitter::Parser::new();
+            parser.set_language(&tree_sitter_java::language())?;
+            *parser_ref = Some(parser);
+        }
+        Ok(f(&mut *parser_ref))
+    })
+}
+
+/// Initialize or get the thread-local JavaScript parser as Option
+fn with_javascript_parser_opt<F, R>(f: F) -> Result<R>
+where
+    F: FnOnce(&mut Option<tree_sitter::Parser>) -> R,
+{
+    JAVASCRIPT_PARSER.with(|parser_cell| {
+        let mut parser_ref = parser_cell.borrow_mut();
+        if parser_ref.is_none() {
+            let mut parser = tree_sitter::Parser::new();
+            parser.set_language(&tree_sitter_javascript::language())?;
+            *parser_ref = Some(parser);
+        }
+        Ok(f(&mut *parser_ref))
+    })
+}
+
+/// Initialize or get the thread-local TypeScript parser as Option
+fn with_typescript_parser_opt<F, R>(f: F) -> Result<R>
+where
+    F: FnOnce(&mut Option<tree_sitter::Parser>) -> R,
+{
+    TYPESCRIPT_PARSER.with(|parser_cell| {
+        let mut parser_ref = parser_cell.borrow_mut();
+        if parser_ref.is_none() {
+            let mut parser = tree_sitter::Parser::new();
+            parser.set_language(&tree_sitter_typescript::language_typescript())?;
+            *parser_ref = Some(parser);
+        }
+        Ok(f(&mut *parser_ref))
+    })
+}
+
+/// Execute a function with a thread-local parser for the given language.
+/// Passes &mut Option<tree_sitter::Parser> to allow take/replace patterns.
+pub fn with_parser_opt<F, R>(language: Language, f: F) -> Result<R>
+where
+    F: FnOnce(&mut Option<tree_sitter::Parser>) -> R,
+{
+    match language {
+        Language::Rust => with_rust_parser_opt(f),
+        Language::Python => with_python_parser_opt(f),
+        Language::C => with_c_parser_opt(f),
+        Language::Cpp => with_cpp_parser_opt(f),
+        Language::Java => with_java_parser_opt(f),
+        Language::JavaScript => with_javascript_parser_opt(f),
+        Language::TypeScript => with_typescript_parser_opt(f),
+    }
+}
+
 /// Execute a function with a thread-local parser for the given language.
 ///
 /// This function provides lazy-initialized, thread-local parser instances

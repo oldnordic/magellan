@@ -15,6 +15,7 @@ use crate::ingest::c::CParser;
 use crate::ingest::cpp::CppParser;
 use crate::ingest::java::JavaParser;
 use crate::ingest::javascript::JavaScriptParser;
+use crate::ingest::pool;
 use crate::ingest::python::PythonParser;
 use crate::ingest::typescript::TypeScriptParser;
 use crate::ingest::{detect::Language, detect_language, Parser};
@@ -290,36 +291,70 @@ impl ReferenceOps {
             }
         }
 
-        // Extract references using language-specific parser
-        // Pass all_symbol_facts to enable cross-file reference matching
+        // Extract references using parser pool (was creating fresh parsers per file)
         let references = match language {
             Some(Language::Rust) => {
-                let mut parser = Parser::new()?;
-                parser.extract_references(path_buf.clone(), source, &all_symbol_facts)
+                pool::with_parser_opt(Language::Rust, |opt_parser| {
+                    let parser = opt_parser.take().unwrap();
+                    let mut wrapper = Parser::from_parser(parser);
+                    let result = wrapper.extract_references(path_buf.clone(), source, &all_symbol_facts);
+                    *opt_parser = Some(wrapper.parser);
+                    result
+                })?
             }
             Some(Language::Python) => {
-                let mut parser = PythonParser::new()?;
-                parser.extract_references(path_buf.clone(), source, &all_symbol_facts)
+                pool::with_parser_opt(Language::Python, |opt_parser| {
+                    let parser = opt_parser.take().unwrap();
+                    let mut wrapper = PythonParser::from_parser(parser);
+                    let result = wrapper.extract_references(path_buf.clone(), source, &all_symbol_facts);
+                    *opt_parser = Some(wrapper.parser);
+                    result
+                })?
             }
             Some(Language::C) => {
-                let mut parser = CParser::new()?;
-                parser.extract_references(path_buf.clone(), source, &all_symbol_facts)
+                pool::with_parser_opt(Language::C, |opt_parser| {
+                    let parser = opt_parser.take().unwrap();
+                    let mut wrapper = CParser::from_parser(parser);
+                    let result = wrapper.extract_references(path_buf.clone(), source, &all_symbol_facts);
+                    *opt_parser = Some(wrapper.parser);
+                    result
+                })?
             }
             Some(Language::Cpp) => {
-                let mut parser = CppParser::new()?;
-                parser.extract_references(path_buf.clone(), source, &all_symbol_facts)
+                pool::with_parser_opt(Language::Cpp, |opt_parser| {
+                    let parser = opt_parser.take().unwrap();
+                    let mut wrapper = CppParser::from_parser(parser);
+                    let result = wrapper.extract_references(path_buf.clone(), source, &all_symbol_facts);
+                    *opt_parser = Some(wrapper.parser);
+                    result
+                })?
             }
             Some(Language::Java) => {
-                let mut parser = JavaParser::new()?;
-                parser.extract_references(path_buf.clone(), source, &all_symbol_facts)
+                pool::with_parser_opt(Language::Java, |opt_parser| {
+                    let parser = opt_parser.take().unwrap();
+                    let mut wrapper = JavaParser::from_parser(parser);
+                    let result = wrapper.extract_references(path_buf.clone(), source, &all_symbol_facts);
+                    *opt_parser = Some(wrapper.parser);
+                    result
+                })?
             }
             Some(Language::JavaScript) => {
-                let mut parser = JavaScriptParser::new()?;
-                parser.extract_references(path_buf.clone(), source, &all_symbol_facts)
+                pool::with_parser_opt(Language::JavaScript, |opt_parser| {
+                    let parser = opt_parser.take().unwrap();
+                    let mut wrapper = JavaScriptParser::from_parser(parser);
+                    let result = wrapper.extract_references(path_buf.clone(), source, &all_symbol_facts);
+                    *opt_parser = Some(wrapper.parser);
+                    result
+                })?
             }
             Some(Language::TypeScript) => {
-                let mut parser = TypeScriptParser::new()?;
-                parser.extract_references(path_buf.clone(), source, &all_symbol_facts)
+                pool::with_parser_opt(Language::TypeScript, |opt_parser| {
+                    let parser = opt_parser.take().unwrap();
+                    let mut wrapper = TypeScriptParser::from_parser(parser);
+                    let result = wrapper.extract_references(path_buf.clone(), source, &all_symbol_facts);
+                    *opt_parser = Some(wrapper.parser);
+                    result
+                })?
             }
             None => Vec::new(),
         };
@@ -371,36 +406,70 @@ impl ReferenceOps {
         let path_buf = PathBuf::from(path);
         let language = detect_language(&path_buf);
 
-        // Extract references using language-specific parser
-        // Pass all_symbol_facts to enable cross-file reference matching
+        // Extract references using parser pool (was creating fresh parsers per file)
         let references = match language {
             Some(Language::Rust) => {
-                let mut parser = Parser::new()?;
-                parser.extract_references(path_buf.clone(), source, all_symbol_facts)
+                pool::with_parser_opt(Language::Rust, |opt_parser| {
+                    let parser = opt_parser.take().unwrap();
+                    let mut wrapper = Parser::from_parser(parser);
+                    let result = wrapper.extract_references(path_buf.clone(), source, all_symbol_facts);
+                    *opt_parser = Some(wrapper.parser);
+                    result
+                })?
             }
             Some(Language::Python) => {
-                let mut parser = PythonParser::new()?;
-                parser.extract_references(path_buf.clone(), source, all_symbol_facts)
+                pool::with_parser_opt(Language::Python, |opt_parser| {
+                    let parser = opt_parser.take().unwrap();
+                    let mut wrapper = PythonParser::from_parser(parser);
+                    let result = wrapper.extract_references(path_buf.clone(), source, all_symbol_facts);
+                    *opt_parser = Some(wrapper.parser);
+                    result
+                })?
             }
             Some(Language::C) => {
-                let mut parser = CParser::new()?;
-                parser.extract_references(path_buf.clone(), source, all_symbol_facts)
+                pool::with_parser_opt(Language::C, |opt_parser| {
+                    let parser = opt_parser.take().unwrap();
+                    let mut wrapper = CParser::from_parser(parser);
+                    let result = wrapper.extract_references(path_buf.clone(), source, all_symbol_facts);
+                    *opt_parser = Some(wrapper.parser);
+                    result
+                })?
             }
             Some(Language::Cpp) => {
-                let mut parser = CppParser::new()?;
-                parser.extract_references(path_buf.clone(), source, all_symbol_facts)
+                pool::with_parser_opt(Language::Cpp, |opt_parser| {
+                    let parser = opt_parser.take().unwrap();
+                    let mut wrapper = CppParser::from_parser(parser);
+                    let result = wrapper.extract_references(path_buf.clone(), source, all_symbol_facts);
+                    *opt_parser = Some(wrapper.parser);
+                    result
+                })?
             }
             Some(Language::Java) => {
-                let mut parser = JavaParser::new()?;
-                parser.extract_references(path_buf.clone(), source, all_symbol_facts)
+                pool::with_parser_opt(Language::Java, |opt_parser| {
+                    let parser = opt_parser.take().unwrap();
+                    let mut wrapper = JavaParser::from_parser(parser);
+                    let result = wrapper.extract_references(path_buf.clone(), source, all_symbol_facts);
+                    *opt_parser = Some(wrapper.parser);
+                    result
+                })?
             }
             Some(Language::JavaScript) => {
-                let mut parser = JavaScriptParser::new()?;
-                parser.extract_references(path_buf.clone(), source, all_symbol_facts)
+                pool::with_parser_opt(Language::JavaScript, |opt_parser| {
+                    let parser = opt_parser.take().unwrap();
+                    let mut wrapper = JavaScriptParser::from_parser(parser);
+                    let result = wrapper.extract_references(path_buf.clone(), source, all_symbol_facts);
+                    *opt_parser = Some(wrapper.parser);
+                    result
+                })?
             }
             Some(Language::TypeScript) => {
-                let mut parser = TypeScriptParser::new()?;
-                parser.extract_references(path_buf.clone(), source, all_symbol_facts)
+                pool::with_parser_opt(Language::TypeScript, |opt_parser| {
+                    let parser = opt_parser.take().unwrap();
+                    let mut wrapper = TypeScriptParser::from_parser(parser);
+                    let result = wrapper.extract_references(path_buf.clone(), source, all_symbol_facts);
+                    *opt_parser = Some(wrapper.parser);
+                    result
+                })?
             }
             None => Vec::new(),
         };
