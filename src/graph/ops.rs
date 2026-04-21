@@ -103,6 +103,14 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
     let path_buf = PathBuf::from(path);
     let language = detect_language(&path_buf);
 
+    // Parse source once and share the tree across all extractors
+    // This eliminates redundant parsing (was 4+ parses per file)
+    let parsed_tree = language.and_then(|lang| {
+        pool::with_parser(lang, |parser| parser.parse(source, None))
+            .ok()
+            .flatten()
+    });
+
     let symbol_facts = match language {
         Some(Language::Rust) => {
             // Use parser pool for Rust
@@ -196,38 +204,22 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
         graph.store_code_chunks(&code_chunks)?;
     }
 
-    // Step 5.5: Extract and store AST nodes
-    // Re-use the parser pool to get the tree-sitter tree for AST extraction
-    if let Some(lang) = language {
-        // with_parser returns Result<R> where R is the closure's return type.
-        // We return Vec<AstNode> directly (not wrapped in Result) to avoid double wrapping.
-        let ast_nodes_result = pool::with_parser(lang, |parser| {
-            parser
-                .parse(source, None)
-                .map(|tree| crate::graph::extract_ast_nodes(&tree, source))
-                .unwrap_or_else(Vec::new)
-        });
-        if let Ok(ast_nodes) = ast_nodes_result {
-            if !ast_nodes.is_empty() {
-                insert_ast_nodes(graph, file_id.as_i64(), ast_nodes)?;
-            }
+    // Step 5.5: Extract and store AST nodes (re-use pre-parsed tree)
+    if let Some(ref tree) = parsed_tree {
+        let ast_nodes = crate::graph::extract_ast_nodes(tree, source);
+        if !ast_nodes.is_empty() {
+            insert_ast_nodes(graph, file_id.as_i64(), ast_nodes)?;
         }
     }
 
-    // Step 5.55: Extract and store import statements
-    // Import extraction provides metadata for cross-file symbol resolution (Phase 61)
-    let import_result = pool::with_parser(crate::ingest::detect::Language::Rust, |_parser| {
-        // Create ImportExtractor and extract imports
-        // ImportExtractor::new() returns Result, but we're in a non-Result closure
-        // So we use unwrap_or_default to handle errors gracefully
-        let mut import_extractor =
-            crate::ingest::imports::ImportExtractor::new().unwrap_or_else(|_| {
-                // Fallback: create a new parser directly
-                crate::ingest::imports::ImportExtractor::default()
-            });
-        import_extractor.extract_imports_rust(path_buf.clone(), source)
-    });
-    if let Ok(extracted_imports) = import_result {
+    // Step 5.55: Extract and store import statements (re-use pre-parsed tree)
+    if let (Some(Language::Rust), Some(ref tree)) = (language, &parsed_tree) {
+        let import_extractor = crate::ingest::imports::ImportExtractor::default();
+        let extracted_imports = import_extractor.extract_imports_from_tree(
+            &tree.root_node(),
+            source,
+            &path_buf,
+        );
         if !extracted_imports.is_empty() {
             // Delete old imports for this file
             let _ = graph.imports.delete_imports_in_file(path);
@@ -241,7 +233,7 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
         }
     }
 
-    // Step 5.6: Extract and store CFG blocks for Rust and C/C++ functions
+    // Step 5.6: Extract and store CFG blocks (re-use pre-parsed tree)
     // CFG extraction supports:
     // - Rust (.rs): function_item nodes
     // - C/C++ (.c, .h, .cpp, .hpp, .cc, .cxx): function_definition nodes
@@ -253,20 +245,7 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
     let is_c = path.ends_with(".c") || path.ends_with(".h");
 
     if (is_rust || is_c || is_cpp) && !function_symbol_ids.is_empty() {
-        let language = if is_rust {
-            crate::ingest::detect::Language::Rust
-        } else if is_cpp {
-            crate::ingest::detect::Language::Cpp
-        } else {
-            crate::ingest::detect::Language::C
-        };
-
-        let _cfg_result = pool::with_parser(language, |parser| {
-            // parser.parse returns Option, handle gracefully
-            let tree = match parser.parse(source, None) {
-                Some(t) => t,
-                None => return Ok(()), // Parse failed, skip CFG extraction
-            };
+        if let Some(ref tree) = parsed_tree {
             let root = tree.root_node();
 
             // Determine function node kind based on language
@@ -319,9 +298,7 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
                         .index_cfg_with_4d_coordinates_from_node(&func_node, source, *entity_id);
                 }
             }
-
-            Ok::<(), anyhow::Error>(())
-        });
+        }
 
         // CFG extraction failure doesn't block indexing
     }
