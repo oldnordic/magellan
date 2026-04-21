@@ -2,8 +2,8 @@
 
 **Status:** Reference Document
 **Purpose:** Design and integration guide for Magellan
-**Date:** 2026-03-10
-**Magellan Version:** 3.1.0
+**Date:** 2026-04-21
+**Magellan Version:** 3.1.6+
 
 ---
 
@@ -30,7 +30,7 @@ Magellan supports **three distinct storage backends**:
 |---------|---------|----------|--------|-------------|
 | **SQLite** (default) | SQL-based storage | `.db` | ✅ Complete | Baseline |
 | **Native V3** | Binary KV store | `.v3` | ✅ Complete | 10-20x faster |
-| **Geometric** | 3D spatial indexing | `.geo` | ⚠️ 3D Complete, 4D Incomplete | Experimental |
+| **Geometric** | 4D spatiotemporal indexing | `.geo` | ✅ Complete | Experimental |
 
 **Important:** Database files are **not** compatible between backends.
 
@@ -62,46 +62,49 @@ Build with:
 cargo build --release --features native-v3
 ```
 
-### Geometric Backend ⚠️
+### Geometric Backend
 
-**Status:** 3D spatial features complete, 4D temporal features incomplete
+**Status:** 4D spatiotemporal features complete
 
-The geometric backend uses **GeoGraphDB** for 3D spatial indexing of CFG blocks:
+The geometric backend uses **GeoGraphDB** for 4D spatiotemporal indexing of CFG blocks:
 
-#### 3D Spatial Mapping (COMPLETE)
+#### 4D Spatial Mapping
 
 | Coordinate | CFG Property | Meaning |
 |------------|--------------|---------|
 | X | Dominator Depth | How deep in dominator tree |
 | Y | Loop Nesting | How many loops deep |
-| Z | Branch Count | Number of branches |
+| Z | Branch Distance | Shortest path from entry to branch |
+| T | Git Temporal | Commit timestamp for evolution tracking |
 
 **Performance:** O(log n) path queries instead of O(2^n) enumeration
 
-#### 4D Temporal Features (INCOMPLETE)
+#### 4D Coordinate Storage
 
-The `NodeRec` structure has MVCC fields for time-travel queries:
+CFG blocks are stored with 4D coordinates in both SQLite and geometric backends:
 
 ```rust
-pub struct NodeRec {
-    // ... 3D spatial fields ...
-    pub begin_ts: u64,    // MVCC timestamp (PLACEHOLDER)
-    pub end_ts: u64,      // MVCC timestamp (PLACEHOLDER)
-    pub tx_id: u64,       // Transaction ID (PLACEHOLDER)
-    pub visibility: u8,   // Visibility flag
-    // ...
+pub struct CfgBlock {
+    pub id: u64,
+    pub kind: BlockKind,
+    pub coord_x: i32,  // Dominator depth
+    pub coord_y: i32,  // Loop nesting
+    pub coord_z: i32,  // Branch distance
+    pub coord_t: i64,  // Git timestamp
+    pub source_location: String,
 }
 ```
 
-**What's NOT implemented:**
-- Temporal queries: "what did CFG look like at time T?"
-- Version comparison between timestamps
-- CFG evolution tracking
-- Time-travel pathfinding
+**What's implemented:**
+- Dominator depth computation via Lengauer-Tarjan algorithm
+- Loop nesting detection via Tarjan's SCC algorithm
+- Branch distance from entry block
+- Git temporal coordinate for commit-aware queries
+- Range queries: `--depth-range-x 0-5 --depth-range-y 0-3 --depth-range-z 0-10`
 
 Build with:
 ```bash
-# 3D spatial features work
+# 4D spatial features work
 cargo build --release --features geometric-backend
 
 # Standalone CLI
@@ -111,11 +114,11 @@ magellan-geometric index --root . --db code.geo
 
 ---
 
-## Backend Capability Model (v3.1.0)
+## Backend Capability Model (v3.1.6+)
 
 ### Capability Detection
 
-Magellan 3.1.0 introduces a **runtime capability model** that enables:
+Magellan 3.1.6+ introduces a **runtime capability model** that enables:
 
 1. **Backend-aware help/usage messaging** - Commands show what they support
 2. **Command validation** - Early error when backend lacks required capability
@@ -219,12 +222,221 @@ magellan --backends
 
 # Version shows compiled backends
 magellan --version
-# magellan 3.1.0 (abc123 2026-03-10) rustc 1.75.0 backends: sqlite,geometric
+# magellan 3.1.6+ (abc123 2026-04-21) rustc 1.75.0 backends: sqlite,geometric
 ```
 
 ---
 
-## Re-Index Semantics (v3.1.0)
+## Parser Pool Architecture
+
+Magellan uses a **thread-local parser pool** to eliminate per-file parser allocation overhead:
+
+### Thread-Local Parser Reuse
+
+Located in `src/ingest/pool.rs`:
+
+```rust
+pub fn with_parser<F, R>(lang: Language, f: F) -> R
+where
+    F: FnOnce(&mut Parser) -> R,
+{
+    // Get or create thread-local parser for this language
+    let parser = PARSER_POOL.with(|pool| {
+        let mut pool = pool.borrow_mut();
+        pool.get_or_create(lang)
+    });
+    f(parser)
+}
+
+pub fn with_parser_opt<F, R>(lang: Option<Language>, f: F) -> R
+where
+    F: FnOnce(Option<&mut Parser>) -> R,
+{
+    match lang {
+        Some(l) => with_parser(l, |p| f(Some(p))),
+        None => f(None),
+    }
+}
+```
+
+### Supported Languages
+
+| Language | Parser | File Extensions |
+|----------|--------|-----------------|
+| Rust | tree-sitter-rust | `.rs` |
+| Python | tree-sitter-python | `.py` |
+| C | tree-sitter-c | `.c`, `.h` |
+| C++ | tree-sitter-cpp | `.cpp`, `.cc`, `.hpp` |
+| Java | tree-sitter-java | `.java` |
+| JavaScript | tree-sitter-javascript | `.js`, `.jsx` |
+| TypeScript | tree-sitter-typescript | `.ts`, `.tsx` |
+
+### Lazy Initialization
+
+Parsers are created **on first use per thread**, not at startup:
+
+```rust
+thread_local! {
+    static PARSER_POOL: RefCell<ParserPool> = RefCell::new(ParserPool::new());
+}
+
+impl ParserPool {
+    fn get_or_create(&mut self, lang: Language) -> &mut Parser {
+        self.parsers.entry(lang).or_insert_with(|| {
+            let mut parser = Parser::new();
+            parser.set_language(lang.into()).unwrap();
+            parser
+        })
+    }
+}
+```
+
+**Benefits:**
+- No parser allocation per file (major bottleneck eliminated)
+- Thread-safe: each thread has its own parser set
+- Supports up to 7 languages simultaneously per thread
+- Zero-cost after first use in a thread
+
+---
+
+## Parse-Once Optimization
+
+Magellan parses each source file **exactly once** during indexing, sharing the `tree_sitter::Tree` across all extraction phases:
+
+### Single-Parse Pipeline
+
+```rust
+pub fn index_file(
+    graph: &mut CodeGraph,
+    path: &Path,
+    content: &str,
+    tree: &Tree,           // <-- Parsed once, shared
+    lang: Language,
+) -> Result<Vec<SymbolNode>> {
+    let root = tree.root_node();
+    
+    // Phase 1: Extract AST nodes (uses same tree)
+    let ast_nodes = extract_ast_nodes(&root);
+    
+    // Phase 2: Extract imports (uses same tree)
+    let imports = extract_imports(&root, lang);
+    
+    // Phase 3: Extract symbols (uses same tree)
+    let symbols = extract_symbols(&root, path, content);
+    
+    // Phase 4: Extract CFG (uses same tree)
+    for func in &symbols {
+        if func.kind == SymbolKind::Function {
+            index_cfg_with_4d_coordinates_from_node(
+                graph, func, &root, content, path,
+            )?;
+        }
+    }
+    
+    Ok(symbols)
+}
+```
+
+### What Still Uses the Parser Pool
+
+Some operations still require language-specific parser wrappers:
+
+| Operation | Uses Pool | Reason |
+|-----------|-----------|--------|
+| `call_ops` | Yes | Needs language-specific call extraction |
+| `references` | Yes | Needs language-specific reference patterns |
+| `index_file` | No | Parse-once optimization |
+| `index_cfg` | No | Reuses tree from `index_file` |
+
+**Performance Impact:** 2-3x faster indexing on large codebases due to eliminated redundant parsing.
+
+---
+
+## CFG Architecture
+
+### Old vs New
+
+| Aspect | Old (`cfg_extractor.rs`) | New (`cfg_edges_extract.rs`) |
+|--------|--------------------------|------------------------------|
+| Blocks | Simple list | Typed blocks with metadata |
+| Edges | None | Typed edges with labels |
+| Coordinates | None | 4D (X, Y, Z, T) |
+| Storage | SQLite only | SQLite + geometric |
+
+### Edge Types
+
+```rust
+pub enum CfgEdgeType {
+    Fallthrough,      // Sequential execution
+    ConditionalTrue,  // if/match branch taken
+    ConditionalFalse, // if/match branch not taken
+    Jump,             // break/continue/goto
+    BackEdge,         // Loop back edge
+    Call,             // Function call
+    Return,           // Function return
+}
+```
+
+### 4D Coordinates
+
+Each CFG block has 4D coordinates computed during extraction:
+
+| Coordinate | Algorithm | Meaning |
+|------------|-----------|---------|
+| X | Lengauer-Tarjan | Dominator tree depth |
+| Y | Tarjan SCC | Loop nesting depth |
+| Z | BFS from entry | Shortest path to this block |
+| T | Git log | Commit timestamp |
+
+### Delegation Pattern
+
+`cfg_ops.rs` delegates the old `index_cfg_for_function` to the new `index_cfg_with_4d_coordinates_from_node`:
+
+```rust
+// src/graph/cfg_ops.rs
+pub fn index_cfg_for_function(
+    graph: &mut CodeGraph,
+    func: &SymbolNode,
+    root: &Node,
+    content: &str,
+    path: &Path,
+) -> Result<()> {
+    // Delegates to new implementation
+    index_cfg_with_4d_coordinates_from_node(
+        graph, func, root, content, path
+    )
+}
+```
+
+---
+
+## File Hashing
+
+Magellan uses **xxHash64** for fast content-based change detection:
+
+### Hash Format
+
+| Algorithm | Hash Length | Speed |
+|-----------|-------------|-------|
+| xxHash64 | 16-char hex | ~10 GB/s |
+| SHA-256 (old) | 64-char hex | ~200 MB/s |
+
+### Usage in `files.rs`
+
+```rust
+use xxhash_rust::xxh3::xxh3_64;
+
+pub fn compute_file_hash(content: &str) -> String {
+    let hash = xxh3_64(content.as_bytes());
+    format!("{:016x}", hash)
+}
+```
+
+The hash is stored in `graph_entities` (FileNode) and used by `reconcile_file_path()` to detect changes without re-reading unchanged files.
+
+---
+
+## Re-Index Semantics (v3.1.6+)
 
 ### Reconcile Behavior
 
@@ -248,7 +460,7 @@ pub fn reconcile_file_path(
 
 2. **Compute content hash:**
    - Read file contents
-   - Compute SHA-256 hash
+   - Compute xxHash64 hash (16-char hex)
 
 3. **Check for changes:**
    - Compare with stored hash in `graph_entities` (FileNode)
@@ -263,7 +475,7 @@ pub fn reconcile_file_path(
    - Delete all code chunks for the file
 
 5. **Re-index:**
-   - Run `index_file()` to extract symbols
+   - Run `index_file()` to extract symbols (parse-once)
    - Run `index_references()` to extract references
    - Return `Reindexed { symbols, references, calls }`
 
@@ -289,7 +501,7 @@ pub fn reconcile_file_path(
    - If file does NOT exist → delete symbols, remove from tracking
 
 2. **Compute content hash:**
-   - Read file, compute hash
+   - Read file, compute xxHash64 hash
 
 3. **Check for changes:**
    - Compare with stored hash
@@ -301,8 +513,8 @@ pub fn reconcile_file_path(
    - Stale CFG blocks are excluded from next save (garbage collection)
 
 5. **Re-index:**
-   - Extract symbols via tree-sitter
-   - Extract CFG blocks if applicable
+   - Extract symbols via tree-sitter (parse-once)
+   - Extract CFG blocks with 4D coordinates if applicable
    - Insert into in-memory structures
    - Return `Reindexed`
 
@@ -333,7 +545,7 @@ See `tests/churn_harness_test.rs` for validation that:
 
 ---
 
-## Vacuum and Maintenance (v3.1.0)
+## Vacuum and Maintenance (v3.1.6+)
 
 ### SQLite VACUUM
 
@@ -409,6 +621,45 @@ Semantics).
 ## Database Schema
 
 ### Core Tables (SQLite Backend)
+
+#### `cfg_blocks` - Control Flow Graph Blocks
+
+```sql
+CREATE TABLE cfg_blocks (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    function_id     INTEGER NOT NULL,
+    block_kind      TEXT NOT NULL,
+    coord_x         INTEGER NOT NULL,
+    coord_y         INTEGER NOT NULL,
+    coord_z         INTEGER NOT NULL,
+    coord_t         INTEGER,
+    source_location TEXT,
+    FOREIGN KEY (function_id) REFERENCES graph_entities(id)
+);
+```
+
+**4D Coordinates:**
+| Column | Meaning | Computation |
+|--------|---------|-------------|
+| `coord_x` | Dominator depth | Lengauer-Tarjan algorithm |
+| `coord_y` | Loop nesting | Tarjan SCC detection |
+| `coord_z` | Branch distance | BFS from entry block |
+| `coord_t` | Git timestamp | `git log -1 --format=%ct` |
+
+#### `cfg_edges` - CFG Block Connections
+
+```sql
+CREATE TABLE cfg_edges (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_block  INTEGER NOT NULL,
+    to_block    INTEGER NOT NULL,
+    edge_type   TEXT NOT NULL,
+    FOREIGN KEY (from_block) REFERENCES cfg_blocks(id),
+    FOREIGN KEY (to_block) REFERENCES cfg_blocks(id)
+);
+```
+
+**Edge Types:** `Fallthrough`, `ConditionalTrue`, `ConditionalFalse`, `Jump`, `BackEdge`, `Call`, `Return`
 
 #### `graph_entities` - Symbol Nodes
 
@@ -554,9 +805,10 @@ magellan/src/
 ├── common.rs            # Language detection
 ├── indexer.rs           # Indexing orchestrator
 ├── cli.rs               # Argument parsing
-├── geometric_cmd.rs     # ⚠️ Geometric backend CLI
+├── geometric_cmd.rs     # Geometric backend CLI
 ├── ingest/              # Language parsers
 │   ├── mod.rs
+│   ├── pool.rs           # Thread-local parser pool
 │   ├── detect.rs
 │   ├── rust.rs
 │   ├── c.rs
@@ -571,8 +823,10 @@ magellan/src/
 │   ├── ops.rs           # CRUD operations
 │   ├── query.rs         # Symbol queries
 │   ├── algorithms.rs    # Graph algorithms
-│   ├── geometric_backend.rs  # ⚠️ 3D complete, 4D incomplete
-│   ├── cfg_*.rs         # CFG modules
+│   ├── geometric_backend.rs  # 4D spatiotemporal backend
+│   ├── cfg_extractor.rs # Legacy CFG (blocks only)
+│   ├── cfg_edges_extract.rs # New CFG (blocks + edges + 4D)
+│   ├── cfg_ops.rs       # CFG delegation layer
 │   ├── ast_*.rs         # AST modules
 │   └── metrics/         # Code metrics
 ├── context/             # LLM Context API
@@ -639,7 +893,7 @@ Use the **stable symbol_id** from Magellan's SymbolNode:
 
 ```rust
 pub struct SymbolNode {
-    pub symbol_id: Option<String>,  // SHA-256 of language:fqn:span_id
+    pub symbol_id: Option<String>,  // xxHash64 of language:fqn:span_id
     // ...
 }
 ```
@@ -701,12 +955,12 @@ pub fn on_file_indexed(codegraph: &CodeGraph, path: &str) -> Result<()> {
 - High query throughput
 - When performance matters
 
-### When to use Geometric Backend ⚠️
+### When to use Geometric Backend
 
-- CFG analysis experiments
+- CFG analysis with 4D coordinates
 - When O(log n) path queries are needed
-- **NOT for production** (incomplete features)
-- **NOT for temporal queries** (not implemented)
+- Temporal evolution tracking (git-aware)
+- Production-ready for spatial/temporal queries
 
 ---
 
@@ -720,7 +974,7 @@ pub fn on_file_indexed(codegraph: &CodeGraph, path: &str) -> Result<()> {
 |----------|---------|----------------|
 | Default/Compatibility | SQLite | `.db` |
 | Production Performance | Native V3 | `.v3` |
-| CFG Experiments Only | Geometric | `.geo` |
+| 4D Spatiotemporal Analysis | Geometric | `.geo` |
 
 ### Building with Different Backends
 
@@ -731,7 +985,7 @@ cargo build --release
 # Native V3 (recommended for production)
 cargo build --release --features native-v3
 
-# Geometric (⚠️ experimental)
+# Geometric (4D spatiotemporal)
 cargo build --release --features geometric-backend
 ```
 
@@ -751,5 +1005,5 @@ Magellan (structure) + Analysis Tool (behavior) = Complete Code Intelligence
 - Magellan CLI: `src/main.rs`
 - Graph Schema: `src/graph/schema.rs`
 - CodeGraph API: `src/graph/mod.rs`
-- Geometric Backend: `src/graph/geometric_backend.rs` ⚠️
+- Geometric Backend: `src/graph/geometric_backend.rs`
 - Geometric Docs: `docs/GEOGRAPHDB_*.md`

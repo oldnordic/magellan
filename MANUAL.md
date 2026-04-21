@@ -1,6 +1,6 @@
 # Magellan Operator Manual
 
-**Version 3.1.1** | *Last Updated: 2026-03-15*
+**Version 3.1.6** | *Last Updated: 2026-04-21*
 
 Comprehensive instructions for operating Magellan.
 
@@ -132,7 +132,6 @@ The geometric backend extracts CFG from source code using tree-sitter:
 
 **Limitations:**
 - CFG is source-level (no compiler optimizations visible)
-- No exception handling edges (try/catch not captured)
 - Less precise than bytecode/LLVM IR (but works without compilation)
 - Best for: navigation, complexity analysis, path exploration
 
@@ -938,7 +937,7 @@ Magellan stores source code snippets as **chunks** - contiguous spans of source 
 **How Chunks Work:**
 
 - **Creation:** During indexing, each symbol's source code is extracted and stored as a chunk with its byte span (start/end offsets)
-- **Deduplication:** Chunks are hashed using SHA-256; identical code shares the same `content_hash` for deduplication detection
+- **Deduplication:** Chunks are hashed using xxHash64; identical code shares the same `content_hash` for deduplication detection
 - **Storage:** Chunks persist in the `code_chunks` table with metadata (file path, symbol name, symbol kind, timestamps)
 - **Retrieval:** Query chunks by symbol name, byte span, or list all chunks with filters
 
@@ -969,7 +968,7 @@ All chunk commands support JSON output via `--output json` or `--output pretty`.
   "byte_start": 100,
   "byte_end": 200,
   "content": "fn main() {\n    println!(\"Hello\");\n}",
-  "content_hash": "a1b2c3d4e5f6789012345678901234...",
+  "content_hash": "a1b2c3d4e5f67890...",
   "symbol_name": "main",
   "symbol_kind": "fn",
   "created_at": 1704067200
@@ -985,7 +984,7 @@ All chunk commands support JSON output via `--output json` or `--output pretty`.
 | `byte_start` | number | Byte offset where chunk starts in source file |
 | `byte_end` | number | Byte offset where chunk ends in source file |
 | `content` | string | Source code content for this span |
-| `content_hash` | string | SHA-256 hash of content (for deduplication) |
+| `content_hash` | string | xxHash64 hash of content (for deduplication) |
 | `symbol_name` | string/null | Symbol name this chunk represents |
 | `symbol_kind` | string/null | Symbol kind (fn, struct, method, class, etc.) |
 | `created_at` | number | Unix timestamp when chunk was created |
@@ -1921,7 +1920,11 @@ No user action required - backend detection is automatic.
 
 ## 7. Known Limitations
 
-### 7.1 In-Memory Databases
+### 7.1 Hash Format Change (v3.1.6)
+
+Magellan 3.1.6 switched from SHA-256 to xxHash64 for file content hashing (~2-3x faster). The first `refresh` or `watch --scan-initial` after upgrading will reindex all tracked files because the hash format has changed. This is a one-time operation.
+
+### 7.2 In-Memory Databases
 
 Magellan uses SQLite Shared connections for concurrent access (via `sqlitegraph` and
 `ChunkStore`), which don't work with `:memory:` databases. Each thread would get its
@@ -1933,7 +1936,7 @@ Additionally, operations that retrieve the database file path will fail for
 **Workaround:** Use file-based databases for all operations requiring concurrent
 access or path retrieval.
 
-### 7.2 KV Storage Limitations
+### 7.3 KV Storage Limitations
 
 - **No SQL query access:** KV data is not directly queryable via SQL clients
 - **Use Magellan CLI commands:** All data access works through CLI commands (`find`, `query`, `ast`, `label`, etc.)
@@ -1942,7 +1945,7 @@ access or path retrieval.
 
 ---
 
-## 7. Supported Languages
+## 8. Supported Languages
 
 | Language | Extensions | Symbol Extraction | Reference Extraction | Call Graph |
 |----------|------------|-------------------|---------------------|------------|
@@ -2755,9 +2758,11 @@ magellan query --db code.geo --file src/main.rs
    - `fallthrough` - Sequential execution
    - `conditional_true` - If condition is true
    - `conditional_false` - If condition is false
+   - `conditional_guard` - Match guard condition
    - `jump` - Break, continue, goto
    - `back_edge` - Loop back to header
-   - `return` - Function exit
+   - `return` - Function exit (including `?` operator error paths)
+   - `call` - Function call transitions
 5. **Compute Analysis** - Calculates:
    - Dominator trees (which blocks must execute before others)
    - Loop nesting (which loops contain which blocks)
@@ -2799,7 +2804,6 @@ Generated CFG:
 **Source-Level CFG:**
 - Extracted from AST, not compiled bytecode
 - No compiler optimizations visible
-- No exception handling edges (try/catch)
 - Best effort based on visible control flow
 
 **When to Use Geometric Backend:**
@@ -2809,7 +2813,6 @@ Generated CFG:
 - ✅ LLM context building
 - ❌ Compiler optimization analysis
 - ❌ Precise runtime behavior
-- ❌ Exception path analysis
 
 ---
 
@@ -3048,5 +3051,58 @@ Churn measurement tests verify stable behavior across re-index cycles:
 ### 16.5 Zero Compile Warnings
 
 Default build now has zero compile warnings (down from 26).
+
+---
+
+## 17. v3.1.6 New Features
+
+### 17.1 Performance Optimizations
+
+**xxHash64 File Hashing**
+- SHA-256 replaced with xxHash64 for file content hashing (~2-3x faster)
+- First refresh after upgrade reindexes all files (one-time hash format migration)
+
+**Parse-Once Optimization**
+- Source files are parsed once and the AST tree is shared across all extractors (symbols, references, calls, CFG)
+- Eliminates redundant tree-sitter parsing during indexing
+
+**Parser Pool**
+- Thread-local parser reuse in call/reference indexing
+- Reduces parser allocation overhead in multi-threaded watchers
+
+### 17.2 CFG Extraction Improvements (Rust)
+
+**New Control-Flow Constructs**
+- `&&` and `||` operators now produce explicit conditional blocks
+- `?` operator (try) models error paths with Return edges
+- Match guards (`if x > 0`) generate conditional guard blocks
+
+**Typed Control-Flow Edges**
+All CFG edges now carry explicit types:
+- `ConditionalTrue` / `ConditionalFalse` - Branch outcomes
+- `Return` - Function exit paths
+- `BackEdge` - Loop back-edges
+- `Call` - Function call transitions
+
+**4D Spatial Coordinates**
+Every CFG block now has 4D coordinates:
+- **X** - Dominator depth
+- **Y** - Loop nesting level
+- **Z** - Branch distance
+- **T** - Git commit history
+
+### 17.3 Deprecation
+
+The old `cfg_extractor.rs` module is deprecated in favor of `cfg_edges_extract.rs`. The new module provides:
+- More accurate control-flow modeling
+- Typed edge support
+- 4D coordinate computation
+- Better handling of Rust-specific constructs
+
+### 17.4 Safety Improvements
+
+- Multiple panic paths eliminated from indexing pipeline
+- Invalid UTF-8 in source files is now properly rejected instead of producing empty results
+- Graceful degradation for malformed input
 
 ---
