@@ -2476,6 +2476,9 @@ fn extract_cfg_from_tree(
     content: &str,
     facts: &[SymbolFact],
 ) -> (Vec<SerializableCfgBlock>, Vec<CfgEdge>) {
+    // NOTE: Migrate to cfg_edges_extract::extract_cfg_from_function_node
+    // when the geometric-backend feature is re-enabled.
+    // CfgExtractor is deprecated; this code is behind a broken feature flag.
     use crate::graph::cfg_extractor::CfgExtractor;
 
     let root = tree.root_node();

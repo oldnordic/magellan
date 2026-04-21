@@ -3,7 +3,6 @@
 //! This module extracts control flow edges between basic blocks
 //! by analyzing tree-sitter AST nodes.
 
-use crate::graph::cfg_extractor::{BlockKind, CfgExtractor, TerminatorKind};
 use crate::graph::schema::CfgBlock;
 use tree_sitter::{Node, Parser as TsParser};
 
