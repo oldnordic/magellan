@@ -295,24 +295,22 @@ impl<'a> CfgExtractor<'a> {
                             self.visit_if(&child, function_id);
                         }
                     }
-                    3 => {
+                    3 if child.kind() == "else_clause" => {
                         // Alternative (else_clause)
                         // else_clause may contain "else" keyword and a block or if_expression
-                        if child.kind() == "else_clause" {
-                            // Find the block or if_expression inside else_clause
-                            let mut else_cursor = child.walk();
-                            if else_cursor.goto_first_child() {
-                                loop {
-                                    let else_child = else_cursor.node();
-                                    // Skip "else" keyword, find the actual content
-                                    if else_child.kind() == "block" {
-                                        self.visit_block(&else_child, function_id, BlockKind::Else);
-                                    } else if else_child.kind() == "if_expression" {
-                                        self.visit_if(&else_child, function_id);
-                                    }
-                                    if !else_cursor.goto_next_sibling() {
-                                        break;
-                                    }
+                        // Find the block or if_expression inside else_clause
+                        let mut else_cursor = child.walk();
+                        if else_cursor.goto_first_child() {
+                            loop {
+                                let else_child = else_cursor.node();
+                                // Skip "else" keyword, find the actual content
+                                if else_child.kind() == "block" {
+                                    self.visit_block(&else_child, function_id, BlockKind::Else);
+                                } else if else_child.kind() == "if_expression" {
+                                    self.visit_if(&else_child, function_id);
+                                }
+                                if !else_cursor.goto_next_sibling() {
+                                    break;
                                 }
                             }
                         }
@@ -537,6 +535,7 @@ mod tests {
         parser.parse(source, None).unwrap()
     }
 
+    #[allow(clippy::manual_find)]
     fn find_first_function(tree: &tree_sitter::Tree) -> Option<Node<'_>> {
         let root = tree.root_node();
         let mut cursor = root.walk();

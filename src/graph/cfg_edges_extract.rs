@@ -701,11 +701,15 @@ fn extract_blocks_from_node_with_fallthrough(
 /// Extract blocks for short-circuit operators (&& and ||)
 ///
 /// For `a && b`:
-///   - Block for `a` with conditional: true -> `b`, false -> merge
-///   - Block for `b` with fallthrough -> merge
+///
+/// - Block for `a` with conditional: true -> `b`, false -> merge
+/// - Block for `b` with fallthrough -> merge
+///
 /// For `a || b`:
-///   - Block for `a` with conditional: true -> merge, false -> `b`
-///   - Block for `b` with fallthrough -> merge
+///
+/// - Block for `a` with conditional: true -> merge, false -> `b`
+/// - Block for `b` with fallthrough -> merge
+#[allow(clippy::too_many_arguments)]
 fn extract_short_circuit_blocks(
     node: &Node,
     function_id: i64,
@@ -942,28 +946,22 @@ fn extract_if_blocks_with_fallthrough(
         loop {
             let child = cursor.node();
             match child_count {
-                2 => {
-                    // Then block (after condition)
-                    if child.kind() == "block" || child.kind() == "statement_block" {
-                        then_node = Some(child);
-                    }
+                2 if child.kind() == "block" || child.kind() == "statement_block" => {
+                    then_node = Some(child);
                 }
-                3 => {
-                    // Else clause
-                    if child.kind() == "else_clause" || child.kind() == "else" {
-                        let mut else_cursor = child.walk();
-                        if else_cursor.goto_first_child() {
-                            loop {
-                                let else_child = else_cursor.node();
-                                if else_child.kind() == "block"
-                                    || else_child.kind() == "statement_block"
-                                {
-                                    else_node = Some(else_child);
-                                    break;
-                                }
-                                if !else_cursor.goto_next_sibling() {
-                                    break;
-                                }
+                3 if child.kind() == "else_clause" || child.kind() == "else" => {
+                    let mut else_cursor = child.walk();
+                    if else_cursor.goto_first_child() {
+                        loop {
+                            let else_child = else_cursor.node();
+                            if else_child.kind() == "block"
+                                || else_child.kind() == "statement_block"
+                            {
+                                else_node = Some(else_child);
+                                break;
+                            }
+                            if !else_cursor.goto_next_sibling() {
+                                break;
                             }
                         }
                     }
@@ -1553,7 +1551,7 @@ fn simple() -> i32 {
         let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
 
         assert_eq!(result.function_id, 1);
-        assert!(result.blocks.len() >= 1, "Should have at least entry block");
+        assert!(!result.blocks.is_empty(), "Should have at least entry block");
     }
 
     #[test]
@@ -1600,7 +1598,7 @@ fn with_loop() -> i32 {
         assert!(result.blocks.len() >= 2, "Should have multiple blocks");
         // Note: Back-edge detection depends on proper loop body extraction
         // For now, just verify we have edges
-        assert!(result.edges.len() >= 0, "Should have edges");
+        assert!(!result.edges.is_empty(), "Should have edges");
     }
 
     #[test]
@@ -1633,7 +1631,7 @@ fn empty() {}
         let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
 
         assert_eq!(result.function_id, 1);
-        assert!(result.blocks.len() >= 1, "Should have entry block");
+        assert!(!result.blocks.is_empty(), "Should have entry block");
     }
 
     #[test]
@@ -1808,7 +1806,7 @@ fn test() -> bool {
         }
 
         // Verify the chain is connected: first and's merge should connect to second and
-        let first_and_idx = result.blocks.iter().position(|b| b.kind == "and").unwrap();
+        let _first_and_idx = result.blocks.iter().position(|b| b.kind == "and").unwrap();
         let merge_indices: Vec<usize> = result.blocks.iter().enumerate()
             .filter(|(_, b)| b.kind == "merge")
             .map(|(i, _)| i)
@@ -1816,7 +1814,7 @@ fn test() -> bool {
         assert!(!merge_indices.is_empty(), "Should have merge blocks");
 
         // Each and block should have ConditionalTrue and ConditionalFalse outgoing edges
-        for (idx, block) in result.blocks.iter().enumerate().filter(|(_, b)| b.kind == "and" || b.kind == "or") {
+        for (idx, _block) in result.blocks.iter().enumerate().filter(|(_, b)| b.kind == "and" || b.kind == "or") {
             let cond_true = result.edges.iter().any(|e| e.source_idx == idx && e.edge_type == CfgEdgeType::ConditionalTrue);
             let cond_false = result.edges.iter().any(|e| e.source_idx == idx && e.edge_type == CfgEdgeType::ConditionalFalse);
             assert!(cond_true, "Block {} should have ConditionalTrue edge", idx);
