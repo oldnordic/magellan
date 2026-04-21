@@ -497,10 +497,16 @@ fn extract_blocks_from_node_with_fallthrough(
         }
 
         // Try expression (? operator / try blocks)
+        // The ? operator desugars to:
+        //   match expr {
+        //       Ok(val) => val,
+        //       Err(e) => return Err(e.into()),
+        //   }
         "try_expression" => {
-            let block = create_block_from_node(node, function_id, source, "try", "conditional");
+            // Block for the try expression itself (the ? operator point)
+            let try_block = create_block_from_node(node, function_id, source, "try", "conditional");
             let try_idx = blocks.len();
-            blocks.push(block);
+            blocks.push(try_block);
 
             if let Some(prev_idx) = *previous_block_idx {
                 edges.push(CfgEdge {
@@ -510,21 +516,17 @@ fn extract_blocks_from_node_with_fallthrough(
                 });
             }
 
-            // Try body: the expression inside try
+            // Success path: fallthrough to continue processing
+            // The body of the try expression continues after the ?
             let mut cursor = node.walk();
             if cursor.goto_first_child() {
                 loop {
                     let child = cursor.node();
-                    // Skip "try" keyword, process body
+                    // Skip "try" keyword, process the expression being tried
                     if child.kind() != "try" {
                         extract_blocks_from_node_with_fallthrough(
-                            &child,
-                            function_id,
-                            source,
-                            blocks,
-                            edges,
-                            &mut Some(try_idx),
-                            loop_header,
+                            &child, function_id, source, blocks, edges,
+                            &mut Some(try_idx), loop_header,
                         );
                     }
                     if !cursor.goto_next_sibling() {
@@ -532,6 +534,14 @@ fn extract_blocks_from_node_with_fallthrough(
                     }
                 }
             }
+
+            // Error path: return edge (the ? returns early on Err)
+            // We model this as a conditional false edge to a synthetic return
+            edges.push(CfgEdge {
+                source_idx: try_idx,
+                target_idx: try_idx, // Self-loop indicates early return
+                edge_type: CfgEdgeType::Return,
+            });
         }
 
         // Await expression: suspension point, treat as call-like
@@ -1489,6 +1499,26 @@ fn test() -> Result<i32, ()> {
         let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
         let try_blocks: Vec<_> = result.blocks.iter().filter(|b| b.kind == "try").collect();
         assert!(!try_blocks.is_empty(), "Should have try blocks");
+    }
+
+    #[test]
+    fn test_extract_try_operator() {
+        let source = r#"
+fn test() -> Result<i32, ()> {
+    let x = some_result()?;
+    Ok(x + 1)
+}
+"#;
+        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
+
+        let try_blocks: Vec<_> = result.blocks.iter().filter(|b| b.kind == "try").collect();
+        assert!(!try_blocks.is_empty(), "Should have try blocks for ? operator");
+
+        // Should have a return edge (error path)
+        let return_edges: Vec<_> = result.edges.iter()
+            .filter(|e| matches!(e.edge_type, CfgEdgeType::Return))
+            .collect();
+        assert!(!return_edges.is_empty(), "Should have return edge for error path");
     }
 
     #[test]
