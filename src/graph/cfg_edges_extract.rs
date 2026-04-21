@@ -76,9 +76,21 @@ pub fn extract_cfg_with_edges(
     language: tree_sitter::Language,
 ) -> CfgWithEdges {
     let mut parser = TsParser::new();
-    parser.set_language(&language).unwrap();
+    if parser.set_language(&language).is_err() {
+        return CfgWithEdges {
+            function_id,
+            blocks: Vec::new(),
+            edges: Vec::new(),
+        };
+    }
 
-    let tree = parser.parse(source, None).unwrap();
+    let Some(tree) = parser.parse(source, None) else {
+        return CfgWithEdges {
+            function_id,
+            blocks: Vec::new(),
+            edges: Vec::new(),
+        };
+    };
     let root = tree.root_node();
 
     // Find first function node (which is the function itself when called on function source)
@@ -145,12 +157,6 @@ pub fn extract_cfg_from_function_node(
 
         // If there's at least one body block, create edge from entry to first body
         if blocks.len() > 1 && edges.iter().all(|e| e.source_idx != 0) {
-            // Check if there's already an edge from entry (index 0) to any block
-            // If not, create one
-            eprintln!(
-                "DEBUG: Creating entry->body edge, blocks.len()={}",
-                blocks.len()
-            );
             edges.push(CfgEdge {
                 source_idx: 0,
                 target_idx: 1,
@@ -1319,7 +1325,24 @@ fn extract_match_blocks_with_fallthrough(
         }
 
         // Find the guard expression (named child after "if" inside match_pattern)
-        let match_pattern = arm.child(0).unwrap();
+        let Some(match_pattern) = arm.child(0) else {
+            // Malformed AST: match arm has no children
+            let arm_start_idx = blocks.len();
+            extract_blocks_from_node_with_fallthrough(
+                arm, function_id, source, blocks, edges,
+                &mut None, None,
+            );
+            let arm_end_idx = blocks.len().saturating_sub(1);
+            arm_indices.push((arm_start_idx, arm_end_idx));
+            guard_indices.push(None);
+
+            edges.push(CfgEdge {
+                source_idx: dispatch_idx,
+                target_idx: arm_start_idx,
+                edge_type: CfgEdgeType::ConditionalTrue,
+            });
+            continue;
+        };
         let mut guard_expr = None;
         let mut cursor = match_pattern.walk();
         let mut found_if = false;

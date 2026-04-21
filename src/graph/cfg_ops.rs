@@ -55,7 +55,8 @@ impl CfgOps {
         use crate::graph::cfg_edges_extract::extract_cfg_from_function_node;
 
         // Convert source to string for the new extraction
-        let source_str = std::str::from_utf8(source).unwrap_or("");
+        let source_str = std::str::from_utf8(source)
+            .map_err(|e| anyhow::anyhow!("Invalid UTF-8 in function source: {}", e))?;
 
         // Extract CFG with edges from function node
         let mut cfg = extract_cfg_from_function_node(func_node, function_id, source_str);
