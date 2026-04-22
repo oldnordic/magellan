@@ -2523,6 +2523,8 @@ fn extract_cfg_from_tree(
                         loop_nesting: 0,
                         branch_count: 0,
                         out_edges: Vec::new(),
+                        cfg_hash: None,
+                        statements: None,
                     });
                 }
 
