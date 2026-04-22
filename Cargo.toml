@@ -122,7 +122,7 @@ native-v3 = ["sqlitegraph/native-v3"]
 # Provides O(log n) path queries instead of O(2^n) enumeration
 # NOTE: This feature requires geographdb-core which is not on crates.io.
 # Use `cargo build --features geometric-backend` when building from source.
-geometric-backend = []
+geometric-backend = ["dep:geographdb-core"]
 
 # Java bytecode CFG (placeholder for future ASM integration)
 bytecode-cfg = []
@@ -194,7 +194,7 @@ glam = { version = "0.27", features = ["serde"] }
 # GeoGraphDB spatial indexing (optional - for geometric-backend feature)
 # Note: geographdb-core is not published to crates.io, so geometric-backend
 # feature is only available when building from source with --features geometric-backend
-# geographdb-core = { path = "../geographdb-core", optional = true }
+geographdb-core = { path = "../geographdb-core", optional = true }
 
 # Java bytecode CFG analysis (ASM library)
 
