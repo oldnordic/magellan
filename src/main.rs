@@ -16,6 +16,7 @@ mod files_cmd;
 mod find_cmd;
 mod get_cmd;
 mod import_lsif_cmd;
+mod ingest_coverage_cmd;
 mod label_cmd;
 mod migrate_cmd;
 mod path_enumeration_cmd;
@@ -126,9 +127,12 @@ fn main() -> ExitCode {
             }
             ExitCode::SUCCESS
         }
-        Ok(Command::IngestCoverage { .. }) => {
-            eprintln!("ingest-coverage not yet implemented");
-            ExitCode::from(1)
+        Ok(Command::IngestCoverage { db_path, lcov_path }) => {
+            if let Err(e) = ingest_coverage_cmd::run_ingest_coverage(db_path, lcov_path) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
         }
         Ok(Command::Enrich {
             db_path,
