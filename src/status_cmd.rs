@@ -146,6 +146,8 @@ pub fn run_status(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
 
     match output_format {
         OutputFormat::Json | OutputFormat::Pretty => {
+            // Only include coverage fields when data exists (matches human output behavior)
+            let has_coverage = coverage_blocks > 0 || coverage_meta.is_some();
             let coverage_source = coverage_meta.map(|(kind, revision, ingested_at)| {
                 CoverageSourceInfo {
                     kind,
@@ -161,8 +163,8 @@ pub fn run_status(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
                 references: reference_count,
                 calls: call_count,
                 code_chunks: chunk_count,
-                covered_blocks: Some(coverage_blocks),
-                covered_edges: Some(coverage_edges),
+                covered_blocks: has_coverage.then_some(coverage_blocks),
+                covered_edges: has_coverage.then_some(coverage_edges),
                 coverage_source,
             };
             let exec_id = tracker.exec_id().to_string();
