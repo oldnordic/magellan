@@ -215,6 +215,104 @@ pub fn ensure_geo_index_meta_schema(conn: &rusqlite::Connection) -> Result<(), D
     Ok(())
 }
 
+<<<<<<< HEAD
+=======
+/// Ensure cfg_hash column exists in cfg_blocks table (v7 -> v8 migration)
+///
+/// Adds cfg_hash column for cache invalidation in downstream tools.
+pub fn ensure_cfg_hash_column(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
+    // Add cfg_hash column if it doesn't exist
+    // SQLite doesn't support IF NOT EXISTS for ADD COLUMN, so we check first
+    let has_column: bool = conn
+        .query_row(
+            "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='cfg_hash'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+
+    if !has_column {
+        conn.execute(
+            "ALTER TABLE cfg_blocks ADD COLUMN cfg_hash TEXT",
+            [],
+        )
+        .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    }
+
+    // Create index for hash-based cache lookups
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_cfg_blocks_hash
+         ON cfg_blocks(cfg_hash)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    Ok(())
+}
+
+/// Add coverage side tables for weighted CFG analysis.
+///
+/// Creates cfg_block_coverage, cfg_edge_coverage, and cfg_coverage_meta.
+/// Safe to call repeatedly — uses CREATE TABLE IF NOT EXISTS.
+pub fn ensure_coverage_schema(
+    conn: &rusqlite::Connection,
+    db_path: &std::path::Path,
+) -> Result<(), DbCompatError> {
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS cfg_block_coverage (
+            block_id INTEGER PRIMARY KEY,
+            hit_count INTEGER NOT NULL DEFAULT 0,
+            source_kind TEXT NOT NULL,
+            source_revision TEXT,
+            ingested_at INTEGER NOT NULL,
+            FOREIGN KEY (block_id) REFERENCES cfg_blocks(id) ON DELETE CASCADE
+        )",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS cfg_edge_coverage (
+            edge_id INTEGER PRIMARY KEY,
+            hit_count INTEGER NOT NULL DEFAULT 0,
+            source_kind TEXT NOT NULL,
+            source_revision TEXT,
+            ingested_at INTEGER NOT NULL,
+            FOREIGN KEY (edge_id) REFERENCES cfg_edges(id) ON DELETE CASCADE
+        )",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS cfg_coverage_meta (
+            source_kind TEXT PRIMARY KEY,
+            source_revision TEXT,
+            ingested_at INTEGER,
+            total_blocks INTEGER,
+            total_edges INTEGER
+        )",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_block_cov_hit ON cfg_block_coverage(block_id, hit_count)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_edge_cov_hit ON cfg_edge_coverage(edge_id, hit_count)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
+
+    Ok(())
+}
+
+/// Result of a successful preflight.
+>>>>>>> main
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PreflightOk { NewDb, CompatibleExisting { found_schema_version: i64 } }
 
@@ -269,5 +367,30 @@ mod tests {
             )
             .unwrap();
         assert_eq!(idx_count, 1);
+    }
+
+    #[test]
+    fn test_coverage_schema_created() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        ensure_cfg_schema(&conn).unwrap();
+        ensure_coverage_schema(&conn, std::path::Path::new(":memory:")).unwrap();
+
+        let block_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='cfg_block_coverage'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(block_count, 1);
+
+        let edge_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='cfg_edge_coverage'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(edge_count, 1);
     }
 }

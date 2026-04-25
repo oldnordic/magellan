@@ -337,6 +337,10 @@ pub enum Command {
         db_path: PathBuf,
         lsif_paths: Vec<PathBuf>,
     },
+    IngestCoverage {
+        db_path: PathBuf,
+        lcov_path: PathBuf,
+    },
     Enrich {
         db_path: PathBuf,
         files: Option<Vec<PathBuf>>,
@@ -863,6 +867,40 @@ fn parse_import_lsif_args(args: &[String]) -> Result<Command> {
         db_path,
         lsif_paths,
     })
+}
+
+/// Parse the `ingest-coverage` command arguments
+///
+/// Usage: magellan ingest-coverage --db <FILE> --lcov <FILE>
+fn parse_ingest_coverage_args(args: &[String]) -> Result<Command> {
+    let mut db_path: Option<PathBuf> = None;
+    let mut lcov_path: Option<PathBuf> = None;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--db" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--db requires a value"));
+                }
+                db_path = Some(PathBuf::from(&args[i + 1]));
+                i += 2;
+            }
+            "--lcov" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--lcov requires a value"));
+                }
+                lcov_path = Some(PathBuf::from(&args[i + 1]));
+                i += 2;
+            }
+            _ => i += 1,
+        }
+    }
+
+    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let lcov_path = lcov_path.ok_or_else(|| anyhow::anyhow!("--lcov is required"))?;
+
+    Ok(Command::IngestCoverage { db_path, lcov_path })
 }
 
 /// Parse the `enrich` command arguments
@@ -1402,6 +1440,7 @@ where
         "watch" => parse_watch_args(&args[2..]),
         "export" => parse_export_args(&args[2..]),
         "import-lsif" => parse_import_lsif_args(&args[2..]),
+        "ingest-coverage" => parse_ingest_coverage_args(&args[2..]),
         "enrich" => parse_enrich_args(&args[2..]),
         "status" => parse_status_args(&args[2..]),
         "context" => parse_context_args(&args[2..]),

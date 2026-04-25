@@ -90,7 +90,7 @@ mod tests;
 use anyhow::Result;
 use sqlitegraph::GraphBackend;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::generation::{ChunkStore, CodeChunk};
@@ -113,7 +113,7 @@ pub use cfg_ops::CfgOps;
 pub use bytecode_cfg::JavaBytecodeCfgExtractor;
 pub use cache::CacheStats;
 pub use db_compat::MAGELLAN_SCHEMA_VERSION;
-pub use db_compat::{ensure_ast_schema, ensure_cfg_schema, CFG_EDGE};
+pub use db_compat::{ensure_ast_schema, ensure_cfg_schema, ensure_coverage_schema, CFG_EDGE};
 pub use execution_log::ExecutionLog;
 pub use export::{ExportConfig, ExportFormat};
 pub use freshness::{check_freshness, FreshnessStatus, STALE_THRESHOLD_SECS};
@@ -196,6 +196,9 @@ pub struct CodeGraph {
 
     /// Side tables for backend-agnostic storage (chunks, AST, metrics, etc.)
     side_tables: Arc<dyn side_tables::SideTables>,
+
+    /// Database file path for re-opening connections
+    db_path: PathBuf,
 }
 
 impl CodeGraph {
@@ -367,6 +370,15 @@ impl CodeGraph {
                     .map_err(|e| anyhow::anyhow!(e.to_string()))?;
             }
 
+            // Ensure coverage schema exists
+            {
+                let cov_conn = rusqlite::Connection::open(&db_path_buf).map_err(|e| {
+                    anyhow::anyhow!("Failed to open connection for coverage schema: {}", e)
+                })?;
+                db_compat::ensure_coverage_schema(&cov_conn, &db_path_buf)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            }
+
             // Detect if this is an upgrade (metrics tables exist but are empty)
             let needs_backfill = {
                 // Create a temporary connection to check the database state
@@ -455,6 +467,7 @@ impl CodeGraph {
             file_node_cache,
             cfg_ops: cfg_ops::CfgOps::new(ChunkStore::new(&db_path_buf)),
             side_tables,
+            db_path: db_path_buf,
         };
 
         // Build module index for path resolution
@@ -677,6 +690,29 @@ impl CodeGraph {
         // CFG blocks not tracked in SQLite backend
         // Geometric backend has its own implementation
         Ok(0)
+    }
+
+    /// Check if coverage schema tables exist in the database.
+    ///
+    /// Returns true if all three coverage tables are present.
+    pub fn check_coverage_schema(&self) -> Result<bool> {
+        let conn = rusqlite::Connection::open(&self.db_path).map_err(|e| {
+            anyhow::anyhow!("Failed to open connection for coverage schema check: {}", e)
+        })?;
+        let tables = ["cfg_block_coverage", "cfg_edge_coverage", "cfg_coverage_meta"];
+        for table in tables {
+            let count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
+                    [table],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0);
+            if count == 0 {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     /// Get combined statistics for the graph

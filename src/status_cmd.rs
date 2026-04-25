@@ -5,7 +5,7 @@
 use anyhow::Result;
 use magellan::backend_router::{BackendType, MagellanBackend};
 use magellan::capabilities::{capabilities_for_path, BackendCapabilities};
-use magellan::output::{generate_execution_id, output_json, JsonResponse, StatusResponse};
+use magellan::output::{generate_execution_id, output_json, CoverageInfo, JsonResponse, StatusResponse};
 use magellan::{CodeGraph, OutputFormat};
 use std::path::PathBuf;
 
@@ -111,14 +111,75 @@ pub fn run_status(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
     let call_count = graph.count_calls()?;
     let chunk_count = graph.count_chunks()?;
 
+    // Query coverage data directly from side tables
+    let (coverage_blocks, coverage_edges, coverage_meta) =
+        match rusqlite::Connection::open(&db_path) {
+            Ok(conn) => {
+                let blocks = query_coverage_count(&conn, "cfg_block_coverage");
+                let edges = query_coverage_count(&conn, "cfg_edge_coverage");
+                let meta = conn
+                    .query_row(
+                        "SELECT source_kind, source_revision, ingested_at FROM cfg_coverage_meta LIMIT 1",
+                        [],
+                        |row| {
+                            Ok((
+                                row.get::<_, String>(0)?,
+                                row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                                row.get::<_, i64>(2)?,
+                            ))
+                        },
+                    )
+                    .ok();
+                drop(conn);
+                (blocks, edges, meta)
+            }
+            Err(e) => {
+                eprintln!("Warning: could not query coverage data: {}", e);
+                (0, 0, None)
+            }
+        };
+
     match output_format {
         OutputFormat::Json | OutputFormat::Pretty => {
+            let has_coverage = coverage_blocks > 0 || coverage_meta.is_some();
+            let coverage = if has_coverage {
+                let (source, revision, ingested_at) = match coverage_meta {
+                    Some((kind, rev, ts)) => (
+                        Some(kind),
+                        Some(rev),
+                        Some(
+                            chrono::DateTime::from_timestamp(ts, 0)
+                                .map(|d| d.to_rfc3339())
+                                .unwrap_or_else(|| "unknown".to_string()),
+                        ),
+                    ),
+                    None => (None, None, None),
+                };
+                CoverageInfo {
+                    available: true,
+                    covered_blocks: coverage_blocks,
+                    covered_edges: coverage_edges,
+                    source,
+                    revision,
+                    ingested_at,
+                }
+            } else {
+                CoverageInfo {
+                    available: false,
+                    covered_blocks: 0,
+                    covered_edges: 0,
+                    source: None,
+                    revision: None,
+                    ingested_at: None,
+                }
+            };
             let response = StatusResponse {
                 files: file_count,
                 symbols: symbol_count,
                 references: reference_count,
                 calls: call_count,
                 code_chunks: chunk_count,
+                coverage,
             };
             let exec_id = tracker.exec_id().to_string();
             let json_response = JsonResponse::new(response, &exec_id);
@@ -147,6 +208,25 @@ pub fn run_status(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
             println!("  references: {}", reference_count);
             println!("  calls: {}", call_count);
             println!("  code_chunks: {}", chunk_count);
+
+            println!();
+            if coverage_blocks > 0 || coverage_meta.is_some() {
+                println!("Coverage data:");
+                println!("  covered blocks: {}", coverage_blocks);
+                println!("  covered edges: {}", coverage_edges);
+                if let Some((kind, revision, ingested_at)) = coverage_meta {
+                    println!(
+                        "  source: {} (rev {}, {})",
+                        kind,
+                        revision,
+                        chrono::DateTime::from_timestamp(ingested_at, 0)
+                            .map(|d| d.format("%Y-%m-%d %H:%M").to_string())
+                            .unwrap_or_else(|| "unknown".to_string())
+                    );
+                }
+            } else {
+                println!("Coverage data: none (run 'magellan ingest-coverage --lcov <file>')");
+            }
         }
     }
 
@@ -173,6 +253,14 @@ fn run_status_geometric(
                 references: 0, // Not tracked separately in geometric
                 calls: 0,      // Not tracked separately in geometric
                 code_chunks: stats.cfg_block_count,
+                coverage: CoverageInfo {
+                    available: false,
+                    covered_blocks: 0,
+                    covered_edges: 0,
+                    source: None,
+                    revision: None,
+                    ingested_at: None,
+                },
             };
             let exec_id = generate_execution_id();
             let json_response = JsonResponse::new(response, &exec_id);
@@ -204,4 +292,26 @@ fn run_status_geometric(
     }
 
     Ok(())
+}
+
+/// Query a coverage count from a known table.
+fn query_coverage_count(conn: &rusqlite::Connection, table: &str) -> usize {
+    const VALID_TABLES: &[&str] = &["cfg_block_coverage", "cfg_edge_coverage"];
+    if !VALID_TABLES.contains(&table) {
+        eprintln!("Warning: invalid coverage table name: {}", table);
+        return 0;
+    }
+    let sql = format!("SELECT COUNT(*) FROM {} WHERE hit_count > 0", table);
+    match conn.query_row(&sql, [], |row| row.get::<_, i64>(0)) {
+        Ok(n) => n as usize,
+        Err(rusqlite::Error::SqliteFailure(_code, Some(msg)))
+            if msg.contains("no such table") =>
+        {
+            0
+        }
+        Err(e) => {
+            eprintln!("Warning: coverage query failed for {}: {}", table, e);
+            0
+        }
+    }
 }
