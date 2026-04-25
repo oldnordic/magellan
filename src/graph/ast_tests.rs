@@ -55,7 +55,10 @@ fn test_indexing_creates_ast_nodes() {
     assert!(!loop_count.is_empty(), "Should have loop_expression node");
 
     let return_count = graph.get_ast_nodes_by_kind("return_expression").unwrap();
-    assert!(!return_count.is_empty(), "Should have return_expression node");
+    assert!(
+        !return_count.is_empty(),
+        "Should have return_expression node"
+    );
 }
 
 /// Test parent-child relationship queries
@@ -76,7 +79,8 @@ fn test_parent_child_relationships() {
             (4, 2, 'return_expression', 110, 130),
             (5, 3, 'block', 30, 50)",
         [],
-    ).unwrap();
+    )
+    .unwrap();
 
     // Get children of function (should be block)
     let children = graph.get_ast_children(1).unwrap();
@@ -109,7 +113,8 @@ fn test_position_based_queries() {
             (2, 1, 'if_expression', 50, 150),
             (3, 2, 'block', 60, 100)",
         [],
-    ).unwrap();
+    )
+    .unwrap();
 
     // Position 25 should match outer block
     let node = graph.get_ast_node_at_position("test.rs", 25).unwrap();
@@ -269,7 +274,8 @@ fn test_get_ast_roots() {
             (3, NULL, 'struct_item', 100, 200),
             (4, 3, 'block', 110, 190)",
         [],
-    ).unwrap();
+    )
+    .unwrap();
 
     let roots = graph.get_ast_roots().unwrap();
     assert_eq!(roots.len(), 2);
@@ -281,7 +287,7 @@ fn test_get_ast_roots() {
 
 /// Performance test for large file
 #[test]
-#[ignore]  // Run explicitly with cargo test -- --ignored
+#[ignore] // Run explicitly with cargo test -- --ignored
 fn test_performance_large_file() {
     let dir = tempdir().unwrap();
     let db_path = dir.path().join("test.db");
@@ -299,10 +305,18 @@ fn test_performance_large_file() {
     let index_time = start.elapsed();
 
     // Should complete within reasonable time
-    assert!(index_time.as_secs() < 5, "Indexing too slow: {:?}", index_time);
+    assert!(
+        index_time.as_secs() < 5,
+        "Indexing too slow: {:?}",
+        index_time
+    );
 
     let count = graph.count_ast_nodes().unwrap();
-    assert!(count > 500, "Should have extracted many nodes (got {})", count);
+    assert!(
+        count > 500,
+        "Should have extracted many nodes (got {})",
+        count
+    );
 }
 
 /// Test get_ast_nodes_by_file returns nodes in order
@@ -358,7 +372,10 @@ fn test_multiple_files_separate_asts() {
     let loop_nodes = graph.get_ast_nodes_by_kind("loop_expression").unwrap();
 
     assert!(!if_nodes.is_empty(), "Should have if_expression from file1");
-    assert!(!loop_nodes.is_empty(), "Should have loop_expression from file2");
+    assert!(
+        !loop_nodes.is_empty(),
+        "Should have loop_expression from file2"
+    );
 }
 
 /// Test let_declaration is captured
@@ -417,8 +434,13 @@ fn test_assignment_expression_captured() {
     let source = b"fn main() { let mut x = 1; x = 2; }";
     graph.index_file("assign_test.rs", source).unwrap();
 
-    let assign_nodes = graph.get_ast_nodes_by_kind("assignment_expression").unwrap();
-    assert!(!assign_nodes.is_empty(), "Should capture assignment_expression");
+    let assign_nodes = graph
+        .get_ast_nodes_by_kind("assignment_expression")
+        .unwrap();
+    assert!(
+        !assign_nodes.is_empty(),
+        "Should capture assignment_expression"
+    );
 }
 
 /// Test struct and enum definitions are captured
@@ -434,7 +456,9 @@ fn test_struct_enum_captured() {
         enum Bar { A, B }
     "#;
 
-    graph.index_file("definitions.rs", source.as_bytes()).unwrap();
+    graph
+        .index_file("definitions.rs", source.as_bytes())
+        .unwrap();
 
     let struct_nodes = graph.get_ast_nodes_by_kind("struct_item").unwrap();
     assert!(!struct_nodes.is_empty(), "Should capture struct_item");
@@ -456,7 +480,9 @@ fn test_impl_trait_captured() {
         impl MyTrait for Foo { }
     "#;
 
-    graph.index_file("trait_test.rs", source.as_bytes()).unwrap();
+    graph
+        .index_file("trait_test.rs", source.as_bytes())
+        .unwrap();
 
     let trait_nodes = graph.get_ast_nodes_by_kind("trait_item").unwrap();
     assert!(!trait_nodes.is_empty(), "Should capture trait_item");
@@ -493,7 +519,9 @@ fn test_const_static_captured() {
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
     "#;
 
-    graph.index_file("const_test.rs", source.as_bytes()).unwrap();
+    graph
+        .index_file("const_test.rs", source.as_bytes())
+        .unwrap();
 
     let const_nodes = graph.get_ast_nodes_by_kind("const_item").unwrap();
     assert!(!const_nodes.is_empty(), "Should capture const_item");
@@ -517,5 +545,8 @@ fn test_break_continue_captured() {
     assert!(!break_nodes.is_empty(), "Should capture break_expression");
 
     let continue_nodes = graph.get_ast_nodes_by_kind("continue_expression").unwrap();
-    assert!(!continue_nodes.is_empty(), "Should capture continue_expression");
+    assert!(
+        !continue_nodes.is_empty(),
+        "Should capture continue_expression"
+    );
 }

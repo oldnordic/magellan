@@ -154,10 +154,7 @@ impl AstNodeWithText {
 
 impl From<AstNode> for AstNodeWithText {
     fn from(node: AstNode) -> Self {
-        Self {
-            node,
-            text: None,
-        }
+        Self { node, text: None }
     }
 }
 

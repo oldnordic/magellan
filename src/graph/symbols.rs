@@ -260,7 +260,8 @@ impl SymbolOps {
         let node_id = NodeId::from(id);
 
         // Update the in-memory lookup index with stable symbol_id for O(1) resolution
-        self.lookup.insert_with_symbol_id(id, &file_path_str, fact, stable_symbol_id);
+        self.lookup
+            .insert_with_symbol_id(id, &file_path_str, fact, stable_symbol_id);
 
         // Note: Labels (language, symbol kind) are added during indexing in ops.rs
         // using graph.add_label() which delegates to SideTables for backend-agnostic storage.

@@ -284,9 +284,18 @@ fn migrate_from_version(tx: &Transaction, old_version: i64) -> Result<()> {
 
     if old_version < 10 {
         // v9 -> v10: Add 4D spatial-temporal coordinate columns to cfg_blocks
-        tx.execute("ALTER TABLE cfg_blocks ADD COLUMN coord_x INTEGER DEFAULT 0", [])?;
-        tx.execute("ALTER TABLE cfg_blocks ADD COLUMN coord_y INTEGER DEFAULT 0", [])?;
-        tx.execute("ALTER TABLE cfg_blocks ADD COLUMN coord_z INTEGER DEFAULT 0", [])?;
+        tx.execute(
+            "ALTER TABLE cfg_blocks ADD COLUMN coord_x INTEGER DEFAULT 0",
+            [],
+        )?;
+        tx.execute(
+            "ALTER TABLE cfg_blocks ADD COLUMN coord_y INTEGER DEFAULT 0",
+            [],
+        )?;
+        tx.execute(
+            "ALTER TABLE cfg_blocks ADD COLUMN coord_z INTEGER DEFAULT 0",
+            [],
+        )?;
         tx.execute("ALTER TABLE cfg_blocks ADD COLUMN coord_t TEXT", [])?;
     }
 

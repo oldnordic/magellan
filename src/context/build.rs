@@ -4,12 +4,12 @@
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
 use std::fs::File;
 use std::io::BufReader;
+use std::path::{Path, PathBuf};
 
+use super::query::{get_project_summary, ProjectSummary};
 use crate::graph::CodeGraph;
-use super::query::{ProjectSummary, get_project_summary};
 
 /// Context index stored alongside the database
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45,14 +45,14 @@ impl ContextIndex {
     /// Load index from file
     pub fn load(db_path: &Path) -> Result<Option<Self>> {
         let index_path = Self::index_path(db_path);
-        
+
         if !index_path.exists() {
             return Ok(None);
         }
 
         let file = File::open(&index_path)
             .with_context(|| format!("Failed to open index file: {:?}", index_path))?;
-        
+
         let reader = BufReader::new(file);
         let index: Self = serde_json::from_reader(reader)
             .with_context(|| format!("Failed to parse index file: {:?}", index_path))?;
@@ -63,10 +63,10 @@ impl ContextIndex {
     /// Save index to file
     pub fn save(&self, db_path: &Path) -> Result<()> {
         let index_path = Self::index_path(db_path);
-        
+
         let file = File::create(&index_path)
             .with_context(|| format!("Failed to create index file: {:?}", index_path))?;
-        
+
         serde_json::to_writer_pretty(file, self)
             .with_context(|| format!("Failed to write index file: {:?}", index_path))?;
 
@@ -77,9 +77,14 @@ impl ContextIndex {
     pub fn is_stale(&self, db_path: &Path) -> Result<bool> {
         let metadata = std::fs::metadata(db_path)
             .with_context(|| format!("Failed to get database metadata: {:?}", db_path))?;
-        
-        let db_modified = metadata.modified()
-            .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64)
+
+        let db_modified = metadata
+            .modified()
+            .map(|t| {
+                t.duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs() as i64
+            })
             .unwrap_or(0);
 
         Ok(db_modified > self.built_at)
@@ -96,10 +101,10 @@ impl ContextIndex {
 /// The built context index
 pub fn build_context_index(graph: &mut CodeGraph, db_path: &Path) -> Result<ContextIndex> {
     println!("Building context index...");
-    
+
     // Build project summary
     let summary = get_project_summary(graph)?;
-    
+
     println!("  Project: {} {}", summary.name, summary.version);
     println!("  Language: {}", summary.language);
     println!("  Files: {}", summary.total_files);
@@ -146,7 +151,7 @@ mod tests {
     fn test_context_index_save_load() {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");
-        
+
         // Create a dummy database file
         File::create(&db_path).unwrap();
 
@@ -162,10 +167,10 @@ mod tests {
         };
 
         let index = ContextIndex::new(&db_path, summary);
-        
+
         // Save
         index.save(&db_path).unwrap();
-        
+
         // Load
         let loaded = ContextIndex::load(&db_path).unwrap();
         assert!(loaded.is_some());

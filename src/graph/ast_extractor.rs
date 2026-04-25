@@ -6,8 +6,7 @@
 
 use tree_sitter::{Node, Tree};
 
-
-use crate::graph::ast_node::{is_structural_kind, AstNode, kinds};
+use crate::graph::ast_node::{is_structural_kind, kinds, AstNode};
 
 /// Extract AST nodes from a tree-sitter tree
 ///
@@ -132,8 +131,8 @@ impl<'a> AstExtractor<'a> {
 
             // Create the AST node
             let ast_node = AstNode {
-                id: None,  // Will be assigned by database
-                parent_id: None,  // Will be updated after insertion
+                id: None,        // Will be assigned by database
+                parent_id: None, // Will be updated after insertion
                 kind: kind.to_string(),
                 byte_start,
                 byte_end,
@@ -265,7 +264,10 @@ mod tests {
     #[test]
     fn test_normalize_function() {
         assert_eq!(normalize_node_kind("function_item", "rust"), "Function");
-        assert_eq!(normalize_node_kind("function_definition", "python"), "Function");
+        assert_eq!(
+            normalize_node_kind("function_definition", "python"),
+            "Function"
+        );
     }
 
     #[test]
@@ -284,5 +286,4 @@ mod tests {
         assert_eq!(language_from_path("app.ts"), Some("typescript"));
         assert_eq!(language_from_path("unknown.xyz"), None);
     }
-
 }

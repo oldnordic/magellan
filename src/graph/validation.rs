@@ -612,7 +612,8 @@ mod tests {
     fn test_check_orphan_calls_missing_caller() {
         // Create a graph with a Call node missing the CALLER edge
         // Use unique temp directory for V3 compatibility
-        let temp_dir = std::env::temp_dir().join(format!("magellan_val_test1_{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("magellan_val_test1_{}", std::process::id()));
         std::fs::create_dir_all(&temp_dir).unwrap();
         let db_path = temp_dir.join("test.db");
         let mut graph = crate::CodeGraph::open(&db_path).unwrap();
@@ -661,7 +662,8 @@ mod tests {
     fn test_check_orphan_calls_missing_callee() {
         // Create a graph with a Call node missing the CALLS edge
         // Use unique temp directory for V3 compatibility
-        let temp_dir = std::env::temp_dir().join(format!("magellan_val_test2_{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("magellan_val_test2_{}", std::process::id()));
         std::fs::create_dir_all(&temp_dir).unwrap();
         let db_path = temp_dir.join("test.db");
         let mut graph = crate::CodeGraph::open(&db_path).unwrap();

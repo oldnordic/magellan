@@ -67,18 +67,25 @@ impl ExecutionLog {
     /// Uses a temporary file so that new connections can access the same data.
     pub fn in_memory() -> Self {
         let temp_dir = std::env::temp_dir();
-        let unique_id = format!("{}_{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+        let unique_id = format!(
+            "{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
         let db_path = temp_dir.join(format!("magellan_execution_log_stub_{}.db", unique_id));
 
         let log = Self {
             backend: ExecutionLogBackend::Sqlite(db_path),
         };
-        
+
         // Ensure schema exists
         if let Err(e) = log.ensure_schema() {
             eprintln!("Warning: Failed to ensure ExecutionLog schema: {}", e);
         }
-        
+
         log
     }
 
@@ -205,10 +212,8 @@ impl ExecutionLog {
             ExecutionLogBackend::Sqlite(_) => {
                 let conn = self.connect()?;
                 let now = std::time::SystemTime::now();
-                let finished_at_secs = now
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs() as i64;
+                let finished_at_secs =
+                    now.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
                 let finished_at_ms = now
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
@@ -248,16 +253,14 @@ impl ExecutionLog {
 
                 Ok(())
             }
-            ExecutionLogBackend::SideTables(side_tables) => {
-                side_tables.finish_execution(
-                    execution_id,
-                    outcome,
-                    error_message,
-                    files_indexed,
-                    symbols_indexed,
-                    references_indexed,
-                )
-            }
+            ExecutionLogBackend::SideTables(side_tables) => side_tables.finish_execution(
+                execution_id,
+                outcome,
+                error_message,
+                files_indexed,
+                symbols_indexed,
+                references_indexed,
+            ),
         }
     }
 
@@ -299,9 +302,7 @@ impl ExecutionLog {
 
                 Ok(result)
             }
-            ExecutionLogBackend::SideTables(side_tables) => {
-                side_tables.get_execution(execution_id)
-            }
+            ExecutionLogBackend::SideTables(side_tables) => side_tables.get_execution(execution_id),
         }
     }
 
@@ -346,9 +347,7 @@ impl ExecutionLog {
 
                 Ok(records)
             }
-            ExecutionLogBackend::SideTables(side_tables) => {
-                side_tables.list_executions(limit)
-            }
+            ExecutionLogBackend::SideTables(side_tables) => side_tables.list_executions(limit),
         }
     }
 }
@@ -534,10 +533,17 @@ mod tests {
         let rec = log.get_by_execution_id("exec-duration").unwrap().unwrap();
         assert!(rec.duration_ms.is_some());
         let duration = rec.duration_ms.unwrap();
-        assert!(duration >= 0, "Duration should be non-negative, got {}ms", duration);
+        assert!(
+            duration >= 0,
+            "Duration should be non-negative, got {}ms",
+            duration
+        );
         // Note: Duration can be 0 if execution finishes within the same millisecond as start
         // This is acceptable behavior - we just need to verify the duration field is populated
-        assert!(duration < 30000, "Duration should be less than 30 seconds even under heavy load, got {}ms", duration);
+        assert!(
+            duration < 30000,
+            "Duration should be less than 30 seconds even under heavy load, got {}ms",
+            duration
+        );
     }
-
 }

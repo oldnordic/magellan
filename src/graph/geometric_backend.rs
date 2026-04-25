@@ -1015,7 +1015,8 @@ impl GeometricBackend {
             let mut call_edges = self.call_edges.write().unwrap();
             // Retain only edges where neither src nor dst is in our removal set
             call_edges.edges.retain(|e| {
-                !symbol_id_set.contains(&e.src_symbol_id) && !symbol_id_set.contains(&e.dst_symbol_id)
+                !symbol_id_set.contains(&e.src_symbol_id)
+                    && !symbol_id_set.contains(&e.dst_symbol_id)
             });
         }
 
@@ -1046,7 +1047,9 @@ impl GeometricBackend {
         // 8. Remove labels for removed symbols
         {
             let mut label_data = self.label_data.write().unwrap();
-            label_data.associations.retain(|a| !symbol_id_set.contains(&a.entity_id));
+            label_data
+                .associations
+                .retain(|a| !symbol_id_set.contains(&a.entity_id));
         }
 
         Ok(())
@@ -1515,7 +1518,10 @@ impl GeometricBackend {
     /// Find cycles in the call graph
     pub fn find_call_graph_cycles(&self) -> Vec<Vec<u64>> {
         let scc = self.get_strongly_connected_components();
-        scc.components.into_iter().filter(|c: &Vec<u64>| c.len() > 1).collect()
+        scc.components
+            .into_iter()
+            .filter(|c: &Vec<u64>| c.len() > 1)
+            .collect()
     }
 
     /// Enumerate paths between two symbols using bounded DFS

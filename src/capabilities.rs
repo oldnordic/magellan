@@ -663,7 +663,7 @@ pub fn format_command_availability(backend_caps: &BackendCapabilities) -> String
         return output;
     }
 
-    output.push_str(&format!("Status: Enabled\n\n"));
+    output.push_str(&"Status: Enabled\n\n".to_string());
 
     output.push_str(&format!("Available commands ({}):\n", available.len()));
     for cmd in &available {
@@ -734,7 +734,7 @@ mod tests {
     #[test]
     fn test_default_backend_exists() {
         let default = BackendCapabilities::default_backend();
-        let caps = BackendCapabilities::for_backend(default);
+        let _caps = BackendCapabilities::for_backend(default);
         // At least one backend should always be built
         let enabled = BackendCapabilities::enabled_backends();
         assert!(!enabled.is_empty(), "At least one backend must be enabled");

@@ -1,6 +1,6 @@
 # Magellan
 
-**Version:** 3.0.0
+**Version:** 3.1.6
 
 A deterministic codebase mapping tool. Watches source files, extracts AST-level facts, and builds a searchable graph database of symbols and references.
 

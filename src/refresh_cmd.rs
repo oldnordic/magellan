@@ -241,7 +241,8 @@ fn get_git_status(repo: &Repository, args: &RefreshArgs) -> Result<GitStatus> {
     let statuses = repo.statuses(Some(&mut status_opts))?;
 
     // Get the working directory for converting relative paths to absolute
-    let workdir = repo.workdir()
+    let workdir = repo
+        .workdir()
         .context("Failed to get repository working directory")?;
 
     let mut modified = Vec::new();

@@ -326,7 +326,10 @@ fn test_opening_v4_database_auto_upgrades_to_v11() {
         )
         .unwrap();
 
-    assert_eq!(version, 11, "Opening v4 database should auto-upgrade to v11");
+    assert_eq!(
+        version, 11,
+        "Opening v4 database should auto-upgrade to v11"
+    );
 
     // Verify ast_nodes table exists
     let has_ast_table: bool = conn

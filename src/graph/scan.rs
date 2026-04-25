@@ -33,9 +33,9 @@ pub async fn scan_directory_async(
     filter: &crate::graph::filter::FileFilter,
     progress: Option<&ScanProgress>,
 ) -> Result<ScanResult> {
-    use crate::indexer::async_io::read_files_async;
     use crate::diagnostics::SkipReason;
-    
+    use crate::indexer::async_io::read_files_async;
+
     // Collect all candidate files first (for sorted order)
     let mut candidate_files: Vec<PathBuf> = Vec::new();
     let mut diagnostics = Vec::new();
@@ -55,14 +55,27 @@ pub async fn scan_directory_async(
                 if filter.should_skip(path).is_none() {
                     candidate_files.push(path.to_path_buf());
                 } else {
-                    let reason = filter.should_skip(path).unwrap_or(SkipReason::IgnoredInternal);
-                    let rel_path = path.strip_prefix(dir_path).unwrap_or(path).to_string_lossy().to_string();
+                    let reason = filter
+                        .should_skip(path)
+                        .unwrap_or(SkipReason::IgnoredInternal);
+                    let rel_path = path
+                        .strip_prefix(dir_path)
+                        .unwrap_or(path)
+                        .to_string_lossy()
+                        .to_string();
                     diagnostics.push(WatchDiagnostic::skipped(rel_path, reason));
                 }
             }
             Err(_e) => {
-                let rel_path = path.strip_prefix(dir_path).unwrap_or(path).to_string_lossy().to_string();
-                diagnostics.push(WatchDiagnostic::skipped(rel_path, SkipReason::IgnoredInternal));
+                let rel_path = path
+                    .strip_prefix(dir_path)
+                    .unwrap_or(path)
+                    .to_string_lossy()
+                    .to_string();
+                diagnostics.push(WatchDiagnostic::skipped(
+                    rel_path,
+                    SkipReason::IgnoredInternal,
+                ));
             }
         }
     }

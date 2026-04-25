@@ -3,12 +3,12 @@
 //! Imports LSIF data from external packages for cross-repository symbol resolution.
 
 use anyhow::{Context, Result};
-use std::path::{Path, PathBuf};
+use serde_json;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use serde_json;
+use std::path::{Path, PathBuf};
 
-use super::schema::{Vertex, PackageData};
+use super::schema::{PackageData, Vertex};
 
 /// Import LSIF data from a file
 ///
@@ -20,7 +20,7 @@ use super::schema::{Vertex, PackageData};
 pub fn import_lsif(lsif_path: &Path) -> Result<ImportedPackage> {
     let file = File::open(lsif_path)
         .with_context(|| format!("Failed to open LSIF file: {:?}", lsif_path))?;
-    
+
     let reader = BufReader::new(file);
     let mut package_info: Option<PackageData> = None;
     let mut symbol_count = 0usize;
@@ -49,9 +49,8 @@ pub fn import_lsif(lsif_path: &Path) -> Result<ImportedPackage> {
         }
     }
 
-    let package = package_info.ok_or_else(|| {
-        anyhow::anyhow!("No package information found in LSIF file")
-    })?;
+    let package =
+        package_info.ok_or_else(|| anyhow::anyhow!("No package information found in LSIF file"))?;
 
     Ok(ImportedPackage {
         package,
@@ -91,7 +90,7 @@ pub fn import_lsif_directory(lsif_dir: &Path) -> Result<Vec<ImportedPackage>> {
     for entry in std::fs::read_dir(lsif_dir)? {
         let entry = entry?;
         let path = entry.path();
-        
+
         if path.extension().and_then(|e| e.to_str()) == Some("lsif") {
             match import_lsif(&path) {
                 Ok(pkg) => packages.push(pkg),
@@ -106,9 +105,9 @@ pub fn import_lsif_directory(lsif_dir: &Path) -> Result<Vec<ImportedPackage>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
-    use crate::lsif::export::export_lsif;
     use crate::graph::CodeGraph;
+    use crate::lsif::export::export_lsif;
+    use tempfile::TempDir;
 
     #[test]
     fn test_import_lsif_basic() {
@@ -121,7 +120,7 @@ mod tests {
         let test_file = temp_dir.path().join("test.rs");
         std::fs::write(&test_file, "fn main() {}").unwrap();
         let _ = graph.scan_directory(temp_dir.path(), None);
-        
+
         let _ = export_lsif(&mut graph, &lsif_path, "test-crate", "0.1.0");
 
         // Import the LSIF file

@@ -3,12 +3,12 @@
 //! Converts Magellan's code graph to LSIF format for cross-repository navigation.
 
 use anyhow::{Context, Result};
-use std::path::Path;
 use std::fs::File;
 use std::io::Write;
+use std::path::Path;
 
+use super::schema::{generate_lsif_id, Edge, LsifGraph, PackageData, SymbolKind, Vertex};
 use crate::graph::CodeGraph;
-use super::schema::{LsifGraph, Vertex, Edge, PackageData, SymbolKind, generate_lsif_id};
 
 /// Export Magellan graph to LSIF format
 ///
@@ -45,14 +45,14 @@ pub fn export_lsif(
 
     // Get all files from the graph
     let files = graph.all_file_nodes()?;
-    
+
     // Track documents (files) we've seen
     let mut documents: std::collections::HashMap<String, String> = std::collections::HashMap::new();
 
     for (file_path, _file_node) in files {
         // Get symbols for this file
         let symbols = graph.symbols_in_file(&file_path)?;
-        
+
         // Create document vertex if we haven't seen this file
         let doc_id = if let Some(id) = documents.get(&file_path) {
             id.clone()
@@ -65,7 +65,7 @@ pub fn export_lsif(
                 language_id: detect_language_id(&file_path),
             };
             lsif.add_vertex(doc);
-            
+
             // Add contains edge from package to document
             lsif.add_edge(Edge::Contains {
                 id: generate_lsif_id("e", &mut counter),
@@ -73,7 +73,7 @@ pub fn export_lsif(
                 out_v: package_id.clone(),
                 in_vs: vec![doc_id.clone()],
             });
-            
+
             documents.insert(file_path.clone(), doc_id.clone());
             doc_id
         };
@@ -191,7 +191,7 @@ mod tests {
         let output_path = temp_dir.path().join("test.lsif");
 
         let mut graph = CodeGraph::open(&db_path).unwrap();
-        
+
         // Create a test file
         let test_file = temp_dir.path().join("test.rs");
         std::fs::write(&test_file, "fn main() {}").unwrap();

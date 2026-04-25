@@ -687,7 +687,10 @@ fn main() -> ExitCode {
                     // Output report based on output_format
                     match output_format {
                         OutputFormat::Json | OutputFormat::Pretty => {
-                            println!("{}", serde_json::to_string_pretty(&report).unwrap_or_default());
+                            println!(
+                                "{}",
+                                serde_json::to_string_pretty(&report).unwrap_or_default()
+                            );
                         }
                         OutputFormat::Human => {
                             println!("Refresh complete:");

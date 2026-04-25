@@ -21,22 +21,25 @@
 pub mod algorithms;
 pub mod ambiguity;
 pub mod backend;
-pub mod memory_graph;
+// pub mod memory_graph;
+
+#[cfg(feature = "external-tools-cfg")]
+pub mod external_tools;
 
 // Re-export MemoryGraph types for public API
 // Note: GraphStats is not re-exported here due to name collision with CodeGraph's GraphStats
 // Access via graph::memory_graph::GraphStats if needed
-pub use memory_graph::{GraphSymbol, MemoryGraph};
+// pub use memory_graph::{GraphSymbol, MemoryGraph};
 mod ast_extractor;
 
+mod ast_node;
+mod ast_ops;
 #[cfg(feature = "geometric-backend")]
 pub mod geo_index;
 #[cfg(feature = "geometric-backend")]
 pub mod geometric_backend;
 #[cfg(feature = "geometric-backend")]
 pub mod geometric_calls;
-mod ast_node;
-mod ast_ops;
 
 #[cfg(feature = "bytecode-cfg")]
 mod bytecode_cfg;
@@ -45,8 +48,8 @@ mod cache;
 mod call_ops;
 mod calls;
 pub mod canonical_fqn;
-mod cfg_extractor;
 pub mod cfg_edges_extract;
+mod cfg_extractor;
 mod cfg_ops;
 mod count;
 pub mod crate_name;

@@ -1,3 +1,5 @@
+#![cfg(feature = "web-ui")]
+
 //! Integration tests for the unified HTTP server (web-ui feature)
 
 use magellan::web_ui::{create_app, AppState};

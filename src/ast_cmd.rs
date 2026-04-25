@@ -234,7 +234,10 @@ pub fn run_find_ast_command(
     if nodes.is_empty() {
         // Show what kind we actually searched for (in case normalization changed it)
         if normalized_kind != kind {
-            eprintln!("No AST nodes found with kind '{}' (normalized to '{}')", kind, normalized_kind);
+            eprintln!(
+                "No AST nodes found with kind '{}' (normalized to '{}')",
+                kind, normalized_kind
+            );
         } else {
             eprintln!("No AST nodes found with kind '{}'", kind);
         }
@@ -419,4 +422,5 @@ mod tests {
         assert_eq!(normalize_user_kind("block"), "block");
         assert_eq!(normalize_user_kind("call_expression"), "call_expression");
         assert_eq!(normalize_user_kind("unknown_kind"), "unknown_kind");
-    }}
+    }
+}

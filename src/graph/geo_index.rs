@@ -247,7 +247,7 @@ pub fn scan_directory_with_progress(
 
     for path in files {
         let file_start = std::time::Instant::now();
-        
+
         // Canonicalize path for consistent storage
         let path_str = match path.canonicalize() {
             Ok(p) => p.to_string_lossy().to_string(),

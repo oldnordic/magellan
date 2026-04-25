@@ -20,12 +20,10 @@
 //! These must be migrated separately via direct SQL.
 
 use anyhow::Result;
+use sqlitegraph::GraphBackend;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use sqlitegraph::GraphBackend;
-
-
 
 /// Database backend format
 ///
@@ -44,9 +42,7 @@ pub enum BackendFormat {
 pub enum MigrationError {
     /// Database file does not exist at the specified path
     #[error("Database not found: {path}")]
-    DatabaseNotFound {
-        path: PathBuf,
-    },
+    DatabaseNotFound { path: PathBuf },
 
     /// Cannot open the database file (permission denied, locked, etc.)
     #[error("Cannot open database '{path}': {source}")]
@@ -62,10 +58,7 @@ pub enum MigrationError {
 
     /// File is not a valid SQLite database
     #[error("Not a valid SQLite database: {path}. Details: {details}")]
-    InvalidDatabase {
-        path: PathBuf,
-        details: String,
-    },
+    InvalidDatabase { path: PathBuf, details: String },
 }
 
 /// Detect the backend format of a database file
@@ -197,7 +190,11 @@ pub fn import_snapshot(
 
     // Verify snapshot_dir is a directory
     let metadata = fs::metadata(snapshot_dir).map_err(|e| {
-        anyhow::anyhow!("Cannot access snapshot directory '{}': {}", snapshot_dir.display(), e)
+        anyhow::anyhow!(
+            "Cannot access snapshot directory '{}': {}",
+            snapshot_dir.display(),
+            e
+        )
     })?;
     if !metadata.is_dir() {
         return Err(anyhow::anyhow!(
@@ -402,15 +399,14 @@ pub fn run_migrate_backend(
     drop(target_backend);
 
     // Migrate Magellan-specific side tables
-    let side_tables_migrated =
-        migrate_side_tables(&input_db, &output_db).map_err(|e| {
-            anyhow::anyhow!(
-                "Failed to migrate side tables from '{}' to '{}': {}",
-                input_db.display(),
-                output_db.display(),
-                e
-            )
-        })?;
+    let side_tables_migrated = migrate_side_tables(&input_db, &output_db).map_err(|e| {
+        anyhow::anyhow!(
+            "Failed to migrate side tables from '{}' to '{}': {}",
+            input_db.display(),
+            output_db.display(),
+            e
+        )
+    })?;
 
     // Clean up export directory (optional - keeping for now for debugging)
     // let _ = fs::remove_dir_all(&export_dir);
@@ -465,9 +461,9 @@ pub fn migrate_side_tables(source_db: &Path, target_db: &Path) -> Result<bool> {
     let mut any_migrated = false;
 
     // Start transaction on target for atomicity
-    let tx = target_conn.unchecked_transaction().map_err(|e| {
-        anyhow::anyhow!("Failed to start transaction on target database: {}", e)
-    })?;
+    let tx = target_conn
+        .unchecked_transaction()
+        .map_err(|e| anyhow::anyhow!("Failed to start transaction on target database: {}", e))?;
 
     // For each table, copy data from source to target
     for table_name in &side_tables {
@@ -497,11 +493,7 @@ pub fn migrate_side_tables(source_db: &Path, target_db: &Path) -> Result<bool> {
 
         // Ensure schema exists in target database
         ensure_table_schema(&tx, table_name).map_err(|e| {
-            anyhow::anyhow!(
-                "Failed to ensure schema for table '{}': {}",
-                table_name,
-                e
-            )
+            anyhow::anyhow!("Failed to ensure schema for table '{}': {}", table_name, e)
         })?;
 
         // Get column names
@@ -560,13 +552,10 @@ pub fn migrate_side_tables(source_db: &Path, target_db: &Path) -> Result<bool> {
                 })
                 .collect();
 
-            tx.execute(&insert_sql, tosql_refs.as_slice()).map_err(|e| {
-                anyhow::anyhow!(
-                    "Failed to insert row into table '{}': {}",
-                    table_name,
-                    e
-                )
-            })?;
+            tx.execute(&insert_sql, tosql_refs.as_slice())
+                .map_err(|e| {
+                    anyhow::anyhow!("Failed to insert row into table '{}': {}", table_name, e)
+                })?;
             copied += 1;
         }
 
@@ -576,12 +565,8 @@ pub fn migrate_side_tables(source_db: &Path, target_db: &Path) -> Result<bool> {
     }
 
     // Commit transaction
-    tx.commit().map_err(|e| {
-        anyhow::anyhow!(
-            "Failed to commit side table migration transaction: {}",
-            e
-        )
-    })?;
+    tx.commit()
+        .map_err(|e| anyhow::anyhow!("Failed to commit side table migration transaction: {}", e))?;
 
     Ok(any_migrated)
 }
@@ -729,7 +714,12 @@ fn ensure_table_schema(conn: &rusqlite::Connection, table_name: &str) -> Result<
                     start_col INTEGER NOT NULL,
                     end_line INTEGER NOT NULL,
                     end_col INTEGER NOT NULL,
-                    cfg_hash TEXT
+                    cfg_hash TEXT,
+                    statements TEXT,
+                    coord_x INTEGER DEFAULT 0,
+                    coord_y INTEGER DEFAULT 0,
+                    coord_z INTEGER DEFAULT 0,
+                    coord_t TEXT DEFAULT NULL
                 )",
                 [],
             )
@@ -757,7 +747,6 @@ fn ensure_table_schema(conn: &rusqlite::Connection, table_name: &str) -> Result<
 }
 
 /// Returns current Unix timestamp
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -783,13 +772,19 @@ mod tests {
         let nonexistent = temp_dir.path().join("nonexistent.db");
 
         let result = detect_backend_format(&nonexistent);
-        assert!(matches!(result, Err(MigrationError::DatabaseNotFound { .. })));
+        assert!(matches!(
+            result,
+            Err(MigrationError::DatabaseNotFound { .. })
+        ));
     }
 
     #[test]
     fn test_detect_backend_format_in_memory() {
         let result = detect_backend_format(Path::new(":memory:"));
-        assert!(matches!(result, Err(MigrationError::InMemoryDatabaseNotSupported)));
+        assert!(matches!(
+            result,
+            Err(MigrationError::InMemoryDatabaseNotSupported)
+        ));
     }
 
     #[test]

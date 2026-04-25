@@ -78,10 +78,9 @@ impl ModuleResolver {
                 // super::foo -> "crate::parent::foo"
                 let current_module = Self::file_path_to_module_path(current_file);
                 let parent_module = Self::get_parent_module(&current_module)?;
-                let relative_path: Vec<String> =
-                    std::iter::once(parent_module)
-                        .chain(import_path[1..].iter().cloned())
-                        .collect();
+                let relative_path: Vec<String> = std::iter::once(parent_module)
+                    .chain(import_path[1..].iter().cloned())
+                    .collect();
                 let module_path = relative_path.join("::");
                 self.cache.get(&module_path)
             }
@@ -89,10 +88,9 @@ impl ModuleResolver {
                 // Relative to current module
                 // self::foo -> "crate::current::foo"
                 let current_module = Self::file_path_to_module_path(current_file);
-                let relative_path: Vec<String> =
-                    std::iter::once(current_module)
-                        .chain(import_path[1..].iter().cloned())
-                        .collect();
+                let relative_path: Vec<String> = std::iter::once(current_module)
+                    .chain(import_path[1..].iter().cloned())
+                    .collect();
                 let module_path = relative_path.join("::");
                 self.cache.get(&module_path)
             }
@@ -145,7 +143,9 @@ impl ModuleResolver {
         }
 
         // Find last "::" and return everything before it
-        module_path.rfind("::").map(|pos| module_path[..pos].to_string())
+        module_path
+            .rfind("::")
+            .map(|pos| module_path[..pos].to_string())
     }
 
     /// Clear the module cache
@@ -166,7 +166,10 @@ mod tests {
 
     #[test]
     fn test_file_path_to_module_path() {
-        assert_eq!(ModuleResolver::file_path_to_module_path("src/lib.rs"), "crate");
+        assert_eq!(
+            ModuleResolver::file_path_to_module_path("src/lib.rs"),
+            "crate"
+        );
         assert_eq!(
             ModuleResolver::file_path_to_module_path("src/main.rs"),
             "crate"
@@ -222,10 +225,8 @@ mod tests {
         let db_path = temp_dir.path().join("test.db");
         let graph = crate::CodeGraph::open(&db_path).unwrap();
 
-        let resolver = ModuleResolver::new(
-            graph.files.backend.clone(),
-            temp_dir.path().to_path_buf(),
-        );
+        let resolver =
+            ModuleResolver::new(graph.files.backend.clone(), temp_dir.path().to_path_buf());
 
         assert_eq!(resolver.cache_size(), 0);
 
@@ -260,10 +261,8 @@ mod tests {
         graph.index_file(file2_relative, b"fn foo() {}").unwrap();
 
         // Build module index
-        let mut resolver = ModuleResolver::new(
-            graph.files.backend.clone(),
-            temp_dir.path().to_path_buf(),
-        );
+        let mut resolver =
+            ModuleResolver::new(graph.files.backend.clone(), temp_dir.path().to_path_buf());
         resolver.build_module_index().unwrap();
 
         // Resolve crate::foo

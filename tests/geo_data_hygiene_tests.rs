@@ -22,12 +22,7 @@ mod tests {
     }
 
     /// Helper: Create a simple InsertSymbol
-    fn make_symbol(
-        name: &str,
-        fqn: &str,
-        file_path: &str,
-        line: u64,
-    ) -> InsertSymbol {
+    fn make_symbol(name: &str, fqn: &str, file_path: &str, line: u64) -> InsertSymbol {
         InsertSymbol {
             name: name.to_string(),
             fqn: fqn.to_string(),
@@ -44,7 +39,9 @@ mod tests {
     }
 
     /// Helper: Save and get stats (since get_stats reloads from disk)
-    fn get_stats_after_save(backend: &GeometricBackend) -> magellan::graph::geometric_backend::GeometricBackendStats {
+    fn get_stats_after_save(
+        backend: &GeometricBackend,
+    ) -> magellan::graph::geometric_backend::GeometricBackendStats {
         backend.save_to_disk().expect("Should save");
         backend.get_geometric_stats()
     }
@@ -69,7 +66,9 @@ mod tests {
         assert_eq!(stats_after_first.symbol_count, 2, "Should have 2 symbols");
 
         // Re-index: clear and re-insert (simulating re-index)
-        backend.clear_file_data(file_path).expect("Should clear file data");
+        backend
+            .clear_file_data(file_path)
+            .expect("Should clear file data");
 
         // Re-insert same symbols with new IDs (simulating fresh parse)
         let symbols2 = vec![
@@ -103,11 +102,7 @@ mod tests {
         let db_path = temp_db_path();
         let backend = GeometricBackend::create(Path::new(&db_path)).expect("Should create DB");
 
-        let files = vec![
-            "/test/src/a.rs",
-            "/test/src/b.rs",
-            "/test/src/c.rs",
-        ];
+        let files = vec!["/test/src/a.rs", "/test/src/b.rs", "/test/src/c.rs"];
 
         // First index pass - 1 symbol per file
         for (idx, file) in files.iter().enumerate() {
@@ -171,7 +166,10 @@ mod tests {
 
         // Verify the symbol was cleared
         let count_after_clear = backend.find_symbols_by_name_info("main").len();
-        assert_eq!(count_after_clear, 0, "Symbol should be cleared via normalized path matching");
+        assert_eq!(
+            count_after_clear, 0,
+            "Symbol should be cleared via normalized path matching"
+        );
 
         // Re-insert to verify we can still add symbols
         let symbols2 = vec![make_symbol("main", "test::main", relative_path, 1)];
@@ -213,7 +211,8 @@ mod tests {
         // Should have exactly one symbol named "unique_func"
         let by_name = backend.find_symbols_by_name_info("unique_func");
         assert_eq!(
-            by_name.len(), 1,
+            by_name.len(),
+            1,
             "Should have exactly one symbol after 5 re-index passes, got {}",
             by_name.len()
         );
@@ -232,8 +231,18 @@ mod tests {
         let file_b = "/test/src/b.rs";
 
         // Insert symbols in two files with same name (legitimate duplicates)
-        let symbols_a = vec![make_symbol("shared_name", "test::a::shared_name", file_a, 10)];
-        let symbols_b = vec![make_symbol("shared_name", "test::b::shared_name", file_b, 20)];
+        let symbols_a = vec![make_symbol(
+            "shared_name",
+            "test::a::shared_name",
+            file_a,
+            10,
+        )];
+        let symbols_b = vec![make_symbol(
+            "shared_name",
+            "test::b::shared_name",
+            file_b,
+            20,
+        )];
 
         backend.insert_symbols(symbols_a).expect("Should insert");
         backend.insert_symbols(symbols_b).expect("Should insert");
@@ -246,18 +255,20 @@ mod tests {
         );
 
         // Clear only file_a
-        backend.clear_file_data(file_a).expect("Should clear file_a");
+        backend
+            .clear_file_data(file_a)
+            .expect("Should clear file_a");
 
         // Should have exactly one remaining
         let count_after = backend.find_symbols_by_name_info("shared_name").len();
-        assert_eq!(
-            count_after, 1,
-            "Should have 1 symbol after clearing file_a"
-        );
+        assert_eq!(count_after, 1, "Should have 1 symbol after clearing file_a");
 
         // Verify the remaining symbol is from file_b
         let remaining = backend.find_symbols_by_name_info("shared_name");
-        assert_eq!(remaining[0].file_path, file_b, "Remaining symbol should be from file_b");
+        assert_eq!(
+            remaining[0].file_path, file_b,
+            "Remaining symbol should be from file_b"
+        );
 
         // Cleanup
         let _ = std::fs::remove_file(&db_path);
@@ -269,11 +280,7 @@ mod tests {
         let db_path = temp_db_path();
         let backend = GeometricBackend::create(Path::new(&db_path)).expect("Should create DB");
 
-        let files = vec![
-            "/test/src/a.rs",
-            "/test/src/b.rs",
-            "/test/src/c.rs",
-        ];
+        let files = vec!["/test/src/a.rs", "/test/src/b.rs", "/test/src/c.rs"];
 
         // Insert symbols in all files
         for (idx, file) in files.iter().enumerate() {
@@ -290,17 +297,27 @@ mod tests {
         assert_eq!(stats_before.symbol_count, 3, "Should have 3 symbols");
 
         // Clear middle file only
-        backend.clear_file_data(files[1]).expect("Should clear file_b");
+        backend
+            .clear_file_data(files[1])
+            .expect("Should clear file_b");
 
         let stats_after = get_stats_after_save(&backend);
-        assert_eq!(stats_after.symbol_count, 2, "Should have 2 symbols after clearing file_b");
+        assert_eq!(
+            stats_after.symbol_count, 2,
+            "Should have 2 symbols after clearing file_b"
+        );
 
         // Verify correct file was cleared
-        let remaining: Vec<_> = backend.find_symbols_by_name_info("func_0")
+        let remaining: Vec<_> = backend
+            .find_symbols_by_name_info("func_0")
             .into_iter()
             .chain(backend.find_symbols_by_name_info("func_2"))
             .collect();
-        assert_eq!(remaining.len(), 2, "Should have func_0 and func_2 remaining");
+        assert_eq!(
+            remaining.len(),
+            2,
+            "Should have func_0 and func_2 remaining"
+        );
 
         let cleared = backend.find_symbols_by_name_info("func_1");
         assert!(cleared.is_empty(), "func_1 should be cleared");

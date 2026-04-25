@@ -18,7 +18,7 @@ pub async fn read_file_async(path: &Path) -> Result<Vec<u8>> {
 /// Read multiple files asynchronously in parallel
 pub async fn read_files_async(paths: Vec<PathBuf>) -> Result<Vec<(PathBuf, Vec<u8>)>> {
     let mut tasks = Vec::new();
-    
+
     for path in paths {
         let task = tokio::spawn(async move {
             let content = read_file_async(&path).await?;
@@ -41,11 +41,7 @@ pub async fn read_files_async(paths: Vec<PathBuf>) -> Result<Vec<(PathBuf, Vec<u
 
 /// Read file with timeout
 pub async fn read_file_with_timeout(path: &Path, timeout_secs: u64) -> Result<Vec<u8>> {
-    let result = timeout(
-        Duration::from_secs(timeout_secs),
-        read_file_async(path),
-    )
-    .await;
+    let result = timeout(Duration::from_secs(timeout_secs), read_file_async(path)).await;
 
     match result {
         Ok(Ok(content)) => Ok(content),
@@ -77,7 +73,7 @@ mod tests {
     async fn test_read_files_async() {
         let temp_dir = TempDir::new().unwrap();
         let mut paths = Vec::new();
-        
+
         for i in 0..5 {
             let test_file = temp_dir.path().join(format!("test_{}.txt", i));
             std::fs::write(&test_file, format!("content {}", i)).unwrap();

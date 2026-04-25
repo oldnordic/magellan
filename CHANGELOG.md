@@ -54,6 +54,14 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Pinned sqlitegraph dependency to version 2.0.7**
+  -sqlitegraph 2.1.2 introduced breaking change in `SnapshotId::current()` behavior
+  - SQLite backend only supports snapshot ID 0 (current), but 2.1.2 returns incrementing IDs (1, 2, 3, 4...)
+  - This caused 53 test failures with error: "SQLite backend does not support historical snapshots (requested: 4)"
+  - Pinned to exact version 2.0.7 using `version = "=2.0.7"` in Cargo.toml
+  - See: `/home/feanor/Projects/sqlitegraph/sqlitegraph-core/BUG_SNAPSHOTID_SQLITE_BACKEND.md`
+  - Location: `Cargo.toml`
+
 - **Eliminated panic paths from safety review**
   - Multiple `unwrap()` calls replaced with graceful error handling or descriptive `expect()` messages
   - Silent parse failures now logged instead of swallowed

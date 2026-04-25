@@ -47,7 +47,9 @@ pub fn create_app(state: Arc<AppState>) -> Router {
 
 /// Start the web server
 pub async fn run_web_server(db_path: PathBuf, host: String, port: u16) -> anyhow::Result<()> {
-    let state = Arc::new(AppState { db_path: db_path.clone() });
+    let state = Arc::new(AppState {
+        db_path: db_path.clone(),
+    });
     let app = create_app(state);
 
     let addr = format!("{}:{}", host, port);
@@ -78,8 +80,7 @@ async fn handle_get_callers(
     State(state): State<Arc<AppState>>,
     Query(params): Query<CallersQuery>,
 ) -> Result<Json<Vec<context::query::SymbolListItem>>, StatusCode> {
-    let mut graph = CodeGraph::open(&state.db_path)
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let mut graph = CodeGraph::open(&state.db_path).map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     match context::query::get_callers(&mut graph, &params.name, params.file.as_deref()) {
         Ok(callers) => Ok(Json(callers)),
         Err(e) => {
@@ -93,8 +94,7 @@ async fn handle_get_callees(
     State(state): State<Arc<AppState>>,
     Query(params): Query<CallersQuery>,
 ) -> Result<Json<Vec<context::query::SymbolListItem>>, StatusCode> {
-    let mut graph = CodeGraph::open(&state.db_path)
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let mut graph = CodeGraph::open(&state.db_path).map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     match context::query::get_callees(&mut graph, &params.name, params.file.as_deref()) {
         Ok(callees) => Ok(Json(callees)),
         Err(e) => {
@@ -112,10 +112,10 @@ async fn handle_get_callees(
 async fn handle_summary(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<SummaryResponse>, StatusCode> {
-    let mut graph = CodeGraph::open(&state.db_path)
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let mut graph = CodeGraph::open(&state.db_path).map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
-    let total_calls = graph.count_calls()
+    let total_calls = graph
+        .count_calls()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     match context::query::get_project_summary(&mut graph) {
@@ -136,8 +136,7 @@ async fn handle_list_symbols(
     State(state): State<Arc<AppState>>,
     Query(params): Query<ListSymbolsParams>,
 ) -> Result<Json<context::query::PaginatedResult<context::query::SymbolListItem>>, StatusCode> {
-    let mut graph = CodeGraph::open(&state.db_path)
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let mut graph = CodeGraph::open(&state.db_path).map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let query = context::query::ListQuery {
         kind: params.kind,
         file_pattern: None,
@@ -166,8 +165,7 @@ async fn handle_get_symbol(
     State(state): State<Arc<AppState>>,
     Query(params): Query<SymbolQuery>,
 ) -> Result<Json<context::query::SymbolDetail>, StatusCode> {
-    let mut graph = CodeGraph::open(&state.db_path)
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let mut graph = CodeGraph::open(&state.db_path).map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     match context::query::get_symbol_detail(&mut graph, &params.name, params.file.as_deref()) {
         Ok(detail) => Ok(Json(detail)),
         Err(e) => {
@@ -192,8 +190,7 @@ async fn handle_get_file(
     State(state): State<Arc<AppState>>,
     Query(params): Query<FileQuery>,
 ) -> Result<Json<context::query::FileContext>, StatusCode> {
-    let mut graph = CodeGraph::open(&state.db_path)
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let mut graph = CodeGraph::open(&state.db_path).map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     match context::query::get_file_context(&mut graph, &params.path) {
         Ok(context) => Ok(Json(context)),
         Err(e) => {
@@ -228,7 +225,9 @@ struct ListSymbolsParams {
     cursor: Option<String>,
 }
 
-fn default_page_size() -> usize { 50 }
+fn default_page_size() -> usize {
+    50
+}
 
 // ============================================================================
 // Response Types

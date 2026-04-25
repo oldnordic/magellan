@@ -71,18 +71,25 @@ impl MetricsOps {
     /// Uses a temporary file so that new connections can access the same data.
     pub fn in_memory() -> Self {
         let temp_dir = std::env::temp_dir();
-        let unique_id = format!("{}_{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+        let unique_id = format!(
+            "{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
         let db_path = temp_dir.join(format!("magellan_metrics_ops_stub_{}.db", unique_id));
 
         let metrics = Self {
             backend: MetricsOpsBackend::Sqlite(db_path),
         };
-        
+
         // Ensure schema exists
         if let Err(e) = metrics.ensure_schema() {
             eprintln!("Warning: Failed to ensure MetricsOps schema: {}", e);
         }
-        
+
         metrics
     }
 
@@ -110,11 +117,9 @@ impl MetricsOps {
     fn connect(&self) -> Result<rusqlite::Connection, rusqlite::Error> {
         match &self.backend {
             MetricsOpsBackend::Sqlite(path) => rusqlite::Connection::open(path),
-            MetricsOpsBackend::SideTables(_) => {
-                Err(rusqlite::Error::InvalidParameterName(
-                    "Metrics not available with V3 backend".to_string()
-                ))
-            }
+            MetricsOpsBackend::SideTables(_) => Err(rusqlite::Error::InvalidParameterName(
+                "Metrics not available with V3 backend".to_string(),
+            )),
         }
     }
 
@@ -153,9 +158,7 @@ impl MetricsOps {
                 .map_err(|e| anyhow::anyhow!("Failed to upsert file metrics: {}", e))?;
                 Ok(())
             }
-            MetricsOpsBackend::SideTables(side_tables) => {
-                side_tables.store_file_metrics(metrics)
-            }
+            MetricsOpsBackend::SideTables(side_tables) => side_tables.store_file_metrics(metrics),
         }
     }
 
@@ -186,9 +189,7 @@ impl MetricsOps {
                 .map_err(|e| anyhow::anyhow!("Failed to upsert symbol metrics: {}", e))?;
                 Ok(())
             }
-            MetricsOpsBackend::SideTables(side_tables) => {
-                side_tables.store_symbol_metrics(metrics)
-            }
+            MetricsOpsBackend::SideTables(side_tables) => side_tables.store_symbol_metrics(metrics),
         }
     }
 
@@ -252,9 +253,7 @@ impl MetricsOps {
 
                 Ok(result)
             }
-            MetricsOpsBackend::SideTables(side_tables) => {
-                side_tables.get_file_metrics(file_path)
-            }
+            MetricsOpsBackend::SideTables(side_tables) => side_tables.get_file_metrics(file_path),
         }
     }
 
@@ -291,9 +290,7 @@ impl MetricsOps {
 
                 Ok(result)
             }
-            MetricsOpsBackend::SideTables(side_tables) => {
-                side_tables.get_symbol_metrics(symbol_id)
-            }
+            MetricsOpsBackend::SideTables(side_tables) => side_tables.get_symbol_metrics(symbol_id),
         }
     }
 
@@ -334,7 +331,9 @@ impl MetricsOps {
                 }
 
                 param_count += 1;
-                query.push_str(&format!(" ORDER BY complexity_score DESC LIMIT ?{param_count}"));
+                query.push_str(&format!(
+                    " ORDER BY complexity_score DESC LIMIT ?{param_count}"
+                ));
 
                 let mut stmt = conn.prepare(&query)?;
 
@@ -400,7 +399,6 @@ impl MetricsOps {
         symbol_facts: &[crate::graph::schema::SymbolNode],
     ) -> anyhow::Result<()> {
         use compute_v3::V3MetricsCompute;
-        
 
         let v3_compute = V3MetricsCompute::new(backend);
 
@@ -430,9 +428,9 @@ impl MetricsOps {
 pub mod query {
     //! Public query functions for metrics
 
-    use anyhow::Result;
-    use super::MetricsOps;
     use super::schema::{FileMetrics, SymbolMetrics};
+    use super::MetricsOps;
+    use anyhow::Result;
 
     /// Get file metrics by path (public wrapper)
     pub fn get_file_metrics(metrics: &MetricsOps, file_path: &str) -> Result<Option<FileMetrics>> {
@@ -440,7 +438,10 @@ pub mod query {
     }
 
     /// Get symbol metrics by symbol_id (public wrapper)
-    pub fn get_symbol_metrics(metrics: &MetricsOps, symbol_id: i64) -> Result<Option<SymbolMetrics>> {
+    pub fn get_symbol_metrics(
+        metrics: &MetricsOps,
+        symbol_id: i64,
+    ) -> Result<Option<SymbolMetrics>> {
         metrics.get_symbol_metrics(symbol_id)
     }
 
@@ -459,5 +460,4 @@ pub mod query {
 #[cfg(test)]
 mod tests {
     use super::*;
-
 }

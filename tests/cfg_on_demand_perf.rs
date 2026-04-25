@@ -56,7 +56,10 @@ fn generate_test_file(num_functions: usize, complexity: usize) -> String {
 
     // Add helper functions that will be called
     for i in 0..num_functions {
-        code.push_str(&generate_complex_function(&format!("func_{:03}", i), complexity));
+        code.push_str(&generate_complex_function(
+            &format!("func_{:03}", i),
+            complexity,
+        ));
         code.push('\n');
     }
 
@@ -72,7 +75,7 @@ fn generate_test_file(num_functions: usize, complexity: usize) -> String {
 
 /// Measure tree-sitter parse time
 fn measure_parse_time(source: &str, iterations: usize) -> (f64, f64) {
-    use magellan::ingest::{Language, pool::with_parser};
+    use magellan::ingest::{pool::with_parser, Language};
 
     let mut times = Vec::with_capacity(iterations);
 
@@ -82,7 +85,8 @@ fn measure_parse_time(source: &str, iterations: usize) -> (f64, f64) {
         // Parse the file
         with_parser(Language::Rust, |parser| {
             let _ = parser.parse(source, None);
-        }).unwrap();
+        })
+        .unwrap();
 
         times.push(start.elapsed().as_secs_f64() * 1000.0); // ms
     }
@@ -94,7 +98,7 @@ fn measure_parse_time(source: &str, iterations: usize) -> (f64, f64) {
 
 /// Measure CFG extraction time from already-parsed AST
 fn measure_cfg_extraction_time(source: &str, iterations: usize) -> (f64, f64) {
-    use magellan::ingest::{Language, pool::with_parser};
+    use magellan::ingest::{pool::with_parser, Language};
 
     let mut times = Vec::with_capacity(iterations);
 
@@ -114,7 +118,8 @@ fn measure_cfg_extraction_time(source: &str, iterations: usize) -> (f64, f64) {
                     }
                 }
             }
-        }).unwrap();
+        })
+        .unwrap();
 
         times.push(start.elapsed().as_secs_f64() * 1000.0);
     }
@@ -130,8 +135,8 @@ fn count_control_flow_nodes(function_node: tree_sitter::Node) -> usize {
 
     fn visit(node: tree_sitter::Node, count: &mut usize) {
         match node.kind() {
-            "if_expression" | "while_expression" | "for_expression" |
-            "loop_expression" | "match_expression" | "return_expression" => {
+            "if_expression" | "while_expression" | "for_expression" | "loop_expression"
+            | "match_expression" | "return_expression" => {
                 *count += 1;
             }
             _ => {}
@@ -169,14 +174,16 @@ fn test_cfg_on_demand_vs_pre_stored() {
 
     // Test with increasing file sizes
     let test_cases = vec![
-        (1, 5,   "small file (1 func, complexity 5)"),
-        (5, 10,  "medium file (5 funcs, complexity 10)"),
+        (1, 5, "small file (1 func, complexity 5)"),
+        (5, 10, "medium file (5 funcs, complexity 10)"),
         (10, 15, "large file (10 funcs, complexity 15)"),
     ];
 
     println!("\n=== CFG Extraction Performance Comparison ===\n");
-    println!("{:<40} {:>12} {:>12} {:>12}",
-             "Test Case", "Parse (ms)", "Extract (ms)", "Ratio");
+    println!(
+        "{:<40} {:>12} {:>12} {:>12}",
+        "Test Case", "Parse (ms)", "Extract (ms)", "Ratio"
+    );
     println!("{}", "-".repeat(80));
 
     for (num_funcs, complexity, description) in test_cases {
@@ -191,17 +198,20 @@ fn test_cfg_on_demand_vs_pre_stored() {
 
         let ratio = parse_avg / extract_avg;
 
-        println!("{:<40} {:>12.3} {:>12.3} {:>12.1}x",
-                 description, parse_min, extract_min, ratio);
+        println!(
+            "{:<40} {:>12.3} {:>12.3} {:>12.1}x",
+            description, parse_min, extract_min, ratio
+        );
         println!("  File size: {} bytes", file_size);
     }
 
     println!("\n=== Key Finding ===");
-    println!("If CFG extraction is {:.1}x faster than parsing,",
-             10.0);
+    println!("If CFG extraction is {:.1}x faster than parsing,", 10.0);
     println!("then on-demand extraction is viable when: ");
-    println!("  - You need CFG for < {:.0}% of functions in a file",
-             100.0 / 10.0);
+    println!(
+        "  - You need CFG for < {:.0}% of functions in a file",
+        100.0 / 10.0
+    );
     println!("  - You can cache parsed ASTs across queries");
 }
 
@@ -221,7 +231,9 @@ fn test_memory_overhead_comparison() {
     let file_path = temp_dir.path().join("test.rs");
     fs::write(&file_path, &source).unwrap();
 
-    graph.index_file(file_path.to_str().unwrap(), source.as_bytes()).unwrap();
+    graph
+        .index_file(file_path.to_str().unwrap(), source.as_bytes())
+        .unwrap();
 
     // Get database size
     let db_size = fs::metadata(&db_path).unwrap().len();
@@ -233,7 +245,10 @@ fn test_memory_overhead_comparison() {
     println!("\n=== Database Storage Analysis ===");
     println!("File size: {} bytes", source.len());
     println!("Database size: {} bytes", db_size);
-    println!("Overhead ratio: {:.2}x", db_size as f64 / source.len() as f64);
+    println!(
+        "Overhead ratio: {:.2}x",
+        db_size as f64 / source.len() as f64
+    );
     println!("Symbols stored: {}", symbol_count);
     println!("Files stored: {}", file_count);
 
@@ -247,8 +262,10 @@ fn test_memory_overhead_comparison() {
     println!("\n=== On-Demand Projection ===");
     println!("Estimated CFG blocks: {}", estimated_cfg_blocks);
     println!("Estimated CFG storage: {} bytes", estimated_cfg_bytes);
-    println!("Potential savings: {:.1}%",
-             (estimated_cfg_bytes as f64 / db_size as f64) * 100.0);
+    println!(
+        "Potential savings: {:.1}%",
+        (estimated_cfg_bytes as f64 / db_size as f64) * 100.0
+    );
 }
 
 /// Test end-to-end on-demand path enumeration
@@ -279,7 +296,7 @@ fn test_function() {
     let start = Instant::now();
 
     // Step 1: Parse file
-    use magellan::ingest::{Language, pool::with_parser};
+    use magellan::ingest::{pool::with_parser, Language};
     let source = fs::read_to_string(&file_path).unwrap();
 
     with_parser(Language::Rust, |parser| {
@@ -300,13 +317,17 @@ fn test_function() {
                 }
             }
         }
-    }).unwrap();
+    })
+    .unwrap();
 
     let elapsed = start.elapsed();
     println!("\nOn-demand path enumeration took: {:?}", elapsed);
 
     // This proves the approach works end-to-end
-    assert!(elapsed.as_millis() < 100, "Should be fast enough for interactive use");
+    assert!(
+        elapsed.as_millis() < 100,
+        "Should be fast enough for interactive use"
+    );
 }
 
 /// Simplified CFG block for testing
@@ -318,7 +339,10 @@ struct TestCfgBlock {
 }
 
 /// Extract CFG blocks from a function node
-fn extract_cfg_blocks_on_demand(function_node: tree_sitter::Node, _source: &str) -> Vec<TestCfgBlock> {
+fn extract_cfg_blocks_on_demand(
+    function_node: tree_sitter::Node,
+    _source: &str,
+) -> Vec<TestCfgBlock> {
     let mut blocks = Vec::new();
 
     fn visit(node: tree_sitter::Node, blocks: &mut Vec<TestCfgBlock>, id: &mut usize) {
@@ -374,7 +398,10 @@ fn test_parse_time_scaling() {
     ];
 
     println!("\n=== Parse Time Scaling ===");
-    println!("{:<20} {:>10} {:>15}", "Size", "Time (ms)", "Time/Func (ms)");
+    println!(
+        "{:<20} {:>10} {:>15}",
+        "Size", "Time (ms)", "Time/Func (ms)"
+    );
     println!("{}", "-".repeat(50));
 
     for (num_funcs, desc) in sizes {

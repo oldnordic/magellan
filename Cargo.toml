@@ -53,56 +53,9 @@ harness = false
 path = "benches/context_bench.rs"
 
 [[bench]]
-name = "geometric_benchmarks"
+name = "kv_metadata_bench"
 harness = false
-path = "benches/geometric_benchmarks.rs"
-required-features = ["benchmarks"]
-
-[[bench]]
-name = "minecraft_style_benchmarks"
-harness = false
-path = "benches/minecraft_style_benchmarks.rs"
-required-features = ["benchmarks"]
-
-[[bench]]
-name = "block_comparison_benchmarks"
-harness = false
-path = "benches/block_comparison_benchmarks.rs"
-required-features = ["benchmarks"]
-
-[[bench]]
-name = "insert_read_benchmark"
-harness = false
-path = "benches/insert_read_benchmark.rs"
-required-features = ["geometric-backend", "benchmarks"]
-
-[[bench]]
-name = "rigorous_benchmark"
-harness = false
-path = "benches/rigorous_benchmark.rs"
-required-features = ["geometric-backend", "benchmarks"]
-
-[[bench]]
-name = "comprehensive_benchmark"
-harness = false
-path = "benches/comprehensive_benchmark.rs"
-required-features = ["geometric-backend", "benchmarks"]
-
-[[bench]]
-name = "indexing_bench"
-harness = false
-path = "benches/indexing_bench.rs"
-required-features = ["geometric-backend", "benchmarks"]
-
-[[bench]]
-name = "cfg_bench"
-harness = false
-path = "benches/cfg_bench.rs"
-
-[[bench]]
-name = "parsing_bottleneck"
-harness = false
-path = "benches/parsing_bottleneck.rs"
+path = "benches/kv_metadata_bench.rs"
 
 [features]
 # Default: SQLite backend (stable, widely compatible)
@@ -126,6 +79,12 @@ geometric-backend = ["dep:geographdb-core"]
 
 # Java bytecode CFG (placeholder for future ASM integration)
 bytecode-cfg = []
+
+# External tools CFG extraction (C/C++ via clang/LLVM IR text, Java via javac/bytecode)
+# Uses external tools (clang, javac) and parses their output files directly
+# No LLVM/ASM library dependencies needed - we parse text/binary formats ourselves
+# Works on LLVM 22+ and all Java versions, cross-platform compatible
+external-tools-cfg = []
 
 # Telemetry for race condition and loop detection
 telemetry = []
@@ -172,7 +131,7 @@ hex = "0.4"
 uuid = { version = "1.0", features = ["serde", "v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 signal-hook = "0.3"
-sqlitegraph = { version = "2.0.7", default-features = false }
+sqlitegraph = { version = "=2.0.7", default-features = false }
 walkdir = "2.5"
 git2 = "0.19"
 globset = "0.4"
@@ -196,6 +155,11 @@ glam = { version = "0.27", features = ["serde"] }
 # Note: geographdb-core is not published to crates.io, so geometric-backend
 # feature is only available when building from source with --features geometric-backend
 geographdb-core = { path = "../geographdb-core", optional = true }
+
+# External tools CFG extraction (C/C++ via clang/LLVM IR text, Java via javac/bytecode)
+# Uses external tools (clang, javac) and parses their output files directly
+# No LLVM/ASM library dependencies needed - we parse text/binary formats ourselves
+# External tools CFG feature: standard library only
 
 # Java bytecode CFG analysis (ASM library)
 

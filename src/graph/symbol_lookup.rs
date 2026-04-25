@@ -253,7 +253,12 @@ impl SymbolLookup {
             return;
         }
 
-        let entry = SymbolEntry::from_fact_with_symbol_id(entity_id, file_path, fact, stable_symbol_id.clone());
+        let entry = SymbolEntry::from_fact_with_symbol_id(
+            entity_id,
+            file_path,
+            fact,
+            stable_symbol_id.clone(),
+        );
 
         // Update FQN index
         self.fqn_index.insert(key.clone(), entry);
@@ -317,14 +322,19 @@ impl SymbolLookup {
     /// # Returns
     /// Slice of entity_ids matching this name, empty if none found
     pub fn get_ids_by_name(&self, name: &str) -> &[i64] {
-        self.name_index.get(name).map(|v| v.as_slice()).unwrap_or(&[])
+        self.name_index
+            .get(name)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
     }
 
     /// Get all FQN keys in the index
     ///
     /// Used for building the FQN -> entity_id map needed by index_calls
     pub fn all_fqns(&self) -> impl Iterator<Item = (&String, i64)> + '_ {
-        self.fqn_index.iter().map(|(fqn, entry)| (fqn, entry.entity_id))
+        self.fqn_index
+            .iter()
+            .map(|(fqn, entry)| (fqn, entry.entity_id))
     }
 
     /// Get all symbol facts for reference extraction
@@ -336,7 +346,10 @@ impl SymbolLookup {
     /// # Returns
     /// Vector of SymbolFact for all symbols in the index
     pub fn get_all_symbol_facts(&self) -> Vec<SymbolFact> {
-        self.fqn_index.values().map(|entry| entry.to_fact()).collect()
+        self.fqn_index
+            .values()
+            .map(|entry| entry.to_fact())
+            .collect()
     }
 
     /// Get map of entity_id -> stable_symbol_id
@@ -422,12 +435,12 @@ impl SymbolLookup {
                         fqn: symbol_node.fqn,
                         canonical_fqn: symbol_node.canonical_fqn,
                         display_fqn: symbol_node.display_fqn,
-                        byte_start: symbol_node.byte_start as usize,
-                        byte_end: symbol_node.byte_end as usize,
-                        start_line: symbol_node.start_line as usize,
-                        start_col: symbol_node.start_col as usize,
-                        end_line: symbol_node.end_line as usize,
-                        end_col: symbol_node.end_col as usize,
+                        byte_start: symbol_node.byte_start,
+                        byte_end: symbol_node.byte_end,
+                        start_line: symbol_node.start_line,
+                        start_col: symbol_node.start_col,
+                        end_line: symbol_node.end_line,
+                        end_col: symbol_node.end_col,
                     };
 
                     // Extract stable symbol_id if present, use insert_with_symbol_id

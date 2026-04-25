@@ -4,7 +4,7 @@
 //! graph traversal APIs instead of SQL queries.
 
 use anyhow::Result;
-use sqlitegraph::{GraphBackend, SnapshotId, GraphEntity};
+use sqlitegraph::{GraphBackend, GraphEntity, SnapshotId};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -75,11 +75,9 @@ impl V3MetricsCompute {
 
         // Compute per-symbol metrics
         for symbol in symbol_facts {
-            if let Err(e) = self.compute_and_store_symbol_metrics(
-                symbol,
-                file_path,
-                &store_symbol_fn,
-            ) {
+            if let Err(e) =
+                self.compute_and_store_symbol_metrics(symbol, file_path, &store_symbol_fn)
+            {
                 let symbol_name = symbol.name.as_deref().unwrap_or("<unknown>");
                 eprintln!(
                     "Warning: Failed to compute metrics for symbol '{}': {}",
@@ -332,7 +330,5 @@ fn calculate_complexity(loc: i64, fan_in: i64, fan_out: i64) -> f64 {
     let fan_in_weight = 0.5;
     let fan_out_weight = 0.3;
 
-    (loc as f64 * loc_weight)
-        + (fan_in as f64 * fan_in_weight)
-        + (fan_out as f64 * fan_out_weight)
+    (loc as f64 * loc_weight) + (fan_in as f64 * fan_in_weight) + (fan_out as f64 * fan_out_weight)
 }

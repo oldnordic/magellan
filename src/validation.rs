@@ -188,10 +188,9 @@ pub fn has_suspicious_traversal(path: &str) -> bool {
     // Windows-specific mixed pattern: ".\" followed by "..\"
     let parts_win: Vec<&str> = path_win.split('\\').collect();
     for (i, part) in parts_win.iter().enumerate() {
-        if *part == "." && i < parts_win.len() - 1
-            && parts_win[i + 1..].contains(&"..") {
-                return true;
-            }
+        if *part == "." && i < parts_win.len() - 1 && parts_win[i + 1..].contains(&"..") {
+            return true;
+        }
     }
 
     false

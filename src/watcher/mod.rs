@@ -101,8 +101,6 @@ impl Default for WatcherConfig {
 /// Uses notify-debouncer-mini for event coalescing. All paths within the
 /// debounce window are collected, de-duplicated, sorted, and emitted as a
 /// single WatcherBatch.
-///
-
 pub struct FileSystemWatcher {
     /// Watcher thread handle (wrapped in ManuallyDrop for custom Drop/shutdown logic)
     _watcher_thread: ManuallyDrop<thread::JoinHandle<()>>,
@@ -113,7 +111,6 @@ pub struct FileSystemWatcher {
     /// Legacy compatibility: current index into pending batch
     /// Thread-safe: wrapped in Arc<Mutex<T>> for concurrent access
     legacy_pending_index: Arc<Mutex<usize>>,
-
 }
 
 impl FileSystemWatcher {
@@ -148,8 +145,6 @@ impl FileSystemWatcher {
             legacy_pending_index: Arc::new(Mutex::new(0)),
         })
     }
-
-
 
     /// Receive the next batch, blocking until available.
     ///
@@ -200,9 +195,13 @@ impl FileSystemWatcher {
     pub fn try_recv_event(&self) -> Result<Option<FileEvent>> {
         // First, check if we have a pending batch to continue from
         {
-            let mut pending_batch = self.legacy_pending_batch.lock()
+            let mut pending_batch = self
+                .legacy_pending_batch
+                .lock()
                 .map_err(|e| anyhow::anyhow!("legacy_pending_batch mutex poisoned: {}", e))?;
-            let mut pending_index = self.legacy_pending_index.lock()
+            let mut pending_index = self
+                .legacy_pending_index
+                .lock()
                 .map_err(|e| anyhow::anyhow!("legacy_pending_index mutex poisoned: {}", e))?;
 
             if let Some(ref batch) = *pending_batch {
@@ -233,9 +232,13 @@ impl FileSystemWatcher {
             // If there are multiple paths, store the batch for next call
             if batch.paths.len() > 1 {
                 let path = batch.paths[0].clone();
-                let mut pending_batch = self.legacy_pending_batch.lock()
+                let mut pending_batch = self
+                    .legacy_pending_batch
+                    .lock()
                     .map_err(|e| anyhow::anyhow!("legacy_pending_batch mutex poisoned: {}", e))?;
-                let mut pending_index = self.legacy_pending_index.lock()
+                let mut pending_index = self
+                    .legacy_pending_index
+                    .lock()
                     .map_err(|e| anyhow::anyhow!("legacy_pending_index mutex poisoned: {}", e))?;
                 *pending_batch = Some(batch);
                 *pending_index = 1; // Next call will return index 1
@@ -271,9 +274,13 @@ impl FileSystemWatcher {
     pub fn recv_event(&self) -> Result<Option<FileEvent>> {
         // First, check if we have a pending batch to continue from
         {
-            let mut pending_batch = self.legacy_pending_batch.lock()
+            let mut pending_batch = self
+                .legacy_pending_batch
+                .lock()
                 .map_err(|e| anyhow::anyhow!("legacy_pending_batch mutex poisoned: {}", e))?;
-            let mut pending_index = self.legacy_pending_index.lock()
+            let mut pending_index = self
+                .legacy_pending_index
+                .lock()
                 .map_err(|e| anyhow::anyhow!("legacy_pending_index mutex poisoned: {}", e))?;
 
             if let Some(ref batch) = *pending_batch {
@@ -304,9 +311,13 @@ impl FileSystemWatcher {
             // If there are multiple paths, store the batch for next call
             if batch.paths.len() > 1 {
                 let path = batch.paths[0].clone();
-                let mut pending_batch = self.legacy_pending_batch.lock()
+                let mut pending_batch = self
+                    .legacy_pending_batch
+                    .lock()
                     .map_err(|e| anyhow::anyhow!("legacy_pending_batch mutex poisoned: {}", e))?;
-                let mut pending_index = self.legacy_pending_index.lock()
+                let mut pending_index = self
+                    .legacy_pending_index
+                    .lock()
                     .map_err(|e| anyhow::anyhow!("legacy_pending_index mutex poisoned: {}", e))?;
                 *pending_batch = Some(batch);
                 *pending_index = 1; // Next call will return index 1

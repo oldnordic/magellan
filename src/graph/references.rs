@@ -293,72 +293,76 @@ impl ReferenceOps {
 
         // Extract references using parser pool (was creating fresh parsers per file)
         let references = match language {
-            Some(Language::Rust) => {
-                pool::with_parser_opt(Language::Rust, |opt_parser| {
-                    let parser = opt_parser.take()
+            Some(Language::Rust) => pool::with_parser_opt(Language::Rust, |opt_parser| {
+                let parser = opt_parser
+                    .take()
                     .expect("Parser pool corruption: parser was None");
-                    let mut wrapper = Parser::from_parser(parser);
-                    let result = wrapper.extract_references(path_buf.clone(), source, &all_symbol_facts);
-                    *opt_parser = Some(wrapper.parser);
-                    result
-                })?
-            }
-            Some(Language::Python) => {
-                pool::with_parser_opt(Language::Python, |opt_parser| {
-                    let parser = opt_parser.take()
+                let mut wrapper = Parser::from_parser(parser);
+                let result =
+                    wrapper.extract_references(path_buf.clone(), source, &all_symbol_facts);
+                *opt_parser = Some(wrapper.parser);
+                result
+            })?,
+            Some(Language::Python) => pool::with_parser_opt(Language::Python, |opt_parser| {
+                let parser = opt_parser
+                    .take()
                     .expect("Parser pool corruption: parser was None");
-                    let mut wrapper = PythonParser::from_parser(parser);
-                    let result = wrapper.extract_references(path_buf.clone(), source, &all_symbol_facts);
-                    *opt_parser = Some(wrapper.parser);
-                    result
-                })?
-            }
-            Some(Language::C) => {
-                pool::with_parser_opt(Language::C, |opt_parser| {
-                    let parser = opt_parser.take()
+                let mut wrapper = PythonParser::from_parser(parser);
+                let result =
+                    wrapper.extract_references(path_buf.clone(), source, &all_symbol_facts);
+                *opt_parser = Some(wrapper.parser);
+                result
+            })?,
+            Some(Language::C) => pool::with_parser_opt(Language::C, |opt_parser| {
+                let parser = opt_parser
+                    .take()
                     .expect("Parser pool corruption: parser was None");
-                    let mut wrapper = CParser::from_parser(parser);
-                    let result = wrapper.extract_references(path_buf.clone(), source, &all_symbol_facts);
-                    *opt_parser = Some(wrapper.parser);
-                    result
-                })?
-            }
-            Some(Language::Cpp) => {
-                pool::with_parser_opt(Language::Cpp, |opt_parser| {
-                    let parser = opt_parser.take()
+                let mut wrapper = CParser::from_parser(parser);
+                let result =
+                    wrapper.extract_references(path_buf.clone(), source, &all_symbol_facts);
+                *opt_parser = Some(wrapper.parser);
+                result
+            })?,
+            Some(Language::Cpp) => pool::with_parser_opt(Language::Cpp, |opt_parser| {
+                let parser = opt_parser
+                    .take()
                     .expect("Parser pool corruption: parser was None");
-                    let mut wrapper = CppParser::from_parser(parser);
-                    let result = wrapper.extract_references(path_buf.clone(), source, &all_symbol_facts);
-                    *opt_parser = Some(wrapper.parser);
-                    result
-                })?
-            }
-            Some(Language::Java) => {
-                pool::with_parser_opt(Language::Java, |opt_parser| {
-                    let parser = opt_parser.take()
+                let mut wrapper = CppParser::from_parser(parser);
+                let result =
+                    wrapper.extract_references(path_buf.clone(), source, &all_symbol_facts);
+                *opt_parser = Some(wrapper.parser);
+                result
+            })?,
+            Some(Language::Java) => pool::with_parser_opt(Language::Java, |opt_parser| {
+                let parser = opt_parser
+                    .take()
                     .expect("Parser pool corruption: parser was None");
-                    let mut wrapper = JavaParser::from_parser(parser);
-                    let result = wrapper.extract_references(path_buf.clone(), source, &all_symbol_facts);
-                    *opt_parser = Some(wrapper.parser);
-                    result
-                })?
-            }
+                let mut wrapper = JavaParser::from_parser(parser);
+                let result =
+                    wrapper.extract_references(path_buf.clone(), source, &all_symbol_facts);
+                *opt_parser = Some(wrapper.parser);
+                result
+            })?,
             Some(Language::JavaScript) => {
                 pool::with_parser_opt(Language::JavaScript, |opt_parser| {
-                    let parser = opt_parser.take()
-                    .expect("Parser pool corruption: parser was None");
+                    let parser = opt_parser
+                        .take()
+                        .expect("Parser pool corruption: parser was None");
                     let mut wrapper = JavaScriptParser::from_parser(parser);
-                    let result = wrapper.extract_references(path_buf.clone(), source, &all_symbol_facts);
+                    let result =
+                        wrapper.extract_references(path_buf.clone(), source, &all_symbol_facts);
                     *opt_parser = Some(wrapper.parser);
                     result
                 })?
             }
             Some(Language::TypeScript) => {
                 pool::with_parser_opt(Language::TypeScript, |opt_parser| {
-                    let parser = opt_parser.take()
-                    .expect("Parser pool corruption: parser was None");
+                    let parser = opt_parser
+                        .take()
+                        .expect("Parser pool corruption: parser was None");
                     let mut wrapper = TypeScriptParser::from_parser(parser);
-                    let result = wrapper.extract_references(path_buf.clone(), source, &all_symbol_facts);
+                    let result =
+                        wrapper.extract_references(path_buf.clone(), source, &all_symbol_facts);
                     *opt_parser = Some(wrapper.parser);
                     result
                 })?
@@ -415,72 +419,71 @@ impl ReferenceOps {
 
         // Extract references using parser pool (was creating fresh parsers per file)
         let references = match language {
-            Some(Language::Rust) => {
-                pool::with_parser_opt(Language::Rust, |opt_parser| {
-                    let parser = opt_parser.take()
+            Some(Language::Rust) => pool::with_parser_opt(Language::Rust, |opt_parser| {
+                let parser = opt_parser
+                    .take()
                     .expect("Parser pool corruption: parser was None");
-                    let mut wrapper = Parser::from_parser(parser);
-                    let result = wrapper.extract_references(path_buf.clone(), source, all_symbol_facts);
-                    *opt_parser = Some(wrapper.parser);
-                    result
-                })?
-            }
-            Some(Language::Python) => {
-                pool::with_parser_opt(Language::Python, |opt_parser| {
-                    let parser = opt_parser.take()
+                let mut wrapper = Parser::from_parser(parser);
+                let result = wrapper.extract_references(path_buf.clone(), source, all_symbol_facts);
+                *opt_parser = Some(wrapper.parser);
+                result
+            })?,
+            Some(Language::Python) => pool::with_parser_opt(Language::Python, |opt_parser| {
+                let parser = opt_parser
+                    .take()
                     .expect("Parser pool corruption: parser was None");
-                    let mut wrapper = PythonParser::from_parser(parser);
-                    let result = wrapper.extract_references(path_buf.clone(), source, all_symbol_facts);
-                    *opt_parser = Some(wrapper.parser);
-                    result
-                })?
-            }
-            Some(Language::C) => {
-                pool::with_parser_opt(Language::C, |opt_parser| {
-                    let parser = opt_parser.take()
+                let mut wrapper = PythonParser::from_parser(parser);
+                let result = wrapper.extract_references(path_buf.clone(), source, all_symbol_facts);
+                *opt_parser = Some(wrapper.parser);
+                result
+            })?,
+            Some(Language::C) => pool::with_parser_opt(Language::C, |opt_parser| {
+                let parser = opt_parser
+                    .take()
                     .expect("Parser pool corruption: parser was None");
-                    let mut wrapper = CParser::from_parser(parser);
-                    let result = wrapper.extract_references(path_buf.clone(), source, all_symbol_facts);
-                    *opt_parser = Some(wrapper.parser);
-                    result
-                })?
-            }
-            Some(Language::Cpp) => {
-                pool::with_parser_opt(Language::Cpp, |opt_parser| {
-                    let parser = opt_parser.take()
+                let mut wrapper = CParser::from_parser(parser);
+                let result = wrapper.extract_references(path_buf.clone(), source, all_symbol_facts);
+                *opt_parser = Some(wrapper.parser);
+                result
+            })?,
+            Some(Language::Cpp) => pool::with_parser_opt(Language::Cpp, |opt_parser| {
+                let parser = opt_parser
+                    .take()
                     .expect("Parser pool corruption: parser was None");
-                    let mut wrapper = CppParser::from_parser(parser);
-                    let result = wrapper.extract_references(path_buf.clone(), source, all_symbol_facts);
-                    *opt_parser = Some(wrapper.parser);
-                    result
-                })?
-            }
-            Some(Language::Java) => {
-                pool::with_parser_opt(Language::Java, |opt_parser| {
-                    let parser = opt_parser.take()
+                let mut wrapper = CppParser::from_parser(parser);
+                let result = wrapper.extract_references(path_buf.clone(), source, all_symbol_facts);
+                *opt_parser = Some(wrapper.parser);
+                result
+            })?,
+            Some(Language::Java) => pool::with_parser_opt(Language::Java, |opt_parser| {
+                let parser = opt_parser
+                    .take()
                     .expect("Parser pool corruption: parser was None");
-                    let mut wrapper = JavaParser::from_parser(parser);
-                    let result = wrapper.extract_references(path_buf.clone(), source, all_symbol_facts);
-                    *opt_parser = Some(wrapper.parser);
-                    result
-                })?
-            }
+                let mut wrapper = JavaParser::from_parser(parser);
+                let result = wrapper.extract_references(path_buf.clone(), source, all_symbol_facts);
+                *opt_parser = Some(wrapper.parser);
+                result
+            })?,
             Some(Language::JavaScript) => {
                 pool::with_parser_opt(Language::JavaScript, |opt_parser| {
-                    let parser = opt_parser.take()
-                    .expect("Parser pool corruption: parser was None");
+                    let parser = opt_parser
+                        .take()
+                        .expect("Parser pool corruption: parser was None");
                     let mut wrapper = JavaScriptParser::from_parser(parser);
-                    let result = wrapper.extract_references(path_buf.clone(), source, all_symbol_facts);
+                    let result =
+                        wrapper.extract_references(path_buf.clone(), source, all_symbol_facts);
                     *opt_parser = Some(wrapper.parser);
                     result
                 })?
             }
             Some(Language::TypeScript) => {
                 pool::with_parser_opt(Language::TypeScript, |opt_parser| {
-                    let parser = opt_parser.take()
-                    .expect("Parser pool corruption: parser was None");
+                    let parser = opt_parser
+                        .take()
+                        .expect("Parser pool corruption: parser was None");
                     let mut wrapper = TypeScriptParser::from_parser(parser);
-                    let result = wrapper.extract_references(path_buf.clone(), source, all_symbol_facts);
+                    let result =
+                        wrapper.extract_references(path_buf.clone(), source, all_symbol_facts);
                     *opt_parser = Some(wrapper.parser);
                     result
                 })?

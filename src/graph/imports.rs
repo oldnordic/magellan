@@ -3,9 +3,7 @@
 //! Handles import node CRUD operations and IMPORTS edge management.
 
 use anyhow::Result;
-use sqlitegraph::{
-    BackendDirection, EdgeSpec, GraphBackend, NeighborQuery, NodeSpec, SnapshotId,
-};
+use sqlitegraph::{BackendDirection, EdgeSpec, GraphBackend, NeighborQuery, NodeSpec, SnapshotId};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -107,7 +105,10 @@ impl ImportOps {
                     let mut data = serde_json::to_value(import_node)?;
                     if let Some(resolved_id) = resolved_file_id {
                         if let Some(obj) = data.as_object_mut() {
-                            obj.insert("resolved_file_id".to_string(), serde_json::json!(resolved_id));
+                            obj.insert(
+                                "resolved_file_id".to_string(),
+                                serde_json::json!(resolved_id),
+                            );
                         }
                     }
                     data
@@ -198,8 +199,8 @@ impl ImportOps {
         };
 
         // Parse import_kind from normalized key
-        let import_kind = ImportKind::from_str(&import_node.import_kind)
-            .unwrap_or(ImportKind::PlainUse);
+        let import_kind =
+            ImportKind::from_str(&import_node.import_kind).unwrap_or(ImportKind::PlainUse);
 
         Ok(Some(ImportFact {
             file_path: PathBuf::from(&import_node.file),
@@ -241,21 +242,19 @@ mod tests {
         let file_id = graph.files.find_file_node(test_file).unwrap().unwrap();
 
         // Create some additional test imports
-        let imports = vec![
-            ImportFact {
-                file_path: PathBuf::from(test_file),
-                import_kind: ImportKind::PlainUse,
-                import_path: vec!["std".to_string(), "collections".to_string()],
-                imported_names: vec!["HashSet".to_string()], // Different import
-                is_glob: false,
-                byte_start: 100,
-                byte_end: 200,
-                start_line: 2,
-                start_col: 0,
-                end_line: 3,
-                end_col: 0,
-            },
-        ];
+        let imports = vec![ImportFact {
+            file_path: PathBuf::from(test_file),
+            import_kind: ImportKind::PlainUse,
+            import_path: vec!["std".to_string(), "collections".to_string()],
+            imported_names: vec!["HashSet".to_string()], // Different import
+            is_glob: false,
+            byte_start: 100,
+            byte_end: 200,
+            start_line: 2,
+            start_col: 0,
+            end_line: 3,
+            end_col: 0,
+        }];
 
         // Index additional imports (without module resolver for this test)
         let count = graph
@@ -265,10 +264,7 @@ mod tests {
         assert_eq!(count, 1);
 
         // Delete all imports for this file (should be 2 total now)
-        let deleted = graph
-            .imports
-            .delete_imports_in_file(test_file)
-            .unwrap();
+        let deleted = graph.imports.delete_imports_in_file(test_file).unwrap();
         assert_eq!(deleted, 2); // 1 from index_file + 1 from manual index_imports
     }
 
@@ -285,21 +281,19 @@ mod tests {
         // Get the file_id
         let file_id = graph.files.find_file_node(test_file).unwrap().unwrap();
 
-        let imports = vec![
-            ImportFact {
-                file_path: PathBuf::from(test_file),
-                import_kind: ImportKind::UseCrate,
-                import_path: vec!["crate".to_string(), "foo".to_string()],
-                imported_names: vec!["bar".to_string()],
-                is_glob: false,
-                byte_start: 0,
-                byte_end: 50,
-                start_line: 1,
-                start_col: 0,
-                end_line: 1,
-                end_col: 50,
-            },
-        ];
+        let imports = vec![ImportFact {
+            file_path: PathBuf::from(test_file),
+            import_kind: ImportKind::UseCrate,
+            import_path: vec!["crate".to_string(), "foo".to_string()],
+            imported_names: vec!["bar".to_string()],
+            is_glob: false,
+            byte_start: 0,
+            byte_end: 50,
+            start_line: 1,
+            start_col: 0,
+            end_line: 1,
+            end_col: 50,
+        }];
 
         let count = graph
             .imports
@@ -314,20 +308,10 @@ mod tests {
         let import_node = entity_ids
             .iter()
             .find(|&&id| {
-                let node = graph
-                    .imports
-                    .backend
-                    .get_node(snapshot, id)
-                    .unwrap();
+                let node = graph.imports.backend.get_node(snapshot, id).unwrap();
                 node.kind == "Import"
             })
-            .map(|&id| {
-                graph
-                    .imports
-                    .backend
-                    .get_node(snapshot, id)
-                    .unwrap()
-            });
+            .map(|&id| graph.imports.backend.get_node(snapshot, id).unwrap());
 
         assert!(import_node.is_some(), "Import node should be created");
     }
@@ -358,26 +342,29 @@ mod tests {
         let file_id = graph.files.find_file_node(lib_file).unwrap().unwrap();
 
         // Create import that references crate::foo
-        let imports = vec![
-            ImportFact {
-                file_path: PathBuf::from(lib_file),
-                import_kind: ImportKind::UseCrate,
-                import_path: vec!["crate".to_string(), "foo".to_string()],
-                imported_names: vec!["foo".to_string()],
-                is_glob: false,
-                byte_start: 0,
-                byte_end: 50,
-                start_line: 1,
-                start_col: 0,
-                end_line: 1,
-                end_col: 50,
-            },
-        ];
+        let imports = vec![ImportFact {
+            file_path: PathBuf::from(lib_file),
+            import_kind: ImportKind::UseCrate,
+            import_path: vec!["crate".to_string(), "foo".to_string()],
+            imported_names: vec!["foo".to_string()],
+            is_glob: false,
+            byte_start: 0,
+            byte_end: 50,
+            start_line: 1,
+            start_col: 0,
+            end_line: 1,
+            end_col: 50,
+        }];
 
         // Index imports with module resolver
         let count = graph
             .imports
-            .index_imports(lib_file, file_id.as_i64(), imports, Some(&graph.module_resolver))
+            .index_imports(
+                lib_file,
+                file_id.as_i64(),
+                imports,
+                Some(&graph.module_resolver),
+            )
             .unwrap();
 
         assert_eq!(count, 1);
@@ -388,27 +375,23 @@ mod tests {
         let import_node_option = entity_ids
             .iter()
             .find(|&&id| {
-                let node = graph
-                    .imports
-                    .backend
-                    .get_node(snapshot, id)
-                    .unwrap();
+                let node = graph.imports.backend.get_node(snapshot, id).unwrap();
                 node.kind == "Import"
             })
-            .map(|&id| {
-                graph
-                    .imports
-                    .backend
-                    .get_node(snapshot, id)
-                    .unwrap()
-            });
+            .map(|&id| graph.imports.backend.get_node(snapshot, id).unwrap());
 
-        assert!(import_node_option.is_some(), "Import node should be created");
+        assert!(
+            import_node_option.is_some(),
+            "Import node should be created"
+        );
 
         // Check that resolved_file_id is in the metadata
         let import_node = import_node_option.unwrap();
         let resolved_id = import_node.data.get("resolved_file_id");
-        assert!(resolved_id.is_some(), "Import should have resolved_file_id in metadata");
+        assert!(
+            resolved_id.is_some(),
+            "Import should have resolved_file_id in metadata"
+        );
     }
 
     #[test]
@@ -440,26 +423,29 @@ mod tests {
         let helper_file_id = graph.files.find_file_node(helper_file).unwrap().unwrap();
 
         // Create import that references crate::helper
-        let imports = vec![
-            ImportFact {
-                file_path: PathBuf::from(lib_file),
-                import_kind: ImportKind::UseCrate,
-                import_path: vec!["crate".to_string(), "helper".to_string()],
-                imported_names: vec!["helper".to_string()],
-                is_glob: false,
-                byte_start: 0,
-                byte_end: 50,
-                start_line: 1,
-                start_col: 0,
-                end_line: 1,
-                end_col: 50,
-            },
-        ];
+        let imports = vec![ImportFact {
+            file_path: PathBuf::from(lib_file),
+            import_kind: ImportKind::UseCrate,
+            import_path: vec!["crate".to_string(), "helper".to_string()],
+            imported_names: vec!["helper".to_string()],
+            is_glob: false,
+            byte_start: 0,
+            byte_end: 50,
+            start_line: 1,
+            start_col: 0,
+            end_line: 1,
+            end_col: 50,
+        }];
 
         // Index imports with module resolver
         let count = graph
             .imports
-            .index_imports(lib_file, lib_file_id.as_i64(), imports, Some(&graph.module_resolver))
+            .index_imports(
+                lib_file,
+                lib_file_id.as_i64(),
+                imports,
+                Some(&graph.module_resolver),
+            )
             .unwrap();
 
         assert_eq!(count, 1);
@@ -470,40 +456,32 @@ mod tests {
         let import_node_option = entity_ids
             .iter()
             .find(|&&id| {
-                let node = graph
-                    .imports
-                    .backend
-                    .get_node(snapshot, id)
-                    .unwrap();
+                let node = graph.imports.backend.get_node(snapshot, id).unwrap();
                 node.kind == "Import"
             })
-            .map(|&id| {
-                graph
-                    .imports
-                    .backend
-                    .get_node(snapshot, id)
-                    .unwrap()
-            });
+            .map(|&id| graph.imports.backend.get_node(snapshot, id).unwrap());
 
-        assert!(import_node_option.is_some(), "Import node should be created");
+        assert!(
+            import_node_option.is_some(),
+            "Import node should be created"
+        );
 
         // Get the import node and its ID
         let import_node = import_node_option.unwrap();
         let import_id = entity_ids
             .iter()
             .find(|&&id| {
-                let node = graph
-                    .imports
-                    .backend
-                    .get_node(snapshot, id)
-                    .unwrap();
+                let node = graph.imports.backend.get_node(snapshot, id).unwrap();
                 node.kind == "Import"
             })
             .unwrap();
 
         // Check that resolved_file_id matches helper_file_id
         let resolved_id = import_node.data.get("resolved_file_id");
-        assert!(resolved_id.is_some(), "Import should have resolved_file_id in metadata");
+        assert!(
+            resolved_id.is_some(),
+            "Import should have resolved_file_id in metadata"
+        );
 
         let resolved_value = resolved_id.unwrap().as_i64();
         assert_eq!(
