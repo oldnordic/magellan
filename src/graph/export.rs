@@ -23,8 +23,6 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use sqlitegraph::{BackendDirection, GraphBackend, NeighborQuery, SnapshotId};
 
-
-
 use super::{CallNode, CodeGraph, FileNode, ReferenceNode, SymbolNode};
 use crate::graph::query::{collision_groups, CollisionField};
 
@@ -288,7 +286,9 @@ fn helper() {}
 
         // Check header contains all expected columns
         // The first line is a comment, so find the actual CSV header
-        let header = lines.iter().find(|line| !line.starts_with('#') && !line.is_empty())
+        let header = lines
+            .iter()
+            .find(|line| !line.starts_with('#') && !line.is_empty())
             .expect("Should have a CSV header row");
         assert!(header.contains("record_type"));
         assert!(header.contains("file"));
@@ -669,72 +669,62 @@ pub fn stream_json<W: std::io::Write>(
                     });
                 }
             }
-            "Symbol" => {
-                if config.include_symbols {
-                    if let Ok(symbol_node) =
-                        serde_json::from_value::<SymbolNode>(entity.data.clone())
-                    {
-                        let file = get_file_path_from_symbol(graph, entity_id)?;
-                        symbols.push(SymbolExport {
-                            symbol_id: symbol_node.symbol_id,
-                            canonical_fqn: symbol_node.canonical_fqn,
-                            display_fqn: symbol_node.display_fqn,
-                            name: symbol_node.name,
-                            kind: symbol_node.kind,
-                            kind_normalized: symbol_node.kind_normalized,
-                            file,
-                            byte_start: symbol_node.byte_start,
-                            byte_end: symbol_node.byte_end,
-                            start_line: symbol_node.start_line,
-                            start_col: symbol_node.start_col,
-                            end_line: symbol_node.end_line,
-                            end_col: symbol_node.end_col,
-                        });
-                    }
+            "Symbol" if config.include_symbols => {
+                if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(entity.data.clone()) {
+                    let file = get_file_path_from_symbol(graph, entity_id)?;
+                    symbols.push(SymbolExport {
+                        symbol_id: symbol_node.symbol_id,
+                        canonical_fqn: symbol_node.canonical_fqn,
+                        display_fqn: symbol_node.display_fqn,
+                        name: symbol_node.name,
+                        kind: symbol_node.kind,
+                        kind_normalized: symbol_node.kind_normalized,
+                        file,
+                        byte_start: symbol_node.byte_start,
+                        byte_end: symbol_node.byte_end,
+                        start_line: symbol_node.start_line,
+                        start_col: symbol_node.start_col,
+                        end_line: symbol_node.end_line,
+                        end_col: symbol_node.end_col,
+                    });
                 }
             }
-            "Reference" => {
-                if config.include_references {
-                    if let Ok(ref_node) =
-                        serde_json::from_value::<ReferenceNode>(entity.data.clone())
-                    {
-                        let referenced_symbol = entity
-                            .name
-                            .strip_prefix("ref to ")
-                            .unwrap_or("")
-                            .to_string();
+            "Reference" if config.include_references => {
+                if let Ok(ref_node) = serde_json::from_value::<ReferenceNode>(entity.data.clone()) {
+                    let referenced_symbol = entity
+                        .name
+                        .strip_prefix("ref to ")
+                        .unwrap_or("")
+                        .to_string();
 
-                        references.push(ReferenceExport {
-                            file: ref_node.file,
-                            referenced_symbol,
-                            target_symbol_id: None,
-                            byte_start: ref_node.byte_start as usize,
-                            byte_end: ref_node.byte_end as usize,
-                            start_line: ref_node.start_line as usize,
-                            start_col: ref_node.start_col as usize,
-                            end_line: ref_node.end_line as usize,
-                            end_col: ref_node.end_col as usize,
-                        });
-                    }
+                    references.push(ReferenceExport {
+                        file: ref_node.file,
+                        referenced_symbol,
+                        target_symbol_id: None,
+                        byte_start: ref_node.byte_start as usize,
+                        byte_end: ref_node.byte_end as usize,
+                        start_line: ref_node.start_line as usize,
+                        start_col: ref_node.start_col as usize,
+                        end_line: ref_node.end_line as usize,
+                        end_col: ref_node.end_col as usize,
+                    });
                 }
             }
-            "Call" => {
-                if config.include_calls {
-                    if let Ok(call_node) = serde_json::from_value::<CallNode>(entity.data.clone()) {
-                        calls.push(CallExport {
-                            file: call_node.file,
-                            caller: call_node.caller,
-                            callee: call_node.callee,
-                            caller_symbol_id: call_node.caller_symbol_id,
-                            callee_symbol_id: call_node.callee_symbol_id,
-                            byte_start: call_node.byte_start as usize,
-                            byte_end: call_node.byte_end as usize,
-                            start_line: call_node.start_line as usize,
-                            start_col: call_node.start_col as usize,
-                            end_line: call_node.end_line as usize,
-                            end_col: call_node.end_col as usize,
-                        });
-                    }
+            "Call" if config.include_calls => {
+                if let Ok(call_node) = serde_json::from_value::<CallNode>(entity.data.clone()) {
+                    calls.push(CallExport {
+                        file: call_node.file,
+                        caller: call_node.caller,
+                        callee: call_node.callee,
+                        caller_symbol_id: call_node.caller_symbol_id,
+                        callee_symbol_id: call_node.callee_symbol_id,
+                        byte_start: call_node.byte_start as usize,
+                        byte_end: call_node.byte_end as usize,
+                        start_line: call_node.start_line as usize,
+                        start_col: call_node.start_col as usize,
+                        end_line: call_node.end_line as usize,
+                        end_col: call_node.end_col as usize,
+                    });
                 }
             }
             _ => {
@@ -807,72 +797,62 @@ pub fn stream_json_minified<W: std::io::Write>(
                     });
                 }
             }
-            "Symbol" => {
-                if config.include_symbols {
-                    if let Ok(symbol_node) =
-                        serde_json::from_value::<SymbolNode>(entity.data.clone())
-                    {
-                        let file = get_file_path_from_symbol(graph, entity_id)?;
-                        symbols.push(SymbolExport {
-                            symbol_id: symbol_node.symbol_id,
-                            canonical_fqn: symbol_node.canonical_fqn,
-                            display_fqn: symbol_node.display_fqn,
-                            name: symbol_node.name,
-                            kind: symbol_node.kind,
-                            kind_normalized: symbol_node.kind_normalized,
-                            file,
-                            byte_start: symbol_node.byte_start,
-                            byte_end: symbol_node.byte_end,
-                            start_line: symbol_node.start_line,
-                            start_col: symbol_node.start_col,
-                            end_line: symbol_node.end_line,
-                            end_col: symbol_node.end_col,
-                        });
-                    }
+            "Symbol" if config.include_symbols => {
+                if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(entity.data.clone()) {
+                    let file = get_file_path_from_symbol(graph, entity_id)?;
+                    symbols.push(SymbolExport {
+                        symbol_id: symbol_node.symbol_id,
+                        canonical_fqn: symbol_node.canonical_fqn,
+                        display_fqn: symbol_node.display_fqn,
+                        name: symbol_node.name,
+                        kind: symbol_node.kind,
+                        kind_normalized: symbol_node.kind_normalized,
+                        file,
+                        byte_start: symbol_node.byte_start,
+                        byte_end: symbol_node.byte_end,
+                        start_line: symbol_node.start_line,
+                        start_col: symbol_node.start_col,
+                        end_line: symbol_node.end_line,
+                        end_col: symbol_node.end_col,
+                    });
                 }
             }
-            "Reference" => {
-                if config.include_references {
-                    if let Ok(ref_node) =
-                        serde_json::from_value::<ReferenceNode>(entity.data.clone())
-                    {
-                        let referenced_symbol = entity
-                            .name
-                            .strip_prefix("ref to ")
-                            .unwrap_or("")
-                            .to_string();
+            "Reference" if config.include_references => {
+                if let Ok(ref_node) = serde_json::from_value::<ReferenceNode>(entity.data.clone()) {
+                    let referenced_symbol = entity
+                        .name
+                        .strip_prefix("ref to ")
+                        .unwrap_or("")
+                        .to_string();
 
-                        references.push(ReferenceExport {
-                            file: ref_node.file,
-                            referenced_symbol,
-                            target_symbol_id: None,
-                            byte_start: ref_node.byte_start as usize,
-                            byte_end: ref_node.byte_end as usize,
-                            start_line: ref_node.start_line as usize,
-                            start_col: ref_node.start_col as usize,
-                            end_line: ref_node.end_line as usize,
-                            end_col: ref_node.end_col as usize,
-                        });
-                    }
+                    references.push(ReferenceExport {
+                        file: ref_node.file,
+                        referenced_symbol,
+                        target_symbol_id: None,
+                        byte_start: ref_node.byte_start as usize,
+                        byte_end: ref_node.byte_end as usize,
+                        start_line: ref_node.start_line as usize,
+                        start_col: ref_node.start_col as usize,
+                        end_line: ref_node.end_line as usize,
+                        end_col: ref_node.end_col as usize,
+                    });
                 }
             }
-            "Call" => {
-                if config.include_calls {
-                    if let Ok(call_node) = serde_json::from_value::<CallNode>(entity.data.clone()) {
-                        calls.push(CallExport {
-                            file: call_node.file,
-                            caller: call_node.caller,
-                            callee: call_node.callee,
-                            caller_symbol_id: call_node.caller_symbol_id,
-                            callee_symbol_id: call_node.callee_symbol_id,
-                            byte_start: call_node.byte_start as usize,
-                            byte_end: call_node.byte_end as usize,
-                            start_line: call_node.start_line as usize,
-                            start_col: call_node.start_col as usize,
-                            end_line: call_node.end_line as usize,
-                            end_col: call_node.end_col as usize,
-                        });
-                    }
+            "Call" if config.include_calls => {
+                if let Ok(call_node) = serde_json::from_value::<CallNode>(entity.data.clone()) {
+                    calls.push(CallExport {
+                        file: call_node.file,
+                        caller: call_node.caller,
+                        callee: call_node.callee,
+                        caller_symbol_id: call_node.caller_symbol_id,
+                        callee_symbol_id: call_node.callee_symbol_id,
+                        byte_start: call_node.byte_start as usize,
+                        byte_end: call_node.byte_end as usize,
+                        start_line: call_node.start_line as usize,
+                        start_col: call_node.start_col as usize,
+                        end_line: call_node.end_line as usize,
+                        end_col: call_node.end_col as usize,
+                    });
                 }
             }
             _ => {
@@ -1111,72 +1091,62 @@ pub fn stream_ndjson<W: std::io::Write>(
                     }));
                 }
             }
-            "Symbol" => {
-                if config.include_symbols {
-                    if let Ok(symbol_node) =
-                        serde_json::from_value::<SymbolNode>(entity.data.clone())
-                    {
-                        let file = get_file_path_from_symbol(graph, entity_id)?;
-                        records.push(JsonlRecord::Symbol(SymbolExport {
-                            symbol_id: symbol_node.symbol_id,
-                            canonical_fqn: symbol_node.canonical_fqn,
-                            display_fqn: symbol_node.display_fqn,
-                            name: symbol_node.name,
-                            kind: symbol_node.kind,
-                            kind_normalized: symbol_node.kind_normalized,
-                            file,
-                            byte_start: symbol_node.byte_start,
-                            byte_end: symbol_node.byte_end,
-                            start_line: symbol_node.start_line,
-                            start_col: symbol_node.start_col,
-                            end_line: symbol_node.end_line,
-                            end_col: symbol_node.end_col,
-                        }));
-                    }
+            "Symbol" if config.include_symbols => {
+                if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(entity.data.clone()) {
+                    let file = get_file_path_from_symbol(graph, entity_id)?;
+                    records.push(JsonlRecord::Symbol(SymbolExport {
+                        symbol_id: symbol_node.symbol_id,
+                        canonical_fqn: symbol_node.canonical_fqn,
+                        display_fqn: symbol_node.display_fqn,
+                        name: symbol_node.name,
+                        kind: symbol_node.kind,
+                        kind_normalized: symbol_node.kind_normalized,
+                        file,
+                        byte_start: symbol_node.byte_start,
+                        byte_end: symbol_node.byte_end,
+                        start_line: symbol_node.start_line,
+                        start_col: symbol_node.start_col,
+                        end_line: symbol_node.end_line,
+                        end_col: symbol_node.end_col,
+                    }));
                 }
             }
-            "Reference" => {
-                if config.include_references {
-                    if let Ok(ref_node) =
-                        serde_json::from_value::<ReferenceNode>(entity.data.clone())
-                    {
-                        let referenced_symbol = entity
-                            .name
-                            .strip_prefix("ref to ")
-                            .unwrap_or("")
-                            .to_string();
+            "Reference" if config.include_references => {
+                if let Ok(ref_node) = serde_json::from_value::<ReferenceNode>(entity.data.clone()) {
+                    let referenced_symbol = entity
+                        .name
+                        .strip_prefix("ref to ")
+                        .unwrap_or("")
+                        .to_string();
 
-                        records.push(JsonlRecord::Reference(ReferenceExport {
-                            file: ref_node.file,
-                            referenced_symbol,
-                            target_symbol_id: None,
-                            byte_start: ref_node.byte_start as usize,
-                            byte_end: ref_node.byte_end as usize,
-                            start_line: ref_node.start_line as usize,
-                            start_col: ref_node.start_col as usize,
-                            end_line: ref_node.end_line as usize,
-                            end_col: ref_node.end_col as usize,
-                        }));
-                    }
+                    records.push(JsonlRecord::Reference(ReferenceExport {
+                        file: ref_node.file,
+                        referenced_symbol,
+                        target_symbol_id: None,
+                        byte_start: ref_node.byte_start as usize,
+                        byte_end: ref_node.byte_end as usize,
+                        start_line: ref_node.start_line as usize,
+                        start_col: ref_node.start_col as usize,
+                        end_line: ref_node.end_line as usize,
+                        end_col: ref_node.end_col as usize,
+                    }));
                 }
             }
-            "Call" => {
-                if config.include_calls {
-                    if let Ok(call_node) = serde_json::from_value::<CallNode>(entity.data.clone()) {
-                        records.push(JsonlRecord::Call(CallExport {
-                            file: call_node.file,
-                            caller: call_node.caller,
-                            callee: call_node.callee,
-                            caller_symbol_id: call_node.caller_symbol_id,
-                            callee_symbol_id: call_node.callee_symbol_id,
-                            byte_start: call_node.byte_start as usize,
-                            byte_end: call_node.byte_end as usize,
-                            start_line: call_node.start_line as usize,
-                            start_col: call_node.start_col as usize,
-                            end_line: call_node.end_line as usize,
-                            end_col: call_node.end_col as usize,
-                        }));
-                    }
+            "Call" if config.include_calls => {
+                if let Ok(call_node) = serde_json::from_value::<CallNode>(entity.data.clone()) {
+                    records.push(JsonlRecord::Call(CallExport {
+                        file: call_node.file,
+                        caller: call_node.caller,
+                        callee: call_node.callee,
+                        caller_symbol_id: call_node.caller_symbol_id,
+                        callee_symbol_id: call_node.callee_symbol_id,
+                        byte_start: call_node.byte_start as usize,
+                        byte_end: call_node.byte_end as usize,
+                        start_line: call_node.start_line as usize,
+                        start_col: call_node.start_col as usize,
+                        end_line: call_node.end_line as usize,
+                        end_col: call_node.end_col as usize,
+                    }));
                 }
             }
             _ => {
@@ -1416,74 +1386,68 @@ pub fn export_graph(graph: &mut CodeGraph, config: &ExportConfig) -> Result<Stri
                             });
                         }
                     }
-                    "Symbol" => {
-                        if config.include_symbols {
-                            if let Ok(symbol_node) =
-                                serde_json::from_value::<SymbolNode>(entity.data.clone())
-                            {
-                                let file = get_file_path_from_symbol(graph, entity_id)?;
-                                symbols.push(SymbolExport {
-                                    symbol_id: symbol_node.symbol_id,
-                                    canonical_fqn: symbol_node.canonical_fqn,
-                                    display_fqn: symbol_node.display_fqn,
-                                    name: symbol_node.name,
-                                    kind: symbol_node.kind,
-                                    kind_normalized: symbol_node.kind_normalized,
-                                    file,
-                                    byte_start: symbol_node.byte_start,
-                                    byte_end: symbol_node.byte_end,
-                                    start_line: symbol_node.start_line,
-                                    start_col: symbol_node.start_col,
-                                    end_line: symbol_node.end_line,
-                                    end_col: symbol_node.end_col,
-                                });
-                            }
+                    "Symbol" if config.include_symbols => {
+                        if let Ok(symbol_node) =
+                            serde_json::from_value::<SymbolNode>(entity.data.clone())
+                        {
+                            let file = get_file_path_from_symbol(graph, entity_id)?;
+                            symbols.push(SymbolExport {
+                                symbol_id: symbol_node.symbol_id,
+                                canonical_fqn: symbol_node.canonical_fqn,
+                                display_fqn: symbol_node.display_fqn,
+                                name: symbol_node.name,
+                                kind: symbol_node.kind,
+                                kind_normalized: symbol_node.kind_normalized,
+                                file,
+                                byte_start: symbol_node.byte_start,
+                                byte_end: symbol_node.byte_end,
+                                start_line: symbol_node.start_line,
+                                start_col: symbol_node.start_col,
+                                end_line: symbol_node.end_line,
+                                end_col: symbol_node.end_col,
+                            });
                         }
                     }
-                    "Reference" => {
-                        if config.include_references {
-                            if let Ok(ref_node) =
-                                serde_json::from_value::<ReferenceNode>(entity.data.clone())
-                            {
-                                let referenced_symbol = entity
-                                    .name
-                                    .strip_prefix("ref to ")
-                                    .unwrap_or("")
-                                    .to_string();
+                    "Reference" if config.include_references => {
+                        if let Ok(ref_node) =
+                            serde_json::from_value::<ReferenceNode>(entity.data.clone())
+                        {
+                            let referenced_symbol = entity
+                                .name
+                                .strip_prefix("ref to ")
+                                .unwrap_or("")
+                                .to_string();
 
-                                references.push(ReferenceExport {
-                                    file: ref_node.file,
-                                    referenced_symbol,
-                                    target_symbol_id: None,
-                                    byte_start: ref_node.byte_start as usize,
-                                    byte_end: ref_node.byte_end as usize,
-                                    start_line: ref_node.start_line as usize,
-                                    start_col: ref_node.start_col as usize,
-                                    end_line: ref_node.end_line as usize,
-                                    end_col: ref_node.end_col as usize,
-                                });
-                            }
+                            references.push(ReferenceExport {
+                                file: ref_node.file,
+                                referenced_symbol,
+                                target_symbol_id: None,
+                                byte_start: ref_node.byte_start as usize,
+                                byte_end: ref_node.byte_end as usize,
+                                start_line: ref_node.start_line as usize,
+                                start_col: ref_node.start_col as usize,
+                                end_line: ref_node.end_line as usize,
+                                end_col: ref_node.end_col as usize,
+                            });
                         }
                     }
-                    "Call" => {
-                        if config.include_calls {
-                            if let Ok(call_node) =
-                                serde_json::from_value::<CallNode>(entity.data.clone())
-                            {
-                                calls.push(CallExport {
-                                    file: call_node.file,
-                                    caller: call_node.caller,
-                                    callee: call_node.callee,
-                                    caller_symbol_id: call_node.caller_symbol_id,
-                                    callee_symbol_id: call_node.callee_symbol_id,
-                                    byte_start: call_node.byte_start as usize,
-                                    byte_end: call_node.byte_end as usize,
-                                    start_line: call_node.start_line as usize,
-                                    start_col: call_node.start_col as usize,
-                                    end_line: call_node.end_line as usize,
-                                    end_col: call_node.end_col as usize,
-                                });
-                            }
+                    "Call" if config.include_calls => {
+                        if let Ok(call_node) =
+                            serde_json::from_value::<CallNode>(entity.data.clone())
+                        {
+                            calls.push(CallExport {
+                                file: call_node.file,
+                                caller: call_node.caller,
+                                callee: call_node.callee,
+                                caller_symbol_id: call_node.caller_symbol_id,
+                                callee_symbol_id: call_node.callee_symbol_id,
+                                byte_start: call_node.byte_start as usize,
+                                byte_end: call_node.byte_end as usize,
+                                start_line: call_node.start_line as usize,
+                                start_col: call_node.start_col as usize,
+                                end_line: call_node.end_line as usize,
+                                end_col: call_node.end_col as usize,
+                            });
                         }
                     }
                     _ => {
@@ -1605,93 +1569,83 @@ pub fn export_csv(graph: &mut CodeGraph, config: &ExportConfig) -> Result<String
         let entity = graph.files.backend.get_node(snapshot, entity_id)?;
 
         match entity.kind.as_str() {
-            "Symbol" => {
-                if config.include_symbols {
-                    if let Ok(symbol_node) =
-                        serde_json::from_value::<SymbolNode>(entity.data.clone())
-                    {
-                        let file = get_file_path_from_symbol(graph, entity_id)?;
-                        records.push(UnifiedCsvRow {
-                            record_type: "Symbol".to_string(),
-                            file,
-                            byte_start: symbol_node.byte_start,
-                            byte_end: symbol_node.byte_end,
-                            start_line: symbol_node.start_line,
-                            start_col: symbol_node.start_col,
-                            end_line: symbol_node.end_line,
-                            end_col: symbol_node.end_col,
-                            symbol_id: symbol_node.symbol_id,
-                            name: symbol_node.name,
-                            kind: Some(symbol_node.kind),
-                            kind_normalized: symbol_node.kind_normalized,
-                            referenced_symbol: None,
-                            target_symbol_id: None,
-                            caller: None,
-                            callee: None,
-                            caller_symbol_id: None,
-                            callee_symbol_id: None,
-                        });
-                    }
+            "Symbol" if config.include_symbols => {
+                if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(entity.data.clone()) {
+                    let file = get_file_path_from_symbol(graph, entity_id)?;
+                    records.push(UnifiedCsvRow {
+                        record_type: "Symbol".to_string(),
+                        file,
+                        byte_start: symbol_node.byte_start,
+                        byte_end: symbol_node.byte_end,
+                        start_line: symbol_node.start_line,
+                        start_col: symbol_node.start_col,
+                        end_line: symbol_node.end_line,
+                        end_col: symbol_node.end_col,
+                        symbol_id: symbol_node.symbol_id,
+                        name: symbol_node.name,
+                        kind: Some(symbol_node.kind),
+                        kind_normalized: symbol_node.kind_normalized,
+                        referenced_symbol: None,
+                        target_symbol_id: None,
+                        caller: None,
+                        callee: None,
+                        caller_symbol_id: None,
+                        callee_symbol_id: None,
+                    });
                 }
             }
-            "Reference" => {
-                if config.include_references {
-                    if let Ok(ref_node) =
-                        serde_json::from_value::<ReferenceNode>(entity.data.clone())
-                    {
-                        let referenced_symbol = entity
-                            .name
-                            .strip_prefix("ref to ")
-                            .unwrap_or("")
-                            .to_string();
+            "Reference" if config.include_references => {
+                if let Ok(ref_node) = serde_json::from_value::<ReferenceNode>(entity.data.clone()) {
+                    let referenced_symbol = entity
+                        .name
+                        .strip_prefix("ref to ")
+                        .unwrap_or("")
+                        .to_string();
 
-                        records.push(UnifiedCsvRow {
-                            record_type: "Reference".to_string(),
-                            file: ref_node.file,
-                            byte_start: ref_node.byte_start as usize,
-                            byte_end: ref_node.byte_end as usize,
-                            start_line: ref_node.start_line as usize,
-                            start_col: ref_node.start_col as usize,
-                            end_line: ref_node.end_line as usize,
-                            end_col: ref_node.end_col as usize,
-                            symbol_id: None,
-                            name: None,
-                            kind: None,
-                            kind_normalized: None,
-                            referenced_symbol: Some(referenced_symbol),
-                            target_symbol_id: None,
-                            caller: None,
-                            callee: None,
-                            caller_symbol_id: None,
-                            callee_symbol_id: None,
-                        });
-                    }
+                    records.push(UnifiedCsvRow {
+                        record_type: "Reference".to_string(),
+                        file: ref_node.file,
+                        byte_start: ref_node.byte_start as usize,
+                        byte_end: ref_node.byte_end as usize,
+                        start_line: ref_node.start_line as usize,
+                        start_col: ref_node.start_col as usize,
+                        end_line: ref_node.end_line as usize,
+                        end_col: ref_node.end_col as usize,
+                        symbol_id: None,
+                        name: None,
+                        kind: None,
+                        kind_normalized: None,
+                        referenced_symbol: Some(referenced_symbol),
+                        target_symbol_id: None,
+                        caller: None,
+                        callee: None,
+                        caller_symbol_id: None,
+                        callee_symbol_id: None,
+                    });
                 }
             }
-            "Call" => {
-                if config.include_calls {
-                    if let Ok(call_node) = serde_json::from_value::<CallNode>(entity.data.clone()) {
-                        records.push(UnifiedCsvRow {
-                            record_type: "Call".to_string(),
-                            file: call_node.file,
-                            byte_start: call_node.byte_start as usize,
-                            byte_end: call_node.byte_end as usize,
-                            start_line: call_node.start_line as usize,
-                            start_col: call_node.start_col as usize,
-                            end_line: call_node.end_line as usize,
-                            end_col: call_node.end_col as usize,
-                            symbol_id: None,
-                            name: None,
-                            kind: None,
-                            kind_normalized: None,
-                            referenced_symbol: None,
-                            target_symbol_id: None,
-                            caller: Some(call_node.caller),
-                            callee: Some(call_node.callee),
-                            caller_symbol_id: call_node.caller_symbol_id,
-                            callee_symbol_id: call_node.callee_symbol_id,
-                        });
-                    }
+            "Call" if config.include_calls => {
+                if let Ok(call_node) = serde_json::from_value::<CallNode>(entity.data.clone()) {
+                    records.push(UnifiedCsvRow {
+                        record_type: "Call".to_string(),
+                        file: call_node.file,
+                        byte_start: call_node.byte_start as usize,
+                        byte_end: call_node.byte_end as usize,
+                        start_line: call_node.start_line as usize,
+                        start_col: call_node.start_col as usize,
+                        end_line: call_node.end_line as usize,
+                        end_col: call_node.end_col as usize,
+                        symbol_id: None,
+                        name: None,
+                        kind: None,
+                        kind_normalized: None,
+                        referenced_symbol: None,
+                        target_symbol_id: None,
+                        caller: Some(call_node.caller),
+                        callee: Some(call_node.callee),
+                        caller_symbol_id: call_node.caller_symbol_id,
+                        callee_symbol_id: call_node.callee_symbol_id,
+                    });
                 }
             }
             _ => {
@@ -1724,10 +1678,28 @@ pub fn export_csv(graph: &mut CodeGraph, config: &ExportConfig) -> Result<String
         match a.record_type.as_str() {
             "Symbol" => (&a.file, a.name.as_ref().unwrap_or(&String::new()))
                 .cmp(&(&b.file, b.name.as_ref().unwrap_or(&String::new()))),
-            "Reference" => (&a.record_type, &a.file, a.referenced_symbol.as_ref().unwrap_or(&String::new()))
-                .cmp(&(&b.record_type, &b.file, b.referenced_symbol.as_ref().unwrap_or(&String::new()))),
-            "Call" => (&a.record_type, &a.file, a.caller.as_ref().unwrap_or(&String::new()), a.callee.as_ref().unwrap_or(&String::new()))
-                .cmp(&(&b.record_type, &b.file, b.caller.as_ref().unwrap_or(&String::new()), b.callee.as_ref().unwrap_or(&String::new()))),
+            "Reference" => (
+                &a.record_type,
+                &a.file,
+                a.referenced_symbol.as_ref().unwrap_or(&String::new()),
+            )
+                .cmp(&(
+                    &b.record_type,
+                    &b.file,
+                    b.referenced_symbol.as_ref().unwrap_or(&String::new()),
+                )),
+            "Call" => (
+                &a.record_type,
+                &a.file,
+                a.caller.as_ref().unwrap_or(&String::new()),
+                a.callee.as_ref().unwrap_or(&String::new()),
+            )
+                .cmp(&(
+                    &b.record_type,
+                    &b.file,
+                    b.caller.as_ref().unwrap_or(&String::new()),
+                    b.callee.as_ref().unwrap_or(&String::new()),
+                )),
             _ => std::cmp::Ordering::Equal,
         }
     });

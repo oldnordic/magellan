@@ -2,9 +2,9 @@
 //!
 //! Phase 1 goal: refuse incompatible existing DBs *before any writes occur*.
 
+use rusqlite::{params, OpenFlags, OptionalExtension};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
-use rusqlite::{params, OpenFlags, OptionalExtension};
 
 pub fn expected_sqlitegraph_schema_version() -> i64 {
     sqlitegraph::schema::SCHEMA_VERSION
@@ -13,7 +13,9 @@ pub fn expected_sqlitegraph_schema_version() -> i64 {
 pub use crate::migrate_cmd::MAGELLAN_SCHEMA_VERSION;
 
 pub fn ensure_magellan_meta(db_path: &Path) -> Result<(), DbCompatError> {
-    if is_in_memory_path(db_path) { return Ok(()); }
+    if is_in_memory_path(db_path) {
+        return Ok(());
+    }
     let conn = rusqlite::Connection::open(db_path).map_err(|e| map_sqlite_open_err(db_path, e))?;
     conn.execute(
         "CREATE TABLE IF NOT EXISTS magellan_meta (
@@ -23,7 +25,8 @@ pub fn ensure_magellan_meta(db_path: &Path) -> Result<(), DbCompatError> {
             created_at INTEGER NOT NULL
         )",
         [],
-    ).map_err(|e| map_sqlite_query_err(db_path, e))?;
+    )
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     let existing: Option<(i64, i64)> = conn.query_row(
         "SELECT magellan_schema_version, sqlitegraph_schema_version FROM magellan_meta WHERE id=1",
@@ -34,7 +37,10 @@ pub fn ensure_magellan_meta(db_path: &Path) -> Result<(), DbCompatError> {
     let expected_sqlitegraph = expected_sqlitegraph_schema_version();
     match existing {
         None => {
-            let created_at = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
+            let created_at = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64;
             conn.execute(
                 "INSERT INTO magellan_meta (id, magellan_schema_version, sqlitegraph_schema_version, created_at)
                  VALUES (1, ?1, ?2, ?3)",
@@ -48,21 +54,55 @@ pub fn ensure_magellan_meta(db_path: &Path) -> Result<(), DbCompatError> {
                 let mut current_version = found_magellan;
                 while current_version < MAGELLAN_SCHEMA_VERSION {
                     match current_version {
-                        4 => { ensure_ast_schema(&conn)?; current_version = 5; }
-                        5 => { ensure_ast_schema(&conn)?; current_version = 6; }
-                        6 => { ensure_cfg_schema(&conn)?; current_version = 7; }
-                        7 => { ensure_cfg_hash_column(&conn)?; current_version = 8; }
-                        8 => { ensure_statements_column(&conn)?; current_version = 9; }
-                        9 => { ensure_4d_coordinates_columns(&conn)?; current_version = 10; }
-                        10 => { ensure_geo_index_meta_schema(&conn)?; current_version = 11; }
-                        _ => { return Err(DbCompatError::MagellanSchemaMismatch { path: db_path.to_path_buf(), found: found_magellan, expected: MAGELLAN_SCHEMA_VERSION }); }
+                        4 => {
+                            ensure_ast_schema(&conn)?;
+                            current_version = 5;
+                        }
+                        5 => {
+                            ensure_ast_schema(&conn)?;
+                            current_version = 6;
+                        }
+                        6 => {
+                            ensure_cfg_schema(&conn)?;
+                            current_version = 7;
+                        }
+                        7 => {
+                            ensure_cfg_hash_column(&conn)?;
+                            current_version = 8;
+                        }
+                        8 => {
+                            ensure_statements_column(&conn)?;
+                            current_version = 9;
+                        }
+                        9 => {
+                            ensure_4d_coordinates_columns(&conn)?;
+                            current_version = 10;
+                        }
+                        10 => {
+                            ensure_geo_index_meta_schema(&conn)?;
+                            current_version = 11;
+                        }
+                        _ => {
+                            return Err(DbCompatError::MagellanSchemaMismatch {
+                                path: db_path.to_path_buf(),
+                                found: found_magellan,
+                                expected: MAGELLAN_SCHEMA_VERSION,
+                            });
+                        }
                     }
-                    conn.execute("UPDATE magellan_meta SET magellan_schema_version = ?1 WHERE id = 1", params![current_version])
-                        .map_err(|e| map_sqlite_query_err(db_path, e))?;
+                    conn.execute(
+                        "UPDATE magellan_meta SET magellan_schema_version = ?1 WHERE id = 1",
+                        params![current_version],
+                    )
+                    .map_err(|e| map_sqlite_query_err(db_path, e))?;
                 }
             }
             if found_sqlitegraph != expected_sqlitegraph {
-                return Err(DbCompatError::SqliteGraphSchemaMismatch { path: db_path.to_path_buf(), found: found_sqlitegraph, expected: expected_sqlitegraph });
+                return Err(DbCompatError::SqliteGraphSchemaMismatch {
+                    path: db_path.to_path_buf(),
+                    found: found_sqlitegraph,
+                    expected: expected_sqlitegraph,
+                });
             }
             Ok(())
         }
@@ -71,9 +111,21 @@ pub fn ensure_magellan_meta(db_path: &Path) -> Result<(), DbCompatError> {
 
 pub fn ensure_ast_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
     conn.execute("CREATE TABLE IF NOT EXISTS ast_nodes (id INTEGER PRIMARY KEY AUTOINCREMENT, parent_id INTEGER, kind TEXT NOT NULL, byte_start INTEGER NOT NULL, byte_end INTEGER NOT NULL, file_id INTEGER)", []).map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_ast_nodes_parent ON ast_nodes(parent_id)", []).map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_ast_nodes_span ON ast_nodes(byte_start, byte_end)", []).map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_ast_nodes_file_id ON ast_nodes(file_id)", []).map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ast_nodes_parent ON ast_nodes(parent_id)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ast_nodes_span ON ast_nodes(byte_start, byte_end)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ast_nodes_file_id ON ast_nodes(file_id)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
     Ok(())
 }
 
@@ -86,7 +138,8 @@ pub fn ensure_metrics_schema(conn: &rusqlite::Connection) -> Result<(), DbCompat
 pub const CFG_EDGE: &str = "CFG_BLOCK";
 
 pub fn ensure_cfg_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
-    conn.execute("CREATE TABLE IF NOT EXISTS cfg_blocks (
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS cfg_blocks (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         function_id INTEGER NOT NULL,
         kind TEXT NOT NULL,
@@ -104,30 +157,52 @@ pub fn ensure_cfg_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatErro
         coord_z INTEGER DEFAULT 0,
         coord_t TEXT DEFAULT NULL,
         FOREIGN KEY (function_id) REFERENCES graph_entities(id) ON DELETE CASCADE
-    )", []).map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_cfg_blocks_function ON cfg_blocks(function_id)", []).map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_cfg_blocks_hash ON cfg_blocks(cfg_hash)", []).map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
-    conn.execute("CREATE TABLE IF NOT EXISTS cfg_edges (
+    )",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_cfg_blocks_function ON cfg_blocks(function_id)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_cfg_blocks_hash ON cfg_blocks(cfg_hash)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS cfg_edges (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         function_id INTEGER NOT NULL,
         source_idx INTEGER NOT NULL,
         target_idx INTEGER NOT NULL,
         edge_type TEXT NOT NULL,
         FOREIGN KEY (function_id) REFERENCES graph_entities(id) ON DELETE CASCADE
-    )", []).map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_cfg_edges_function ON cfg_edges(function_id)", []).map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
-    Ok(())
-}
-
-pub fn ensure_cfg_hash_column(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
-    let has_col: bool = conn.query_row("SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='cfg_hash'", [], |_| Ok(true)).unwrap_or(false);
-    if !has_col { conn.execute("ALTER TABLE cfg_blocks ADD COLUMN cfg_hash TEXT", []).map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?; }
+    )",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_cfg_edges_function ON cfg_edges(function_id)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
     Ok(())
 }
 
 pub fn ensure_statements_column(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
-    let has_col: bool = conn.query_row("SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='statements'", [], |_| Ok(true)).unwrap_or(false);
-    if !has_col { conn.execute("ALTER TABLE cfg_blocks ADD COLUMN statements TEXT", []).map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?; }
+    let has_col: bool = conn
+        .query_row(
+            "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='statements'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+    if !has_col {
+        conn.execute("ALTER TABLE cfg_blocks ADD COLUMN statements TEXT", [])
+            .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    }
     Ok(())
 }
 
@@ -140,55 +215,67 @@ pub fn ensure_statements_column(conn: &rusqlite::Connection) -> Result<(), DbCom
 /// - T (coord_t): Git commit hash or trace timestamp
 pub fn ensure_4d_coordinates_columns(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
     // Check and add coord_x column
-    let has_x: bool = conn.query_row(
-        "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='coord_x'",
-        [],
-        |_| Ok(true)
-    ).unwrap_or(false);
+    let has_x: bool = conn
+        .query_row(
+            "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='coord_x'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
     if !has_x {
         conn.execute(
             "ALTER TABLE cfg_blocks ADD COLUMN coord_x INTEGER DEFAULT 0",
-            []
-        ).map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+            [],
+        )
+        .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
     }
 
     // Check and add coord_y column
-    let has_y: bool = conn.query_row(
-        "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='coord_y'",
-        [],
-        |_| Ok(true)
-    ).unwrap_or(false);
+    let has_y: bool = conn
+        .query_row(
+            "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='coord_y'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
     if !has_y {
         conn.execute(
             "ALTER TABLE cfg_blocks ADD COLUMN coord_y INTEGER DEFAULT 0",
-            []
-        ).map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+            [],
+        )
+        .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
     }
 
     // Check and add coord_z column
-    let has_z: bool = conn.query_row(
-        "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='coord_z'",
-        [],
-        |_| Ok(true)
-    ).unwrap_or(false);
+    let has_z: bool = conn
+        .query_row(
+            "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='coord_z'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
     if !has_z {
         conn.execute(
             "ALTER TABLE cfg_blocks ADD COLUMN coord_z INTEGER DEFAULT 0",
-            []
-        ).map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+            [],
+        )
+        .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
     }
 
     // Check and add coord_t column
-    let has_t: bool = conn.query_row(
-        "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='coord_t'",
-        [],
-        |_| Ok(true)
-    ).unwrap_or(false);
+    let has_t: bool = conn
+        .query_row(
+            "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='coord_t'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
     if !has_t {
         conn.execute(
             "ALTER TABLE cfg_blocks ADD COLUMN coord_t TEXT DEFAULT NULL",
-            []
-        ).map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+            [],
+        )
+        .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
     }
 
     Ok(())
@@ -211,12 +298,11 @@ pub fn ensure_geo_index_meta_schema(conn: &rusqlite::Connection) -> Result<(), D
             checksum TEXT NOT NULL
         )",
         [],
-    ).map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
     Ok(())
 }
 
-<<<<<<< HEAD
-=======
 /// Ensure cfg_hash column exists in cfg_blocks table (v7 -> v8 migration)
 ///
 /// Adds cfg_hash column for cache invalidation in downstream tools.
@@ -312,34 +398,81 @@ pub fn ensure_coverage_schema(
 }
 
 /// Result of a successful preflight.
->>>>>>> main
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PreflightOk { NewDb, CompatibleExisting { found_schema_version: i64 } }
+pub enum PreflightOk {
+    NewDb,
+    CompatibleExisting { found_schema_version: i64 },
+}
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
 pub enum DbCompatError {
-    #[error("DB_COMPAT: not a sqlite database: {path}")] NotSqlite { path: PathBuf },
-    #[error("DB_COMPAT: corrupt sqlite database: {path}")] CorruptSqlite { path: PathBuf },
-    #[error("DB_COMPAT: sqlitegraph schema mismatch: {path} (found={found}, expected={expected})")] SqliteGraphSchemaMismatch { path: PathBuf, found: i64, expected: i64 },
-    #[error("DB_COMPAT: magellan schema mismatch: {path} (found={found}, expected={expected})")] MagellanSchemaMismatch { path: PathBuf, found: i64, expected: i64 },
-    #[error("DB_COMPAT: missing graph_meta table: {path}")] MissingGraphMeta { path: PathBuf },
-    #[error("DB_COMPAT: graph_meta missing schema_version column: {path}")] GraphMetaMissingSchemaVersion { path: PathBuf },
-    #[error("DB_COMPAT: graph_meta missing row id=1: {path}")] MissingGraphMetaRow { path: PathBuf, id: i64 },
-    #[error("DB_COMPAT: sqlite preflight failure: {path}")] PreflightSqliteFailure { path: PathBuf },
+    #[error("DB_COMPAT: not a sqlite database: {path}")]
+    NotSqlite { path: PathBuf },
+    #[error("DB_COMPAT: corrupt sqlite database: {path}")]
+    CorruptSqlite { path: PathBuf },
+    #[error("DB_COMPAT: sqlitegraph schema mismatch: {path} (found={found}, expected={expected})")]
+    SqliteGraphSchemaMismatch {
+        path: PathBuf,
+        found: i64,
+        expected: i64,
+    },
+    #[error("DB_COMPAT: magellan schema mismatch: {path} (found={found}, expected={expected})")]
+    MagellanSchemaMismatch {
+        path: PathBuf,
+        found: i64,
+        expected: i64,
+    },
+    #[error("DB_COMPAT: missing graph_meta table: {path}")]
+    MissingGraphMeta { path: PathBuf },
+    #[error("DB_COMPAT: graph_meta missing schema_version column: {path}")]
+    GraphMetaMissingSchemaVersion { path: PathBuf },
+    #[error("DB_COMPAT: graph_meta missing row id=1: {path}")]
+    MissingGraphMetaRow { path: PathBuf, id: i64 },
+    #[error("DB_COMPAT: sqlite preflight failure: {path}")]
+    PreflightSqliteFailure { path: PathBuf },
 }
 
 pub fn preflight_sqlitegraph_compat(db_path: &Path) -> Result<PreflightOk, DbCompatError> {
-    if is_in_memory_path(db_path) || !db_path.exists() { return Ok(PreflightOk::NewDb); }
-    let conn = rusqlite::Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|e| map_sqlite_open_err(db_path, e))?;
-    let found: i64 = conn.query_row("SELECT schema_version FROM graph_meta WHERE id=1", [], |row| row.get(0)).map_err(|_| DbCompatError::MissingGraphMeta { path: db_path.to_path_buf() })?;
+    if is_in_memory_path(db_path) || !db_path.exists() {
+        return Ok(PreflightOk::NewDb);
+    }
+    let conn = rusqlite::Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|e| map_sqlite_open_err(db_path, e))?;
+    let found: i64 = conn
+        .query_row(
+            "SELECT schema_version FROM graph_meta WHERE id=1",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|_| DbCompatError::MissingGraphMeta {
+            path: db_path.to_path_buf(),
+        })?;
     let expected = expected_sqlitegraph_schema_version();
-    if found != expected { return Err(DbCompatError::SqliteGraphSchemaMismatch { path: db_path.to_path_buf(), found, expected }); }
-    Ok(PreflightOk::CompatibleExisting { found_schema_version: found })
+    if found != expected {
+        return Err(DbCompatError::SqliteGraphSchemaMismatch {
+            path: db_path.to_path_buf(),
+            found,
+            expected,
+        });
+    }
+    Ok(PreflightOk::CompatibleExisting {
+        found_schema_version: found,
+    })
 }
 
-fn is_in_memory_path(db_path: &Path) -> bool { db_path == Path::new(":memory:") }
-fn map_sqlite_open_err(path: &Path, _e: rusqlite::Error) -> DbCompatError { DbCompatError::PreflightSqliteFailure { path: path.to_path_buf() } }
-fn map_sqlite_query_err(path: &Path, _e: rusqlite::Error) -> DbCompatError { DbCompatError::PreflightSqliteFailure { path: path.to_path_buf() } }
+fn is_in_memory_path(db_path: &Path) -> bool {
+    db_path == Path::new(":memory:")
+}
+fn map_sqlite_open_err(path: &Path, _e: rusqlite::Error) -> DbCompatError {
+    DbCompatError::PreflightSqliteFailure {
+        path: path.to_path_buf(),
+    }
+}
+fn map_sqlite_query_err(path: &Path, _e: rusqlite::Error) -> DbCompatError {
+    DbCompatError::PreflightSqliteFailure {
+        path: path.to_path_buf(),
+    }
+}
 
 #[cfg(test)]
 mod tests {

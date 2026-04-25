@@ -1498,7 +1498,9 @@ magellan slice --db ./magellan.db --target main --verbose
 
 ## 5. Graph Algorithms
 
-Magellan integrates sqlitegraph 1.3.0's powerful graph algorithms for advanced codebase analysis. These algorithms operate on the call graph to identify reachability, cycles, dead code, execution paths, and program slices.
+Magellan integrates sqlitegraph 2.0.7's powerful graph algorithms for advanced codebase analysis. These algorithms operate on the call graph to identify reachability, cycles, dead code, execution paths, and program slices.
+
+**Note:** sqlitegraph dependency is pinned to version 2.0.7 due to a breaking change in 2.1.2's `SnapshotId::current()` behavior. See CHANGELOG.md for details.
 
 ### 5.1 Overview
 

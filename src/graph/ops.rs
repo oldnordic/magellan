@@ -220,11 +220,8 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
     // Step 5.55: Extract and store import statements (re-use pre-parsed tree)
     if let (Some(Language::Rust), Some(ref tree)) = (language, &parsed_tree) {
         let import_extractor = crate::ingest::imports::ImportExtractor::default();
-        let extracted_imports = import_extractor.extract_imports_from_tree(
-            &tree.root_node(),
-            source,
-            &path_buf,
-        );
+        let extracted_imports =
+            import_extractor.extract_imports_from_tree(&tree.root_node(), source, &path_buf);
         if !extracted_imports.is_empty() {
             // Delete old imports for this file
             let _ = graph.imports.delete_imports_in_file(path);

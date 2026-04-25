@@ -8,9 +8,9 @@ use rusqlite::params;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 
-use crate::graph::schema::CfgBlock;
-use crate::graph::cfg_edges_extract::{CfgWithEdges, CfgEdge, CfgEdgeType};
 use crate::generation::ChunkStore;
+use crate::graph::cfg_edges_extract::{CfgEdge, CfgEdgeType, CfgWithEdges};
+use crate::graph::schema::CfgBlock;
 
 /// CFG block operations
 pub struct CfgOps {
@@ -109,7 +109,7 @@ impl CfgOps {
     /// Insert CFG blocks into database
     pub fn insert_cfg_blocks(&self, blocks: &[CfgBlock]) -> Result<usize> {
         use sha2::{Digest, Sha256};
-        
+
         let conn = self.chunks.connect()?;
 
         let tx = conn.unchecked_transaction()?;
@@ -127,9 +127,10 @@ impl CfgOps {
             )?;
 
             for block in blocks {
-                let statements_json = block.statements.as_ref().map(|s| {
-                    serde_json::to_string(s).unwrap_or_else(|_| "[]".to_string())
-                });
+                let statements_json = block
+                    .statements
+                    .as_ref()
+                    .map(|s| serde_json::to_string(s).unwrap_or_else(|_| "[]".to_string()));
 
                 // Compute hash from block data for cache invalidation
                 // Use provided hash if available, otherwise compute it
@@ -266,12 +267,18 @@ impl CfgOps {
             .map(|(i, _)| format!("?{}", i + 1))
             .collect::<Vec<_>>()
             .join(", ");
-        let edge_sql = format!("DELETE FROM cfg_edges WHERE function_id IN ({})", placeholders);
+        let edge_sql = format!(
+            "DELETE FROM cfg_edges WHERE function_id IN ({})",
+            placeholders
+        );
         let mut edge_stmt = conn.prepare(&edge_sql)?;
         let params = function_ids.to_vec();
         edge_stmt.execute(rusqlite::params_from_iter(&params))?;
 
-        let sql = format!("DELETE FROM cfg_blocks WHERE function_id IN ({})", placeholders);
+        let sql = format!(
+            "DELETE FROM cfg_blocks WHERE function_id IN ({})",
+            placeholders
+        );
         let mut stmt = conn.prepare(&sql)?;
         let params = function_ids.to_vec();
         let affected = stmt.execute(rusqlite::params_from_iter(params))?;
@@ -336,7 +343,8 @@ impl CfgOps {
              ORDER BY e.id, c.byte_start",
         )?;
 
-        let mut result: std::collections::HashMap<i64, Vec<CfgBlock>> = std::collections::HashMap::new();
+        let mut result: std::collections::HashMap<i64, Vec<CfgBlock>> =
+            std::collections::HashMap::new();
         let rows = stmt.query_map(params![file_path], |row| {
             let function_id: i64 = row.get(0)?;
             let statements_json: Option<String> = row.get(11)?;
@@ -473,7 +481,12 @@ pub fn compute_dominator_depth(cfg: &CfgWithEdges) -> HashMap<usize, i64> {
             // idom(i) is the unique strict dominator of i that does NOT
             // strictly dominate any other strict dominator of i.
             let dominates_another = doms.iter().any(|&s| {
-                s != i && s != *d && dominators.get(&s).map(|set| set.contains(d)).unwrap_or(false)
+                s != i
+                    && s != *d
+                    && dominators
+                        .get(&s)
+                        .map(|set| set.contains(d))
+                        .unwrap_or(false)
             });
 
             if !dominates_another {
@@ -736,7 +749,8 @@ mod spatial_tests {
         }
         "#;
 
-        let cfg = crate::graph::cfg_edges_extract::extract_cfg_with_edges(source, 1, get_test_language());
+        let cfg =
+            crate::graph::cfg_edges_extract::extract_cfg_with_edges(source, 1, get_test_language());
         let depths = compute_dominator_depth(&cfg);
 
         // Entry block should have depth 0
@@ -822,9 +836,21 @@ mod spatial_tests {
                 },
             ],
             edges: vec![
-                CfgEdge { source_idx: 0, target_idx: 1, edge_type: CfgEdgeType::Fallthrough },
-                CfgEdge { source_idx: 1, target_idx: 2, edge_type: CfgEdgeType::Fallthrough },
-                CfgEdge { source_idx: 2, target_idx: 3, edge_type: CfgEdgeType::Fallthrough },
+                CfgEdge {
+                    source_idx: 0,
+                    target_idx: 1,
+                    edge_type: CfgEdgeType::Fallthrough,
+                },
+                CfgEdge {
+                    source_idx: 1,
+                    target_idx: 2,
+                    edge_type: CfgEdgeType::Fallthrough,
+                },
+                CfgEdge {
+                    source_idx: 2,
+                    target_idx: 3,
+                    edge_type: CfgEdgeType::Fallthrough,
+                },
             ],
         };
 
@@ -851,7 +877,8 @@ mod spatial_tests {
         }
         "#;
 
-        let cfg = crate::graph::cfg_edges_extract::extract_cfg_with_edges(source, 1, get_test_language());
+        let cfg =
+            crate::graph::cfg_edges_extract::extract_cfg_with_edges(source, 1, get_test_language());
         let nesting = compute_loop_nesting(&cfg);
 
         // All blocks should have nesting level
@@ -874,7 +901,8 @@ mod spatial_tests {
         }
         "#;
 
-        let cfg = crate::graph::cfg_edges_extract::extract_cfg_with_edges(source, 1, get_test_language());
+        let cfg =
+            crate::graph::cfg_edges_extract::extract_cfg_with_edges(source, 1, get_test_language());
         let distance = compute_branch_distance(&cfg);
 
         // Entry block should have distance 0
@@ -899,11 +927,8 @@ mod spatial_tests {
         }
         "#;
 
-        let mut cfg = crate::graph::cfg_edges_extract::extract_cfg_with_edges(
-            source,
-            1,
-            get_test_language(),
-        );
+        let mut cfg =
+            crate::graph::cfg_edges_extract::extract_cfg_with_edges(source, 1, get_test_language());
         compute_4d_coordinates(&mut cfg);
 
         // All blocks should have coordinates set
@@ -939,11 +964,8 @@ mod spatial_tests {
         }
         "#;
 
-        let mut cfg = crate::graph::cfg_edges_extract::extract_cfg_with_edges(
-            source,
-            1,
-            get_test_language(),
-        );
+        let mut cfg =
+            crate::graph::cfg_edges_extract::extract_cfg_with_edges(source, 1, get_test_language());
 
         // Test with explicit commit hash
         let test_commit = Some("abc123def456789".repeat(2)); // 40 chars

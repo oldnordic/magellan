@@ -33,7 +33,11 @@ fn format_file_size(size_bytes: u64) -> String {
 }
 
 /// Print export success message
-fn print_export_summary(output_path: &PathBuf, format: ExportFormat, graph: &mut CodeGraph) -> Result<()> {
+fn print_export_summary(
+    output_path: &PathBuf,
+    format: ExportFormat,
+    graph: &mut CodeGraph,
+) -> Result<()> {
     // Get file size
     let metadata = std::fs::metadata(output_path)?;
     let size = format_file_size(metadata.len());

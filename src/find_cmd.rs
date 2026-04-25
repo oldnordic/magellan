@@ -83,12 +83,11 @@ fn score_symbol(symbol: &FoundSymbol, query: &str) -> i32 {
         SymbolKind::Function | SymbolKind::Class => score += 10,
         SymbolKind::Module => score += 5,
         SymbolKind::Method => score += 0, // impl methods get no bonus
-        _ => score += 2, // Other kinds get small bonus
+        _ => score += 2,                  // Other kinds get small bonus
     }
 
     score
 }
-
 
 /// Find a symbol in a specific file by name
 ///
@@ -176,7 +175,6 @@ fn find_all_files(graph: &mut CodeGraph, name: &str) -> Result<Vec<FoundSymbol>>
 
     Ok(results)
 }
-
 
 /// Run the find command
 ///
@@ -481,7 +479,9 @@ pub fn run_find(
                     }
 
                     eprintln!();
-                    eprintln!("Use --path <file> to disambiguate, or --symbol-id <id> for precise lookup");
+                    eprintln!(
+                        "Use --path <file> to disambiguate, or --symbol-id <id> for precise lookup"
+                    );
                 }
             }
 

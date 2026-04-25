@@ -49,21 +49,27 @@ impl AnalyzerKind {
             .arg("--version")
             .output()
             .ok()?;
-        
+
         String::from_utf8(output.stdout).ok()
     }
 
     /// Analyze a file and extract symbol information
     pub fn analyze_file(&self, file_path: &Path, workspace_root: &Path) -> Result<AnalyzerResult> {
         match self {
-            AnalyzerKind::RustAnalyzer => self.analyze_with_rust_analyzer(file_path, workspace_root),
+            AnalyzerKind::RustAnalyzer => {
+                self.analyze_with_rust_analyzer(file_path, workspace_root)
+            }
             AnalyzerKind::JDTLS => self.analyze_with_jdtls(file_path, workspace_root),
             AnalyzerKind::Clangd => self.analyze_with_clangd(file_path, workspace_root),
         }
     }
 
     /// Analyze with rust-analyzer
-    fn analyze_with_rust_analyzer(&self, file_path: &Path, workspace_root: &Path) -> Result<AnalyzerResult> {
+    fn analyze_with_rust_analyzer(
+        &self,
+        file_path: &Path,
+        workspace_root: &Path,
+    ) -> Result<AnalyzerResult> {
         // Use rust-analyzer's analysis-stats command
         let output = Command::new("rust-analyzer")
             .args(["analysis-stats", "--load-output-dirs"])
@@ -83,7 +89,11 @@ impl AnalyzerKind {
     }
 
     /// Analyze with jdtls
-    fn analyze_with_jdtls(&self, file_path: &Path, workspace_root: &Path) -> Result<AnalyzerResult> {
+    fn analyze_with_jdtls(
+        &self,
+        file_path: &Path,
+        workspace_root: &Path,
+    ) -> Result<AnalyzerResult> {
         // jdtls is typically run as a server, but we can use it via CLI for checks
         let output = Command::new("jdtls")
             .args(["--check"])
@@ -103,7 +113,11 @@ impl AnalyzerKind {
     }
 
     /// Analyze with clangd
-    fn analyze_with_clangd(&self, file_path: &Path, workspace_root: &Path) -> Result<AnalyzerResult> {
+    fn analyze_with_clangd(
+        &self,
+        file_path: &Path,
+        workspace_root: &Path,
+    ) -> Result<AnalyzerResult> {
         // Use clangd's --check mode
         let output = Command::new("clangd")
             .args(["--check"])
@@ -137,13 +151,17 @@ pub struct AnalyzerResult {
 /// Detect all available analyzers
 pub fn detect_available_analyzers() -> Vec<AnalyzerKind> {
     let mut analyzers = Vec::new();
-    
-    for kind in [AnalyzerKind::RustAnalyzer, AnalyzerKind::JDTLS, AnalyzerKind::Clangd] {
+
+    for kind in [
+        AnalyzerKind::RustAnalyzer,
+        AnalyzerKind::JDTLS,
+        AnalyzerKind::Clangd,
+    ] {
         if kind.is_available() {
             analyzers.push(kind);
         }
     }
-    
+
     analyzers
 }
 
@@ -160,7 +178,7 @@ pub fn get_analyzer_for_language(language: &str) -> Option<AnalyzerKind> {
 /// Detect language from file path
 pub fn detect_language_from_path(file_path: &Path) -> Option<&'static str> {
     let ext = file_path.extension().and_then(|e| e.to_str())?;
-    
+
     match ext {
         "rs" => Some("rust"),
         "java" => Some("java"),
@@ -191,7 +209,10 @@ mod tests {
 
     #[test]
     fn test_get_analyzer_for_language() {
-        assert_eq!(get_analyzer_for_language("rust"), Some(AnalyzerKind::RustAnalyzer));
+        assert_eq!(
+            get_analyzer_for_language("rust"),
+            Some(AnalyzerKind::RustAnalyzer)
+        );
         assert_eq!(get_analyzer_for_language("java"), Some(AnalyzerKind::JDTLS));
         assert_eq!(get_analyzer_for_language("cpp"), Some(AnalyzerKind::Clangd));
         assert_eq!(get_analyzer_for_language("python"), None);
@@ -199,9 +220,18 @@ mod tests {
 
     #[test]
     fn test_detect_language_from_path() {
-        assert_eq!(detect_language_from_path(Path::new("test.rs")), Some("rust"));
-        assert_eq!(detect_language_from_path(Path::new("Test.java")), Some("java"));
-        assert_eq!(detect_language_from_path(Path::new("main.cpp")), Some("cpp"));
+        assert_eq!(
+            detect_language_from_path(Path::new("test.rs")),
+            Some("rust")
+        );
+        assert_eq!(
+            detect_language_from_path(Path::new("Test.java")),
+            Some("java")
+        );
+        assert_eq!(
+            detect_language_from_path(Path::new("main.cpp")),
+            Some("cpp")
+        );
         assert_eq!(detect_language_from_path(Path::new("script.py")), None);
     }
 }

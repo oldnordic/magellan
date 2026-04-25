@@ -258,7 +258,7 @@ impl MetricsOps {
     /// Compute cyclomatic complexity from CFG blocks
     ///
     /// Cyclomatic Complexity = Number of decision points + 1
-    /// 
+    ///
     /// Decision points are CFG blocks with terminators that indicate branching:
     /// - return, continue, break (not fallthrough)
     ///
@@ -271,7 +271,7 @@ impl MetricsOps {
         use rusqlite::params;
 
         let conn = self.connect()?;
-        
+
         // Count CFG blocks for this function that have non-fallthrough terminators
         // These represent decision points (branches)
         let decision_points: i64 = conn
@@ -311,9 +311,7 @@ fn calculate_complexity(loc: i64, fan_in: i64, fan_out: i64) -> f64 {
     let fan_in_weight = 0.5;
     let fan_out_weight = 0.3;
 
-    (loc as f64 * loc_weight)
-        + (fan_in as f64 * fan_in_weight)
-        + (fan_out as f64 * fan_out_weight)
+    (loc as f64 * loc_weight) + (fan_in as f64 * fan_in_weight) + (fan_out as f64 * fan_out_weight)
 }
 
 #[cfg(test)]
@@ -347,28 +345,38 @@ fn callee_function() {
         graph.index_file(&path_str, test_source.as_bytes()).unwrap();
 
         // Get the symbol IDs using symbol_id_by_name
-        let caller_id = graph.symbol_id_by_name(&path_str, "caller_function").unwrap();
-        let callee_id = graph.symbol_id_by_name(&path_str, "callee_function").unwrap();
-        
+        let caller_id = graph
+            .symbol_id_by_name(&path_str, "caller_function")
+            .unwrap();
+        let callee_id = graph
+            .symbol_id_by_name(&path_str, "callee_function")
+            .unwrap();
+
         assert!(caller_id.is_some(), "caller_function should be indexed");
         assert!(callee_id.is_some(), "callee_function should be indexed");
-        
+
         let caller_id = caller_id.unwrap();
         let callee_id = callee_id.unwrap();
 
         // Get symbol metrics from the metrics field
-        let caller_metrics = graph.metrics.get_symbol_metrics(caller_id).unwrap()
+        let caller_metrics = graph
+            .metrics
+            .get_symbol_metrics(caller_id)
+            .unwrap()
             .expect("caller_function metrics should exist");
-        let callee_metrics = graph.metrics.get_symbol_metrics(callee_id).unwrap()
+        let callee_metrics = graph
+            .metrics
+            .get_symbol_metrics(callee_id)
+            .unwrap()
             .expect("callee_function metrics should exist");
-        
+
         // callee_function should have fan_in >= 1 (being called by caller_function)
         assert!(
             callee_metrics.fan_in >= 1,
             "callee_function should have fan_in >= 1 (called by caller_function), got {}",
             callee_metrics.fan_in
         );
-        
+
         // caller_function should have fan_out >= 1 (calling callee_function)
         assert!(
             caller_metrics.fan_out >= 1,
@@ -382,7 +390,7 @@ fn callee_function() {
     #[test]
     fn test_cyclomatic_complexity_from_cfg() {
         use crate::graph::schema::SymbolNode;
-        
+
         let temp_dir = tempfile::TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let mut graph = crate::CodeGraph::open(&db_path).unwrap();
@@ -418,28 +426,38 @@ fn complex_function(x: i32) {
         graph.index_file(&path_str, test_source.as_bytes()).unwrap();
 
         // Get the symbol IDs
-        let simple_id = graph.symbol_id_by_name(&path_str, "simple_function").unwrap();
-        let complex_id = graph.symbol_id_by_name(&path_str, "complex_function").unwrap();
-        
+        let simple_id = graph
+            .symbol_id_by_name(&path_str, "simple_function")
+            .unwrap();
+        let complex_id = graph
+            .symbol_id_by_name(&path_str, "complex_function")
+            .unwrap();
+
         assert!(simple_id.is_some(), "simple_function should be indexed");
         assert!(complex_id.is_some(), "complex_function should be indexed");
-        
+
         let simple_id = simple_id.unwrap();
         let complex_id = complex_id.unwrap();
 
         // Get symbol metrics
-        let simple_metrics = graph.metrics.get_symbol_metrics(simple_id).unwrap()
+        let simple_metrics = graph
+            .metrics
+            .get_symbol_metrics(simple_id)
+            .unwrap()
             .expect("simple_function metrics should exist");
-        let complex_metrics = graph.metrics.get_symbol_metrics(complex_id).unwrap()
+        let complex_metrics = graph
+            .metrics
+            .get_symbol_metrics(complex_id)
+            .unwrap()
             .expect("complex_function metrics should exist");
-        
+
         // simple_function has no branches, complexity should be 1
         assert_eq!(
             simple_metrics.cyclomatic_complexity, 1,
             "simple_function should have complexity 1, got {}",
             simple_metrics.cyclomatic_complexity
         );
-        
+
         // complex_function has:
         // - if/else if/else (3 branches)
         // - for loop (1 branch)

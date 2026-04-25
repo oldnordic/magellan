@@ -122,11 +122,10 @@ impl MetricsOps {
             .query_map(params![file_path], |row| {
                 let data: String = row.get(0)?;
                 // Parse JSON to extract SymbolNode
-                    let symbol: crate::graph::schema::SymbolNode = serde_json::from_str(&data)
-                        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-                    Ok(symbol)
-                },
-            )?
+                let symbol: crate::graph::schema::SymbolNode = serde_json::from_str(&data)
+                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+                Ok(symbol)
+            })?
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(symbols)

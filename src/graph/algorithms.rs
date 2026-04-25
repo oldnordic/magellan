@@ -61,8 +61,8 @@
 //! let condensed = graph.condense_call_graph()?;
 //! \`\`\`
 
-use anyhow::Result;
 use ahash::{AHashMap, AHashSet};
+use anyhow::Result;
 use rusqlite::params;
 use sqlitegraph::errors::SqliteGraphError;
 use sqlitegraph::{GraphBackend, SnapshotId};
@@ -76,7 +76,10 @@ use super::CodeGraph;
 /// Backend-agnostic reachable_from implementation
 ///
 /// Uses `fetch_outgoing` from GraphBackend trait instead of requiring SqliteGraph.
-fn reachable_from(backend: &dyn GraphBackend, start: i64) -> Result<AHashSet<i64>, SqliteGraphError> {
+fn reachable_from(
+    backend: &dyn GraphBackend,
+    start: i64,
+) -> Result<AHashSet<i64>, SqliteGraphError> {
     let mut visited = AHashSet::new();
     let mut queue = VecDeque::new();
 
@@ -97,7 +100,10 @@ fn reachable_from(backend: &dyn GraphBackend, start: i64) -> Result<AHashSet<i64
 /// Backend-agnostic reverse_reachable_from implementation
 ///
 /// Uses `fetch_incoming` from GraphBackend trait instead of requiring SqliteGraph.
-fn reverse_reachable_from(backend: &dyn GraphBackend, start: i64) -> Result<AHashSet<i64>, SqliteGraphError> {
+fn reverse_reachable_from(
+    backend: &dyn GraphBackend,
+    start: i64,
+) -> Result<AHashSet<i64>, SqliteGraphError> {
     let mut visited = AHashSet::new();
     let mut queue = VecDeque::new();
 
@@ -360,7 +366,9 @@ struct SccResult {
 ///
 /// Uses `all_entity_ids` and `fetch_outgoing` from GraphBackend trait.
 /// Implements Tarjan's SCC algorithm.
-fn strongly_connected_components(backend: &dyn GraphBackend) -> Result<SccResult, SqliteGraphError> {
+fn strongly_connected_components(
+    backend: &dyn GraphBackend,
+) -> Result<SccResult, SqliteGraphError> {
     let all_ids = backend.all_entity_ids()?;
 
     if all_ids.is_empty() {
@@ -398,7 +406,15 @@ fn strongly_connected_components(backend: &dyn GraphBackend) -> Result<SccResult
         for w in backend.fetch_outgoing(v)? {
             if !indices.contains_key(&w) {
                 strongconnect(
-                    w, backend, index, stack, on_stack, indices, lowlinks, components, node_to_component,
+                    w,
+                    backend,
+                    index,
+                    stack,
+                    on_stack,
+                    indices,
+                    lowlinks,
+                    components,
+                    node_to_component,
                 )?;
                 let v_low = lowlinks[&v];
                 let w_low = lowlinks[&w];
@@ -430,8 +446,15 @@ fn strongly_connected_components(backend: &dyn GraphBackend) -> Result<SccResult
     for &node in &all_ids {
         if !indices.contains_key(&node) {
             strongconnect(
-                node, backend, &mut index, &mut stack, &mut on_stack,
-                &mut indices, &mut lowlinks, &mut components, &mut node_to_component,
+                node,
+                backend,
+                &mut index,
+                &mut stack,
+                &mut on_stack,
+                &mut indices,
+                &mut lowlinks,
+                &mut components,
+                &mut node_to_component,
             )?;
         }
     }
@@ -714,9 +737,7 @@ impl CodeGraph {
         Ok(SymbolInfo {
             symbol_id: symbol_node.symbol_id,
             fqn: symbol_node.fqn.or_else(|| symbol_node.display_fqn.clone()),
-            file_path: node
-                .file_path
-                .unwrap_or_else(|| "?".to_string()),
+            file_path: node.file_path.unwrap_or_else(|| "?".to_string()),
             kind: symbol_node.kind,
         })
     }
@@ -1016,20 +1037,16 @@ impl CodeGraph {
 
         // Sort cycles deterministically
         let mut cycles = cycles;
-        cycles.sort_by(|a, b| {
-            match (a.members.first(), b.members.first()) {
-                (Some(am), Some(bm)) => {
-                    match (am.fqn.as_ref(), bm.fqn.as_ref()) {
-                        (Some(af), Some(bf)) => af.cmp(bf),
-                        (Some(_), None) => std::cmp::Ordering::Less,
-                        (None, Some(_)) => std::cmp::Ordering::Greater,
-                        (None, None) => std::cmp::Ordering::Equal,
-                    }
-                }
+        cycles.sort_by(|a, b| match (a.members.first(), b.members.first()) {
+            (Some(am), Some(bm)) => match (am.fqn.as_ref(), bm.fqn.as_ref()) {
+                (Some(af), Some(bf)) => af.cmp(bf),
                 (Some(_), None) => std::cmp::Ordering::Less,
                 (None, Some(_)) => std::cmp::Ordering::Greater,
                 (None, None) => std::cmp::Ordering::Equal,
-            }
+            },
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => std::cmp::Ordering::Equal,
         });
 
         Ok(CycleReport {
@@ -1160,7 +1177,7 @@ impl CodeGraph {
         }
 
         // Sort supernodes deterministically
-        supernodes.sort_by(|a, b| a.id.cmp(&b.id));
+        supernodes.sort_by_key(|a| a.id);
 
         let graph = CondensationGraph {
             supernodes,
@@ -1447,10 +1464,7 @@ impl CodeGraph {
                 max_length = max_length.max(length);
                 total_length += length;
 
-                paths.push(ExecutionPath {
-                    symbols,
-                    length,
-                });
+                paths.push(ExecutionPath { symbols, length });
             }
         }
 
@@ -1461,9 +1475,7 @@ impl CodeGraph {
                 b.symbols.first().and_then(|s| s.fqn.as_ref()),
             ) {
                 (Some(a_fqn), Some(b_fqn)) => {
-                    a_fqn
-                        .cmp(b_fqn)
-                        .then_with(|| a.length.cmp(&b.length))
+                    a_fqn.cmp(b_fqn).then_with(|| a.length.cmp(&b.length))
                 }
                 (Some(_), None) => std::cmp::Ordering::Less,
                 (None, Some(_)) => std::cmp::Ordering::Greater,
@@ -1509,11 +1521,7 @@ mod tests {
 
     fn next_test_dir() -> std::path::PathBuf {
         let n = TEST_DIR_COUNTER.fetch_add(1, Ordering::SeqCst);
-        std::env::temp_dir().join(format!(
-            "magellan_test_{}_{}",
-            std::process::id(),
-            n
-        ))
+        std::env::temp_dir().join(format!("magellan_test_{}_{}", std::process::id(), n))
     }
 
     /// Test helper to create a simple call graph for testing
@@ -1525,10 +1533,6 @@ mod tests {
     ///
     /// Returns the CodeGraph and symbol IDs for main and unused_function
     fn create_test_graph() -> Result<(CodeGraph, String, String)> {
-<<<<<<< HEAD
-        // Use a unique temp directory per call to avoid concurrent test interference
-        let temp_dir = next_test_dir();
-=======
         // Use a persistent temp directory that won't be deleted
         // This is necessary for V3 backend which needs files to remain accessible.
         // Use a unique suffix per call to avoid collisions when tests run in parallel.
@@ -1540,7 +1544,6 @@ mod tests {
                 .unwrap_or_default()
                 .as_nanos()
         ));
->>>>>>> main
         std::fs::create_dir_all(&temp_dir)?;
         let db_path = temp_dir.join("test.db");
 
@@ -1654,7 +1657,12 @@ fn unused_function() {
         }
 
         // We should have found at least some symbols
-        assert!(found_symbols > 0, "Should find Symbol entities in test graph, got {} symbols from {} entities", found_symbols, entity_ids.len());
+        assert!(
+            found_symbols > 0,
+            "Should find Symbol entities in test graph, got {} symbols from {} entities",
+            found_symbols,
+            entity_ids.len()
+        );
     }
 
     #[test]
@@ -1665,18 +1673,16 @@ fn unused_function() {
         let snapshot = SnapshotId::current();
         let entity_ids = graph.calls.backend.entity_ids().unwrap();
 
-        let main_entity_id = entity_ids
-            .into_iter()
-            .find(|&id| {
-                if let Ok(node) = graph.calls.backend.get_node(snapshot, id) {
-                    if let Ok(data) = serde_json::from_value::<serde_json::Value>(node.data) {
-                        if let Some(name) = data.get("name").and_then(|v| v.as_str()) {
-                            return name == "main";
-                        }
+        let main_entity_id = entity_ids.into_iter().find(|&id| {
+            if let Ok(node) = graph.calls.backend.get_node(snapshot, id) {
+                if let Ok(data) = serde_json::from_value::<serde_json::Value>(node.data) {
+                    if let Some(name) = data.get("name").and_then(|v| v.as_str()) {
+                        return name == "main";
                     }
                 }
-                false
-            });
+            }
+            false
+        });
 
         if let Some(entity_id) = main_entity_id {
             // Verify we can get the node

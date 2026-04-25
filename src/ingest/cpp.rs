@@ -316,8 +316,7 @@ impl CppParser {
         for child in node.children(&mut cursor) {
             match child.kind() {
                 "identifier" | "type_identifier" => {
-                    let name_bytes =
-                        &source[child.start_byte()..child.end_byte()];
+                    let name_bytes = &source[child.start_byte()..child.end_byte()];
                     return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
                 }
                 // Skip certain nodes to find the identifier within

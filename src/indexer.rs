@@ -88,9 +88,7 @@ pub fn compute_l3_cache_batches(
 ///
 /// Returns a map from path to (source bytes, file size) for files that exist.
 /// Missing files are not included in the result.
-pub fn read_batch_sources(
-    paths: &[PathBuf],
-) -> Vec<(PathBuf, Vec<u8>, usize)> {
+pub fn read_batch_sources(paths: &[PathBuf]) -> Vec<(PathBuf, Vec<u8>, usize)> {
     paths
         .iter()
         .filter_map(|path| {
@@ -116,7 +114,9 @@ macro_rules! debug_print {
     ($($arg:tt)*) => {
         // Optimized out when debug-prints feature is disabled
         // Always return () to work in expression context
-        { () }
+        {
+            ()
+        }
     };
 }
 
@@ -629,7 +629,7 @@ fn process_dirty_paths_batched(graph: &mut CodeGraph, dirty_paths: &[PathBuf]) -
     }
 
     let batch_start = Instant::now();
-    let total_files = dirty_paths.len();
+    let _total_files = dirty_paths.len(); // Only for debugging/logging if needed
 
     // Step 1: Get file sizes for batch calculation (only for existing files)
     let size_start = Instant::now();
@@ -687,12 +687,14 @@ fn process_dirty_paths_batched(graph: &mut CodeGraph, dirty_paths: &[PathBuf]) -
                 Ok(outcome) => {
                     total_reconcile_time += reconcile_start.elapsed();
                     let path_str = path.to_string_lossy();
-                    match outcome {
+                    let was_modified = match outcome {
                         crate::ReconcileOutcome::Deleted => {
                             println!("DELETE {}", path_str);
+                            true
                         }
                         crate::ReconcileOutcome::Unchanged => {
                             // Skip logging for unchanged files
+                            false
                         }
                         crate::ReconcileOutcome::Reindexed {
                             symbols,
@@ -703,9 +705,14 @@ fn process_dirty_paths_batched(graph: &mut CodeGraph, dirty_paths: &[PathBuf]) -
                                 "MODIFY {} symbols={} refs={} calls={}",
                                 path_str, symbols, references, calls
                             );
+                            true
                         }
+                    };
+
+                    // Only count as processed if actually changed
+                    if was_modified {
+                        total_processed += 1;
                     }
-                    total_processed += 1;
                 }
                 Err(e) => {
                     total_reconcile_time += reconcile_start.elapsed();
@@ -728,16 +735,19 @@ fn process_dirty_paths_batched(graph: &mut CodeGraph, dirty_paths: &[PathBuf]) -
     }
 
     let elapsed = batch_start.elapsed();
-    eprintln!(
-        "L3 Batch: {} files, {} batches, {}ms total (size:{}ms batch:{}ms read:{}ms reconcile:{}ms)",
-        total_files,
-        batch_count,
-        elapsed.as_millis(),
-        size_time.as_millis(),
-        batch_compute_time.as_millis(),
-        total_read_time.as_millis(),
-        total_reconcile_time.as_millis()
-    );
+    // Only print batch stats when actual work was done (not just periodic checks)
+    if total_processed > 0 {
+        eprintln!(
+            "L3 Batch: {} files processed, {} batches, {}ms total (size:{}ms batch:{}ms read:{}ms reconcile:{}ms)",
+            total_processed,
+            batch_count,
+            elapsed.as_millis(),
+            size_time.as_millis(),
+            batch_compute_time.as_millis(),
+            total_read_time.as_millis(),
+            total_reconcile_time.as_millis()
+        );
+    }
 
     Ok(total_processed)
 }
@@ -1022,9 +1032,7 @@ mod tests {
 
     #[test]
     fn test_read_batch_sources_missing_files() {
-        let paths = vec![
-            PathBuf::from("/nonexistent/path/file.rs"),
-        ];
+        let paths = vec![PathBuf::from("/nonexistent/path/file.rs")];
         let sources = read_batch_sources(&paths);
         assert!(sources.is_empty());
     }
@@ -1046,10 +1054,8 @@ mod tests {
 
         assert_eq!(sources.len(), 2);
         // Check that sources contain the right data
-        let found: std::collections::HashSet<_> = sources
-            .iter()
-            .map(|(p, _, _)| p.clone())
-            .collect();
+        let found: std::collections::HashSet<_> =
+            sources.iter().map(|(p, _, _)| p.clone()).collect();
         assert!(found.contains(&file1));
         assert!(found.contains(&file2));
     }

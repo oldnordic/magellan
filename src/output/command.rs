@@ -1260,7 +1260,6 @@ mod tests {
         assert_eq!(parsed["coverage"]["available"], false);
         assert_eq!(parsed["coverage"]["covered_blocks"], 0);
         assert_eq!(parsed["coverage"]["covered_edges"], 0);
-        // Optional fields should be null when None (or absent, but we prefer null)
         assert!(
             parsed["coverage"]["source"].is_null() || parsed["coverage"].get("source").is_none()
         );

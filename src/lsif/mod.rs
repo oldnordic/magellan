@@ -13,4 +13,4 @@ pub mod schema;
 
 pub use export::export_lsif;
 pub use import::import_lsif;
-pub use schema::{LsifGraph, Vertex, Edge, PackageData};
+pub use schema::{Edge, LsifGraph, PackageData, Vertex};

@@ -240,10 +240,7 @@ impl ImportExtractor {
     /// - "std::collections::HashMap" -> (PlainUse, ["std", "collections", "HashMap"], ["HashMap"], false)
     /// - "std::collections::*" -> (PlainUse, ["std", "collections"], [], true)
     /// - "foo::{bar, baz}" -> (PlainUse, ["foo"], ["bar", "baz"], false)
-    fn parse_rust_import_path(
-        &self,
-        path: &str,
-    ) -> (ImportKind, Vec<String>, Vec<String>, bool) {
+    fn parse_rust_import_path(&self, path: &str) -> (ImportKind, Vec<String>, Vec<String>, bool) {
         // Check for glob import
         if path.contains('*') {
             let components: Vec<String> = path
@@ -283,14 +280,7 @@ impl ImportExtractor {
             // Parse imported names (handle "as" aliases)
             let imported_names: Vec<String> = list
                 .split(',')
-                .map(|s| {
-                    s.trim()
-                        .split(" as ")
-                        .next()
-                        .unwrap()
-                        .trim()
-                        .to_string()
-                })
+                .map(|s| s.trim().split(" as ").next().unwrap().trim().to_string())
                 .filter(|s| !s.is_empty())
                 .collect();
 
@@ -374,7 +364,8 @@ mod tests {
     #[test]
     fn test_parse_plain_import() {
         let extractor = ImportExtractor::new().unwrap();
-        let (kind, path, names, is_glob) = extractor.parse_rust_import_path("std::collections::HashMap");
+        let (kind, path, names, is_glob) =
+            extractor.parse_rust_import_path("std::collections::HashMap");
         assert_eq!(kind, ImportKind::PlainUse);
         assert_eq!(path, vec!["std", "collections", "HashMap"]);
         assert_eq!(names, vec!["HashMap"]);
@@ -394,7 +385,8 @@ mod tests {
     #[test]
     fn test_parse_braced_import() {
         let extractor = ImportExtractor::new().unwrap();
-        let (kind, path, names, is_glob) = extractor.parse_rust_import_path("std::collections::{HashMap, HashSet}");
+        let (kind, path, names, is_glob) =
+            extractor.parse_rust_import_path("std::collections::{HashMap, HashSet}");
         assert_eq!(kind, ImportKind::PlainUse);
         assert_eq!(path, vec!["std", "collections"]);
         assert_eq!(names, vec!["HashMap", "HashSet"]);
@@ -404,7 +396,8 @@ mod tests {
     #[test]
     fn test_parse_braced_import_with_as() {
         let extractor = ImportExtractor::new().unwrap();
-        let (kind, path, names, is_glob) = extractor.parse_rust_import_path("std::collections::{HashMap as Map, HashSet}");
+        let (kind, path, names, is_glob) =
+            extractor.parse_rust_import_path("std::collections::{HashMap as Map, HashSet}");
         assert_eq!(kind, ImportKind::PlainUse);
         assert_eq!(path, vec!["std", "collections"]);
         assert_eq!(names, vec!["HashMap", "HashSet"]);
@@ -465,18 +458,39 @@ use std::collections::{HashMap, HashSet};
         assert_eq!(ImportKind::ExternCrate.normalized_key(), "extern_crate");
         assert_eq!(ImportKind::PlainUse.normalized_key(), "plain_use");
         assert_eq!(ImportKind::FromImport.normalized_key(), "from_import");
-        assert_eq!(ImportKind::ImportStatement.normalized_key(), "import_statement");
+        assert_eq!(
+            ImportKind::ImportStatement.normalized_key(),
+            "import_statement"
+        );
     }
 
     #[test]
     fn test_import_kind_from_str() {
-        assert_eq!(ImportKind::from_str("use_crate"), Some(ImportKind::UseCrate));
-        assert_eq!(ImportKind::from_str("use_super"), Some(ImportKind::UseSuper));
+        assert_eq!(
+            ImportKind::from_str("use_crate"),
+            Some(ImportKind::UseCrate)
+        );
+        assert_eq!(
+            ImportKind::from_str("use_super"),
+            Some(ImportKind::UseSuper)
+        );
         assert_eq!(ImportKind::from_str("use_self"), Some(ImportKind::UseSelf));
-        assert_eq!(ImportKind::from_str("extern_crate"), Some(ImportKind::ExternCrate));
-        assert_eq!(ImportKind::from_str("plain_use"), Some(ImportKind::PlainUse));
-        assert_eq!(ImportKind::from_str("from_import"), Some(ImportKind::FromImport));
-        assert_eq!(ImportKind::from_str("import_statement"), Some(ImportKind::ImportStatement));
+        assert_eq!(
+            ImportKind::from_str("extern_crate"),
+            Some(ImportKind::ExternCrate)
+        );
+        assert_eq!(
+            ImportKind::from_str("plain_use"),
+            Some(ImportKind::PlainUse)
+        );
+        assert_eq!(
+            ImportKind::from_str("from_import"),
+            Some(ImportKind::FromImport)
+        );
+        assert_eq!(
+            ImportKind::from_str("import_statement"),
+            Some(ImportKind::ImportStatement)
+        );
         assert_eq!(ImportKind::from_str("invalid"), None);
     }
 }

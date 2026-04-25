@@ -67,9 +67,9 @@ pub mod migrate_backend_cmd;
 pub mod migrate_cmd;
 
 // Re-export backend detection for CLI commands
-pub use migrate_backend_cmd::{detect_backend_format, BackendFormat};
 pub use backend_router::{MagellanBackend, UnifiedSymbolInfo};
 pub use capabilities::all_capabilities;
+pub use migrate_backend_cmd::{detect_backend_format, BackendFormat};
 pub mod output;
 pub mod references;
 pub mod validation;
@@ -77,8 +77,8 @@ pub mod verify;
 pub mod watcher;
 
 pub use common::{
-    detect_language_from_path, detect_project_root, extract_context_safe, extract_symbol_content_safe,
-    format_symbol_kind, parse_symbol_kind, resolve_path,
+    detect_language_from_path, detect_project_root, extract_context_safe,
+    extract_symbol_content_safe, format_symbol_kind, parse_symbol_kind, resolve_path,
 };
 pub use diagnostics::{DiagnosticStage, SkipReason, WatchDiagnostic};
 pub use generation::{ChunkStore, CodeChunk};
@@ -88,11 +88,28 @@ pub use graph::scan::ScanResult;
 pub use graph::test_helpers::{delete_file_facts_with_injection, FailPoint};
 pub use graph::CrossFileRef;
 pub use graph::{
-    CodeGraph, CondensationGraph, CondensationResult, Cycle, CycleKind, CycleReport, DeadSymbol,
-    DeleteResult, ExecutionPath, ExportConfig, ExportFormat, GraphSymbol, MemoryGraph,
-    PathEnumerationResult, PathStatistics,
-    ProgramSlice, ReconcileOutcome, ScanProgress, SliceDirection, SliceResult, SliceStatistics,
-    Supernode, SymbolInfo, MAGELLAN_SCHEMA_VERSION,
+    CodeGraph,
+    CondensationGraph,
+    CondensationResult,
+    Cycle,
+    CycleKind,
+    CycleReport,
+    DeadSymbol,
+    DeleteResult,
+    ExecutionPath,
+    ExportConfig,
+    ExportFormat, // GraphSymbol, MemoryGraph,
+    PathEnumerationResult,
+    PathStatistics,
+    ProgramSlice,
+    ReconcileOutcome,
+    ScanProgress,
+    SliceDirection,
+    SliceResult,
+    SliceStatistics,
+    Supernode,
+    SymbolInfo,
+    MAGELLAN_SCHEMA_VERSION,
 };
 pub use indexer::{run_indexer, run_indexer_n, run_watch_pipeline, WatchPipelineConfig};
 pub use ingest::detect::{detect_language, Language};

@@ -144,7 +144,8 @@ impl MagellanBackend {
                     let snapshot = SnapshotId::current();
                     if let Ok(node) = graph.backend().get_node(snapshot, id) {
                         if node.kind == "Symbol" {
-                            if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data) {
+                            if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data)
+                            {
                                 return Ok(Some(Self::convert_symbol_node(&symbol_node, id)));
                             }
                         }
@@ -168,7 +169,8 @@ impl MagellanBackend {
                     let snapshot = SnapshotId::current();
                     if let Ok(node) = graph.backend().get_node(snapshot, id) {
                         if node.kind == "Symbol" {
-                            if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data) {
+                            if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data)
+                            {
                                 return Ok(Some(Self::convert_symbol_node(&symbol_node, id)));
                             }
                         }
@@ -195,30 +197,38 @@ impl MagellanBackend {
                 .map(|info| Self::convert_geometric_symbol(&info)),
             MagellanBackend::SQLite(graph) => {
                 let snapshot = SnapshotId::current();
-                graph.backend().get_node(snapshot, id as i64).ok().and_then(|node| {
-                    if node.kind == "Symbol" {
-                        serde_json::from_value::<SymbolNode>(node.data)
-                            .ok()
-                            .map(|symbol| Self::convert_symbol_node(&symbol, id as i64))
-                    } else {
-                        None
-                    }
-                })
+                graph
+                    .backend()
+                    .get_node(snapshot, id as i64)
+                    .ok()
+                    .and_then(|node| {
+                        if node.kind == "Symbol" {
+                            serde_json::from_value::<SymbolNode>(node.data)
+                                .ok()
+                                .map(|symbol| Self::convert_symbol_node(&symbol, id as i64))
+                        } else {
+                            None
+                        }
+                    })
             }
         }
         #[cfg(not(feature = "geometric-backend"))]
         match self {
             MagellanBackend::SQLite(graph) => {
                 let snapshot = SnapshotId::current();
-                graph.backend().get_node(snapshot, id as i64).ok().and_then(|node| {
-                    if node.kind == "Symbol" {
-                        serde_json::from_value::<SymbolNode>(node.data)
-                            .ok()
-                            .map(|symbol| Self::convert_symbol_node(&symbol, id as i64))
-                    } else {
-                        None
-                    }
-                })
+                graph
+                    .backend()
+                    .get_node(snapshot, id as i64)
+                    .ok()
+                    .and_then(|node| {
+                        if node.kind == "Symbol" {
+                            serde_json::from_value::<SymbolNode>(node.data)
+                                .ok()
+                                .map(|symbol| Self::convert_symbol_node(&symbol, id as i64))
+                        } else {
+                            None
+                        }
+                    })
             }
         }
     }

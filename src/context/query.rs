@@ -100,7 +100,7 @@ pub struct PaginatedResult<T> {
 impl<T> PaginatedResult<T> {
     /// Create a new paginated result
     pub fn new(items: Vec<T>, page: usize, page_size: usize, total_items: usize) -> Self {
-        let total_pages = (total_items + page_size - 1) / page_size;
+        let total_pages = total_items.div_ceil(page_size);
         let next_cursor = if page < total_pages {
             Some(base64::engine::general_purpose::STANDARD.encode(format!("page={}", page + 1)))
         } else {
@@ -116,7 +116,11 @@ impl<T> PaginatedResult<T> {
         let start_idx = (page.saturating_sub(1)) * page_size;
         let end_idx = (start_idx + page_size).min(items.len());
         let paged_items = if start_idx < items.len() {
-            items.into_iter().skip(start_idx).take(end_idx - start_idx).collect()
+            items
+                .into_iter()
+                .skip(start_idx)
+                .take(end_idx - start_idx)
+                .collect()
         } else {
             Vec::new()
         };
@@ -172,11 +176,11 @@ pub fn get_project_summary(graph: &mut CodeGraph) -> Result<ProjectSummary> {
 
     // Get symbol counts by label
     let mut counts = SymbolCounts::default();
-    
+
     for label in &["fn", "method", "struct", "trait", "enum", "mod"] {
         let symbols = graph.get_symbols_by_label(label)?;
         let count = symbols.len();
-        
+
         match *label {
             "fn" => counts.functions = count,
             "method" => counts.methods = count,
@@ -190,7 +194,7 @@ pub fn get_project_summary(graph: &mut CodeGraph) -> Result<ProjectSummary> {
 
     // Detect project info from Cargo.toml if available
     let (name, version) = detect_project_info()?;
-    
+
     // Detect primary language
     let language = detect_primary_language(graph)?;
 
@@ -218,7 +222,7 @@ pub fn get_project_summary(graph: &mut CodeGraph) -> Result<ProjectSummary> {
 /// Get file context
 pub fn get_file_context(graph: &mut CodeGraph, file_path: &str) -> Result<FileContext> {
     let symbols = graph.symbols_in_file(file_path)?;
-    
+
     let mut counts = SymbolCounts::default();
     let mut public_symbols = Vec::new();
 
@@ -267,38 +271,46 @@ pub fn get_symbol_detail(
 ) -> Result<SymbolDetail> {
     // Find the symbol
     let symbols = if let Some(file) = file_path {
-        graph.symbols_in_file(file)?
+        graph
+            .symbols_in_file(file)?
             .into_iter()
             .filter(|s| s.name.as_deref() == Some(symbol_name))
             .collect::<Vec<_>>()
     } else {
         // Search across all files
         let results = graph.get_symbols_by_label(symbol_name)?;
-        results.into_iter()
+        results
+            .into_iter()
             .filter_map(|r| {
-                graph.symbols_in_file(&r.file_path).ok()
-                    .and_then(|syms| syms.into_iter().find(|s| s.name.as_deref() == Some(symbol_name)))
+                graph.symbols_in_file(&r.file_path).ok().and_then(|syms| {
+                    syms.into_iter()
+                        .find(|s| s.name.as_deref() == Some(symbol_name))
+                })
             })
             .collect::<Vec<_>>()
     };
 
-    let symbol = symbols.first()
+    let symbol = symbols
+        .first()
         .ok_or_else(|| anyhow::anyhow!("Symbol '{}' not found", symbol_name))?;
 
     // Get callers
-    let callers = graph.callers_of_symbol(&symbol.file_path.to_string_lossy(), symbol_name)?
+    let callers = graph
+        .callers_of_symbol(&symbol.file_path.to_string_lossy(), symbol_name)?
         .iter()
         .map(|c| c.caller.clone())
         .collect();
 
     // Get callees
-    let callees = graph.calls_from_symbol(&symbol.file_path.to_string_lossy(), symbol_name)?
+    let callees = graph
+        .calls_from_symbol(&symbol.file_path.to_string_lossy(), symbol_name)?
         .iter()
         .map(|c| c.callee.clone())
         .collect();
 
     // Get related symbols (same module)
-    let related = graph.symbols_in_file(&symbol.file_path.to_string_lossy())?
+    let related = graph
+        .symbols_in_file(&symbol.file_path.to_string_lossy())?
         .iter()
         .filter(|s| s.name.as_deref() != Some(symbol_name))
         .filter_map(|s| s.name.clone())
@@ -310,7 +322,7 @@ pub fn get_symbol_detail(
         kind: symbol.kind_normalized.clone(),
         file: symbol.file_path.to_string_lossy().to_string(),
         line: symbol.start_line,
-        signature: None, // Would come from LSP enrichment
+        signature: None,     // Would come from LSP enrichment
         documentation: None, // Would come from LSP enrichment
         callers,
         callees,
@@ -325,25 +337,31 @@ pub fn get_callers(
     file_path: Option<&str>,
 ) -> Result<Vec<SymbolListItem>> {
     let symbols = if let Some(file) = file_path {
-        graph.symbols_in_file(file)?
+        graph
+            .symbols_in_file(file)?
             .into_iter()
             .filter(|s| s.name.as_deref() == Some(symbol_name))
             .collect::<Vec<_>>()
     } else {
         let results = graph.get_symbols_by_label(symbol_name)?;
-        results.into_iter()
+        results
+            .into_iter()
             .filter_map(|r| {
-                graph.symbols_in_file(&r.file_path).ok()
-                    .and_then(|syms| syms.into_iter().find(|s| s.name.as_deref() == Some(symbol_name)))
+                graph.symbols_in_file(&r.file_path).ok().and_then(|syms| {
+                    syms.into_iter()
+                        .find(|s| s.name.as_deref() == Some(symbol_name))
+                })
             })
             .collect::<Vec<_>>()
     };
 
-    let symbol = symbols.first()
+    let symbol = symbols
+        .first()
         .ok_or_else(|| anyhow::anyhow!("Symbol '{}' not found", symbol_name))?;
 
     let callers = graph.callers_of_symbol(&symbol.file_path.to_string_lossy(), symbol_name)?;
-    let items = callers.into_iter()
+    let items = callers
+        .into_iter()
         .map(|c| SymbolListItem {
             name: c.caller,
             kind: "function".to_string(),
@@ -362,25 +380,31 @@ pub fn get_callees(
     file_path: Option<&str>,
 ) -> Result<Vec<SymbolListItem>> {
     let symbols = if let Some(file) = file_path {
-        graph.symbols_in_file(file)?
+        graph
+            .symbols_in_file(file)?
             .into_iter()
             .filter(|s| s.name.as_deref() == Some(symbol_name))
             .collect::<Vec<_>>()
     } else {
         let results = graph.get_symbols_by_label(symbol_name)?;
-        results.into_iter()
+        results
+            .into_iter()
             .filter_map(|r| {
-                graph.symbols_in_file(&r.file_path).ok()
-                    .and_then(|syms| syms.into_iter().find(|s| s.name.as_deref() == Some(symbol_name)))
+                graph.symbols_in_file(&r.file_path).ok().and_then(|syms| {
+                    syms.into_iter()
+                        .find(|s| s.name.as_deref() == Some(symbol_name))
+                })
             })
             .collect::<Vec<_>>()
     };
 
-    let symbol = symbols.first()
+    let symbol = symbols
+        .first()
         .ok_or_else(|| anyhow::anyhow!("Symbol '{}' not found", symbol_name))?;
 
     let callees = graph.calls_from_symbol(&symbol.file_path.to_string_lossy(), symbol_name)?;
-    let items = callees.into_iter()
+    let items = callees
+        .into_iter()
         .map(|c| SymbolListItem {
             name: c.callee,
             kind: "function".to_string(),
@@ -397,18 +421,23 @@ pub fn list_symbols(
     graph: &mut CodeGraph,
     query: &ListQuery,
 ) -> Result<PaginatedResult<SymbolListItem>> {
-    let page = query.cursor
+    let page = query
+        .cursor
         .as_ref()
         .and_then(|c| base64::engine::general_purpose::STANDARD.decode(c).ok())
         .and_then(|d| String::from_utf8(d).ok())
-        .and_then(|s| s.strip_prefix("page=").map(|p| p.parse::<usize>().ok()).flatten())
+        .and_then(|s| {
+            s.strip_prefix("page=")
+                .and_then(|p| p.parse::<usize>().ok())
+        })
         .unwrap_or(query.page.unwrap_or(1));
-    
+
     let page_size = query.page_size.unwrap_or(50);
 
     // Get all symbols or filter by kind
     let all_symbols = if let Some(ref kind) = query.kind {
-        graph.get_symbols_by_label(kind)?
+        graph
+            .get_symbols_by_label(kind)?
             .into_iter()
             .map(|r| SymbolListItem {
                 name: r.name,
@@ -421,7 +450,7 @@ pub fn list_symbols(
         // Get symbols from all files
         let files = graph.all_file_nodes()?;
         let mut items = Vec::new();
-        
+
         for (file_path, _) in files {
             if let Ok(symbols) = graph.symbols_in_file(&file_path) {
                 for symbol in symbols {
@@ -441,7 +470,12 @@ pub fn list_symbols(
 
     let total_items = all_symbols.len();
 
-    Ok(PaginatedResult::new(all_symbols, page, page_size, total_items))
+    Ok(PaginatedResult::new(
+        all_symbols,
+        page,
+        page_size,
+        total_items,
+    ))
 }
 
 /// Symbol list item for pagination
@@ -466,24 +500,24 @@ fn detect_project_info() -> Result<(String, String)> {
                 .and_then(|l| l.split('"').nth(1))
                 .unwrap_or("unknown")
                 .to_string();
-            
+
             let version = content
                 .lines()
                 .find(|l| l.starts_with("version = "))
                 .and_then(|l| l.split('"').nth(1))
                 .unwrap_or("0.1.0")
                 .to_string();
-            
+
             return Ok((name, version));
         }
     }
-    
+
     // Fallback to directory name
     let dir_name = std::env::current_dir()
         .ok()
         .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
         .unwrap_or_else(|| "unknown".to_string());
-    
+
     Ok((dir_name, "0.1.0".to_string()))
 }
 
@@ -491,21 +525,23 @@ fn detect_primary_language(graph: &mut CodeGraph) -> Result<String> {
     // Count files by extension
     let files = graph.all_file_nodes()?;
     let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-    
+
     for (path, _) in files {
-        if let Some(ext) = std::path::Path::new(&path).extension()
+        if let Some(ext) = std::path::Path::new(&path)
+            .extension()
             .and_then(|e| e.to_str())
         {
             *counts.entry(ext.to_string()).or_insert(0) += 1;
         }
     }
-    
+
     // Find most common extension
-    let primary = counts.iter()
+    let primary = counts
+        .iter()
         .max_by_key(|(_, &count)| count)
         .map(|(ext, _)| ext.as_str())
         .unwrap_or("unknown");
-    
+
     let language = match primary {
         "rs" => "Rust",
         "py" => "Python",
@@ -516,27 +552,27 @@ fn detect_primary_language(graph: &mut CodeGraph) -> Result<String> {
         "ts" | "tsx" => "TypeScript",
         _ => "Unknown",
     };
-    
+
     Ok(language.to_string())
 }
 
 fn find_entry_points(graph: &mut CodeGraph) -> Result<Vec<String>> {
     let mut entry_points = Vec::new();
-    
+
     // Look for main functions
     if let Ok(mains) = graph.get_symbols_by_label("main") {
         for m in mains {
             entry_points.push(format!("{} ({})", m.name, m.file_path));
         }
     }
-    
+
     // Look for lib.rs
     if let Ok(libs) = graph.get_symbols_by_label("lib") {
         for l in libs {
             entry_points.push(format!("{} ({})", l.name, l.file_path));
         }
     }
-    
+
     Ok(entry_points)
 }
 
@@ -548,7 +584,7 @@ mod tests {
     fn test_paginated_result_creation() {
         let items: Vec<i32> = (1..101).collect();
         let result = PaginatedResult::new(items, 1, 50, 100);
-        
+
         assert_eq!(result.page, 1);
         assert_eq!(result.total_pages, 2);
         assert_eq!(result.page_size, 50);

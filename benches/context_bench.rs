@@ -9,19 +9,18 @@ use tempfile::TempDir;
 
 /// Benchmark context summary query
 fn bench_context_summary(c: &mut Criterion) {
-    let (graph, _temp_dir) = setup_test_graph();
+    let (mut graph, _temp_dir) = setup_test_graph();
 
     c.bench_function("context_summary", |b| {
         b.iter(|| {
-            let mut g = black_box(&graph);
-            magellan::context::get_project_summary(black_box(&mut g))
+            magellan::context::get_project_summary(black_box(&mut graph))
         })
     });
 }
 
 /// Benchmark symbol list query with pagination
 fn bench_context_list(c: &mut Criterion) {
-    let (graph, _temp_dir) = setup_test_graph();
+    let (mut graph, _temp_dir) = setup_test_graph();
 
     let page_sizes = [10, 50, 100];
     let mut group = c.benchmark_group("context_list");
@@ -32,7 +31,6 @@ fn bench_context_list(c: &mut Criterion) {
             &page_size,
             |b, &page_size| {
                 b.iter(|| {
-                    let mut g = black_box(&graph);
                     let query = magellan::context::ListQuery {
                         kind: None,
                         page: Some(1),
@@ -40,7 +38,7 @@ fn bench_context_list(c: &mut Criterion) {
                         cursor: None,
                         file_pattern: None,
                     };
-                    magellan::context::list_symbols(black_box(&mut g), black_box(&query))
+                    magellan::context::list_symbols(black_box(&mut graph), black_box(&query))
                 })
             },
         );
@@ -50,13 +48,12 @@ fn bench_context_list(c: &mut Criterion) {
 
 /// Benchmark symbol detail query
 fn bench_context_symbol(c: &mut Criterion) {
-    let (graph, _temp_dir) = setup_test_graph();
+    let (mut graph, _temp_dir) = setup_test_graph();
 
     c.bench_function("context_symbol", |b| {
         b.iter(|| {
-            let mut g = black_box(&graph);
             magellan::context::get_symbol_detail(
-                black_box(&mut g),
+                black_box(&mut graph),
                 black_box("main"),
                 black_box(None),
             )
@@ -66,32 +63,29 @@ fn bench_context_symbol(c: &mut Criterion) {
 
 /// Benchmark file context query
 fn bench_context_file(c: &mut Criterion) {
-    let (graph, _temp_dir) = setup_test_graph();
+    let (mut graph, _temp_dir) = setup_test_graph();
 
     c.bench_function("context_file", |b| {
         b.iter(|| {
-            let mut g = black_box(&graph);
-            magellan::context::get_file_context(black_box(&mut g), black_box("/test/main.rs"))
+            magellan::context::get_file_context(black_box(&mut graph), black_box("/test/main.rs"))
         })
     });
 }
 
 /// Benchmark with large codebase (100k+ symbols)
 fn bench_context_large_codebase(c: &mut Criterion) {
-    let (graph, _temp_dir) = setup_large_test_graph();
+    let (mut graph, _temp_dir) = setup_large_test_graph();
 
     let mut group = c.benchmark_group("context_large");
 
     group.bench_function("summary_100k", |b| {
         b.iter(|| {
-            let mut g = black_box(&graph);
-            magellan::context::get_project_summary(black_box(&mut g))
+            magellan::context::get_project_summary(black_box(&mut graph))
         })
     });
 
     group.bench_function("list_100k_page1", |b| {
         b.iter(|| {
-            let mut g = black_box(&graph);
             let query = magellan::context::ListQuery {
                 kind: Some("fn".to_string()),
                 page: Some(1),
@@ -99,13 +93,12 @@ fn bench_context_large_codebase(c: &mut Criterion) {
                 cursor: None,
                 file_pattern: None,
             };
-            magellan::context::list_symbols(black_box(&mut g), black_box(&query))
+            magellan::context::list_symbols(black_box(&mut graph), black_box(&query))
         })
     });
 
     group.bench_function("list_100k_page100", |b| {
         b.iter(|| {
-            let mut g = black_box(&graph);
             let query = magellan::context::ListQuery {
                 kind: Some("fn".to_string()),
                 page: Some(100),
@@ -113,7 +106,7 @@ fn bench_context_large_codebase(c: &mut Criterion) {
                 cursor: None,
                 file_pattern: None,
             };
-            magellan::context::list_symbols(black_box(&mut g), black_box(&query))
+            magellan::context::list_symbols(black_box(&mut graph), black_box(&query))
         })
     });
 

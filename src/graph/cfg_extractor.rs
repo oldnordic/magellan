@@ -514,7 +514,9 @@ impl<'a> CfgExtractor<'a> {
                 "continue_expression" => TerminatorKind::Continue,
                 "if_expression" => TerminatorKind::Conditional,
                 "match_expression" => TerminatorKind::Conditional,
-                "loop_expression" | "while_expression" | "for_expression" => TerminatorKind::Conditional,
+                "loop_expression" | "while_expression" | "for_expression" => {
+                    TerminatorKind::Conditional
+                }
                 "call_expression" => TerminatorKind::Call,
                 _ => TerminatorKind::Fallthrough,
             }

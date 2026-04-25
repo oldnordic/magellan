@@ -110,7 +110,8 @@ fn geometric_condense_command_works() {
     use magellan::graph::geometric_backend::GeometricBackend;
 
     let mut backend = GeometricBackend::create(&db_path).unwrap();
-    let indexed = scan_directory_with_progress(&mut backend, &src_dir, None, IndexingMode::CfgFirst).unwrap();
+    let indexed =
+        scan_directory_with_progress(&mut backend, &src_dir, None, IndexingMode::CfgFirst).unwrap();
     assert!(indexed > 0, "Should have indexed at least one file");
     backend.save_to_disk().unwrap();
 

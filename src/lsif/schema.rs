@@ -70,10 +70,7 @@ pub enum Vertex {
         kind: SymbolKind,
     },
     /// Result set for a symbol
-    ResultSet {
-        id: String,
-        label: String,
-    },
+    ResultSet { id: String, label: String },
     /// Range within a document
     Range {
         id: String,

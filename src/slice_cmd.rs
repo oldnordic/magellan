@@ -118,7 +118,11 @@ fn resolve_target_geometric(backend: &MagellanBackend, target: &str) -> Result<R
     }
 
     // Multiple matches - show ranked list
-    eprintln!("Ambiguous target '{}': found {} candidates", target, symbols.len());
+    eprintln!(
+        "Ambiguous target '{}': found {} candidates",
+        target,
+        symbols.len()
+    );
     eprintln!();
     eprintln!("Top matches:");
 
@@ -215,7 +219,9 @@ fn resolve_target_sqlite(graph: &mut CodeGraph, target: &str) -> Result<Resolved
 
     if matches.len() == 1 {
         let (node_id, symbol, symbol_id) = &matches[0];
-        let fqn = symbol.canonical_fqn.as_ref()
+        let fqn = symbol
+            .canonical_fqn
+            .as_ref()
             .or(symbol.display_fqn.as_ref())
             .map(|s| s.as_str())
             .unwrap_or_else(|| symbol.name.as_deref().unwrap_or("<unknown>"));
@@ -229,12 +235,18 @@ fn resolve_target_sqlite(graph: &mut CodeGraph, target: &str) -> Result<Resolved
     }
 
     // Multiple matches - show ranked list
-    eprintln!("Ambiguous target '{}': found {} candidates", target, matches.len());
+    eprintln!(
+        "Ambiguous target '{}': found {} candidates",
+        target,
+        matches.len()
+    );
     eprintln!();
     eprintln!("Top matches:");
 
     for (i, (_node_id, symbol, symbol_id)) in matches.iter().take(10).enumerate() {
-        let fqn = symbol.canonical_fqn.as_ref()
+        let fqn = symbol
+            .canonical_fqn
+            .as_ref()
             .or(symbol.display_fqn.as_ref())
             .map(|s| s.as_str())
             .unwrap_or("<unknown>");
@@ -335,7 +347,9 @@ pub fn run_slice(
         BackendType::SQLite | BackendType::NativeV3 => {
             // For SQLite backend, use symbol-based reachability
             let symbols_result = match direction {
-                CliSliceDirection::Backward => graph.reverse_reachable_symbols(&resolved.symbol_id, None),
+                CliSliceDirection::Backward => {
+                    graph.reverse_reachable_symbols(&resolved.symbol_id, None)
+                }
                 CliSliceDirection::Forward => graph.reachable_symbols(&resolved.symbol_id, None),
             };
 
@@ -375,7 +389,13 @@ pub fn run_slice(
 
     if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
         backend.finish_execution(&exec_id, "success", None, 0, 0, 0)?;
-        return output_json_mode(&resolved.fqn, slice_result, verbose, &exec_id, output_format);
+        return output_json_mode(
+            &resolved.fqn,
+            slice_result,
+            verbose,
+            &exec_id,
+            output_format,
+        );
     }
 
     // Human mode
@@ -384,7 +404,10 @@ pub fn run_slice(
         CliSliceDirection::Forward => "affected by",
     };
 
-    println!("Program slice: symbols {} \"{}\"", direction_label, resolved.fqn);
+    println!(
+        "Program slice: symbols {} \"{}\"",
+        direction_label, resolved.fqn
+    );
     println!("  Target: {} ({})", resolved.fqn, resolved.kind);
     println!("  File:   {}", resolved.file_path);
     println!("  Total symbols: {}", slice_result.statistics.total_symbols);

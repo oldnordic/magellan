@@ -10,10 +10,10 @@ use std::path::PathBuf;
 
 use crate::graph::ambiguity::AmbiguityOps;
 use crate::graph::schema::{EdgeEndpoints, SymbolNode};
-use crate::ingest::{SymbolFact, SymbolKind};
 use crate::ingest::c::CParser;
 use crate::ingest::cpp::CppParser;
 use crate::ingest::java::JavaParser;
+use crate::ingest::{SymbolFact, SymbolKind};
 use crate::references::ReferenceFact;
 
 use super::CodeGraph;
@@ -264,7 +264,7 @@ pub fn find_by_symbol_id(graph: &mut CodeGraph, symbol_id: &str) -> Result<Optio
     // Use GraphBackend trait instead of direct SQL for V3 compatibility
     let entity_ids = graph.calls.backend.entity_ids()?;
     let snapshot = SnapshotId::current();
-    
+
     for entity_id in entity_ids {
         if let Ok(node) = graph.calls.backend.get_node(snapshot, entity_id) {
             if node.kind == "Symbol" {
@@ -276,7 +276,7 @@ pub fn find_by_symbol_id(graph: &mut CodeGraph, symbol_id: &str) -> Result<Optio
             }
         }
     }
-    
+
     Ok(None)
 }
 
@@ -384,21 +384,25 @@ fn populate_cross_file_refs(
     symbol_id_to_id: &HashMap<String, i64>,
     symbol_fqn_to_id: &HashMap<String, i64>,
 ) -> Result<()> {
-    use crate::ingest::{Parser, detect_language};
+    use crate::ingest::{detect_language, Parser};
     use std::path::PathBuf;
 
     let path_buf = PathBuf::from(path);
     let language = detect_language(&path_buf);
-    
+
     // Note: Cross-file reference population is working
 
     // Get symbols in this file to determine which symbol contains each reference
     let _file_symbols = symbols_in_file(graph, path)?;
-    
+
     // Build map: entity_id -> symbol_id
     let mut entity_to_symbol_id: HashMap<i64, String> = HashMap::new();
     for entity_id in graph.files.backend.entity_ids()? {
-        if let Ok(node) = graph.files.backend.get_node(SnapshotId::current(), entity_id) {
+        if let Ok(node) = graph
+            .files
+            .backend
+            .get_node(SnapshotId::current(), entity_id)
+        {
             if node.kind == "Symbol" {
                 if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data) {
                     if let Some(sid) = symbol_node.symbol_id {
@@ -413,18 +417,26 @@ fn populate_cross_file_refs(
     // AND for passing to the reference extractor (needed for cross-file reference matching)
     let mut all_symbol_facts: Vec<crate::ingest::SymbolFact> = Vec::new();
     for entity_id in graph.files.backend.entity_ids()? {
-        if let Ok(node) = graph.files.backend.get_node(SnapshotId::current(), entity_id) {
+        if let Ok(node) = graph
+            .files
+            .backend
+            .get_node(SnapshotId::current(), entity_id)
+        {
             if node.kind == "Symbol" {
                 if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data.clone()) {
                     if let Some(name) = &symbol_node.name {
                         let file_path_str = node.file_path.as_deref().unwrap_or("");
-                        let fqn = symbol_node.fqn.clone()
+                        let fqn = symbol_node
+                            .fqn
+                            .clone()
                             .or(symbol_node.name.clone())
                             .unwrap_or_default();
                         all_symbol_facts.push(crate::ingest::SymbolFact {
                             file_path: PathBuf::from(file_path_str),
                             kind: crate::ingest::SymbolKind::Unknown,
-                            kind_normalized: symbol_node.kind_normalized.clone()
+                            kind_normalized: symbol_node
+                                .kind_normalized
+                                .clone()
                                 .unwrap_or(symbol_node.kind.clone()),
                             name: Some(name.clone()),
                             fqn: if fqn.is_empty() { None } else { Some(fqn) },
@@ -470,7 +482,6 @@ fn populate_cross_file_refs(
 
     // Store each reference in the side tables for efficient cross-file lookup
     for reference in &references {
-        
         // Find target symbol ID
         let target_symbol_id = symbol_id_to_id
             .get(&reference.referenced_symbol)
@@ -531,7 +542,10 @@ pub fn references_to_symbol(graph: &mut CodeGraph, symbol_id: i64) -> Result<Vec
 ///
 /// # Returns
 /// Vector of CrossFileRef for all references to the symbol
-pub fn cross_file_references_to(graph: &CodeGraph, symbol_fqn: &str) -> Result<Vec<crate::graph::schema::CrossFileRef>> {
+pub fn cross_file_references_to(
+    graph: &CodeGraph,
+    symbol_fqn: &str,
+) -> Result<Vec<crate::graph::schema::CrossFileRef>> {
     graph.side_tables.get_references_to(symbol_fqn)
 }
 
@@ -760,8 +774,6 @@ impl CodeGraph {
 
         Ok(results)
     }
-
-
 }
 
 /// Get all symbols matching a display FQN (ambiguity detection)
@@ -785,7 +797,7 @@ pub fn get_ambiguous_candidates(
     let entity_ids = graph.calls.backend.entity_ids()?;
     let snapshot = SnapshotId::current();
     let mut candidates = Vec::new();
-    
+
     for entity_id in entity_ids {
         if let Ok(node) = graph.calls.backend.get_node(snapshot, entity_id) {
             if node.kind == "Symbol" {
@@ -797,10 +809,10 @@ pub fn get_ambiguous_candidates(
             }
         }
     }
-    
+
     // Sort by ID for deterministic ordering (matches SQL ORDER BY id)
     candidates.sort_by_key(|(id, _)| *id);
-    
+
     Ok(candidates)
 }
 
@@ -868,11 +880,11 @@ pub fn collision_groups(
     // Use GraphBackend trait instead of direct SQL for V3 compatibility
     let entity_ids = graph.calls.backend.entity_ids()?;
     let snapshot = SnapshotId::current();
-    
+
     // Collect all symbols and group by field value
-    let mut groups: std::collections::HashMap<String, Vec<(i64, SymbolNode, Option<String>)>> = 
+    let mut groups: std::collections::HashMap<String, Vec<(i64, SymbolNode, Option<String>)>> =
         std::collections::HashMap::new();
-    
+
     for entity_id in entity_ids {
         if let Ok(node) = graph.calls.backend.get_node(snapshot, entity_id) {
             if node.kind == "Symbol" {
@@ -882,7 +894,7 @@ pub fn collision_groups(
                         CollisionField::DisplayFqn => symbol_node.display_fqn.clone(),
                         CollisionField::CanonicalFqn => symbol_node.canonical_fqn.clone(),
                     };
-                    
+
                     if let Some(value) = field_value {
                         groups.entry(value).or_default().push((
                             entity_id,
@@ -894,13 +906,13 @@ pub fn collision_groups(
             }
         }
     }
-    
+
     // Filter to only groups with count > 1, sort by count desc, then value asc
     let mut collision_groups: Vec<(String, Vec<(i64, SymbolNode, Option<String>)>)> = groups
         .into_iter()
         .filter(|(_, candidates)| candidates.len() > 1)
         .collect();
-    
+
     collision_groups.sort_by(|a, b| {
         let count_cmp = b.1.len().cmp(&a.1.len());
         if count_cmp != std::cmp::Ordering::Equal {
@@ -909,10 +921,10 @@ pub fn collision_groups(
             a.0.cmp(&b.0)
         }
     });
-    
+
     // Apply limit
     collision_groups.truncate(limit);
-    
+
     // Build CollisionGroup results
     let mut results = Vec::new();
     for (value, candidates) in collision_groups {
@@ -928,13 +940,13 @@ pub fn collision_groups(
                         let parts: Vec<&str> = fqn.split("::").collect();
                         if parts.len() >= 3 {
                             // Join all parts except first and last
-                            Some(parts[1..parts.len()-1].join("::"))
+                            Some(parts[1..parts.len() - 1].join("::"))
                         } else {
                             None
                         }
                     })
                 });
-                
+
                 CollisionCandidate {
                     entity_id,
                     symbol_id: symbol_node.symbol_id,
@@ -945,7 +957,7 @@ pub fn collision_groups(
                 }
             })
             .collect();
-        
+
         results.push(CollisionGroup {
             field: field.as_str().to_string(),
             value,
@@ -1002,7 +1014,8 @@ fn bar() {
     #[test]
     fn test_find_by_symbol_id_returns_none_for_nonexistent() {
         // Use persistent temp directory for V3 backend
-        let temp_dir = std::env::temp_dir().join(format!("magellan_query_test_{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("magellan_query_test_{}", std::process::id()));
         std::fs::create_dir_all(&temp_dir).unwrap();
         let db_path = temp_dir.join("test.db");
         let mut graph = crate::CodeGraph::open(&db_path).unwrap();
@@ -1023,7 +1036,8 @@ fn bar() {
     #[test]
     fn test_find_by_symbol_id_returns_symbol_when_found() {
         // Use persistent temp directory for V3 backend
-        let temp_dir = std::env::temp_dir().join(format!("magellan_query_test2_{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("magellan_query_test2_{}", std::process::id()));
         std::fs::create_dir_all(&temp_dir).unwrap();
         let db_path = temp_dir.join("test.db");
         let mut graph = crate::CodeGraph::open(&db_path).unwrap();
@@ -1068,7 +1082,8 @@ fn test_function() -> i32 {
     #[test]
     fn test_get_ambiguous_candidates_empty_for_no_match() {
         // Use persistent temp directory for V3 backend
-        let temp_dir = std::env::temp_dir().join(format!("magellan_query_test3_{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("magellan_query_test3_{}", std::process::id()));
         std::fs::create_dir_all(&temp_dir).unwrap();
         let db_path = temp_dir.join("test.db");
         let mut graph = crate::CodeGraph::open(&db_path).unwrap();
@@ -1088,7 +1103,8 @@ fn test_function() -> i32 {
     #[test]
     fn test_get_ambiguous_candidates_single_result() {
         // Use persistent temp directory for V3 backend
-        let temp_dir = std::env::temp_dir().join(format!("magellan_query_test4_{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("magellan_query_test4_{}", std::process::id()));
         std::fs::create_dir_all(&temp_dir).unwrap();
         let db_path = temp_dir.join("test.db");
         let mut graph = crate::CodeGraph::open(&db_path).unwrap();
@@ -1146,7 +1162,8 @@ fn test_function() -> i32 {
     #[test]
     fn test_get_ambiguous_candidates_multiple_results() {
         // Use persistent temp directory for V3 backend
-        let temp_dir = std::env::temp_dir().join(format!("magellan_query_test5_{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("magellan_query_test5_{}", std::process::id()));
         std::fs::create_dir_all(&temp_dir).unwrap();
         let db_path = temp_dir.join("test.db");
         let mut graph = crate::CodeGraph::open(&db_path).unwrap();
@@ -1213,7 +1230,8 @@ fn test_function() -> i32 {
     #[test]
     fn test_collision_groups_for_fqn() {
         // Use persistent temp directory for V3 backend
-        let temp_dir = std::env::temp_dir().join(format!("magellan_query_test6_{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("magellan_query_test6_{}", std::process::id()));
         std::fs::create_dir_all(&temp_dir).unwrap();
         let db_path = temp_dir.join("test.db");
         let mut graph = crate::CodeGraph::open(&db_path).unwrap();
@@ -1236,13 +1254,16 @@ fn test_function() -> i32 {
         let entity_ids = graph.files.backend.entity_ids().unwrap();
         let snapshot = SnapshotId::current();
         eprintln!("DEBUG: Total entities: {}", entity_ids.len());
-        
+
         for entity_id in entity_ids {
             if let Ok(node) = graph.files.backend.get_node(snapshot, entity_id) {
                 if node.kind == "Symbol" {
-                    if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data.clone()) {
-                        eprintln!("DEBUG: Symbol: name={:?}, canonical_fqn={:?}, display_fqn={:?}",
-                            symbol_node.name, symbol_node.canonical_fqn, symbol_node.display_fqn);
+                    if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data.clone())
+                    {
+                        eprintln!(
+                            "DEBUG: Symbol: name={:?}, canonical_fqn={:?}, display_fqn={:?}",
+                            symbol_node.name, symbol_node.canonical_fqn, symbol_node.display_fqn
+                        );
                     }
                 }
             }

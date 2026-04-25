@@ -12,5 +12,5 @@
 pub mod analyzer;
 pub mod enrich;
 
-pub use analyzer::{AnalyzerKind, AnalyzerResult, detect_available_analyzers};
+pub use analyzer::{detect_available_analyzers, AnalyzerKind, AnalyzerResult};
 pub use enrich::{enrich_symbols, EnrichConfig, EnrichResult};

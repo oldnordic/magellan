@@ -457,7 +457,7 @@ impl Parser {
                 // Extract module name and push to scope
                 if let Some(name) = Self::extract_name_static(node, source) {
                     scope_stack.push(&name);
-                    
+
                     // Create symbol fact for the module directly (extract_symbol_with_fqn_static skips mod_item)
                     let symbol_kind = SymbolKind::Module;
                     let normalized_kind = symbol_kind.normalized_key().to_string();
@@ -469,7 +469,7 @@ impl Parser {
                     );
                     let canonical_fqn = builder.canonical(scope_stack, symbol_kind.clone(), &name);
                     let display_fqn = builder.display(scope_stack, symbol_kind.clone(), &name);
-                    
+
                     facts.push(SymbolFact {
                         file_path: file_path.clone(),
                         kind: symbol_kind,
@@ -485,7 +485,7 @@ impl Parser {
                         end_line: node.end_position().row + 1,
                         end_col: node.end_position().column,
                     });
-                    
+
                     // Recurse into children (they're in this module's scope)
                     let mut cursor = node.walk();
                     for child in node.children(&mut cursor) {
@@ -526,7 +526,7 @@ impl Parser {
             "trait_item" => {
                 if let Some(name) = Self::extract_name_static(node, source) {
                     scope_stack.push(&name);
-                    
+
                     // Create symbol fact for the trait directly (extract_symbol_with_fqn_static skips trait_item)
                     let symbol_kind = SymbolKind::Interface; // Traits map to Interface
                     let normalized_kind = symbol_kind.normalized_key().to_string();
@@ -538,7 +538,7 @@ impl Parser {
                     );
                     let canonical_fqn = builder.canonical(scope_stack, symbol_kind.clone(), &name);
                     let display_fqn = builder.display(scope_stack, symbol_kind.clone(), &name);
-                    
+
                     facts.push(SymbolFact {
                         file_path: file_path.clone(),
                         kind: symbol_kind,
@@ -554,7 +554,7 @@ impl Parser {
                         end_line: node.end_position().row + 1,
                         end_col: node.end_position().column,
                     });
-                    
+
                     let mut cursor = node.walk();
                     for child in node.children(&mut cursor) {
                         Self::walk_tree_with_scope_static(
@@ -704,7 +704,7 @@ impl Parser {
                 // Extract module name and push to scope
                 if let Some(name) = self.extract_name(node, source) {
                     scope_stack.push(&name);
-                    
+
                     // Create symbol fact for the module directly (extract_symbol_with_fqn skips mod_item)
                     let symbol_kind = SymbolKind::Module;
                     let normalized_kind = symbol_kind.normalized_key().to_string();
@@ -716,7 +716,7 @@ impl Parser {
                     );
                     let canonical_fqn = builder.canonical(scope_stack, symbol_kind.clone(), &name);
                     let display_fqn = builder.display(scope_stack, symbol_kind.clone(), &name);
-                    
+
                     facts.push(SymbolFact {
                         file_path: file_path.clone(),
                         kind: symbol_kind,
@@ -732,7 +732,7 @@ impl Parser {
                         end_line: node.end_position().row + 1,
                         end_col: node.end_position().column,
                     });
-                    
+
                     // Recurse into children (they're in this module's scope)
                     let mut cursor = node.walk();
                     for child in node.children(&mut cursor) {
@@ -773,7 +773,7 @@ impl Parser {
             "trait_item" => {
                 if let Some(name) = self.extract_name(node, source) {
                     scope_stack.push(&name);
-                    
+
                     // Create symbol fact for the trait directly (extract_symbol_with_fqn skips trait_item)
                     let symbol_kind = SymbolKind::Interface; // Traits map to Interface
                     let normalized_kind = symbol_kind.normalized_key().to_string();
@@ -785,7 +785,7 @@ impl Parser {
                     );
                     let canonical_fqn = builder.canonical(scope_stack, symbol_kind.clone(), &name);
                     let display_fqn = builder.display(scope_stack, symbol_kind.clone(), &name);
-                    
+
                     facts.push(SymbolFact {
                         file_path: file_path.clone(),
                         kind: symbol_kind,
@@ -801,7 +801,7 @@ impl Parser {
                         end_line: node.end_position().row + 1,
                         end_col: node.end_position().column,
                     });
-                    
+
                     let mut cursor = node.walk();
                     for child in node.children(&mut cursor) {
                         self.walk_tree_with_scope(

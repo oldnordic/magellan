@@ -530,8 +530,13 @@ fn extract_blocks_from_node_with_fallthrough(
                     // Skip "try" keyword, process the expression being tried
                     if child.kind() != "try" {
                         extract_blocks_from_node_with_fallthrough(
-                            &child, function_id, source, blocks, edges,
-                            &mut Some(try_idx), loop_header,
+                            &child,
+                            function_id,
+                            source,
+                            blocks,
+                            edges,
+                            &mut Some(try_idx),
+                            loop_header,
                         );
                     }
                     if !cursor.goto_next_sibling() {
@@ -641,21 +646,38 @@ fn extract_blocks_from_node_with_fallthrough(
             match operator {
                 Some("&&") => {
                     extract_short_circuit_blocks(
-                        node, function_id, source, blocks, edges,
-                        previous_block_idx, loop_header, true,
+                        node,
+                        function_id,
+                        source,
+                        blocks,
+                        edges,
+                        previous_block_idx,
+                        loop_header,
+                        true,
                     );
                 }
                 Some("||") => {
                     extract_short_circuit_blocks(
-                        node, function_id, source, blocks, edges,
-                        previous_block_idx, loop_header, false,
+                        node,
+                        function_id,
+                        source,
+                        blocks,
+                        edges,
+                        previous_block_idx,
+                        loop_header,
+                        false,
                     );
                 }
                 _ => {
                     // Other binary operators (+, -, *, etc.) - no control flow
                     extract_default_blocks(
-                        node, function_id, source, blocks, edges,
-                        previous_block_idx, loop_header,
+                        node,
+                        function_id,
+                        source,
+                        blocks,
+                        edges,
+                        previous_block_idx,
+                        loop_header,
                     );
                 }
             }
@@ -749,7 +771,9 @@ fn extract_short_circuit_blocks(
 
     // Create block for the left operand (the condition)
     let left_block = create_block_from_node(
-        node, function_id, source,
+        node,
+        function_id,
+        source,
         if is_and { "and" } else { "or" },
         "conditional",
     );
@@ -767,8 +791,13 @@ fn extract_short_circuit_blocks(
     // Process left operand
     if let Some(left_node) = left {
         extract_blocks_from_node_with_fallthrough(
-            &left_node, function_id, source, blocks, edges,
-            &mut Some(left_idx), loop_header,
+            &left_node,
+            function_id,
+            source,
+            blocks,
+            edges,
+            &mut Some(left_idx),
+            loop_header,
         );
     }
 
@@ -797,7 +826,11 @@ fn extract_short_circuit_blocks(
     // For ||: true branch skips to merge, false branch goes to right operand
     if let Some(right_node) = right {
         let right_block = create_block_from_node(
-            &right_node, function_id, source, "short_circuit_rhs", "fallthrough",
+            &right_node,
+            function_id,
+            source,
+            "short_circuit_rhs",
+            "fallthrough",
         );
         let right_idx = blocks.len();
         blocks.push(right_block);
@@ -827,8 +860,13 @@ fn extract_short_circuit_blocks(
         // Process right operand
         let mut right_last_idx = Some(right_idx);
         extract_blocks_from_node_with_fallthrough(
-            &right_node, function_id, source, blocks, edges,
-            &mut right_last_idx, loop_header,
+            &right_node,
+            function_id,
+            source,
+            blocks,
+            edges,
+            &mut right_last_idx,
+            loop_header,
         );
 
         // Fallthrough from right branch to merge
@@ -880,8 +918,13 @@ fn extract_default_blocks(
             let child = cursor.node();
             if child.is_named() {
                 extract_blocks_from_node_with_fallthrough(
-                    &child, function_id, source, blocks, edges,
-                    &mut Some(idx), loop_header,
+                    &child,
+                    function_id,
+                    source,
+                    blocks,
+                    edges,
+                    &mut Some(idx),
+                    loop_header,
                 );
             }
             if !cursor.goto_next_sibling() {
@@ -1279,7 +1322,8 @@ fn extract_match_blocks_with_fallthrough(
 
     for arm in &arm_nodes {
         // Check if arm has a guard: look inside match_pattern for "if" token
-        let has_guard = arm.child(0)
+        let has_guard = arm
+            .child(0)
             .filter(|c| c.kind() == "match_pattern")
             .map(|pat| {
                 let mut cursor = pat.walk();
@@ -1329,8 +1373,13 @@ fn extract_match_blocks_with_fallthrough(
             // Malformed AST: match arm has no children
             let arm_start_idx = blocks.len();
             extract_blocks_from_node_with_fallthrough(
-                arm, function_id, source, blocks, edges,
-                &mut None, None,
+                arm,
+                function_id,
+                source,
+                blocks,
+                edges,
+                &mut None,
+                None,
             );
             let arm_end_idx = blocks.len().saturating_sub(1);
             arm_indices.push((arm_start_idx, arm_end_idx));
@@ -1365,8 +1414,13 @@ fn extract_match_blocks_with_fallthrough(
             // Malformed AST: guard keyword found but no expression
             let arm_start_idx = blocks.len();
             extract_blocks_from_node_with_fallthrough(
-                arm, function_id, source, blocks, edges,
-                &mut None, None,
+                arm,
+                function_id,
+                source,
+                blocks,
+                edges,
+                &mut None,
+                None,
             );
             let arm_end_idx = blocks.len().saturating_sub(1);
             arm_indices.push((arm_start_idx, arm_end_idx));
@@ -1381,9 +1435,8 @@ fn extract_match_blocks_with_fallthrough(
         };
 
         // Create guard block
-        let guard_block = create_block_from_node(
-            &guard, function_id, source, "match_guard", "conditional"
-        );
+        let guard_block =
+            create_block_from_node(&guard, function_id, source, "match_guard", "conditional");
         let guard_idx = blocks.len();
         blocks.push(guard_block);
         guard_indices.push(Some(guard_idx));
@@ -1574,7 +1627,10 @@ fn simple() -> i32 {
         let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
 
         assert_eq!(result.function_id, 1);
-        assert!(!result.blocks.is_empty(), "Should have at least entry block");
+        assert!(
+            !result.blocks.is_empty(),
+            "Should have at least entry block"
+        );
     }
 
     #[test]
@@ -1681,13 +1737,21 @@ fn test() -> Result<i32, ()> {
         let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
 
         let try_blocks: Vec<_> = result.blocks.iter().filter(|b| b.kind == "try").collect();
-        assert!(!try_blocks.is_empty(), "Should have try blocks for ? operator");
+        assert!(
+            !try_blocks.is_empty(),
+            "Should have try blocks for ? operator"
+        );
 
         // Should have a return edge (error path)
-        let return_edges: Vec<_> = result.edges.iter()
+        let return_edges: Vec<_> = result
+            .edges
+            .iter()
             .filter(|e| matches!(e.edge_type, CfgEdgeType::Return))
             .collect();
-        assert!(!return_edges.is_empty(), "Should have return edge for error path");
+        assert!(
+            !return_edges.is_empty(),
+            "Should have return edge for error path"
+        );
     }
 
     #[test]
@@ -1714,11 +1778,18 @@ fn test() {
 }
 "#;
         let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
-        let closure_blocks: Vec<_> = result.blocks.iter().filter(|b| b.kind == "closure").collect();
+        let closure_blocks: Vec<_> = result
+            .blocks
+            .iter()
+            .filter(|b| b.kind == "closure")
+            .collect();
         assert!(!closure_blocks.is_empty(), "Should have closure blocks");
         // Closure body should have nested if
         let if_blocks: Vec<_> = result.blocks.iter().filter(|b| b.kind == "if").collect();
-        assert!(!if_blocks.is_empty(), "Closure body should contain if blocks");
+        assert!(
+            !if_blocks.is_empty(),
+            "Closure body should contain if blocks"
+        );
     }
 
     #[test]
@@ -1754,28 +1825,59 @@ fn test() -> bool {
         assert!(!and_blocks.is_empty(), "Should have && blocks");
         let and_idx = result.blocks.iter().position(|b| b.kind == "and").unwrap();
 
-        let rhs_blocks: Vec<_> = result.blocks.iter().filter(|b| b.kind == "short_circuit_rhs").collect();
+        let rhs_blocks: Vec<_> = result
+            .blocks
+            .iter()
+            .filter(|b| b.kind == "short_circuit_rhs")
+            .collect();
         assert!(!rhs_blocks.is_empty(), "Should have rhs blocks");
-        let rhs_idx = result.blocks.iter().position(|b| b.kind == "short_circuit_rhs").unwrap();
+        let rhs_idx = result
+            .blocks
+            .iter()
+            .position(|b| b.kind == "short_circuit_rhs")
+            .unwrap();
 
         // Should have ConditionalTrue edge from and to rhs
-        let true_edges: Vec<_> = result.edges.iter()
-            .filter(|e| e.source_idx == and_idx && e.target_idx == rhs_idx && e.edge_type == CfgEdgeType::ConditionalTrue)
+        let true_edges: Vec<_> = result
+            .edges
+            .iter()
+            .filter(|e| {
+                e.source_idx == and_idx
+                    && e.target_idx == rhs_idx
+                    && e.edge_type == CfgEdgeType::ConditionalTrue
+            })
             .collect();
-        assert!(!true_edges.is_empty(), "Should have ConditionalTrue edge from and to rhs");
+        assert!(
+            !true_edges.is_empty(),
+            "Should have ConditionalTrue edge from and to rhs"
+        );
 
         // Should have ConditionalFalse edge from and to merge (short-circuit)
-        let false_edges: Vec<_> = result.edges.iter()
+        let false_edges: Vec<_> = result
+            .edges
+            .iter()
             .filter(|e| e.source_idx == and_idx && e.edge_type == CfgEdgeType::ConditionalFalse)
             .collect();
-        assert!(!false_edges.is_empty(), "Should have ConditionalFalse edge for short-circuit");
+        assert!(
+            !false_edges.is_empty(),
+            "Should have ConditionalFalse edge for short-circuit"
+        );
 
         // Should have fallthrough from right branch's last block to merge
-        let merge_idx = result.blocks.iter().position(|b| b.kind == "merge").unwrap();
-        let rhs_to_merge: Vec<_> = result.edges.iter()
+        let merge_idx = result
+            .blocks
+            .iter()
+            .position(|b| b.kind == "merge")
+            .unwrap();
+        let rhs_to_merge: Vec<_> = result
+            .edges
+            .iter()
             .filter(|e| e.target_idx == merge_idx && e.edge_type == CfgEdgeType::Fallthrough)
             .collect();
-        assert!(!rhs_to_merge.is_empty(), "Should have fallthrough from right branch to merge");
+        assert!(
+            !rhs_to_merge.is_empty(),
+            "Should have fallthrough from right branch to merge"
+        );
     }
 
     #[test]
@@ -1793,21 +1895,43 @@ fn test() -> bool {
         assert!(!or_blocks.is_empty(), "Should have || blocks");
         let or_idx = result.blocks.iter().position(|b| b.kind == "or").unwrap();
 
-        let rhs_blocks: Vec<_> = result.blocks.iter().filter(|b| b.kind == "short_circuit_rhs").collect();
+        let rhs_blocks: Vec<_> = result
+            .blocks
+            .iter()
+            .filter(|b| b.kind == "short_circuit_rhs")
+            .collect();
         assert!(!rhs_blocks.is_empty(), "Should have rhs blocks");
-        let rhs_idx = result.blocks.iter().position(|b| b.kind == "short_circuit_rhs").unwrap();
+        let rhs_idx = result
+            .blocks
+            .iter()
+            .position(|b| b.kind == "short_circuit_rhs")
+            .unwrap();
 
         // Should have ConditionalFalse edge from or to rhs
-        let false_edges: Vec<_> = result.edges.iter()
-            .filter(|e| e.source_idx == or_idx && e.target_idx == rhs_idx && e.edge_type == CfgEdgeType::ConditionalFalse)
+        let false_edges: Vec<_> = result
+            .edges
+            .iter()
+            .filter(|e| {
+                e.source_idx == or_idx
+                    && e.target_idx == rhs_idx
+                    && e.edge_type == CfgEdgeType::ConditionalFalse
+            })
             .collect();
-        assert!(!false_edges.is_empty(), "Should have ConditionalFalse edge from or to rhs");
+        assert!(
+            !false_edges.is_empty(),
+            "Should have ConditionalFalse edge from or to rhs"
+        );
 
         // Should have ConditionalTrue edge from or to merge (short-circuit)
-        let true_edges: Vec<_> = result.edges.iter()
+        let true_edges: Vec<_> = result
+            .edges
+            .iter()
             .filter(|e| e.source_idx == or_idx && e.edge_type == CfgEdgeType::ConditionalTrue)
             .collect();
-        assert!(!true_edges.is_empty(), "Should have ConditionalTrue edge for short-circuit");
+        assert!(
+            !true_edges.is_empty(),
+            "Should have ConditionalTrue edge for short-circuit"
+        );
     }
 
     #[test]
@@ -1820,28 +1944,61 @@ fn test() -> bool {
         let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
 
         let and_blocks: Vec<_> = result.blocks.iter().filter(|b| b.kind == "and").collect();
-        assert_eq!(and_blocks.len(), 2, "Should have two and blocks for chained &&");
+        assert_eq!(
+            and_blocks.len(),
+            2,
+            "Should have two and blocks for chained &&"
+        );
 
         // Verify no dead ends - every conditional should have at least 2 outgoing edges
-        for (idx, block) in result.blocks.iter().enumerate().filter(|(_, b)| b.kind == "and" || b.kind == "or") {
+        for (idx, block) in result
+            .blocks
+            .iter()
+            .enumerate()
+            .filter(|(_, b)| b.kind == "and" || b.kind == "or")
+        {
             let outgoing = result.edges.iter().filter(|e| e.source_idx == idx).count();
-            assert!(outgoing >= 2, "Block {} ({}) should have at least 2 outgoing edges, got {}", idx, block.kind, outgoing);
+            assert!(
+                outgoing >= 2,
+                "Block {} ({}) should have at least 2 outgoing edges, got {}",
+                idx,
+                block.kind,
+                outgoing
+            );
         }
 
         // Verify the chain is connected: first and's merge should connect to second and
         let _first_and_idx = result.blocks.iter().position(|b| b.kind == "and").unwrap();
-        let merge_indices: Vec<usize> = result.blocks.iter().enumerate()
+        let merge_indices: Vec<usize> = result
+            .blocks
+            .iter()
+            .enumerate()
             .filter(|(_, b)| b.kind == "merge")
             .map(|(i, _)| i)
             .collect();
         assert!(!merge_indices.is_empty(), "Should have merge blocks");
 
         // Each and block should have ConditionalTrue and ConditionalFalse outgoing edges
-        for (idx, _block) in result.blocks.iter().enumerate().filter(|(_, b)| b.kind == "and" || b.kind == "or") {
-            let cond_true = result.edges.iter().any(|e| e.source_idx == idx && e.edge_type == CfgEdgeType::ConditionalTrue);
-            let cond_false = result.edges.iter().any(|e| e.source_idx == idx && e.edge_type == CfgEdgeType::ConditionalFalse);
+        for (idx, _block) in result
+            .blocks
+            .iter()
+            .enumerate()
+            .filter(|(_, b)| b.kind == "and" || b.kind == "or")
+        {
+            let cond_true = result
+                .edges
+                .iter()
+                .any(|e| e.source_idx == idx && e.edge_type == CfgEdgeType::ConditionalTrue);
+            let cond_false = result
+                .edges
+                .iter()
+                .any(|e| e.source_idx == idx && e.edge_type == CfgEdgeType::ConditionalFalse);
             assert!(cond_true, "Block {} should have ConditionalTrue edge", idx);
-            assert!(cond_false, "Block {} should have ConditionalFalse edge", idx);
+            assert!(
+                cond_false,
+                "Block {} should have ConditionalFalse edge",
+                idx
+            );
         }
     }
 
@@ -1859,25 +2016,50 @@ fn test_match_guard(x: Option<i32>) -> i32 {
         let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
 
         // Should have match_guard blocks
-        let guard_blocks: Vec<_> = result.blocks.iter().filter(|b| b.kind == "match_guard").collect();
-        assert_eq!(guard_blocks.len(), 1, "Should have exactly one match_guard block");
-        let guard_idx = result.blocks.iter().position(|b| b.kind == "match_guard").unwrap();
+        let guard_blocks: Vec<_> = result
+            .blocks
+            .iter()
+            .filter(|b| b.kind == "match_guard")
+            .collect();
+        assert_eq!(
+            guard_blocks.len(),
+            1,
+            "Should have exactly one match_guard block"
+        );
+        let guard_idx = result
+            .blocks
+            .iter()
+            .position(|b| b.kind == "match_guard")
+            .unwrap();
 
         // Guard block should have ConditionalTrue edge to arm body
-        let guard_true_edges: Vec<_> = result.edges.iter()
+        let guard_true_edges: Vec<_> = result
+            .edges
+            .iter()
             .filter(|e| e.source_idx == guard_idx && e.edge_type == CfgEdgeType::ConditionalTrue)
             .collect();
-        assert!(!guard_true_edges.is_empty(), "Guard should have ConditionalTrue edge to body");
+        assert!(
+            !guard_true_edges.is_empty(),
+            "Guard should have ConditionalTrue edge to body"
+        );
 
         // Guard block should have ConditionalFalse edge to next arm
-        let guard_false_edges: Vec<_> = result.edges.iter()
+        let guard_false_edges: Vec<_> = result
+            .edges
+            .iter()
             .filter(|e| e.source_idx == guard_idx && e.edge_type == CfgEdgeType::ConditionalFalse)
             .collect();
-        assert!(!guard_false_edges.is_empty(), "Guard should have ConditionalFalse edge to next arm");
+        assert!(
+            !guard_false_edges.is_empty(),
+            "Guard should have ConditionalFalse edge to next arm"
+        );
 
         // The false edge should point to a block after the guard (next arm entry)
         let false_target = guard_false_edges[0].target_idx;
-        assert!(false_target > guard_idx, "Guard false edge should point to a later block");
+        assert!(
+            false_target > guard_idx,
+            "Guard false edge should point to a later block"
+        );
     }
 
     #[test]
@@ -1895,10 +2077,17 @@ fn test_chain(x: Option<i32>) -> i32 {
         let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
 
         // Should have two match_guard blocks
-        let guard_blocks: Vec<_> = result.blocks.iter().filter(|b| b.kind == "match_guard").collect();
+        let guard_blocks: Vec<_> = result
+            .blocks
+            .iter()
+            .filter(|b| b.kind == "match_guard")
+            .collect();
         assert_eq!(guard_blocks.len(), 2, "Should have two match_guard blocks");
 
-        let guard_indices: Vec<usize> = result.blocks.iter().enumerate()
+        let guard_indices: Vec<usize> = result
+            .blocks
+            .iter()
+            .enumerate()
             .filter(|(_, b)| b.kind == "match_guard")
             .map(|(i, _)| i)
             .collect();
@@ -1906,18 +2095,32 @@ fn test_chain(x: Option<i32>) -> i32 {
         // First guard false should point to second guard
         let first_guard = guard_indices[0];
         let second_guard = guard_indices[1];
-        let first_false: Vec<_> = result.edges.iter()
+        let first_false: Vec<_> = result
+            .edges
+            .iter()
             .filter(|e| e.source_idx == first_guard && e.edge_type == CfgEdgeType::ConditionalFalse)
             .collect();
-        assert!(!first_false.is_empty(), "First guard should have ConditionalFalse edge");
-        assert_eq!(first_false[0].target_idx, second_guard,
-            "First guard false should fall through to second guard");
+        assert!(
+            !first_false.is_empty(),
+            "First guard should have ConditionalFalse edge"
+        );
+        assert_eq!(
+            first_false[0].target_idx, second_guard,
+            "First guard false should fall through to second guard"
+        );
 
         // Second guard false should point to an unguarded arm (not another guard)
-        let second_false: Vec<_> = result.edges.iter()
-            .filter(|e| e.source_idx == second_guard && e.edge_type == CfgEdgeType::ConditionalFalse)
+        let second_false: Vec<_> = result
+            .edges
+            .iter()
+            .filter(|e| {
+                e.source_idx == second_guard && e.edge_type == CfgEdgeType::ConditionalFalse
+            })
             .collect();
-        assert!(!second_false.is_empty(), "Second guard should have ConditionalFalse edge");
+        assert!(
+            !second_false.is_empty(),
+            "Second guard should have ConditionalFalse edge"
+        );
         assert!(
             !guard_indices.contains(&second_false[0].target_idx),
             "Second guard false should point to unguarded arm, not another guard"
@@ -1936,17 +2139,33 @@ fn test_last(x: Option<i32>) -> i32 {
 "#;
         let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
 
-        let guard_blocks: Vec<_> = result.blocks.iter().filter(|b| b.kind == "match_guard").collect();
+        let guard_blocks: Vec<_> = result
+            .blocks
+            .iter()
+            .filter(|b| b.kind == "match_guard")
+            .collect();
         assert_eq!(guard_blocks.len(), 1, "Should have one match_guard block");
-        let guard_idx = result.blocks.iter().position(|b| b.kind == "match_guard").unwrap();
+        let guard_idx = result
+            .blocks
+            .iter()
+            .position(|b| b.kind == "match_guard")
+            .unwrap();
 
         // Last guard false should point to merge block
-        let guard_false: Vec<_> = result.edges.iter()
+        let guard_false: Vec<_> = result
+            .edges
+            .iter()
             .filter(|e| e.source_idx == guard_idx && e.edge_type == CfgEdgeType::ConditionalFalse)
             .collect();
-        assert!(!guard_false.is_empty(), "Last guard should have ConditionalFalse edge");
+        assert!(
+            !guard_false.is_empty(),
+            "Last guard should have ConditionalFalse edge"
+        );
 
-        let merge_indices: Vec<usize> = result.blocks.iter().enumerate()
+        let merge_indices: Vec<usize> = result
+            .blocks
+            .iter()
+            .enumerate()
             .filter(|(_, b)| b.kind == "merge")
             .map(|(i, _)| i)
             .collect();

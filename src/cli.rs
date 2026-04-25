@@ -2947,7 +2947,6 @@ fn parse_slice_args(args: &[String]) -> Result<Command> {
     })
 }
 
-
 /// Convenience wrapper around parse_args_impl that uses the version module
 pub fn parse_args() -> Result<Command> {
     parse_args_impl(|| {

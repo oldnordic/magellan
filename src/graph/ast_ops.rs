@@ -23,7 +23,7 @@ impl CodeGraph {
         // Find file_id from file_path
         // Note: file_index lookup doesn't require &mut self since it's cached
         let file_id = self.files.file_index.get(file_path).copied();
-        
+
         match file_id {
             Some(id) => {
                 let nodes = self.side_tables.get_ast_nodes_by_file(id.as_i64())?;
@@ -59,23 +59,23 @@ impl CodeGraph {
     ) -> Result<Option<AstNode>> {
         // Get all nodes and find the smallest one containing the position
         let all_nodes = self.side_tables.get_all_ast_nodes()?;
-        
+
         // Filter nodes where position is within [byte_start, byte_end)
         let containing_nodes: Vec<_> = all_nodes
             .into_iter()
             .filter(|n| n.byte_start <= position && position < n.byte_end)
             .collect();
-        
+
         if containing_nodes.is_empty() {
             return Ok(None);
         }
-        
+
         // Find the smallest node (most specific match)
         // The node with the smallest span (byte_end - byte_start)
         let smallest = containing_nodes
             .into_iter()
             .min_by_key(|n| n.byte_end - n.byte_start);
-        
+
         Ok(smallest)
     }
 
@@ -97,14 +97,17 @@ impl CodeGraph {
     ///
     /// # Returns
     /// Vector of root-level AstNode structs
-    /// 
+    ///
     /// # Note
     /// This operation requires scanning all nodes to find those without parents.
     /// For V3 backend, this returns empty until prefix scan is implemented.
     pub fn get_ast_roots(&self) -> Result<Vec<AstNode>> {
         // Get all nodes and filter for roots (parent_id IS NULL)
         let all_nodes = self.side_tables.get_all_ast_nodes()?;
-        Ok(all_nodes.into_iter().filter(|n| n.parent_id.is_none()).collect())
+        Ok(all_nodes
+            .into_iter()
+            .filter(|n| n.parent_id.is_none())
+            .collect())
     }
 
     /// Count all AST nodes in the database
@@ -136,7 +139,8 @@ mod tests {
                     (2, 1, 'block', 10, 90),
                     (3, 2, 'if_expression', 20, 80)",
             [],
-        ).unwrap();
+        )
+        .unwrap();
 
         // Get children of node 1 (should have node 2)
         let children = graph.get_ast_children(1).unwrap();
@@ -153,11 +157,12 @@ mod tests {
     #[cfg(feature = "native-v3")]
     fn test_get_ast_children_v3() {
         // V3 backend - just verify the function doesn't panic
-        let temp_dir = std::env::temp_dir().join(format!("magellan_ast_test2_{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("magellan_ast_test2_{}", std::process::id()));
         std::fs::create_dir_all(&temp_dir).unwrap();
         let db_path = temp_dir.join("test.db");
         let graph = CodeGraph::open(&db_path).unwrap();
-        
+
         let _children = graph.get_ast_children(1).unwrap();
     }
 
@@ -175,7 +180,8 @@ mod tests {
              VALUES (1, NULL, 'block', 0, 100),
                     (2, NULL, 'if_expression', 50, 100)",
             [],
-        ).unwrap();
+        )
+        .unwrap();
 
         // Position 25 should match block (0-100)
         let node = graph.get_ast_node_at_position("test.rs", 25).unwrap();
@@ -192,11 +198,12 @@ mod tests {
     #[cfg(feature = "native-v3")]
     fn test_get_ast_node_at_position_v3() {
         // V3 backend - just verify the function doesn't panic
-        let temp_dir = std::env::temp_dir().join(format!("magellan_ast_test3_{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("magellan_ast_test3_{}", std::process::id()));
         std::fs::create_dir_all(&temp_dir).unwrap();
         let db_path = temp_dir.join("test.db");
         let graph = CodeGraph::open(&db_path).unwrap();
-        
+
         let _node = graph.get_ast_node_at_position("test.rs", 25).unwrap();
     }
 
@@ -215,7 +222,8 @@ mod tests {
                     (2, NULL, 'block', 100, 200),
                     (3, NULL, 'if_expression', 200, 300)",
             [],
-        ).unwrap();
+        )
+        .unwrap();
 
         let if_nodes = graph.get_ast_nodes_by_kind("if_expression").unwrap();
         assert_eq!(if_nodes.len(), 2);
@@ -228,11 +236,12 @@ mod tests {
     #[cfg(feature = "native-v3")]
     fn test_get_ast_nodes_by_kind_v3() {
         // V3 backend - just verify the function doesn't panic
-        let temp_dir = std::env::temp_dir().join(format!("magellan_ast_test4_{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("magellan_ast_test4_{}", std::process::id()));
         std::fs::create_dir_all(&temp_dir).unwrap();
         let db_path = temp_dir.join("test.db");
         let graph = CodeGraph::open(&db_path).unwrap();
-        
+
         let _nodes = graph.get_ast_nodes_by_kind("if_expression").unwrap();
     }
 
@@ -250,16 +259,18 @@ mod tests {
             "INSERT INTO ast_nodes (kind, byte_start, byte_end)
              VALUES ('block', 0, 100), ('if_expression', 100, 200)",
             [],
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(graph.count_ast_nodes().unwrap(), 2);
     }
-    
+
     #[test]
     #[cfg(feature = "native-v3")]
     fn test_count_ast_nodes_v3() {
         // V3 backend uses KV store for AST nodes - test basic functionality
-        let temp_dir = std::env::temp_dir().join(format!("magellan_ast_test_{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("magellan_ast_test_{}", std::process::id()));
         std::fs::create_dir_all(&temp_dir).unwrap();
         let db_path = temp_dir.join("test.db");
         let graph = CodeGraph::open(&db_path).unwrap();

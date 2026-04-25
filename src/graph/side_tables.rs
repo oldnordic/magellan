@@ -28,11 +28,11 @@ pub use crate::graph::metrics::{FileMetrics, SymbolMetrics};
 /// - Code chunks storage
 /// - File/symbol metrics
 /// - Execution logging
-/// 
+///
 /// This trait is object-safe and can be used with `Box<dyn SideTables>`.
 pub trait SideTables: Send + Sync {
     // ===== Execution Log Methods =====
-    
+
     /// Start a new execution log entry
     fn start_execution(
         &self,
@@ -42,7 +42,7 @@ pub trait SideTables: Send + Sync {
         root: Option<&str>,
         db_path: &str,
     ) -> Result<i64>;
-    
+
     /// Finish an execution log entry
     fn finish_execution(
         &self,
@@ -53,32 +53,32 @@ pub trait SideTables: Send + Sync {
         symbols_indexed: usize,
         references_indexed: usize,
     ) -> Result<()>;
-    
+
     /// Get an execution record by execution_id
     fn get_execution(&self, execution_id: &str) -> Result<Option<ExecutionRecord>>;
-    
+
     /// List all executions, ordered by most recent first
     fn list_executions(&self, limit: Option<usize>) -> Result<Vec<ExecutionRecord>>;
-    
+
     // ===== File Metrics Methods =====
-    
+
     /// Store file metrics
     fn store_file_metrics(&self, metrics: &FileMetrics) -> Result<()>;
-    
+
     /// Get file metrics by file path
     fn get_file_metrics(&self, file_path: &str) -> Result<Option<FileMetrics>>;
-    
+
     // ===== Symbol Metrics Methods =====
-    
+
     /// Store symbol metrics
     fn store_symbol_metrics(&self, metrics: &SymbolMetrics) -> Result<()>;
-    
+
     /// Get symbol metrics by symbol_id
     fn get_symbol_metrics(&self, symbol_id: i64) -> Result<Option<SymbolMetrics>>;
-    
+
     /// Delete all metrics for a file
     fn delete_metrics_for_file(&self, file_path: &str) -> Result<usize>;
-    
+
     /// Get hotspots (files with highest complexity scores)
     fn get_hotspots(
         &self,
@@ -87,15 +87,15 @@ pub trait SideTables: Send + Sync {
         min_fan_in: Option<i64>,
         min_fan_out: Option<i64>,
     ) -> Result<Vec<FileMetrics>>;
-    
+
     // ===== Code Chunk Methods =====
-    
+
     /// Store a code chunk
     fn store_chunk(&self, chunk: &CodeChunk) -> Result<i64>;
-    
+
     /// Get a code chunk by ID
     fn get_chunk(&self, chunk_id: i64) -> Result<Option<CodeChunk>>;
-    
+
     /// Get a code chunk by file path and byte span
     fn get_chunk_by_span(
         &self,
@@ -103,25 +103,25 @@ pub trait SideTables: Send + Sync {
         byte_start: usize,
         byte_end: usize,
     ) -> Result<Option<CodeChunk>>;
-    
+
     /// Get all chunks for a file
     fn get_chunks_for_file(&self, file_path: &str) -> Result<Vec<CodeChunk>>;
-    
+
     /// Count chunks for a file
     fn count_chunks_for_file(&self, file_path: &str) -> Result<usize>;
-    
+
     /// Delete all chunks for a file
     fn delete_chunks_for_file(&self, file_path: &str) -> Result<usize>;
-    
+
     /// Get chunks by symbol name
     fn get_chunks_by_symbol(&self, file_path: &str, symbol_name: &str) -> Result<Vec<CodeChunk>>;
-    
+
     /// Get all chunks
     fn get_all_chunks(&self) -> Result<Vec<CodeChunk>>;
-    
+
     /// Count all chunks
     fn count_chunks(&self) -> Result<usize>;
-    
+
     // ===== AST Node Methods =====
 
     /// Store an AST node, return node ID
@@ -161,22 +161,22 @@ pub trait SideTables: Send + Sync {
 
     /// Get all AST nodes for a file
     fn get_ast_nodes_by_file(&self, file_id: i64) -> Result<Vec<crate::graph::AstNode>>;
-    
+
     /// Get all AST nodes (for finding roots)
     fn get_all_ast_nodes(&self) -> Result<Vec<crate::graph::AstNode>>;
-    
+
     /// Get AST nodes by kind (e.g., "if_expression")
     fn get_ast_nodes_by_kind(&self, kind: &str) -> Result<Vec<crate::graph::AstNode>>;
-    
+
     /// Get children of an AST node
     fn get_ast_children(&self, parent_id: i64) -> Result<Vec<crate::graph::AstNode>>;
-    
+
     /// Count all AST nodes
     fn count_ast_nodes(&self) -> Result<usize>;
-    
+
     /// Count AST nodes for a specific file
     fn count_ast_nodes_for_file(&self, file_id: i64) -> Result<usize>;
-    
+
     /// Delete all AST nodes for a file (returns count deleted)
     fn delete_ast_nodes_for_file(&self, file_id: i64) -> Result<usize>;
 
@@ -195,7 +195,10 @@ pub trait SideTables: Send + Sync {
     ///
     /// # Returns
     /// Vector of cross-file references where `to_symbol_id` is the target
-    fn get_references_to(&self, to_symbol_id: &str) -> Result<Vec<crate::graph::schema::CrossFileRef>>;
+    fn get_references_to(
+        &self,
+        to_symbol_id: &str,
+    ) -> Result<Vec<crate::graph::schema::CrossFileRef>>;
 
     /// Get all references from a specific symbol (by source symbol ID)
     ///
@@ -204,7 +207,10 @@ pub trait SideTables: Send + Sync {
     ///
     /// # Returns
     /// Vector of cross-file references where `from_symbol_id` is the source
-    fn get_references_from(&self, from_symbol_id: &str) -> Result<Vec<crate::graph::schema::CrossFileRef>>;
+    fn get_references_from(
+        &self,
+        from_symbol_id: &str,
+    ) -> Result<Vec<crate::graph::schema::CrossFileRef>>;
 
     /// Delete all cross-file references for a file
     ///
@@ -265,7 +271,7 @@ pub trait SideTables: Send + Sync {
 #[cfg(feature = "sqlite-backend")]
 pub mod sqlite_impl {
     use super::*;
-    use rusqlite::{Connection, OptionalExtension, params};
+    use rusqlite::{params, Connection, OptionalExtension};
     use std::sync::Mutex;
 
     /// SQLite-based side tables implementation
@@ -277,14 +283,16 @@ pub mod sqlite_impl {
         /// Open or create side tables in SQLite database
         pub fn open(db_path: &Path) -> Result<Self> {
             let conn = Connection::open(db_path)?;
-            let tables = Self { conn: Mutex::new(conn) };
+            let tables = Self {
+                conn: Mutex::new(conn),
+            };
             tables.ensure_schema()?;
             Ok(tables)
         }
 
         fn ensure_schema(&self) -> Result<()> {
             let conn = self.conn.lock().unwrap();
-            
+
             // File metrics table
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS file_metrics (
@@ -406,7 +414,14 @@ pub mod sqlite_impl {
                 "INSERT INTO execution_log
                     (execution_id, tool_version, args, root, db_path, started_at, outcome)
                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'running')",
-                params![execution_id, tool_version, args_json, root, db_path, started_at],
+                params![
+                    execution_id,
+                    tool_version,
+                    args_json,
+                    root,
+                    db_path,
+                    started_at
+                ],
             )?;
 
             Ok(conn.last_insert_rowid())
@@ -685,7 +700,9 @@ pub mod sqlite_impl {
             }
 
             param_count += 1;
-            query.push_str(&format!(" ORDER BY complexity_score DESC LIMIT ?{param_count}"));
+            query.push_str(&format!(
+                " ORDER BY complexity_score DESC LIMIT ?{param_count}"
+            ));
 
             let mut stmt = conn.prepare(&query)?;
 
@@ -725,9 +742,9 @@ pub mod sqlite_impl {
 
             Ok(results)
         }
-        
+
         // ===== Code Chunk Methods =====
-        
+
         fn store_chunk(&self, chunk: &CodeChunk) -> Result<i64> {
             let conn = self.conn.lock().unwrap();
             conn.execute(
@@ -747,7 +764,7 @@ pub mod sqlite_impl {
             )?;
             Ok(conn.last_insert_rowid())
         }
-        
+
         fn get_chunk(&self, chunk_id: i64) -> Result<Option<CodeChunk>> {
             let conn = self.conn.lock().unwrap();
             let result = conn
@@ -773,7 +790,7 @@ pub mod sqlite_impl {
                 .optional()?;
             Ok(result)
         }
-        
+
         fn get_chunk_by_span(
             &self,
             file_path: &str,
@@ -804,7 +821,7 @@ pub mod sqlite_impl {
                 .optional()?;
             Ok(result)
         }
-        
+
         fn get_chunks_for_file(&self, file_path: &str) -> Result<Vec<CodeChunk>> {
             let conn = self.conn.lock().unwrap();
             let mut stmt = conn.prepare(
@@ -829,18 +846,17 @@ pub mod sqlite_impl {
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(chunks)
         }
-        
+
         fn count_chunks_for_file(&self, file_path: &str) -> Result<usize> {
             let conn = self.conn.lock().unwrap();
-            let count: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM code_chunks WHERE file_path = ?1",
-                    params![file_path],
-                    |row| row.get(0),
-                )?;
+            let count: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM code_chunks WHERE file_path = ?1",
+                params![file_path],
+                |row| row.get(0),
+            )?;
             Ok(count as usize)
         }
-        
+
         fn delete_chunks_for_file(&self, file_path: &str) -> Result<usize> {
             let conn = self.conn.lock().unwrap();
             let affected = conn.execute(
@@ -849,8 +865,12 @@ pub mod sqlite_impl {
             )?;
             Ok(affected)
         }
-        
-        fn get_chunks_by_symbol(&self, file_path: &str, symbol_name: &str) -> Result<Vec<CodeChunk>> {
+
+        fn get_chunks_by_symbol(
+            &self,
+            file_path: &str,
+            symbol_name: &str,
+        ) -> Result<Vec<CodeChunk>> {
             let conn = self.conn.lock().unwrap();
             let mut stmt = conn.prepare(
                 "SELECT id, file_path, byte_start, byte_end, content, content_hash,
@@ -876,7 +896,7 @@ pub mod sqlite_impl {
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(chunks)
         }
-        
+
         fn get_all_chunks(&self) -> Result<Vec<CodeChunk>> {
             let conn = self.conn.lock().unwrap();
             let mut stmt = conn.prepare(
@@ -901,14 +921,11 @@ pub mod sqlite_impl {
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(chunks)
         }
-        
+
         fn count_chunks(&self) -> Result<usize> {
             let conn = self.conn.lock().unwrap();
-            let count: i64 = conn.query_row(
-                "SELECT COUNT(*) FROM code_chunks",
-                [],
-                |row| row.get(0),
-            )?;
+            let count: i64 =
+                conn.query_row("SELECT COUNT(*) FROM code_chunks", [], |row| row.get(0))?;
             Ok(count as usize)
         }
 
@@ -930,7 +947,10 @@ pub mod sqlite_impl {
             Ok(conn.last_insert_rowid())
         }
 
-        fn store_ast_nodes_batch(&self, nodes: &[(crate::graph::AstNode, i64)]) -> Result<Vec<i64>> {
+        fn store_ast_nodes_batch(
+            &self,
+            nodes: &[(crate::graph::AstNode, i64)],
+        ) -> Result<Vec<i64>> {
             if nodes.is_empty() {
                 return Ok(Vec::new());
             }
@@ -1009,7 +1029,7 @@ pub mod sqlite_impl {
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(nodes)
         }
-        
+
         fn get_all_ast_nodes(&self) -> Result<Vec<crate::graph::AstNode>> {
             let conn = self.conn.lock().unwrap();
             let mut stmt = conn.prepare(
@@ -1029,7 +1049,7 @@ pub mod sqlite_impl {
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(nodes)
         }
-        
+
         fn get_ast_nodes_by_kind(&self, kind: &str) -> Result<Vec<crate::graph::AstNode>> {
             let conn = self.conn.lock().unwrap();
             let mut stmt = conn.prepare(
@@ -1049,7 +1069,7 @@ pub mod sqlite_impl {
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(nodes)
         }
-        
+
         fn get_ast_children(&self, parent_id: i64) -> Result<Vec<crate::graph::AstNode>> {
             let conn = self.conn.lock().unwrap();
             let mut stmt = conn.prepare(
@@ -1069,31 +1089,28 @@ pub mod sqlite_impl {
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(nodes)
         }
-        
+
         fn count_ast_nodes(&self) -> Result<usize> {
             let conn = self.conn.lock().unwrap();
-            let count: i64 = conn
-                .query_row("SELECT COUNT(*) FROM ast_nodes", [], |row| row.get(0))?;
+            let count: i64 =
+                conn.query_row("SELECT COUNT(*) FROM ast_nodes", [], |row| row.get(0))?;
             Ok(count as usize)
         }
-        
+
         fn count_ast_nodes_for_file(&self, file_id: i64) -> Result<usize> {
             let conn = self.conn.lock().unwrap();
-            let count: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM ast_nodes WHERE file_id = ?1",
-                    params![file_id],
-                    |row| row.get(0),
-                )?;
+            let count: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM ast_nodes WHERE file_id = ?1",
+                params![file_id],
+                |row| row.get(0),
+            )?;
             Ok(count as usize)
         }
-        
+
         fn delete_ast_nodes_for_file(&self, file_id: i64) -> Result<usize> {
             let conn = self.conn.lock().unwrap();
-            let affected = conn.execute(
-                "DELETE FROM ast_nodes WHERE file_id = ?1",
-                params![file_id],
-            )?;
+            let affected =
+                conn.execute("DELETE FROM ast_nodes WHERE file_id = ?1", params![file_id])?;
             Ok(affected)
         }
 
@@ -1117,11 +1134,14 @@ pub mod sqlite_impl {
             Ok(())
         }
 
-        fn get_references_to(&self, to_symbol_id: &str) -> Result<Vec<crate::graph::schema::CrossFileRef>> {
+        fn get_references_to(
+            &self,
+            to_symbol_id: &str,
+        ) -> Result<Vec<crate::graph::schema::CrossFileRef>> {
             let conn = self.conn.lock().unwrap();
             let mut stmt = conn.prepare(
                 "SELECT from_symbol_id, to_symbol_id, file_path, line_number, byte_start, byte_end
-                 FROM cross_file_refs WHERE to_symbol_id = ?1"
+                 FROM cross_file_refs WHERE to_symbol_id = ?1",
             )?;
             let rows = stmt.query_map(params![to_symbol_id], |row| {
                 Ok(crate::graph::schema::CrossFileRef {
@@ -1140,11 +1160,14 @@ pub mod sqlite_impl {
             Ok(results)
         }
 
-        fn get_references_from(&self, from_symbol_id: &str) -> Result<Vec<crate::graph::schema::CrossFileRef>> {
+        fn get_references_from(
+            &self,
+            from_symbol_id: &str,
+        ) -> Result<Vec<crate::graph::schema::CrossFileRef>> {
             let conn = self.conn.lock().unwrap();
             let mut stmt = conn.prepare(
                 "SELECT from_symbol_id, to_symbol_id, file_path, line_number, byte_start, byte_end
-                 FROM cross_file_refs WHERE from_symbol_id = ?1"
+                 FROM cross_file_refs WHERE from_symbol_id = ?1",
             )?;
             let rows = stmt.query_map(params![from_symbol_id], |row| {
                 Ok(crate::graph::schema::CrossFileRef {
@@ -1174,11 +1197,8 @@ pub mod sqlite_impl {
 
         fn count_cross_file_refs(&self) -> Result<usize> {
             let conn = self.conn.lock().unwrap();
-            let count: i64 = conn.query_row(
-                "SELECT COUNT(*) FROM cross_file_refs",
-                [],
-                |row| row.get(0),
-            )?;
+            let count: i64 =
+                conn.query_row("SELECT COUNT(*) FROM cross_file_refs", [], |row| row.get(0))?;
             Ok(count as usize)
         }
 
@@ -1195,9 +1215,8 @@ pub mod sqlite_impl {
 
         fn get_labels_for_entity(&self, entity_id: i64) -> Result<Vec<String>> {
             let conn = self.conn.lock().unwrap();
-            let mut stmt = conn.prepare(
-                "SELECT label FROM graph_labels WHERE entity_id = ?1 ORDER BY label"
-            )?;
+            let mut stmt =
+                conn.prepare("SELECT label FROM graph_labels WHERE entity_id = ?1 ORDER BY label")?;
             let labels = stmt
                 .query_map(params![entity_id], |row| row.get(0))?
                 .collect::<Result<Vec<_>, _>>()?;
@@ -1207,7 +1226,7 @@ pub mod sqlite_impl {
         fn get_entities_by_label(&self, label: &str) -> Result<Vec<i64>> {
             let conn = self.conn.lock().unwrap();
             let mut stmt = conn.prepare(
-                "SELECT entity_id FROM graph_labels WHERE label = ?1 ORDER BY entity_id"
+                "SELECT entity_id FROM graph_labels WHERE label = ?1 ORDER BY entity_id",
             )?;
             let entities = stmt
                 .query_map(params![label], |row| row.get(0))?
@@ -1217,9 +1236,8 @@ pub mod sqlite_impl {
 
         fn get_all_labels(&self) -> Result<Vec<String>> {
             let conn = self.conn.lock().unwrap();
-            let mut stmt = conn.prepare(
-                "SELECT DISTINCT label FROM graph_labels ORDER BY label"
-            )?;
+            let mut stmt =
+                conn.prepare("SELECT DISTINCT label FROM graph_labels ORDER BY label")?;
             let labels = stmt
                 .query_map([], |row| row.get(0))?
                 .collect::<Result<Vec<_>, _>>()?;
@@ -1239,7 +1257,7 @@ pub mod sqlite_impl {
 #[cfg(feature = "native-v3")]
 pub mod v3_impl {
     use super::*;
-    use sqlitegraph::backend::native::v3::{V3Backend, KvValue};
+    use sqlitegraph::backend::native::v3::{KvValue, V3Backend};
     use sqlitegraph::SnapshotId;
 
     /// V3 KV-based side tables implementation (NO SQLITE!)
@@ -1267,7 +1285,7 @@ pub mod v3_impl {
         fn symbol_metrics_key(symbol_id: i64) -> Vec<u8> {
             format!("symbol_metrics:{}", symbol_id).into_bytes()
         }
-        
+
         /// Key format: chunk:{chunk_id}
         fn chunk_key(chunk_id: i64) -> Vec<u8> {
             format!("chunk:{}", chunk_id).into_bytes()
@@ -1278,10 +1296,10 @@ pub mod v3_impl {
         // available only on V3SideTables for llmgrep integration.
 
         /// KV prefix scan - returns all keys starting with prefix
-        /// 
+        ///
         /// # Arguments
         /// * `prefix` - Key prefix to search for
-        /// 
+        ///
         /// # Returns
         /// Vector of (key, value) tuples where key starts with prefix
         pub fn kv_prefix_scan(&self, prefix: &[u8]) -> Vec<(Vec<u8>, KvValue)> {
@@ -1290,10 +1308,10 @@ pub mod v3_impl {
         }
 
         /// KV get - retrieve value by exact key
-        /// 
+        ///
         /// # Arguments
         /// * `key` - Exact key to lookup
-        /// 
+        ///
         /// # Returns
         /// Some(value) if key exists, None otherwise
         pub fn kv_get(&self, key: &[u8]) -> Option<KvValue> {
@@ -1302,12 +1320,12 @@ pub mod v3_impl {
         }
 
         /// Symbol lookup by FQN using KV store
-        /// 
+        ///
         /// Key format: `sym:fqn:{fqn}`
-        /// 
+        ///
         /// # Arguments
         /// * `fqn` - Fully qualified name to lookup
-        /// 
+        ///
         /// # Returns
         /// Some(symbol_id) if found, None otherwise
         pub fn lookup_symbol_by_fqn(&self, fqn: &str) -> Option<i64> {
@@ -1318,8 +1336,8 @@ pub mod v3_impl {
                     // Try to parse as i64 from bytes
                     if bytes.len() == 8 {
                         Some(i64::from_le_bytes([
-                            bytes[0], bytes[1], bytes[2], bytes[3],
-                            bytes[4], bytes[5], bytes[6], bytes[7],
+                            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6],
+                            bytes[7],
                         ]))
                     } else {
                         None
@@ -1330,18 +1348,18 @@ pub mod v3_impl {
         }
 
         /// Get all symbols with a given label
-        /// 
+        ///
         /// Key format: `label:{label}:{symbol_id}`
-        /// 
+        ///
         /// # Arguments
         /// * `label` - Label name (e.g., "test", "entry_point")
-        /// 
+        ///
         /// # Returns
         /// Vector of symbol IDs that have this label
         pub fn get_symbols_by_label(&self, label: &str) -> Vec<i64> {
             let prefix = format!("label:{label}:");
             let results = self.kv_prefix_scan(prefix.as_bytes());
-            
+
             results
                 .into_iter()
                 .filter_map(|(_, value)| {
@@ -1355,19 +1373,19 @@ pub mod v3_impl {
         }
 
         /// FQN completion - get all FQNs starting with prefix
-        /// 
+        ///
         /// Key format: `sym:fqn:{fqn}`
-        /// 
+        ///
         /// # Arguments
         /// * `prefix` - FQN prefix to complete
         /// * `limit` - Maximum number of results
-        /// 
+        ///
         /// # Returns
         /// Vector of matching FQNs
         pub fn complete_fqn(&self, prefix: &str, limit: usize) -> Vec<String> {
             let key_prefix = format!("sym:fqn:{}", prefix);
             let results = self.kv_prefix_scan(key_prefix.as_bytes());
-            
+
             results
                 .into_iter()
                 .take(limit)
@@ -1415,7 +1433,7 @@ pub mod v3_impl {
 
             let data = serde_json::to_vec(&record)?;
             let key = Self::execution_key(execution_id);
-            
+
             self.backend.kv_set_v3(key, KvValue::Bytes(data), None);
             Ok(started_at) // Return timestamp as ID
         }
@@ -1434,9 +1452,7 @@ pub mod v3_impl {
 
             // Get existing record
             let mut record = match self.backend.kv_get_v3(snapshot, &key) {
-                Some(KvValue::Bytes(data)) => {
-                    serde_json::from_slice::<ExecutionRecord>(&data)?
-                }
+                Some(KvValue::Bytes(data)) => serde_json::from_slice::<ExecutionRecord>(&data)?,
                 _ => {
                     // No existing record, create a minimal one
                     ExecutionRecord {
@@ -1500,7 +1516,7 @@ pub mod v3_impl {
         fn list_executions(&self, limit: Option<usize>) -> Result<Vec<ExecutionRecord>> {
             let snapshot = SnapshotId::current();
             let prefix = b"exec:";
-            
+
             let results = self.backend.kv_prefix_scan_v3(snapshot, prefix);
             let mut executions: Vec<ExecutionRecord> = results
                 .into_iter()
@@ -1512,21 +1528,21 @@ pub mod v3_impl {
                     }
                 })
                 .collect();
-            
+
             // Sort by started_at descending (most recent first)
             executions.sort_by(|a, b| b.started_at.cmp(&a.started_at));
-            
+
             if let Some(limit) = limit {
                 executions.truncate(limit);
             }
-            
+
             Ok(executions)
         }
 
         fn store_file_metrics(&self, metrics: &FileMetrics) -> Result<()> {
             let data = serde_json::to_vec(metrics)?;
             let key = Self::file_metrics_key(&metrics.file_path);
-            
+
             self.backend.kv_set_v3(key, KvValue::Bytes(data), None);
             Ok(())
         }
@@ -1547,7 +1563,7 @@ pub mod v3_impl {
         fn store_symbol_metrics(&self, metrics: &SymbolMetrics) -> Result<()> {
             let data = serde_json::to_vec(metrics)?;
             let key = Self::symbol_metrics_key(metrics.symbol_id);
-            
+
             self.backend.kv_set_v3(key, KvValue::Bytes(data), None);
             Ok(())
         }
@@ -1569,18 +1585,18 @@ pub mod v3_impl {
             // Delete file metrics
             let file_key = Self::file_metrics_key(file_path);
             self.backend.kv_delete_v3(&file_key);
-            
+
             // Delete symbol metrics for this file using prefix scan
             let snapshot = SnapshotId::current();
             let prefix = format!("symbol_metrics:file:{}", file_path).into_bytes();
             let symbols = self.backend.kv_prefix_scan_v3(snapshot, &prefix);
-            
+
             let mut count = 0;
             for (key, _) in symbols {
                 self.backend.kv_delete_v3(&key);
                 count += 1;
             }
-            
+
             Ok(count)
         }
 
@@ -1593,7 +1609,7 @@ pub mod v3_impl {
         ) -> Result<Vec<FileMetrics>> {
             let snapshot = SnapshotId::current();
             let prefix = b"file_metrics:";
-            
+
             let results = self.backend.kv_prefix_scan_v3(snapshot, prefix);
             let mut metrics: Vec<FileMetrics> = results
                 .into_iter()
@@ -1610,23 +1626,23 @@ pub mod v3_impl {
                         && min_fan_out.map_or(true, |min| m.fan_out >= min)
                 })
                 .collect();
-            
+
             // Sort by complexity score descending
             metrics.sort_by(|a, b| {
                 b.complexity_score
                     .partial_cmp(&a.complexity_score)
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
-            
+
             if let Some(limit) = limit {
                 metrics.truncate(limit as usize);
             }
-            
+
             Ok(metrics)
         }
-        
+
         // ===== Code Chunk Methods =====
-        
+
         fn store_chunk(&self, chunk: &CodeChunk) -> Result<i64> {
             let chunk_id = chunk.id.unwrap_or_else(|| {
                 // Generate ID from timestamp + random component
@@ -1637,18 +1653,18 @@ pub mod v3_impl {
                 let random = std::process::id() as i64;
                 (now << 16) | (random & 0xFFFF)
             });
-            
+
             let key = Self::chunk_key(chunk_id);
             let data = serde_json::to_vec(chunk)?;
-            
+
             self.backend.kv_set_v3(key, KvValue::Bytes(data), None);
             Ok(chunk_id)
         }
-        
+
         fn get_chunk(&self, chunk_id: i64) -> Result<Option<CodeChunk>> {
             let key = Self::chunk_key(chunk_id);
             let snapshot = SnapshotId::current();
-            
+
             match self.backend.kv_get_v3(snapshot, &key) {
                 Some(KvValue::Bytes(data)) => {
                     let chunk: CodeChunk = serde_json::from_slice(&data)?;
@@ -1657,7 +1673,7 @@ pub mod v3_impl {
                 _ => Ok(None),
             }
         }
-        
+
         fn get_chunk_by_span(
             &self,
             file_path: &str,
@@ -1671,45 +1687,52 @@ pub mod v3_impl {
                 c.file_path == file_path && c.byte_start == byte_start && c.byte_end == byte_end
             }))
         }
-        
+
         fn get_chunks_for_file(&self, file_path: &str) -> Result<Vec<CodeChunk>> {
             let all_chunks = self.get_all_chunks()?;
-            Ok(all_chunks.into_iter().filter(|c| c.file_path == file_path).collect())
+            Ok(all_chunks
+                .into_iter()
+                .filter(|c| c.file_path == file_path)
+                .collect())
         }
-        
+
         fn count_chunks_for_file(&self, file_path: &str) -> Result<usize> {
             self.get_chunks_for_file(file_path).map(|v| v.len())
         }
-        
+
         fn delete_chunks_for_file(&self, file_path: &str) -> Result<usize> {
             let chunks = self.get_chunks_for_file(file_path)?;
             let count = chunks.len();
-            
+
             for chunk in chunks {
                 if let Some(id) = chunk.id {
                     let key = Self::chunk_key(id);
                     self.backend.kv_delete_v3(&key);
                 }
             }
-            
+
             Ok(count)
         }
-        
-        fn get_chunks_by_symbol(&self, file_path: &str, symbol_name: &str) -> Result<Vec<CodeChunk>> {
+
+        fn get_chunks_by_symbol(
+            &self,
+            file_path: &str,
+            symbol_name: &str,
+        ) -> Result<Vec<CodeChunk>> {
             let all_chunks = self.get_all_chunks()?;
             Ok(all_chunks
                 .into_iter()
                 .filter(|c| {
-                    c.file_path == file_path && 
-                    c.symbol_name.as_ref() == Some(&symbol_name.to_string())
+                    c.file_path == file_path
+                        && c.symbol_name.as_ref() == Some(&symbol_name.to_string())
                 })
                 .collect())
         }
-        
+
         fn get_all_chunks(&self) -> Result<Vec<CodeChunk>> {
             let snapshot = SnapshotId::current();
             let prefix = b"chunk:";
-            
+
             let results = self.backend.kv_prefix_scan_v3(snapshot, prefix);
             let chunks: Vec<CodeChunk> = results
                 .into_iter()
@@ -1721,19 +1744,19 @@ pub mod v3_impl {
                     }
                 })
                 .collect();
-            
+
             Ok(chunks)
         }
-        
+
         fn count_chunks(&self) -> Result<usize> {
             // Use prefix scan to count all chunk keys
             let snapshot = SnapshotId::current();
             let prefix = b"chunk:";
-            
+
             let results = self.backend.kv_prefix_scan_v3(snapshot, prefix);
             Ok(results.len())
         }
-        
+
         // ===== AST Node Methods =====
 
         fn store_ast_node(&self, node: &crate::graph::AstNode, file_id: i64) -> Result<i64> {
@@ -1753,13 +1776,18 @@ pub mod v3_impl {
 
             let data = serde_json::to_vec(node)?;
 
-            self.backend.kv_set_v3(file_key.into_bytes(), KvValue::Bytes(data.clone()), None);
-            self.backend.kv_set_v3(kind_key.into_bytes(), KvValue::Bytes(data), None);
+            self.backend
+                .kv_set_v3(file_key.into_bytes(), KvValue::Bytes(data.clone()), None);
+            self.backend
+                .kv_set_v3(kind_key.into_bytes(), KvValue::Bytes(data), None);
 
             Ok(node_id)
         }
 
-        fn store_ast_nodes_batch(&self, nodes: &[(crate::graph::AstNode, i64)]) -> Result<Vec<i64>> {
+        fn store_ast_nodes_batch(
+            &self,
+            nodes: &[(crate::graph::AstNode, i64)],
+        ) -> Result<Vec<i64>> {
             if nodes.is_empty() {
                 return Ok(Vec::new());
             }
@@ -1783,8 +1811,10 @@ pub mod v3_impl {
 
                 let data = serde_json::to_vec(node)?;
 
-                self.backend.kv_set_v3(file_key.into_bytes(), KvValue::Bytes(data.clone()), None);
-                self.backend.kv_set_v3(kind_key.into_bytes(), KvValue::Bytes(data), None);
+                self.backend
+                    .kv_set_v3(file_key.into_bytes(), KvValue::Bytes(data.clone()), None);
+                self.backend
+                    .kv_set_v3(kind_key.into_bytes(), KvValue::Bytes(data), None);
 
                 ids.push(node_id);
             }
@@ -1864,19 +1894,24 @@ pub mod v3_impl {
                 let kind_key = format!("ast:kind:{}:{}", kind_str, node_id);
                 let data = serde_json::to_vec(&node)?;
 
-                self.backend.kv_set_v3(file_key.into_bytes(), KvValue::Bytes(data.clone()), None);
-                self.backend.kv_set_v3(kind_key.into_bytes(), KvValue::Bytes(data), None);
+                self.backend
+                    .kv_set_v3(file_key.into_bytes(), KvValue::Bytes(data.clone()), None);
+                self.backend
+                    .kv_set_v3(kind_key.into_bytes(), KvValue::Bytes(data), None);
 
                 Ok(())
             } else {
-                Err(anyhow::anyhow!("Node {} not found for parent update", node_id))
+                Err(anyhow::anyhow!(
+                    "Node {} not found for parent update",
+                    node_id
+                ))
             }
         }
 
         fn get_ast_nodes_by_file(&self, file_id: i64) -> Result<Vec<crate::graph::AstNode>> {
             let snapshot = SnapshotId::current();
             let prefix = format!("ast:file:{}", file_id).into_bytes();
-            
+
             let results = self.backend.kv_prefix_scan_v3(snapshot, &prefix);
             let mut nodes: Vec<crate::graph::AstNode> = results
                 .into_iter()
@@ -1888,17 +1923,17 @@ pub mod v3_impl {
                     }
                 })
                 .collect();
-            
+
             // Sort by byte_start for consistent ordering
             nodes.sort_by_key(|n| n.byte_start);
-            
+
             Ok(nodes)
         }
-        
+
         fn get_all_ast_nodes(&self) -> Result<Vec<crate::graph::AstNode>> {
             let snapshot = SnapshotId::current();
             let prefix = b"ast:file:";
-            
+
             let results = self.backend.kv_prefix_scan_v3(snapshot, prefix);
             let mut nodes: Vec<crate::graph::AstNode> = results
                 .into_iter()
@@ -1910,17 +1945,17 @@ pub mod v3_impl {
                     }
                 })
                 .collect();
-            
+
             // Sort by byte_start for consistent ordering
             nodes.sort_by_key(|n| n.byte_start);
-            
+
             Ok(nodes)
         }
-        
+
         fn get_ast_nodes_by_kind(&self, kind: &str) -> Result<Vec<crate::graph::AstNode>> {
             let snapshot = SnapshotId::current();
             let prefix = format!("ast:kind:{}", kind).into_bytes();
-            
+
             let results = self.backend.kv_prefix_scan_v3(snapshot, &prefix);
             let mut nodes: Vec<crate::graph::AstNode> = results
                 .into_iter()
@@ -1932,18 +1967,18 @@ pub mod v3_impl {
                     }
                 })
                 .collect();
-            
+
             // Sort by byte_start for consistent ordering
             nodes.sort_by_key(|n| n.byte_start);
-            
+
             Ok(nodes)
         }
-        
+
         fn get_ast_children(&self, parent_id: i64) -> Result<Vec<crate::graph::AstNode>> {
             // Need to scan all AST nodes and filter by parent_id
             let snapshot = SnapshotId::current();
             let prefix = b"ast:file:";
-            
+
             let results = self.backend.kv_prefix_scan_v3(snapshot, prefix);
             let mut nodes: Vec<crate::graph::AstNode> = results
                 .into_iter()
@@ -1956,51 +1991,52 @@ pub mod v3_impl {
                 })
                 .filter(|n| n.parent_id == Some(parent_id))
                 .collect();
-            
+
             // Sort by byte_start for consistent ordering
             nodes.sort_by_key(|n| n.byte_start);
-            
+
             Ok(nodes)
         }
-        
+
         fn count_ast_nodes(&self) -> Result<usize> {
             let snapshot = SnapshotId::current();
             let prefix = b"ast:file:";
-            
+
             let results = self.backend.kv_prefix_scan_v3(snapshot, prefix);
             Ok(results.len())
         }
-        
+
         fn count_ast_nodes_for_file(&self, file_id: i64) -> Result<usize> {
             let snapshot = SnapshotId::current();
             let prefix = format!("ast:file:{}", file_id).into_bytes();
-            
+
             let results = self.backend.kv_prefix_scan_v3(snapshot, &prefix);
             Ok(results.len())
         }
-        
+
         fn delete_ast_nodes_for_file(&self, file_id: i64) -> Result<usize> {
             let snapshot = SnapshotId::current();
             let prefix = format!("ast:file:{}", file_id).into_bytes();
-            
+
             // Find all nodes for this file
             let results = self.backend.kv_prefix_scan_v3(snapshot, &prefix);
             let mut count = 0;
-            
+
             for (key, value) in results {
                 // Delete the file-indexed entry
                 self.backend.kv_delete_v3(&key);
-                
+
                 // Also delete the kind-indexed entry if we can parse the node
                 if let KvValue::Bytes(data) = value {
                     if let Ok(node) = serde_json::from_slice::<crate::graph::AstNode>(&data) {
-                        let kind_key = format!("ast:kind:{}:{}", node.kind, node.id.unwrap_or(0)).into_bytes();
+                        let kind_key =
+                            format!("ast:kind:{}:{}", node.kind, node.id.unwrap_or(0)).into_bytes();
                         self.backend.kv_delete_v3(&kind_key);
                     }
                 }
                 count += 1;
             }
-            
+
             Ok(count)
         }
 
@@ -2011,27 +2047,39 @@ pub mod v3_impl {
             let key = format!("cref:to:{}:{}", cref.to_symbol_id, cref.from_symbol_id).into_bytes();
             let value = serde_json::to_vec(cref)?;
             self.backend.kv_set_v3(key, KvValue::Bytes(value), None);
-            
+
             // Also store reverse lookup: cref:from:{from_symbol_id}:{to_symbol_id}
-            let reverse_key = format!("cref:from:{}:{}", cref.from_symbol_id, cref.to_symbol_id).into_bytes();
-            self.backend.kv_set_v3(reverse_key, KvValue::Bytes(vec![]), None);
-            
+            let reverse_key =
+                format!("cref:from:{}:{}", cref.from_symbol_id, cref.to_symbol_id).into_bytes();
+            self.backend
+                .kv_set_v3(reverse_key, KvValue::Bytes(vec![]), None);
+
             // Store file index: cref:file:{file_path}:{to_symbol_id}:{from_symbol_id}
-            let file_key = format!("cref:file:{}:{}:{}", cref.file_path, cref.to_symbol_id, cref.from_symbol_id).into_bytes();
-            self.backend.kv_set_v3(file_key, KvValue::Bytes(vec![]), None);
-            
+            let file_key = format!(
+                "cref:file:{}:{}:{}",
+                cref.file_path, cref.to_symbol_id, cref.from_symbol_id
+            )
+            .into_bytes();
+            self.backend
+                .kv_set_v3(file_key, KvValue::Bytes(vec![]), None);
+
             Ok(())
         }
 
-        fn get_references_to(&self, to_symbol_id: &str) -> Result<Vec<crate::graph::schema::CrossFileRef>> {
+        fn get_references_to(
+            &self,
+            to_symbol_id: &str,
+        ) -> Result<Vec<crate::graph::schema::CrossFileRef>> {
             let snapshot = SnapshotId::current();
             let prefix = format!("cref:to:{to_symbol_id}:").into_bytes();
             let results = self.backend.kv_prefix_scan_v3(snapshot, &prefix);
-            
+
             let mut refs = Vec::new();
             for (_, value) in results {
                 if let KvValue::Bytes(data) = value {
-                    if let Ok(cref) = serde_json::from_slice::<crate::graph::schema::CrossFileRef>(&data) {
+                    if let Ok(cref) =
+                        serde_json::from_slice::<crate::graph::schema::CrossFileRef>(&data)
+                    {
                         refs.push(cref);
                     }
                 }
@@ -2039,11 +2087,14 @@ pub mod v3_impl {
             Ok(refs)
         }
 
-        fn get_references_from(&self, from_symbol_id: &str) -> Result<Vec<crate::graph::schema::CrossFileRef>> {
+        fn get_references_from(
+            &self,
+            from_symbol_id: &str,
+        ) -> Result<Vec<crate::graph::schema::CrossFileRef>> {
             let snapshot = SnapshotId::current();
             let prefix = format!("cref:from:{from_symbol_id}:").into_bytes();
             let results = self.backend.kv_prefix_scan_v3(snapshot, &prefix);
-            
+
             let mut refs = Vec::new();
             for (key, _) in results {
                 // Extract to_symbol_id from key: cref:from:{from_symbol_id}:{to_symbol_id}
@@ -2065,7 +2116,7 @@ pub mod v3_impl {
             let snapshot = SnapshotId::current();
             let prefix = format!("cref:file:{file_path}:").into_bytes();
             let results = self.backend.kv_prefix_scan_v3(snapshot, &prefix);
-            
+
             let mut count = 0;
             for (file_key, _) in results {
                 // Parse file key: cref:file:{file_path}:{to_symbol_id}:{from_symbol_id}
@@ -2074,18 +2125,19 @@ pub mod v3_impl {
                 if parts.len() >= 5 {
                     let to_symbol_id = parts[3];
                     let from_symbol_id = parts[4];
-                    
+
                     // Delete the to: entry (contains full data)
                     let to_key = format!("cref:to:{to_symbol_id}:{from_symbol_id}").into_bytes();
                     self.backend.kv_delete_v3(&to_key);
-                    
+
                     // Delete the from: entry
-                    let from_key = format!("cref:from:{from_symbol_id}:{to_symbol_id}").into_bytes();
+                    let from_key =
+                        format!("cref:from:{from_symbol_id}:{to_symbol_id}").into_bytes();
                     self.backend.kv_delete_v3(&from_key);
-                    
+
                     // Delete the file: entry
                     self.backend.kv_delete_v3(&file_key);
-                    
+
                     count += 1;
                 }
             }
@@ -2106,9 +2158,11 @@ pub mod v3_impl {
             // Key format: label:inv:{label}:{entity_id} -> [] (reverse mapping)
             let entity_key = format!("label:entity:{}:{}", entity_id, label);
             let inverse_key = format!("label:inv:{}:{}", label, entity_id);
-            
-            self.backend.kv_set_v3(entity_key.into_bytes(), KvValue::Bytes(vec![]), None);
-            self.backend.kv_set_v3(inverse_key.into_bytes(), KvValue::Bytes(vec![]), None);
+
+            self.backend
+                .kv_set_v3(entity_key.into_bytes(), KvValue::Bytes(vec![]), None);
+            self.backend
+                .kv_set_v3(inverse_key.into_bytes(), KvValue::Bytes(vec![]), None);
             Ok(())
         }
 
@@ -2116,7 +2170,7 @@ pub mod v3_impl {
             let snapshot = SnapshotId::current();
             let prefix = format!("label:entity:{}:", entity_id);
             let results = self.backend.kv_prefix_scan_v3(snapshot, prefix.as_bytes());
-            
+
             // Extract label from key: label:entity:{entity_id}:{label}
             let labels = results
                 .into_iter()
@@ -2138,7 +2192,7 @@ pub mod v3_impl {
             let snapshot = SnapshotId::current();
             let prefix = format!("label:inv:{}:", label);
             let results = self.backend.kv_prefix_scan_v3(snapshot, prefix.as_bytes());
-            
+
             // Extract entity_id from key: label:inv:{label}:{entity_id}
             let entities = results
                 .into_iter()
@@ -2160,7 +2214,7 @@ pub mod v3_impl {
             let snapshot = SnapshotId::current();
             let prefix = b"label:inv:";
             let results = self.backend.kv_prefix_scan_v3(snapshot, prefix);
-            
+
             // Extract unique labels from keys: label:inv:{label}:{entity_id}
             let mut label_set = std::collections::HashSet::new();
             for (key, _) in results {
@@ -2173,7 +2227,7 @@ pub mod v3_impl {
                     }
                 }
             }
-            
+
             let mut labels: Vec<String> = label_set.into_iter().collect();
             labels.sort();
             Ok(labels)
@@ -2203,6 +2257,8 @@ pub fn create_side_tables(db_path: &Path) -> Result<Box<dyn SideTables>> {
 
 /// Create V3 side tables (uses KV store, no SQLite!)
 #[cfg(feature = "native-v3")]
-pub fn create_side_tables_v3(backend: Arc<sqlitegraph::backend::native::v3::V3Backend>) -> Result<Box<dyn SideTables>> {
+pub fn create_side_tables_v3(
+    backend: Arc<sqlitegraph::backend::native::v3::V3Backend>,
+) -> Result<Box<dyn SideTables>> {
     Ok(Box::new(V3SideTables::new(backend)))
 }

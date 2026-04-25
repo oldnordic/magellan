@@ -158,7 +158,6 @@ pub struct CfgBlock {
     pub end_col: u64,
 
     // --- 4D Spatial-Temporal Coordinates (Schema v10+) ---
-
     /// X coordinate: Dominator depth (structural hierarchy depth)
     /// 0 = entry block, increases with nesting depth
     #[serde(default)]
@@ -298,7 +297,7 @@ impl ModulePathCache {
                     .ok()
                     .map(|file_node| file_node.path)
             });
-            
+
             let file_path_str = file_path.as_deref().unwrap_or("");
 
             // Build module path from file path
@@ -336,7 +335,8 @@ impl ModulePathCache {
         // "foo/bar/mod" -> remove "mod" -> "foo/bar"
         let module_parts: Vec<&str> = parts
             .iter()
-            .filter(|&&part| part != "mod").copied()
+            .filter(|&&part| part != "mod")
+            .copied()
             .collect();
 
         // If we have lib.rs or main.rs, this is the crate root
@@ -376,7 +376,8 @@ pub fn delete_edges_touching_entities(
     // Params are duplicated (for from_id and to_id IN lists).
     let params = entity_ids_sorted
         .iter()
-        .chain(entity_ids_sorted.iter()).copied();
+        .chain(entity_ids_sorted.iter())
+        .copied();
 
     let affected = conn
         .execute(&sql, params_from_iter(params))
@@ -440,9 +441,7 @@ impl GeoIndexMeta {
     }
 
     /// Get the last recorded geo index metadata.
-    pub fn get_geo_index_meta(
-        conn: &rusqlite::Connection,
-    ) -> Result<Option<GeoIndexMeta>> {
+    pub fn get_geo_index_meta(conn: &rusqlite::Connection) -> Result<Option<GeoIndexMeta>> {
         let mut stmt = conn.prepare(
             "SELECT geo_path, built_at, schema_version, symbol_count, call_count, cfg_block_count, checksum
              FROM geo_index_meta WHERE id = 1"

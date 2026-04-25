@@ -39,7 +39,7 @@ impl AsyncWatcher {
             move |res: notify::Result<notify::Event>| {
                 if let Ok(event) = res {
                     // Convert paths to batch
-                    let paths: Vec<PathBuf> = event.paths.iter().cloned().collect();
+                    let paths: Vec<PathBuf> = event.paths.to_vec();
                     if !paths.is_empty() {
                         let batch = WatcherBatch::from_set(paths.into_iter().collect());
                         let _ = event_tx.try_send(batch);

@@ -57,12 +57,12 @@ pub fn build_geo_index(db_path: &Path, geo_path: &Path) -> Result<BuildStats> {
         .with_context(|| format!("Failed to open SQLite database at {:?}", db_path))?;
 
     // Build symbols and collect ID mapping
-    let (symbol_count, id_mapping) = build_symbols(&backend, &conn)
-        .context("Failed to build symbols")?;
+    let (symbol_count, id_mapping) =
+        build_symbols(&backend, &conn).context("Failed to build symbols")?;
 
     // Build call edges using the ID mapping
-    let call_count = build_call_edges(&backend, &conn, &id_mapping)
-        .context("Failed to build call edges")?;
+    let call_count =
+        build_call_edges(&backend, &conn, &id_mapping).context("Failed to build call edges")?;
 
     // Persist the geometric backend to disk
     backend
@@ -101,9 +101,8 @@ fn build_symbols(
     backend: &GeometricBackend,
     conn: &rusqlite::Connection,
 ) -> Result<(usize, HashMap<i64, u64>)> {
-    let mut stmt = conn.prepare(
-        "SELECT id, name, data FROM graph_entities WHERE kind = 'Symbol'"
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT id, name, data FROM graph_entities WHERE kind = 'Symbol'")?;
 
     let mut symbols = Vec::new();
     let mut id_mapping = HashMap::new();
@@ -119,11 +118,10 @@ fn build_symbols(
         let (entity_id, _name, data_json) = row?;
 
         // Deserialize the SymbolNode payload
-        let symbol_node: crate::graph::schema::SymbolNode =
-            match serde_json::from_str(&data_json) {
-                Ok(node) => node,
-                Err(_) => continue, // Skip malformed entries
-            };
+        let symbol_node: crate::graph::schema::SymbolNode = match serde_json::from_str(&data_json) {
+            Ok(node) => node,
+            Err(_) => continue, // Skip malformed entries
+        };
 
         let kind = parse_symbol_kind(&symbol_node.kind);
         let language = Language::Rust; // Default; file extension not stored in SymbolNode
@@ -191,7 +189,7 @@ fn build_call_edges(
          FROM graph_entities c
          LEFT JOIN graph_edges caller ON caller.to_id = c.id AND caller.edge_type = 'CALLER'
          LEFT JOIN graph_edges callee ON callee.from_id = c.id AND callee.edge_type = 'CALLS'
-         WHERE c.kind = 'Call'"
+         WHERE c.kind = 'Call'",
     )?;
 
     let rows = stmt.query_map([], |row| {
@@ -215,11 +213,10 @@ fn build_call_edges(
         };
 
         // Parse CallNode to get position info
-        let call_node: crate::graph::schema::CallNode =
-            match serde_json::from_str(&call_data) {
-                Ok(node) => node,
-                Err(_) => continue,
-            };
+        let call_node: crate::graph::schema::CallNode = match serde_json::from_str(&call_data) {
+            Ok(node) => node,
+            Err(_) => continue,
+        };
 
         edges.push(SymbolCallEdge {
             src_symbol_id: caller_geo_id,

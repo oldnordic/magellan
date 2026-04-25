@@ -62,8 +62,6 @@ impl ExecutionTracker {
     }
 
     /// Set execution outcome to error with message
-    ///
-    /// Currently unused but provided for API completeness and future error handling.
     #[expect(dead_code)]
     pub fn set_error(&mut self, msg: String) {
         self.outcome = "error".to_string();
@@ -71,8 +69,6 @@ impl ExecutionTracker {
     }
 
     /// Set indexing counts for execution tracking
-    ///
-    /// Currently unused but provided for API completeness and future tracking.
     #[expect(dead_code)]
     pub fn set_counts(&mut self, files: usize, symbols: usize, references: usize) {
         self.files_indexed = files;
@@ -86,13 +82,9 @@ impl ExecutionTracker {
 }
 
 /// Run status query command
-///
-/// Usage: magellan status --db <FILE>
 pub fn run_status(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
-    // Show backend information first
     let backend_caps = capabilities_for_path(&db_path);
 
-    // Check if this is a geometric database
     if MagellanBackend::detect_type(&db_path) == BackendType::Geometric {
         return run_status_geometric(db_path, output_format, backend_caps);
     }
@@ -139,40 +131,41 @@ pub fn run_status(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
             }
         };
 
+    let has_coverage = coverage_blocks > 0 || coverage_meta.is_some();
+    let coverage = if has_coverage {
+        let (source, revision, ingested_at) = match coverage_meta {
+            Some((kind, rev, ts)) => (
+                Some(kind),
+                Some(rev),
+                Some(
+                    chrono::DateTime::from_timestamp(ts, 0)
+                        .map(|d| d.to_rfc3339())
+                        .unwrap_or_else(|| "unknown".to_string()),
+                ),
+            ),
+            None => (None, None, None),
+        };
+        CoverageInfo {
+            available: true,
+            covered_blocks: coverage_blocks,
+            covered_edges: coverage_edges,
+            source,
+            revision,
+            ingested_at,
+        }
+    } else {
+        CoverageInfo {
+            available: false,
+            covered_blocks: 0,
+            covered_edges: 0,
+            source: None,
+            revision: None,
+            ingested_at: None,
+        }
+    };
+
     match output_format {
         OutputFormat::Json | OutputFormat::Pretty => {
-            let has_coverage = coverage_blocks > 0 || coverage_meta.is_some();
-            let coverage = if has_coverage {
-                let (source, revision, ingested_at) = match coverage_meta {
-                    Some((kind, rev, ts)) => (
-                        Some(kind),
-                        Some(rev),
-                        Some(
-                            chrono::DateTime::from_timestamp(ts, 0)
-                                .map(|d| d.to_rfc3339())
-                                .unwrap_or_else(|| "unknown".to_string()),
-                        ),
-                    ),
-                    None => (None, None, None),
-                };
-                CoverageInfo {
-                    available: true,
-                    covered_blocks: coverage_blocks,
-                    covered_edges: coverage_edges,
-                    source,
-                    revision,
-                    ingested_at,
-                }
-            } else {
-                CoverageInfo {
-                    available: false,
-                    covered_blocks: 0,
-                    covered_edges: 0,
-                    source: None,
-                    revision: None,
-                    ingested_at: None,
-                }
-            };
             let response = StatusResponse {
                 files: file_count,
                 symbols: symbol_count,
@@ -186,7 +179,6 @@ pub fn run_status(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
             output_json(&json_response, output_format)?;
         }
         OutputFormat::Human => {
-            // Show backend information
             println!(
                 "Backend: {} ({})",
                 backend_caps.backend_type.display_name(),
@@ -194,7 +186,6 @@ pub fn run_status(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
             );
             println!("Format: {}", backend_caps.format_hint);
 
-            // Show maintenance info
             if backend_caps.supports_vacuum_maintenance {
                 println!("Maintenance: vacuum available");
             } else {
@@ -210,18 +201,16 @@ pub fn run_status(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
             println!("  code_chunks: {}", chunk_count);
 
             println!();
-            if coverage_blocks > 0 || coverage_meta.is_some() {
+            if coverage.available {
                 println!("Coverage data:");
-                println!("  covered blocks: {}", coverage_blocks);
-                println!("  covered edges: {}", coverage_edges);
-                if let Some((kind, revision, ingested_at)) = coverage_meta {
+                println!("  covered blocks: {}", coverage.covered_blocks);
+                println!("  covered edges: {}", coverage.covered_edges);
+                if let Some(ref kind) = coverage.source {
                     println!(
                         "  source: {} (rev {}, {})",
                         kind,
-                        revision,
-                        chrono::DateTime::from_timestamp(ingested_at, 0)
-                            .map(|d| d.format("%Y-%m-%d %H:%M").to_string())
-                            .unwrap_or_else(|| "unknown".to_string())
+                        coverage.revision.as_deref().unwrap_or("unknown"),
+                        coverage.ingested_at.as_deref().unwrap_or("unknown")
                     );
                 }
             } else {
@@ -245,29 +234,30 @@ fn run_status_geometric(
     let backend = MagellanBackend::open(&db_path)?;
     let stats = backend.get_stats()?;
 
+    let coverage = CoverageInfo {
+        available: false,
+        covered_blocks: 0,
+        covered_edges: 0,
+        source: None,
+        revision: None,
+        ingested_at: None,
+    };
+
     match output_format {
         OutputFormat::Json | OutputFormat::Pretty => {
             let response = StatusResponse {
                 files: stats.file_count,
                 symbols: stats.symbol_count,
-                references: 0, // Not tracked separately in geometric
-                calls: 0,      // Not tracked separately in geometric
+                references: 0,
+                calls: 0,
                 code_chunks: stats.cfg_block_count,
-                coverage: CoverageInfo {
-                    available: false,
-                    covered_blocks: 0,
-                    covered_edges: 0,
-                    source: None,
-                    revision: None,
-                    ingested_at: None,
-                },
+                coverage,
             };
             let exec_id = generate_execution_id();
             let json_response = JsonResponse::new(response, &exec_id);
             output_json(&json_response, output_format)?;
         }
         OutputFormat::Human => {
-            // Show backend information
             println!(
                 "Backend: {} ({})",
                 backend_caps.backend_type.display_name(),
@@ -275,7 +265,6 @@ fn run_status_geometric(
             );
             println!("Format: {}", backend_caps.format_hint);
 
-            // Show maintenance info
             if backend_caps.supports_vacuum_maintenance {
                 println!("Maintenance: CFG vacuum available");
             } else {

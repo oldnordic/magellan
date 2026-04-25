@@ -21,17 +21,15 @@
 //! (e.g., mutex wrapper around CodeGraph).
 
 use anyhow::Result;
-use xxhash_rust::xxh64::Xxh64;
-use std::hash::Hasher;
 use sqlitegraph::{GraphBackend, NodeId, NodeSpec, SnapshotId};
 use std::collections::HashMap;
+use std::hash::Hasher;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use xxhash_rust::xxh64::Xxh64;
 
 use crate::graph::schema::FileNode;
 use crate::ingest::{SymbolFact, SymbolKind};
-
-
 
 /// File operations for CodeGraph
 pub struct FileOps {
@@ -54,10 +52,7 @@ impl FileOps {
     fn get_file_mtime(path: &str) -> i64 {
         std::fs::metadata(path)
             .and_then(|m| m.modified())
-            .and_then(|t| {
-                t.duration_since(UNIX_EPOCH)
-                    .map_err(std::io::Error::other)
-            })
+            .and_then(|t| t.duration_since(UNIX_EPOCH).map_err(std::io::Error::other))
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0)
     }
@@ -297,6 +292,9 @@ mod tests {
         let hash1 = ops.compute_hash(b"fn a() {}");
         let hash2 = ops.compute_hash(b"fn b() {}");
 
-        assert_ne!(hash1, hash2, "Different inputs should produce different hashes");
+        assert_ne!(
+            hash1, hash2,
+            "Different inputs should produce different hashes"
+        );
     }
 }
