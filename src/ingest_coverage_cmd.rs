@@ -83,7 +83,7 @@ pub fn run_ingest_coverage(db_path: PathBuf, lcov_path: PathBuf) -> Result<()> {
 }
 
 /// Parse an LCOV tracefile into line and branch hit maps.
-fn parse_lcov_file(path: &PathBuf) -> Result<LcovData> {
+fn parse_lcov_file(path: &std::path::Path) -> Result<LcovData> {
     use lcov::{Reader, Record};
 
     let mut data = LcovData::default();
@@ -98,21 +98,17 @@ fn parse_lcov_file(path: &PathBuf) -> Result<LcovData> {
             Record::SourceFile { path, .. } => {
                 current_file = path.to_string_lossy().to_string();
             }
-            Record::LineData { line, count, .. } => {
-                if !current_file.is_empty() {
-                    let key = (current_file.clone(), line);
-                    data.line_hits.insert(key, count);
-                }
+            Record::LineData { line, count, .. } if !current_file.is_empty() => {
+                let key = (current_file.clone(), line);
+                data.line_hits.insert(key, count);
             }
-            Record::BranchData { line, taken, .. } => {
-                if !current_file.is_empty() {
-                    let key = (current_file.clone(), line);
-                    let taken_val = taken.unwrap_or(0);
-                    data.branch_hits
-                        .entry(key)
-                        .and_modify(|v| *v = (*v).max(taken_val))
-                        .or_insert(taken_val);
-                }
+            Record::BranchData { line, taken, .. } if !current_file.is_empty() => {
+                let key = (current_file.clone(), line);
+                let taken_val = taken.unwrap_or(0);
+                data.branch_hits
+                    .entry(key)
+                    .and_modify(|v| *v = (*v).max(taken_val))
+                    .or_insert(taken_val);
             }
             _ => {}
         }
@@ -143,12 +139,13 @@ fn insert_block_coverage(
     for ((file_path, line), hits) in line_hits {
         // Find all blocks whose span includes this line
         let mut block_stmt = conn.prepare(
-            "SELECT id, start_line, start_col
-             FROM cfg_blocks
-             WHERE file_path = ?1
-               AND start_line <= ?2
-               AND end_line >= ?2
-             ORDER BY (start_line = ?2) DESC, start_col ASC, id DESC",
+            "SELECT b.id, b.start_line, b.start_col
+             FROM cfg_blocks b
+             JOIN graph_entities e ON b.function_id = e.id
+             WHERE e.file_path = ?1
+               AND b.start_line <= ?2
+               AND b.end_line >= ?2
+             ORDER BY (b.start_line = ?2) DESC, b.start_col ASC, b.id DESC",
         )?;
 
         let blocks: Vec<(i64, i64, i64)> = block_stmt
@@ -168,12 +165,27 @@ fn insert_block_coverage(
 }
 
 /// Insert edge coverage by mapping LCOV branch hits to cfg_edges via source blocks.
+///
+/// Returns 0 if `cfg_edges` table does not exist (SQLite backend without CFG edge storage).
 fn insert_edge_coverage(
     conn: &rusqlite::Connection,
     branch_hits: &HashMap<(String, u32), u64>,
     source_revision: &str,
     ingested_at: i64,
 ) -> Result<i64> {
+    // Check if cfg_edges table exists (geometric backend only)
+    let edge_table_exists: bool = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='cfg_edges'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+
+    if !edge_table_exists {
+        return Ok(0);
+    }
+
     let mut stmt = conn.prepare(
         "INSERT INTO cfg_edge_coverage (edge_id, hit_count, source_kind, source_revision, ingested_at)
          VALUES (?1, ?2, 'lcov', ?3, ?4)
@@ -192,7 +204,8 @@ fn insert_edge_coverage(
             "SELECT e.id
              FROM cfg_edges e
              JOIN cfg_blocks src ON e.source_idx = src.id
-             WHERE src.file_path = ?1
+             JOIN graph_entities ent ON src.function_id = ent.id
+             WHERE ent.file_path = ?1
                AND src.start_line <= ?2
                AND src.end_line >= ?2",
         )?;
@@ -211,7 +224,7 @@ fn insert_edge_coverage(
 }
 
 /// Get the current git revision for the project containing the database.
-fn get_git_revision(db_path: &PathBuf) -> Option<String> {
+fn get_git_revision(db_path: &std::path::Path) -> Option<String> {
     let db_dir = db_path.parent()?;
     let repo = git2::Repository::discover(db_dir).ok()?;
     let head = repo.head().ok()?;
