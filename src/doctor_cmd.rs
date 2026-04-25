@@ -184,6 +184,37 @@ pub fn run_doctor(db_path: PathBuf, fix: bool) -> Result<()> {
                 }
                 issues_found += 1;
             }
+
+            // Check 10: Coverage schema
+            print!("Checking coverage schema... ");
+            match graph.check_coverage_schema() {
+                Ok(true) => {
+                    println!("✅ OK");
+                }
+                Ok(false) => {
+                    println!("⚠️  MISSING");
+                    println!("   Coverage tables not found");
+                    println!("   Fix: Re-open database to trigger schema migration");
+                    if fix {
+                        println!("   Auto-fix: Re-opening database...");
+                        drop(graph);
+                        match CodeGraph::open(&db_path) {
+                            Ok(_) => {
+                                println!("   ✅ Schema updated");
+                                issues_fixed += 1;
+                            }
+                            Err(e) => {
+                                println!("   ❌ Failed: {}", e);
+                            }
+                        }
+                    }
+                    issues_found += 1;
+                }
+                Err(e) => {
+                    println!("❌ ERROR: {}", e);
+                    issues_found += 1;
+                }
+            }
         }
         Err(e) => {
             println!("❌ ERROR");
