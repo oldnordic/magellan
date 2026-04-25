@@ -6,7 +6,7 @@
 use anyhow::{Context, Result};
 use rusqlite::params;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::CodeGraph;
 
@@ -27,38 +27,54 @@ struct LcovData {
 pub fn run_ingest_coverage(db_path: PathBuf, lcov_path: PathBuf) -> Result<()> {
     let _graph = CodeGraph::open(&db_path)?;
 
+    // Determine project root for path normalization
+    let project_root = db_path
+        .parent()
+        .and_then(|p| p.parent())
+        .unwrap_or_else(|| Path::new("."));
+
     // Parse LCOV file
     let lcov_data = parse_lcov_file(&lcov_path)
         .with_context(|| format!("Failed to parse LCOV file: {:?}", lcov_path))?;
 
+    // Normalize LCOV paths to project-relative
+    let line_hits = normalize_paths(&lcov_data.line_hits, project_root);
+    let branch_hits = normalize_paths(&lcov_data.branch_hits, project_root);
+
     // Get git revision for provenance
-    let source_revision = get_git_revision(&db_path).unwrap_or_default();
+    let source_revision = get_git_revision(&db_path).unwrap_or_else(|| {
+        eprintln!("Warning: could not determine git revision for coverage provenance");
+        "unknown".to_string()
+    });
     let ingested_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
+        .expect("system clock before 1970")
         .as_secs() as i64;
 
     // Open a dedicated database connection for bulk insert
-    let conn = rusqlite::Connection::open(&db_path)?;
+    let mut conn = rusqlite::Connection::open(&db_path)?;
+
+    // Run all inserts in a single transaction for atomicity and performance
+    let tx = conn.transaction()?;
 
     // Insert block coverage
-    let total_blocks = insert_block_coverage(
-        &conn,
-        &lcov_data.line_hits,
+    let (total_blocks, unmapped_lines) = insert_block_coverage(
+        &tx,
+        &line_hits,
         &source_revision,
         ingested_at,
     )?;
 
     // Insert edge coverage
     let total_edges = insert_edge_coverage(
-        &conn,
-        &lcov_data.branch_hits,
+        &tx,
+        &branch_hits,
         &source_revision,
         ingested_at,
     )?;
 
     // Update metadata
-    conn.execute(
+    tx.execute(
         "INSERT INTO cfg_coverage_meta (source_kind, source_revision, ingested_at, total_blocks, total_edges)
          VALUES ('lcov', ?1, ?2, ?3, ?4)
          ON CONFLICT(source_kind) DO UPDATE SET
@@ -69,6 +85,15 @@ pub fn run_ingest_coverage(db_path: PathBuf, lcov_path: PathBuf) -> Result<()> {
         params![source_revision, ingested_at, total_blocks, total_edges],
     )?;
 
+    tx.commit()?;
+
+    if unmapped_lines > 0 {
+        eprintln!(
+            "Warning: {} line hits could not be mapped to CFG blocks (file/line mismatch)",
+            unmapped_lines
+        );
+    }
+
     println!(
         "Ingested coverage: {} blocks, {} edges from lcov (rev {}, {})",
         total_blocks,
@@ -76,14 +101,35 @@ pub fn run_ingest_coverage(db_path: PathBuf, lcov_path: PathBuf) -> Result<()> {
         source_revision,
         chrono::DateTime::from_timestamp(ingested_at, 0)
             .map(|d| d.format("%Y-%m-%d").to_string())
-            .unwrap_or_default(),
+            .unwrap_or_else(|| "invalid timestamp".to_string()),
     );
 
     Ok(())
 }
 
+/// Convert absolute paths in hit maps to project-relative paths.
+fn normalize_paths(
+    hits: &HashMap<(String, u32), u64>,
+    project_root: &Path,
+) -> HashMap<(String, u32), u64> {
+    let mut normalized = HashMap::with_capacity(hits.len());
+    for ((path, line), count) in hits {
+        let path_buf = Path::new(path);
+        let rel = if path_buf.is_absolute() {
+            path_buf
+                .strip_prefix(project_root)
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|_| path.clone())
+        } else {
+            path.clone()
+        };
+        normalized.insert((rel, *line), *count);
+    }
+    normalized
+}
+
 /// Parse an LCOV tracefile into line and branch hit maps.
-fn parse_lcov_file(path: &std::path::Path) -> Result<LcovData> {
+fn parse_lcov_file(path: &Path) -> Result<LcovData> {
     use lcov::{Reader, Record};
 
     let mut data = LcovData::default();
@@ -118,13 +164,15 @@ fn parse_lcov_file(path: &std::path::Path) -> Result<LcovData> {
 }
 
 /// Insert block coverage by mapping LCOV line hits to cfg_blocks.
+///
+/// Returns the number of successfully mapped blocks and the number of unmapped lines.
 fn insert_block_coverage(
-    conn: &rusqlite::Connection,
+    tx: &rusqlite::Transaction,
     line_hits: &HashMap<(String, u32), u64>,
     source_revision: &str,
     ingested_at: i64,
-) -> Result<i64> {
-    let mut stmt = conn.prepare(
+) -> Result<(i64, i64)> {
+    let mut stmt = tx.prepare(
         "INSERT INTO cfg_block_coverage (block_id, hit_count, source_kind, source_revision, ingested_at)
          VALUES (?1, ?2, 'lcov', ?3, ?4)
          ON CONFLICT(block_id) DO UPDATE SET
@@ -134,59 +182,62 @@ fn insert_block_coverage(
              ingested_at = excluded.ingested_at",
     )?;
 
+    let mut block_stmt = tx.prepare(
+        "SELECT b.id, b.start_line, b.start_col
+         FROM cfg_blocks b
+         JOIN graph_entities e ON b.function_id = e.id
+         WHERE e.file_path = ?1
+           AND b.start_line <= ?2
+           AND b.end_line >= ?2
+         ORDER BY (b.start_line = ?2) DESC, b.start_col ASC, b.id DESC",
+    )?;
+
     let mut count = 0i64;
+    let mut unmapped = 0i64;
 
     for ((file_path, line), hits) in line_hits {
-        // Find all blocks whose span includes this line
-        let mut block_stmt = conn.prepare(
-            "SELECT b.id, b.start_line, b.start_col
-             FROM cfg_blocks b
-             JOIN graph_entities e ON b.function_id = e.id
-             WHERE e.file_path = ?1
-               AND b.start_line <= ?2
-               AND b.end_line >= ?2
-             ORDER BY (b.start_line = ?2) DESC, b.start_col ASC, b.id DESC",
-        )?;
-
         let blocks: Vec<(i64, i64, i64)> = block_stmt
             .query_map(params![file_path, line], |row| {
                 Ok((row.get(0)?, row.get(1)?, row.get(2)?))
             })?
             .collect::<Result<Vec<_>, _>>()?;
 
-        // Assign to the first (best-matching) block per line
         if let Some((block_id, _, _)) = blocks.first() {
             stmt.execute(params![block_id, *hits as i64, source_revision, ingested_at])?;
             count += 1;
+        } else {
+            unmapped += 1;
         }
     }
 
-    Ok(count)
+    Ok((count, unmapped))
 }
 
 /// Insert edge coverage by mapping LCOV branch hits to cfg_edges via source blocks.
 ///
 /// Returns 0 if `cfg_edges` table does not exist (SQLite backend without CFG edge storage).
 fn insert_edge_coverage(
-    conn: &rusqlite::Connection,
+    tx: &rusqlite::Transaction,
     branch_hits: &HashMap<(String, u32), u64>,
     source_revision: &str,
     ingested_at: i64,
 ) -> Result<i64> {
     // Check if cfg_edges table exists (geometric backend only)
-    let edge_table_exists: bool = conn
-        .query_row(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='cfg_edges'",
-            [],
-            |_| Ok(true),
-        )
-        .unwrap_or(false);
+    let edge_table_exists = match tx.query_row(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='cfg_edges'",
+        [],
+        |_| Ok(true),
+    ) {
+        Ok(_) => true,
+        Err(rusqlite::Error::QueryReturnedNoRows) => false,
+        Err(e) => return Err(e.into()),
+    };
 
     if !edge_table_exists {
         return Ok(0);
     }
 
-    let mut stmt = conn.prepare(
+    let mut stmt = tx.prepare(
         "INSERT INTO cfg_edge_coverage (edge_id, hit_count, source_kind, source_revision, ingested_at)
          VALUES (?1, ?2, 'lcov', ?3, ?4)
          ON CONFLICT(edge_id) DO UPDATE SET
@@ -196,20 +247,19 @@ fn insert_edge_coverage(
              ingested_at = excluded.ingested_at",
     )?;
 
+    let mut edge_stmt = tx.prepare(
+        "SELECT e.id
+         FROM cfg_edges e
+         JOIN cfg_blocks src ON e.source_idx = src.id
+         JOIN graph_entities ent ON src.function_id = ent.id
+         WHERE ent.file_path = ?1
+           AND src.start_line <= ?2
+           AND src.end_line >= ?2",
+    )?;
+
     let mut count = 0i64;
 
     for ((file_path, line), hits) in branch_hits {
-        // Find edges whose source block spans this line
-        let mut edge_stmt = conn.prepare(
-            "SELECT e.id
-             FROM cfg_edges e
-             JOIN cfg_blocks src ON e.source_idx = src.id
-             JOIN graph_entities ent ON src.function_id = ent.id
-             WHERE ent.file_path = ?1
-               AND src.start_line <= ?2
-               AND src.end_line >= ?2",
-        )?;
-
         let edges: Vec<i64> = edge_stmt
             .query_map(params![file_path, line], |row| row.get(0))?
             .collect::<Result<Vec<_>, _>>()?;
@@ -224,7 +274,7 @@ fn insert_edge_coverage(
 }
 
 /// Get the current git revision for the project containing the database.
-fn get_git_revision(db_path: &std::path::Path) -> Option<String> {
+fn get_git_revision(db_path: &Path) -> Option<String> {
     let db_dir = db_path.parent()?;
     let repo = git2::Repository::discover(db_dir).ok()?;
     let head = repo.head().ok()?;

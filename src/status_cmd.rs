@@ -113,37 +113,35 @@ pub fn run_status(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
 
     // Query coverage data directly from side tables
     let (coverage_blocks, coverage_edges, coverage_meta) =
-        if let Ok(conn) = rusqlite::Connection::open(&db_path) {
-            let blocks: i64 = conn
-                .query_row(
+        match rusqlite::Connection::open(&db_path) {
+            Ok(conn) => {
+                let blocks = query_coverage_count(
+                    &conn,
                     "SELECT COUNT(*) FROM cfg_block_coverage WHERE hit_count > 0",
-                    [],
-                    |row| row.get(0),
-                )
-                .unwrap_or(0);
-            let edges: i64 = conn
-                .query_row(
+                );
+                let edges = query_coverage_count(
+                    &conn,
                     "SELECT COUNT(*) FROM cfg_edge_coverage WHERE hit_count > 0",
-                    [],
-                    |row| row.get(0),
-                )
-                .unwrap_or(0);
-            let meta = conn
-                .query_row(
-                    "SELECT source_kind, source_revision, ingested_at FROM cfg_coverage_meta LIMIT 1",
-                    [],
-                    |row| {
-                        Ok((
-                            row.get::<_, String>(0)?,
-                            row.get::<_, Option<String>>(1)?.unwrap_or_default(),
-                            row.get::<_, i64>(2)?,
-                        ))
-                    },
-                )
-                .ok();
-            (blocks as usize, edges as usize, meta)
-        } else {
-            (0usize, 0usize, None)
+                );
+                let meta = conn
+                    .query_row(
+                        "SELECT source_kind, source_revision, ingested_at FROM cfg_coverage_meta LIMIT 1",
+                        [],
+                        |row| {
+                            Ok((
+                                row.get::<_, String>(0)?,
+                                row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                                row.get::<_, i64>(2)?,
+                            ))
+                        },
+                    )
+                    .ok();
+                (blocks, edges, meta)
+            }
+            Err(e) => {
+                eprintln!("Warning: could not query coverage data: {}", e);
+                (0, 0, None)
+            }
         };
 
     match output_format {
@@ -258,4 +256,20 @@ fn run_status_geometric(
     }
 
     Ok(())
+}
+
+/// Query a coverage count, distinguishing "no data" from real errors.
+fn query_coverage_count(conn: &rusqlite::Connection, sql: &str) -> usize {
+    match conn.query_row(sql, [], |row| row.get::<_, i64>(0)) {
+        Ok(n) => n as usize,
+        Err(rusqlite::Error::SqliteFailure(_code, Some(msg)))
+            if msg.contains("no such table") =>
+        {
+            0
+        }
+        Err(e) => {
+            eprintln!("Warning: coverage query failed: {}", e);
+            0
+        }
+    }
 }
