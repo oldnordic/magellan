@@ -115,14 +115,8 @@ pub fn run_status(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
     let (coverage_blocks, coverage_edges, coverage_meta) =
         match rusqlite::Connection::open(&db_path) {
             Ok(conn) => {
-                let blocks = query_coverage_count(
-                    &conn,
-                    "SELECT COUNT(*) FROM cfg_block_coverage WHERE hit_count > 0",
-                );
-                let edges = query_coverage_count(
-                    &conn,
-                    "SELECT COUNT(*) FROM cfg_edge_coverage WHERE hit_count > 0",
-                );
+                let blocks = query_coverage_count(&conn, "cfg_block_coverage");
+                let edges = query_coverage_count(&conn, "cfg_edge_coverage");
                 let meta = conn
                     .query_row(
                         "SELECT source_kind, source_revision, ingested_at FROM cfg_coverage_meta LIMIT 1",
@@ -136,6 +130,7 @@ pub fn run_status(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
                         },
                     )
                     .ok();
+                drop(conn);
                 (blocks, edges, meta)
             }
             Err(e) => {
@@ -275,9 +270,15 @@ fn run_status_geometric(
     Ok(())
 }
 
-/// Query a coverage count, distinguishing "no data" from real errors.
-fn query_coverage_count(conn: &rusqlite::Connection, sql: &str) -> usize {
-    match conn.query_row(sql, [], |row| row.get::<_, i64>(0)) {
+/// Query a coverage count from a known table.
+fn query_coverage_count(conn: &rusqlite::Connection, table: &str) -> usize {
+    const VALID_TABLES: &[&str] = &["cfg_block_coverage", "cfg_edge_coverage"];
+    if !VALID_TABLES.contains(&table) {
+        eprintln!("Warning: invalid coverage table name: {}", table);
+        return 0;
+    }
+    let sql = format!("SELECT COUNT(*) FROM {} WHERE hit_count > 0", table);
+    match conn.query_row(&sql, [], |row| row.get::<_, i64>(0)) {
         Ok(n) => n as usize,
         Err(rusqlite::Error::SqliteFailure(_code, Some(msg)))
             if msg.contains("no such table") =>
@@ -285,7 +286,7 @@ fn query_coverage_count(conn: &rusqlite::Connection, sql: &str) -> usize {
             0
         }
         Err(e) => {
-            eprintln!("Warning: coverage query failed: {}", e);
+            eprintln!("Warning: coverage query failed for {}: {}", table, e);
             0
         }
     }

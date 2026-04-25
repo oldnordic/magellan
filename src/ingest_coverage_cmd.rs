@@ -73,7 +73,25 @@ pub fn run_ingest_coverage(db_path: PathBuf, lcov_path: PathBuf) -> Result<()> {
         ingested_at,
     )?;
 
-    // Update metadata
+    // Update metadata, but don't overwrite a real revision with "unknown"
+    let revision_to_store: String = if source_revision == "unknown" {
+        // Check if existing revision is real; if so, keep it
+        let existing: Option<String> = tx
+            .query_row(
+                "SELECT source_revision FROM cfg_coverage_meta WHERE source_kind = 'lcov'",
+                [],
+                |row| row.get(0),
+            )
+            .ok()
+            .flatten();
+        match existing {
+            Some(r) if r != "unknown" && !r.is_empty() => r,
+            _ => source_revision,
+        }
+    } else {
+        source_revision
+    };
+
     tx.execute(
         "INSERT INTO cfg_coverage_meta (source_kind, source_revision, ingested_at, total_blocks, total_edges)
          VALUES ('lcov', ?1, ?2, ?3, ?4)
@@ -82,7 +100,7 @@ pub fn run_ingest_coverage(db_path: PathBuf, lcov_path: PathBuf) -> Result<()> {
              ingested_at = excluded.ingested_at,
              total_blocks = excluded.total_blocks,
              total_edges = excluded.total_edges",
-        params![source_revision, ingested_at, total_blocks, total_edges],
+        params![revision_to_store, ingested_at, total_blocks, total_edges],
     )?;
 
     tx.commit()?;
@@ -98,7 +116,7 @@ pub fn run_ingest_coverage(db_path: PathBuf, lcov_path: PathBuf) -> Result<()> {
         "Ingested coverage: {} blocks, {} edges from lcov (rev {}, {})",
         total_blocks,
         total_edges,
-        source_revision,
+        revision_to_store,
         chrono::DateTime::from_timestamp(ingested_at, 0)
             .map(|d| d.format("%Y-%m-%d").to_string())
             .unwrap_or_else(|| "invalid timestamp".to_string()),
