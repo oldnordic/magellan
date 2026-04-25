@@ -25,7 +25,7 @@ struct LcovData {
 /// * `db_path` - Path to the sqlitegraph database
 /// * `lcov_path` - Path to the LCOV tracefile
 pub fn run_ingest_coverage(db_path: PathBuf, lcov_path: PathBuf) -> Result<()> {
-    let graph = CodeGraph::open(&db_path)?;
+    let _graph = CodeGraph::open(&db_path)?;
 
     // Parse LCOV file
     let lcov_data = parse_lcov_file(&lcov_path)
