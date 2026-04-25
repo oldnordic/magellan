@@ -5,7 +5,7 @@
 use anyhow::Result;
 use magellan::backend_router::{BackendType, MagellanBackend};
 use magellan::capabilities::{capabilities_for_path, BackendCapabilities};
-use magellan::output::{generate_execution_id, output_json, CoverageSourceInfo, JsonResponse, StatusResponse};
+use magellan::output::{generate_execution_id, output_json, CoverageInfo, JsonResponse, StatusResponse};
 use magellan::{CodeGraph, OutputFormat};
 use std::path::PathBuf;
 
@@ -141,26 +141,45 @@ pub fn run_status(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
 
     match output_format {
         OutputFormat::Json | OutputFormat::Pretty => {
-            // Only include coverage fields when data exists (matches human output behavior)
             let has_coverage = coverage_blocks > 0 || coverage_meta.is_some();
-            let coverage_source = coverage_meta.map(|(kind, revision, ingested_at)| {
-                CoverageSourceInfo {
-                    kind,
-                    revision: Some(revision),
-                    ingested_at: chrono::DateTime::from_timestamp(ingested_at, 0)
-                        .map(|d| d.to_rfc3339())
-                        .unwrap_or_else(|| "unknown".to_string()),
+            let coverage = if has_coverage {
+                let (source, revision, ingested_at) = match coverage_meta {
+                    Some((kind, rev, ts)) => (
+                        Some(kind),
+                        Some(rev),
+                        Some(
+                            chrono::DateTime::from_timestamp(ts, 0)
+                                .map(|d| d.to_rfc3339())
+                                .unwrap_or_else(|| "unknown".to_string()),
+                        ),
+                    ),
+                    None => (None, None, None),
+                };
+                CoverageInfo {
+                    available: true,
+                    covered_blocks: coverage_blocks,
+                    covered_edges: coverage_edges,
+                    source,
+                    revision,
+                    ingested_at,
                 }
-            });
+            } else {
+                CoverageInfo {
+                    available: false,
+                    covered_blocks: 0,
+                    covered_edges: 0,
+                    source: None,
+                    revision: None,
+                    ingested_at: None,
+                }
+            };
             let response = StatusResponse {
                 files: file_count,
                 symbols: symbol_count,
                 references: reference_count,
                 calls: call_count,
                 code_chunks: chunk_count,
-                covered_blocks: has_coverage.then_some(coverage_blocks),
-                covered_edges: has_coverage.then_some(coverage_edges),
-                coverage_source,
+                coverage,
             };
             let exec_id = tracker.exec_id().to_string();
             let json_response = JsonResponse::new(response, &exec_id);
@@ -234,9 +253,14 @@ fn run_status_geometric(
                 references: 0, // Not tracked separately in geometric
                 calls: 0,      // Not tracked separately in geometric
                 code_chunks: stats.cfg_block_count,
-                covered_blocks: None,
-                covered_edges: None,
-                coverage_source: None,
+                coverage: CoverageInfo {
+                    available: false,
+                    covered_blocks: 0,
+                    covered_edges: 0,
+                    source: None,
+                    revision: None,
+                    ingested_at: None,
+                },
             };
             let exec_id = generate_execution_id();
             let json_response = JsonResponse::new(response, &exec_id);
