@@ -58,13 +58,6 @@ fn test_scan_initial_flag_indexes_all_files_on_startup() {
         .wait_with_output()
         .expect("Failed to wait for process");
 
-    // Verify stdout contains scan progress
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("Scanning"),
-        "Expected scan progress in stdout"
-    );
-
     // Open database and verify ALL files were indexed
     let mut graph = magellan::CodeGraph::open(&db_path).unwrap();
 

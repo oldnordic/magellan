@@ -888,6 +888,31 @@ pub struct StatusResponse {
     pub calls: usize,
     /// Number of code chunks
     pub code_chunks: usize,
+    /// Coverage data (always present for stable JSON shape)
+    pub coverage: CoverageInfo,
+}
+
+/// Coverage information with stable JSON shape.
+///
+/// All fields are always serialized so consumers can rely on a fixed schema.
+/// Use `available` to distinguish "no coverage data" from "zero coverage".
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CoverageInfo {
+    /// Whether any coverage data has been ingested
+    pub available: bool,
+    /// Number of covered CFG blocks
+    pub covered_blocks: usize,
+    /// Number of covered CFG edges
+    pub covered_edges: usize,
+    /// Source kind (e.g. "lcov"), when available
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    /// Source revision (e.g. git commit hash), when available
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub revision: Option<String>,
+    /// Ingestion timestamp (RFC 3339), when available
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ingested_at: Option<String>,
 }
 
 /// Response for validation command
@@ -1177,13 +1202,21 @@ mod tests {
     }
 
     #[test]
-    fn test_status_response_serialization() {
+    fn test_status_response_serialization_with_coverage() {
         let response = StatusResponse {
             files: 10,
             symbols: 100,
             references: 50,
             calls: 25,
             code_chunks: 200,
+            coverage: CoverageInfo {
+                available: true,
+                covered_blocks: 5,
+                covered_edges: 3,
+                source: Some("lcov".to_string()),
+                revision: Some("abc123".to_string()),
+                ingested_at: Some("2026-04-25T12:00:00Z".to_string()),
+            },
         };
 
         let json = serde_json::to_string(&response).unwrap();
@@ -1194,6 +1227,43 @@ mod tests {
         assert_eq!(parsed["references"], 50);
         assert_eq!(parsed["calls"], 25);
         assert_eq!(parsed["code_chunks"], 200);
+        assert_eq!(parsed["coverage"]["available"], true);
+        assert_eq!(parsed["coverage"]["covered_blocks"], 5);
+        assert_eq!(parsed["coverage"]["covered_edges"], 3);
+        assert_eq!(parsed["coverage"]["source"], "lcov");
+        assert_eq!(parsed["coverage"]["revision"], "abc123");
+        assert_eq!(parsed["coverage"]["ingested_at"], "2026-04-25T12:00:00Z");
+    }
+
+    #[test]
+    fn test_status_response_serialization_without_coverage() {
+        let response = StatusResponse {
+            files: 10,
+            symbols: 100,
+            references: 50,
+            calls: 25,
+            code_chunks: 200,
+            coverage: CoverageInfo {
+                available: false,
+                covered_blocks: 0,
+                covered_edges: 0,
+                source: None,
+                revision: None,
+                ingested_at: None,
+            },
+        };
+
+        let json = serde_json::to_string(&response).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed["files"], 10);
+        assert_eq!(parsed["coverage"]["available"], false);
+        assert_eq!(parsed["coverage"]["covered_blocks"], 0);
+        assert_eq!(parsed["coverage"]["covered_edges"], 0);
+        // Optional fields should be null when None (or absent, but we prefer null)
+        assert!(
+            parsed["coverage"]["source"].is_null() || parsed["coverage"].get("source").is_none()
+        );
     }
 
     #[test]
