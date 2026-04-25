@@ -176,6 +176,7 @@ sqlitegraph = { version = "2.0.7", default-features = false }
 walkdir = "2.5"
 git2 = "0.19"
 globset = "0.4"
+lcov = "0.8.2"
 ignore = "0.4.25"
 rusqlite = "0.31"
 csv = "1.3"
