@@ -360,7 +360,7 @@ impl CodeGraph {
                 let cov_conn = rusqlite::Connection::open(&db_path_buf).map_err(|e| {
                     anyhow::anyhow!("Failed to open connection for coverage schema: {}", e)
                 })?;
-                db_compat::ensure_coverage_schema(&cov_conn)
+                db_compat::ensure_coverage_schema(&cov_conn, &db_path_buf)
                     .map_err(|e| anyhow::anyhow!(e.to_string()))?;
             }
 
