@@ -126,6 +126,10 @@ fn main() -> ExitCode {
             }
             ExitCode::SUCCESS
         }
+        Ok(Command::IngestCoverage { .. }) => {
+            eprintln!("ingest-coverage not yet implemented");
+            ExitCode::from(1)
+        }
         Ok(Command::Enrich {
             db_path,
             files,
