@@ -105,7 +105,7 @@ pub use cfg_ops::CfgOps;
 pub use bytecode_cfg::JavaBytecodeCfgExtractor;
 pub use cache::CacheStats;
 pub use db_compat::MAGELLAN_SCHEMA_VERSION;
-pub use db_compat::{ensure_ast_schema, ensure_cfg_schema, CFG_EDGE};
+pub use db_compat::{ensure_ast_schema, ensure_cfg_schema, ensure_coverage_schema, CFG_EDGE};
 pub use execution_log::ExecutionLog;
 pub use export::{ExportConfig, ExportFormat};
 pub use freshness::{check_freshness, FreshnessStatus, STALE_THRESHOLD_SECS};
@@ -352,6 +352,15 @@ impl CodeGraph {
                     anyhow::anyhow!("Failed to open connection for CFG schema: {}", e)
                 })?;
                 db_compat::ensure_cfg_schema(&cfg_conn)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            }
+
+            // Ensure coverage schema exists
+            {
+                let cov_conn = rusqlite::Connection::open(&db_path_buf).map_err(|e| {
+                    anyhow::anyhow!("Failed to open connection for coverage schema: {}", e)
+                })?;
+                db_compat::ensure_coverage_schema(&cov_conn)
                     .map_err(|e| anyhow::anyhow!(e.to_string()))?;
             }
 
