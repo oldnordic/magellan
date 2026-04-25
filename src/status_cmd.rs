@@ -111,6 +111,41 @@ pub fn run_status(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
     let call_count = graph.count_calls()?;
     let chunk_count = graph.count_chunks()?;
 
+    // Query coverage data directly from side tables
+    let (coverage_blocks, coverage_edges, coverage_meta) =
+        if let Ok(conn) = rusqlite::Connection::open(&db_path) {
+            let blocks: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM cfg_block_coverage WHERE hit_count > 0",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0);
+            let edges: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM cfg_edge_coverage WHERE hit_count > 0",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0);
+            let meta = conn
+                .query_row(
+                    "SELECT source_kind, source_revision, ingested_at FROM cfg_coverage_meta LIMIT 1",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                            row.get::<_, i64>(2)?,
+                        ))
+                    },
+                )
+                .ok();
+            (blocks as usize, edges as usize, meta)
+        } else {
+            (0usize, 0usize, None)
+        };
+
     match output_format {
         OutputFormat::Json | OutputFormat::Pretty => {
             let response = StatusResponse {
@@ -147,6 +182,25 @@ pub fn run_status(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
             println!("  references: {}", reference_count);
             println!("  calls: {}", call_count);
             println!("  code_chunks: {}", chunk_count);
+
+            println!();
+            if coverage_blocks > 0 {
+                println!("Coverage data:");
+                println!("  covered blocks: {}", coverage_blocks);
+                println!("  covered edges: {}", coverage_edges);
+                if let Some((kind, revision, ingested_at)) = coverage_meta {
+                    println!(
+                        "  source: {} (rev {}, {})",
+                        kind,
+                        revision,
+                        chrono::DateTime::from_timestamp(ingested_at, 0)
+                            .map(|d| d.format("%Y-%m-%d %H:%M").to_string())
+                            .unwrap_or_default()
+                    );
+                }
+            } else {
+                println!("Coverage data: none (run 'magellan ingest-coverage --lcov <file>')");
+            }
         }
     }
 
