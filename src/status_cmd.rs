@@ -182,7 +182,7 @@ pub fn run_status(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
             println!("  code_chunks: {}", chunk_count);
 
             println!();
-            if coverage_blocks > 0 {
+            if coverage_blocks > 0 || coverage_meta.is_some() {
                 println!("Coverage data:");
                 println!("  covered blocks: {}", coverage_blocks);
                 println!("  covered edges: {}", coverage_edges);
@@ -193,7 +193,7 @@ pub fn run_status(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
                         revision,
                         chrono::DateTime::from_timestamp(ingested_at, 0)
                             .map(|d| d.format("%Y-%m-%d %H:%M").to_string())
-                            .unwrap_or_default()
+                            .unwrap_or_else(|| "unknown".to_string())
                     );
                 }
             } else {

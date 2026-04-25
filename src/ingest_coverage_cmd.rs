@@ -48,7 +48,7 @@ pub fn run_ingest_coverage(db_path: PathBuf, lcov_path: PathBuf) -> Result<()> {
     });
     let ingested_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .expect("system clock before 1970")
+        .unwrap_or_default()
         .as_secs() as i64;
 
     // Open a dedicated database connection for bulk insert

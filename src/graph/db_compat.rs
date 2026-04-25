@@ -389,7 +389,10 @@ pub fn ensure_cfg_hash_column(conn: &rusqlite::Connection) -> Result<(), DbCompa
 ///
 /// Creates cfg_block_coverage, cfg_edge_coverage, and cfg_coverage_meta.
 /// Safe to call repeatedly — uses CREATE TABLE IF NOT EXISTS.
-pub fn ensure_coverage_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
+pub fn ensure_coverage_schema(
+    conn: &rusqlite::Connection,
+    db_path: &std::path::Path,
+) -> Result<(), DbCompatError> {
     conn.execute(
         "CREATE TABLE IF NOT EXISTS cfg_block_coverage (
             block_id INTEGER PRIMARY KEY,
@@ -401,7 +404,7 @@ pub fn ensure_coverage_schema(conn: &rusqlite::Connection) -> Result<(), DbCompa
         )",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS cfg_edge_coverage (
@@ -414,7 +417,7 @@ pub fn ensure_coverage_schema(conn: &rusqlite::Connection) -> Result<(), DbCompa
         )",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS cfg_coverage_meta (
@@ -426,19 +429,19 @@ pub fn ensure_coverage_schema(conn: &rusqlite::Connection) -> Result<(), DbCompa
         )",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_block_cov_hit ON cfg_block_coverage(block_id, hit_count)",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_edge_cov_hit ON cfg_edge_coverage(edge_id, hit_count)",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     Ok(())
 }
@@ -751,7 +754,7 @@ mod tests {
     fn test_coverage_schema_created() {
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         ensure_cfg_schema(&conn).unwrap();
-        ensure_coverage_schema(&conn).unwrap();
+        ensure_coverage_schema(&conn, std::path::Path::new(":memory:")).unwrap();
 
         let block_count: i64 = conn
             .query_row(
