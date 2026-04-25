@@ -107,7 +107,7 @@ pub fn run_ingest_coverage(db_path: PathBuf, lcov_path: PathBuf) -> Result<()> {
     Ok(())
 }
 
-/// Convert absolute paths in hit maps to project-relative paths.
+/// Canonicalize paths to match the absolute format stored in graph_entities.file_path.
 fn normalize_paths(
     hits: &HashMap<(String, u32), u64>,
     project_root: &Path,
@@ -115,15 +115,17 @@ fn normalize_paths(
     let mut normalized = HashMap::with_capacity(hits.len());
     for ((path, line), count) in hits {
         let path_buf = Path::new(path);
-        let rel = if path_buf.is_absolute() {
-            path_buf
-                .strip_prefix(project_root)
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_else(|_| path.clone())
+        let abs = if path_buf.is_absolute() {
+            path_buf.to_path_buf()
         } else {
-            path.clone()
+            project_root.join(path_buf)
         };
-        normalized.insert((rel, *line), *count);
+        // The indexer stores canonicalized paths; match that format.
+        let canonical = std::fs::canonicalize(&abs)
+            .unwrap_or(abs)
+            .to_string_lossy()
+            .to_string();
+        normalized.insert((canonical, *line), *count);
     }
     normalized
 }
