@@ -888,6 +888,27 @@ pub struct StatusResponse {
     pub calls: usize,
     /// Number of code chunks
     pub code_chunks: usize,
+    /// Number of covered CFG blocks (from ingested coverage)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub covered_blocks: Option<usize>,
+    /// Number of covered CFG edges (from ingested coverage)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub covered_edges: Option<usize>,
+    /// Coverage source metadata
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coverage_source: Option<CoverageSourceInfo>,
+}
+
+/// Coverage provenance metadata for status response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CoverageSourceInfo {
+    /// Source kind (e.g. "lcov")
+    pub kind: String,
+    /// Source revision (e.g. git commit hash)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub revision: Option<String>,
+    /// Ingestion timestamp (RFC 3339)
+    pub ingested_at: String,
 }
 
 /// Response for validation command
@@ -1184,6 +1205,13 @@ mod tests {
             references: 50,
             calls: 25,
             code_chunks: 200,
+            covered_blocks: Some(5),
+            covered_edges: Some(3),
+            coverage_source: Some(CoverageSourceInfo {
+                kind: "lcov".to_string(),
+                revision: Some("abc123".to_string()),
+                ingested_at: "2026-04-25T12:00:00Z".to_string(),
+            }),
         };
 
         let json = serde_json::to_string(&response).unwrap();

@@ -5,7 +5,7 @@
 use anyhow::Result;
 use magellan::backend_router::{BackendType, MagellanBackend};
 use magellan::capabilities::{capabilities_for_path, BackendCapabilities};
-use magellan::output::{generate_execution_id, output_json, JsonResponse, StatusResponse};
+use magellan::output::{generate_execution_id, output_json, CoverageSourceInfo, JsonResponse, StatusResponse};
 use magellan::{CodeGraph, OutputFormat};
 use std::path::PathBuf;
 
@@ -146,12 +146,24 @@ pub fn run_status(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
 
     match output_format {
         OutputFormat::Json | OutputFormat::Pretty => {
+            let coverage_source = coverage_meta.map(|(kind, revision, ingested_at)| {
+                CoverageSourceInfo {
+                    kind,
+                    revision: Some(revision),
+                    ingested_at: chrono::DateTime::from_timestamp(ingested_at, 0)
+                        .map(|d| d.to_rfc3339())
+                        .unwrap_or_else(|| "unknown".to_string()),
+                }
+            });
             let response = StatusResponse {
                 files: file_count,
                 symbols: symbol_count,
                 references: reference_count,
                 calls: call_count,
                 code_chunks: chunk_count,
+                covered_blocks: Some(coverage_blocks),
+                covered_edges: Some(coverage_edges),
+                coverage_source,
             };
             let exec_id = tracker.exec_id().to_string();
             let json_response = JsonResponse::new(response, &exec_id);
@@ -225,6 +237,9 @@ fn run_status_geometric(
                 references: 0, // Not tracked separately in geometric
                 calls: 0,      // Not tracked separately in geometric
                 code_chunks: stats.cfg_block_count,
+                covered_blocks: None,
+                covered_edges: None,
+                coverage_source: None,
             };
             let exec_id = generate_execution_id();
             let json_response = JsonResponse::new(response, &exec_id);
