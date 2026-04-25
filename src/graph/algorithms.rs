@@ -1513,8 +1513,16 @@ mod tests {
     /// Returns the CodeGraph and symbol IDs for main and unused_function
     fn create_test_graph() -> Result<(CodeGraph, String, String)> {
         // Use a persistent temp directory that won't be deleted
-        // This is necessary for V3 backend which needs files to remain accessible
-        let temp_dir = std::env::temp_dir().join(format!("magellan_test_{}", std::process::id()));
+        // This is necessary for V3 backend which needs files to remain accessible.
+        // Use a unique suffix per call to avoid collisions when tests run in parallel.
+        let temp_dir = std::env::temp_dir().join(format!(
+            "magellan_test_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
         std::fs::create_dir_all(&temp_dir)?;
         let db_path = temp_dir.join("test.db");
 
