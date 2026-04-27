@@ -86,7 +86,10 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
     use crate::ingest::c::CParser;
     use crate::ingest::cpp::CppParser;
     use crate::ingest::java::JavaParser;
+    use crate::ingest::javascript::JavaScriptParser;
     use crate::ingest::pool;
+    use crate::ingest::python::PythonParser;
+    use crate::ingest::typescript::TypeScriptParser;
     use crate::ingest::{detect::Language, detect_language, Parser};
 
     let hash = graph.files.compute_hash(source);
@@ -139,6 +142,24 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
             // Use parser pool for Java
             pool::with_parser(Language::Java, |parser| {
                 JavaParser::extract_symbols_with_parser(parser, path_buf.clone(), source)
+            })?
+        }
+        Some(Language::Python) => {
+            // Use parser pool for Python
+            pool::with_parser(Language::Python, |parser| {
+                PythonParser::extract_symbols_with_parser(parser, path_buf.clone(), source)
+            })?
+        }
+        Some(Language::JavaScript) => {
+            // Use parser pool for JavaScript
+            pool::with_parser(Language::JavaScript, |parser| {
+                JavaScriptParser::extract_symbols_with_parser(parser, path_buf.clone(), source)
+            })?
+        }
+        Some(Language::TypeScript) => {
+            // Use parser pool for TypeScript
+            pool::with_parser(Language::TypeScript, |parser| {
+                TypeScriptParser::extract_symbols_with_parser(parser, path_buf.clone(), source)
             })?
         }
         // Unknown language — return empty
@@ -338,25 +359,9 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
         })
         .collect();
 
-    // Compute metrics using backend-specific method
-    #[cfg(feature = "native-v3")]
-    {
-        // V3 backend: use graph traversal API
-        if let Err(e) = graph.metrics.compute_for_file_v3(
-            Arc::clone(&graph.calls.backend),
-            path,
-            source,
-            &symbol_nodes,
-        ) {
-            eprintln!("Warning: Failed to compute metrics for '{}': {}", path, e);
-        }
-    }
-    #[cfg(not(feature = "native-v3"))]
-    {
-        // SQLite backend: use SQL queries
-        if let Err(e) = graph.metrics.compute_for_file(path, source, &symbol_nodes) {
-            eprintln!("Warning: Failed to compute metrics for '{}': {}", path, e);
-        }
+    // Compute metrics using SQL queries
+    if let Err(e) = graph.metrics.compute_for_file(path, source, &symbol_nodes) {
+        eprintln!("Warning: Failed to compute metrics for '{}': {}", path, e);
     }
 
     // Invalidate cache for this file since it was just modified
@@ -624,23 +629,8 @@ pub fn index_file_incremental(graph: &mut CodeGraph, path: &str, source: &[u8]) 
         })
         .collect();
 
-    #[cfg(feature = "native-v3")]
-    {
-        use std::sync::Arc;
-        if let Err(e) = graph.metrics.compute_for_file_v3(
-            Arc::clone(&graph.calls.backend),
-            path,
-            source,
-            &symbol_nodes,
-        ) {
-            eprintln!("Warning: Failed to compute metrics for '{}': {}", path, e);
-        }
-    }
-    #[cfg(not(feature = "native-v3"))]
-    {
-        if let Err(e) = graph.metrics.compute_for_file(path, source, &symbol_nodes) {
-            eprintln!("Warning: Failed to compute metrics for '{}': {}", path, e);
-        }
+    if let Err(e) = graph.metrics.compute_for_file(path, source, &symbol_nodes) {
+        eprintln!("Warning: Failed to compute metrics for '{}': {}", path, e);
     }
 
     graph.invalidate_cache(path);
@@ -1299,7 +1289,6 @@ pub fn insert_ast_nodes(
 #[cfg(test)]
 mod tests {
     #[test]
-    #[cfg(not(feature = "native-v3"))]
     fn test_ast_nodes_indexed_with_file() {
         use tempfile::tempdir;
 
@@ -1330,29 +1319,6 @@ mod tests {
         assert!(if_count > 0, "if_expression should be indexed");
     }
 
-    #[test]
-    #[cfg(feature = "native-v3")]
-    fn test_ast_nodes_indexed_with_file_v3() {
-        // V3 backend test - AST node storage is not fully implemented yet
-        // This test verifies that indexing completes without errors
-        let temp_dir =
-            std::env::temp_dir().join(format!("magellan_ops_test_{}", std::process::id()));
-        std::fs::create_dir_all(&temp_dir).unwrap();
-        let db_path = temp_dir.join("test.db");
-
-        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
-
-        let source = b"fn main() { if true { println!(\"hello\"); } }";
-        // Just verify indexing completes without error
-        let result = graph.index_file("test.rs", source);
-        assert!(
-            result.is_ok(),
-            "Indexing should complete without error on V3"
-        );
-
-        // Note: Full AST node support on V3 is pending prefix scan implementation
-        // The symbols are indexed, but AST nodes are not yet queryable
-    }
 }
 
 /// Count AST nodes for a file path.

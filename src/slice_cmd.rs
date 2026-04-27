@@ -64,7 +64,7 @@ fn resolve_target(
             // For geometric backend, try numeric ID first, then FQN, then name
             resolve_target_geometric(backend, target)
         }
-        BackendType::SQLite | BackendType::NativeV3 => {
+        BackendType::SQLite => {
             // For SQLite backend, try symbol ID (BLAKE3 hash) first, then FQN
             resolve_target_sqlite(graph, target)
         }
@@ -344,7 +344,7 @@ pub fn run_slice(
             }
             symbols
         }
-        BackendType::SQLite | BackendType::NativeV3 => {
+        BackendType::SQLite => {
             // For SQLite backend, use symbol-based reachability
             let symbols_result = match direction {
                 CliSliceDirection::Backward => {

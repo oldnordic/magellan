@@ -75,8 +75,6 @@ mod tests {
     }
 }
 
-// PRAGMA tests are SQLite-specific and don't apply to V3 backend
-#[cfg(all(test, not(feature = "native-v3")))]
 mod pragma_tests {
     use tempfile::TempDir;
 

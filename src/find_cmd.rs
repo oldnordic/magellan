@@ -372,7 +372,7 @@ pub fn run_find(
                 }
             }
         }
-        BackendType::SQLite | BackendType::NativeV3 => {
+        BackendType::SQLite => {
             // Use SQLite backend (existing behavior)
             let mut graph_mut = CodeGraph::open(&db_path)?;
             let results = match path.as_ref() {

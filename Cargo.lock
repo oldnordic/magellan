@@ -810,6 +810,8 @@ dependencies = [
 [[package]]
 name = "geographdb-core"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "10e6b660b34033aa122333ae0667e020df8d415f521433d3d0dac8986a0bfaa8"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -1492,7 +1494,7 @@ dependencies = [
 
 [[package]]
 name = "magellan"
-version = "3.1.6"
+version = "3.1.7"
 dependencies = [
  "ahash",
  "anyhow",

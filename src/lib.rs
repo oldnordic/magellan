@@ -24,22 +24,6 @@
 //!   - Widely compatible, well-tested
 //!   - Use for maximum compatibility
 //!
-//! ### Native V3 Backend (Recommended)
-//! - **`native-v3`**: High-performance native binary storage
-//!   - 10-20× faster traversals than SQLite
-//!   - Unlimited capacity, B+Tree indexing
-//!   - Production-ready with sqlitegraph v2.0.1+
-//!
-//! ### Feature Selection
-//!
-//! ```toml
-//! # Default: SQLite backend
-//! magellan = "2.3.0"
-//!
-//! # Native V3 backend (recommended for performance)
-//! magellan = { version = "2.3.0", default-features = false, features = ["native-v3"] }
-//! ```
-//!
 //! ## Optional Features
 //!
 //! - **`llvm-cfg`**: LLVM IR-based CFG extraction for C/C++ (requires clang)

@@ -145,12 +145,12 @@ fn test_backend_detection_by_extension() {
         );
     }
 
-    // Native V3 detection
-    let v3_type = BackendType::from_extension(Some("v3"));
+    // Unknown extensions map to SQLite.
+    let v3_type = BackendType::from_extension(Some("bin"));
     assert_eq!(
         v3_type,
-        Some(BackendType::NativeV3),
-        "Should detect .v3 as NativeV3"
+        Some(BackendType::SQLite),
+        "Should detect unknown extensions as SQLite fallback"
     );
 
     // Unknown extension returns Some(SQLite) - it's the default
@@ -181,6 +181,4 @@ fn test_backend_type_properties() {
     assert_eq!(BackendType::Geometric.extension(), "geo");
     assert_eq!(BackendType::Geometric.display_name(), "Geometric");
 
-    assert_eq!(BackendType::NativeV3.extension(), "v3");
-    assert_eq!(BackendType::NativeV3.display_name(), "Native V3");
 }

@@ -18,7 +18,7 @@ use crate::ingest::detect_language;
 /// Internal directories that are always ignored (hard-coded).
 const INTERNAL_IGNORE_DIRS: &[&str] = &[
     ".git",
-    ".codemcp",
+    ".magellan",
     "target",
     "node_modules",
     ".venv",

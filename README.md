@@ -1,203 +1,149 @@
 # Magellan
 
-**Version:** 3.1.6
+**Version:** 3.1.7
 
-A deterministic codebase mapping tool. Watches source files, extracts AST-level facts, and builds a searchable graph database of symbols and references.
+Magellan is a deterministic codebase indexing tool. It watches or scans source
+trees, extracts symbols, references, calls, AST nodes, code chunks, CFG data, and
+coverage metadata, then stores those facts in a local SQLite database for fast
+CLI and downstream-tool queries.
 
-## Purpose
+Magellan is intentionally fact-oriented: it records what is present in source
+code and leaves higher-level reasoning to tools such as llmgrep, Mirage, and
+Splice.
 
-**Magellan is the foundation of the Code Intelligence ecosystem.** Built to power:
+## Current Storage Model
 
-- **[LLMGrep](https://github.com/oldnordic/llmgrep)** — Semantic code search using natural language queries
-- **[Mirage](https://github.com/oldnordic/mirage)** — AI-powered code navigation assistant
-- **[Splice](https://github.com/oldnordic/splice)** — Intelligent code refactoring engine
+The supported user-facing database is SQLite:
 
-While usable standalone, Magellan is designed as infrastructure for downstream tools to answer questions like "find all callers of this function" with millisecond latency on multi-million line codebases.
+```text
+code.db
+```
+
+Use `.db` files for normal operation. Historical alternative backend material has
+been removed from the public documentation because it is not part of the current
+supported workflow.
+
+Optional source builds may include experimental geometric index code, but the
+SQLite database remains the source of truth.
 
 ## Features
 
-- **Watch** directories for file changes (Create/Modify/Delete) with async I/O
-- **Extract** AST-level facts: functions, classes, methods, enums, modules (7 languages)
-- **Track** symbol references and build call graphs (caller → callee)
-- **Store** AST nodes for hierarchical code structure analysis
-- **Compute** metrics: fan-in, fan-out, LOC, complexity per file/symbol
-- **Run** graph algorithms: reachability, dead code detection, cycles, paths, slicing
-- **Export** to JSON, JSONL, CSV, SCIP, DOT, **LSIF** formats
-- **LLM Context Queries** - Summarized, paginated context for efficient AI integration
-- **LSP Enrichment** - Type signatures from rust-analyzer, jdtls, clangd
-- **Self-Diagnostics** - `magellan doctor` command for troubleshooting
+- Multi-language symbol extraction with tree-sitter:
+  Rust, Python, C, C++, Java, JavaScript, and TypeScript
+- Stable symbol IDs, canonical FQNs, display FQNs, and byte/line spans
+- File watching and one-shot indexing
+- References and call graph queries
+- AST node storage and AST queries
+- Code chunks for source retrieval and LLM context
+- CFG blocks and CFG edges for control-flow analysis
+- Coverage ingestion from LCOV into CFG coverage side tables
+- Graph algorithms: reachability, dead code, cycles, condensation, paths, slice
+- JSON, pretty JSON, human output, and graph exports
+- LSIF import/export and SCIP export
+- `doctor` checks for schema and database health
 
 ## Quick Start
 
 ```bash
-# Install
-cargo install magellan
+cargo build --release
 
-# Start watching a project (with progress bar!)
-magellan watch --root /path/to/project --db ~/.cache/magellan/project.db --scan-initial
+# Build an index
+target/release/magellan watch --root . --db .magellan/code.db --scan-initial
+
+# Check database contents
+target/release/magellan status --db .magellan/code.db
 
 # Query symbols in a file
-magellan query --db ~/.cache/magellan/project.db --file src/main.rs
+target/release/magellan query --db .magellan/code.db --file src/main.rs
 
-# Find a symbol (with better error messages)
-magellan find --db ~/.cache/magellan/project.db --name main
+# Find symbols
+target/release/magellan find --db .magellan/code.db --name main
 
-# Show call references
-magellan refs --db ~/.cache/magellan/project.db --name parse_args --path src/main.rs
+# Show incoming or outgoing references/calls
+target/release/magellan refs --db .magellan/code.db --name main --direction out
 
-# LLM Context Queries (NEW in v3.0.0)
-magellan context summary --db code.db           # Project overview (~50 tokens)
-magellan context list --db code.db --kind fn    # List functions (paginated)
-magellan context symbol --db code.db --name main --callers --callees
+# Index or delete one file
+target/release/magellan index --db .magellan/code.db --file src/lib.rs
+target/release/magellan delete --db .magellan/code.db --file src/lib.rs
 
-# Self-diagnostics (NEW in v3.0.0)
+# Recompute derived metrics
+target/release/magellan backfill --db .magellan/code.db
+```
+
+## Coverage
+
+Magellan can ingest LCOV data and attach it to CFG blocks and edges:
+
+```bash
+magellan ingest-coverage --db .magellan/code.db --lcov coverage/lcov.info
+magellan status --db .magellan/code.db --output pretty
+```
+
+Status JSON always includes a stable `coverage` object:
+
+```json
+{
+  "coverage": {
+    "available": false,
+    "covered_blocks": 0,
+    "covered_edges": 0
+  }
+}
+```
+
+When coverage exists, `source`, `revision`, and `ingested_at` are included.
+
+## Useful Commands
+
+```bash
+magellan --help
+magellan --help-full
+magellan --backends
+
 magellan doctor --db code.db
-magellan doctor --db code.db --fix  # Auto-fix issues
+magellan doctor --db code.db --fix
 
-# LSP Enrichment (NEW in v3.0.0)
-magellan enrich --db code.db  # Extract type signatures
+magellan files --db code.db --symbols
+magellan chunks --db code.db --limit 20
+magellan ast --db code.db --file src/main.rs
+magellan find-ast --db code.db --kind function_item
 
-# Cross-repo navigation (NEW in v3.0.0)
-magellan export --db code.db --format lsif --output project.lsif
-magellan import-lsif --db code.db --input dependency.lsif
+magellan reachable --db code.db --symbol <SYMBOL_ID>
+magellan dead-code --db code.db --entry <SYMBOL_ID>
+magellan cycles --db code.db
+magellan condense --db code.db --members
+magellan paths --db code.db --start <SYMBOL_ID> --max-depth 8
+magellan slice --db code.db --target <SYMBOL_ID> --direction backward
+
+magellan export --db code.db --format json --output graph.json
+magellan export --db code.db --format scip --output graph.scip
+magellan import-lsif --db code.db path/to/index.lsif
 ```
 
-## Proof of Seriousness
+## External CFG Tools
 
-Real commands, real output. No marketing.
-
-### 1. Self-Diagnostics (`magellan doctor --fix`)
+The optional `external-tools-cfg` feature enables extra CFG extraction paths for
+C/C++ and Java using installed external tools:
 
 ```bash
-$ magellan doctor --db ~/.cache/magellan/project.db --fix
-
-🔍 Magellan Doctor - Diagnosing issues...
-
-Checking database file... ✅ OK
-Checking database readability... ✅ OK
-Checking schema version... ✅ OK
-Checking symbol index... ✅ OK (2271 symbols)
-Checking file index... ✅ OK (143 files)
-Checking call graph... ✅ OK (2733 calls)
-Checking database size... ✅ OK (14.8 MB)
-Checking WAL file... ✅ OK (0.0 MB)
-Checking context index (v3.0.0)... ⚠️  MISSING
-   Context index not built
-   Auto-fix: Building context index...
-   ✅ Context index built
-
-==================================================
-⚠️  Found 1 issue(s), 1 fixed
+cargo build --release --features external-tools-cfg
+cargo test --features external-tools-cfg --test external_tools_tests
 ```
 
-### 2. Progress Transparency (`magellan watch --scan-initial`)
-
-```bash
-$ magellan watch --root . --db project.db --scan-initial
-
-Using SQLite backend: "project.db"
-Scanning: src/main.rs [=====>              ] 23/143 (16%) ETA: 2s
-Scanning: src/graph/mod.rs [==========>       ] 67/143 (47%) ETA: 1s
-Scanning: src/indexer.rs [================>   ] 121/143 (85%) ETA: 0s
-Scanned 143 files
-Magellan watching: .
-Database: project.db
-```
-
-### 3. Type Signatures (`magellan enrich`)
-
-```bash
-$ magellan enrich --db project.db
-
-Found 1 analyzer(s):
-  - rust-analyzer
-
-Enriching "src/main.rs" with rust-analyzer
-    Found signature for 'main': fn main() -> Result<(), anyhow::Error>
-    Found signature for 'run_indexer': pub fn run_indexer(root_path: PathBuf, db_path: PathBuf) -> Result<()>
-  Enriched 2 symbols
-
-Enrichment complete:
-  Files processed: 143
-  Symbols enriched: 487
-  Errors: 0
-```
-
-### 4. LLM Workflow (Magellan + LLMGrep + Splice)
-
-```bash
-# Step 1: Build context for LLM
-$ magellan context summary --db project.db
-magellan 3.0.0 written in Rust, 143 files, 2271 symbols (1942 functions, 150 structs)
-
-# Step 2: Find all callers of a function
-$ llmgrep search --db project.db --query "run_indexer" --mode calls --output human
-total: 3
-/home/user/project/src/main.rs:52:0 main Function score=100
-/home/user/project/src/watch_cmd.rs:23:0 run_watch Function score=80
-/home/user/project/src/indexer.rs:92:0 run_indexer_n Function score=80
-
-# Step 3: Safe refactoring with Splice
-$ splice refactor --db project.db --function run_indexer --rename "start_indexer"
-Checking refactoring safety...
-  ✅ All callers updated (3 locations)
-  ✅ Type signatures preserved
-  ✅ No breaking changes detected
-```
-
----
-
-## Installation
-
-```bash
-cargo install magellan
-```
-
-Or build from source with specific backend:
-
-```bash
-# V3 backend (recommended for production - fastest, no SQLite dependency)
-cargo build --release --features native-v3
-
-# SQLite backend (default - best compatibility)
-cargo build --release --features sqlite-backend
-```
-
-## Backends
-
-| Feature | Description | File | Use Case |
-|---------|-------------|------|----------|
-| `native-v3` | **High-performance binary backend** with KV store | `.v3` | Recommended for performance |
-| `sqlite-backend` | Stable SQLite backend | `.db` | Compatibility, debugging |
-
-Both backends have **full feature parity** (v2.4.0):
-- Graph operations, symbol indexing, call traversal
-- AST nodes, code chunks, execution logging
-- File/symbol metrics, graph algorithms
-
-## Supported Languages
-
-| Language | Extensions |
-|----------|------------|
-| Rust | .rs |
-| C / C++ | .c, .h, .cpp, .cc, .cxx, .hpp |
-| Java | .java |
-| JavaScript / TypeScript | .js, .mjs, .ts, .tsx |
-| Python | .py |
+The default build does not require clang, javac, LLVM libraries, or Java bytecode
+libraries.
 
 ## Documentation
 
-- **[MANUAL.md](MANUAL.md)** — Complete command reference, architecture, and examples
-- **[CHANGELOG.md](CHANGELOG.md)** — Version history and release notes
-- **[docs/CONTEXT_API_CONTRACT.md](docs/CONTEXT_API_CONTRACT.md)** — Deterministic JSON contract for LLM context API
-- **[AGENTS.md](AGENTS.md)** — Development guidelines for contributors
-
-## What Magellan Does NOT Do
-
-- No semantic analysis or type checking
-- No LSP server or language features
-- No config files
-- No web APIs or network services
+- [MANUAL.md](MANUAL.md): command reference and workflows
+- [CHANGELOG.md](CHANGELOG.md): release notes
+- [docs/MAGELLAN_ARCHITECTURE.md](docs/MAGELLAN_ARCHITECTURE.md): architecture
+- [docs/SCHEMA_SQLITE.md](docs/SCHEMA_SQLITE.md): SQLite schema
+- [docs/SCHEMA_REFERENCE.md](docs/SCHEMA_REFERENCE.md): stable IDs and data model
+- [docs/API_INTEGRATION.md](docs/API_INTEGRATION.md): Rust/API integration notes
+- [docs/JSON_EXPORT_FORMAT.md](docs/JSON_EXPORT_FORMAT.md): JSON response shape
+- [docs/CONTEXT_API_CONTRACT.md](docs/CONTEXT_API_CONTRACT.md): context API contract
+- [docs/TESTING.md](docs/TESTING.md): verification commands
 
 ## License
 

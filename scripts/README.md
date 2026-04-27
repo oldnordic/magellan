@@ -122,7 +122,7 @@ This installs both `magellan` and `llmgrep` to your PATH.
 
 To upgrade your database:
 ```bash
-magellan migrate --db .codemcp/magellan.db
+magellan migrate --db .magellan/magellan.db
 ```
 
 ## Common Node Kinds for AST Queries

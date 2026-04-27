@@ -3,7 +3,7 @@
 //! Defines the Command enum and parse_args() function for all CLI commands.
 
 use anyhow::Result;
-use magellan::capabilities::all_capabilities;
+use magellan::capabilities::BackendCapabilities;
 use magellan::graph::export::ExportFilters;
 use magellan::graph::query::CollisionField;
 use magellan::{detect_project_root, ExportFormat, OutputFormat, WatcherConfig};
@@ -25,8 +25,12 @@ pub fn print_short_usage() {
     eprintln!("  find        Find symbols: magellan find --db code.db --name main");
     eprintln!("  refs        Show references: magellan refs --db code.db --name foo");
     eprintln!("  query       List file symbols: magellan query --db code.db --file src/lib.rs");
+    eprintln!("  backfill    Recompute metrics: magellan backfill --db code.db");
+    eprintln!("  delete      Remove file from index: magellan delete --db code.db --file src/lib.rs");
     eprintln!("  dead-code   Find unused code: magellan dead-code --db code.db --entry <id>");
     eprintln!("  export      Export to JSON: magellan export --db code.db --format json");
+    eprintln!("  index       Index single file: magellan index --db code.db --file src/lib.rs");
+    eprintln!("  cross-file-refs  Cross-file refs: magellan cross-file-refs --db code.db --fqn foo::bar");
     eprintln!();
     eprintln!("Global: --output <human|json|pretty>");
     eprintln!();
@@ -40,7 +44,10 @@ pub fn print_backend_info() {
     eprintln!("Magellan Backends");
     eprintln!();
 
-    let all_caps = all_capabilities();
+    let all_caps: Vec<_> = BackendCapabilities::enabled_backends()
+        .into_iter()
+        .map(BackendCapabilities::for_backend)
+        .collect();
 
     // Print table header
     eprintln!(
@@ -71,13 +78,10 @@ pub fn print_backend_info() {
     }
 
     eprintln!();
-    eprintln!("Database file extensions determine backend type:");
+    eprintln!("Database file extension for the supported public workflow:");
     eprintln!("  .db   - SQLite backend (default, single source of truth)");
-    eprintln!("  .geo  - Geometric spatial index (lazy-built from .db, requires --features geometric-backend)");
-    eprintln!("  .v3   - Native V3 backend (requires --features native-v3)");
     eprintln!();
-    eprintln!("Note: The .geo index is automatically rebuilt from the .db when stale.");
-    eprintln!("      Use the SQLite backend (.db) for all commands.");
+    eprintln!("Use the SQLite backend (.db) for all commands.");
 }
 
 /// Print full usage with all commands and arguments
@@ -93,6 +97,10 @@ pub fn print_full_usage() {
     eprintln!(
         "  magellan export --db <FILE> [--format json|jsonl|csv|scip|dot|lsif] [--output <PATH>] [--minify] [--cluster]"
     );
+    eprintln!("  magellan backfill --db <FILE>");
+    eprintln!("  magellan index --db <FILE> --file <PATH> [--root <DIR>]");
+    eprintln!("  magellan delete --db <FILE> --file <PATH> [--root <DIR>]");
+    eprintln!("  magellan cross-file-refs --db <FILE> --fqn <FQN> [--output <FORMAT>]");
     eprintln!("  magellan status --db <FILE>");
     eprintln!("  magellan query --db <FILE> --file <PATH> [--kind <KIND>]");
     eprintln!("  magellan find --db <FILE> (--name <NAME> | --symbol-id <ID> | --ambiguous <NAME>) [--path <PATH>] [--first]");
@@ -124,6 +132,10 @@ pub fn print_full_usage() {
     eprintln!();
     eprintln!("Commands:");
     eprintln!("  watch           Watch directory and index changes");
+    eprintln!("  backfill        Recompute all metrics and derived data");
+    eprintln!("  index           Index a single source file");
+    eprintln!("  delete          Remove a file from the index");
+    eprintln!("  cross-file-refs Show references to a symbol from other files");
     eprintln!("  export          Export graph data to JSON/JSONL/CSV/SCIP");
     eprintln!("  status          Show database statistics");
     eprintln!("  query           List symbols in a file");
@@ -181,6 +193,24 @@ pub fn print_full_usage() {
     eprintln!();
     eprintln!("Status arguments:");
     eprintln!("  --db <FILE>         Path to sqlitegraph database");
+    eprintln!();
+    eprintln!("Backfill arguments:");
+    eprintln!("  --db <FILE>         Path to sqlitegraph database");
+    eprintln!();
+    eprintln!("Index arguments:");
+    eprintln!("  --db <FILE>         Path to sqlitegraph database");
+    eprintln!("  --file <PATH>       File path to index");
+    eprintln!("  --root <DIR>        Project root directory (optional)");
+    eprintln!();
+    eprintln!("Delete arguments:");
+    eprintln!("  --db <FILE>         Path to sqlitegraph database");
+    eprintln!("  --file <PATH>       File path to delete from index");
+    eprintln!("  --root <DIR>        Project root directory (optional)");
+    eprintln!();
+    eprintln!("Cross-file-refs arguments:");
+    eprintln!("  --db <FILE>         Path to sqlitegraph database");
+    eprintln!("  --fqn <FQN>         Fully qualified symbol name");
+    eprintln!("  --output <FORMAT>   Output format: human (default), json, or pretty");
     eprintln!();
     eprintln!("Query arguments:");
     eprintln!("  --db <FILE>         Path to sqlitegraph database");
@@ -336,6 +366,24 @@ pub enum Command {
     ImportLsif {
         db_path: PathBuf,
         lsif_paths: Vec<PathBuf>,
+    },
+    Backfill {
+        db_path: PathBuf,
+    },
+    CrossFileRefs {
+        db_path: PathBuf,
+        fqn: String,
+        output_format: OutputFormat,
+    },
+    Delete {
+        db_path: PathBuf,
+        file_path: PathBuf,
+        root: Option<PathBuf>,
+    },
+    Index {
+        db_path: PathBuf,
+        file_path: PathBuf,
+        root: Option<PathBuf>,
     },
     IngestCoverage {
         db_path: PathBuf,
@@ -598,6 +646,154 @@ fn parse_path_arg(args: &[String], i: &mut usize, flag: &str) -> Result<PathBuf>
 ///
 /// # Returns
 /// The parsed Watch command or an error
+fn parse_backfill_args(args: &[String]) -> Result<Command> {
+    let mut db_path: Option<PathBuf> = None;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--db" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--db requires an argument"));
+                }
+                db_path = Some(PathBuf::from(&args[i + 1]));
+                i += 2;
+            }
+            _ => i += 1,
+        }
+    }
+
+    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+
+    Ok(Command::Backfill { db_path })
+}
+
+fn parse_cross_file_refs_args(args: &[String]) -> Result<Command> {
+    let mut db_path: Option<PathBuf> = None;
+    let mut fqn: Option<String> = None;
+    let mut output_format = OutputFormat::Human;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--db" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--db requires an argument"));
+                }
+                db_path = Some(PathBuf::from(&args[i + 1]));
+                i += 2;
+            }
+            "--fqn" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--fqn requires an argument"));
+                }
+                fqn = Some(args[i + 1].clone());
+                i += 2;
+            }
+            "--output" => {
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output_format = parse_output_format(&value)?;
+            }
+            _ => i += 1,
+        }
+    }
+
+    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let fqn = fqn.ok_or_else(|| anyhow::anyhow!("--fqn is required"))?;
+
+    Ok(Command::CrossFileRefs {
+        db_path,
+        fqn,
+        output_format,
+    })
+}
+
+fn parse_delete_args(args: &[String]) -> Result<Command> {
+    let mut db_path: Option<PathBuf> = None;
+    let mut file_path: Option<PathBuf> = None;
+    let mut root: Option<PathBuf> = None;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--db" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--db requires an argument"));
+                }
+                db_path = Some(PathBuf::from(&args[i + 1]));
+                i += 2;
+            }
+            "--file" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--file requires an argument"));
+                }
+                file_path = Some(PathBuf::from(&args[i + 1]));
+                i += 2;
+            }
+            "--root" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--root requires an argument"));
+                }
+                root = Some(PathBuf::from(&args[i + 1]));
+                i += 2;
+            }
+            _ => i += 1,
+        }
+    }
+
+    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let file_path = file_path.ok_or_else(|| anyhow::anyhow!("--file is required"))?;
+
+    Ok(Command::Delete {
+        db_path,
+        file_path,
+        root,
+    })
+}
+
+fn parse_index_args(args: &[String]) -> Result<Command> {
+    let mut db_path: Option<PathBuf> = None;
+    let mut file_path: Option<PathBuf> = None;
+    let mut root: Option<PathBuf> = None;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--db" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--db requires an argument"));
+                }
+                db_path = Some(PathBuf::from(&args[i + 1]));
+                i += 2;
+            }
+            "--file" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--file requires an argument"));
+                }
+                file_path = Some(PathBuf::from(&args[i + 1]));
+                i += 2;
+            }
+            "--root" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--root requires an argument"));
+                }
+                root = Some(PathBuf::from(&args[i + 1]));
+                i += 2;
+            }
+            _ => i += 1,
+        }
+    }
+
+    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let file_path = file_path.ok_or_else(|| anyhow::anyhow!("--file is required"))?;
+
+    Ok(Command::Index {
+        db_path,
+        file_path,
+        root,
+    })
+}
+
 fn parse_watch_args(args: &[String]) -> Result<Command> {
     let mut root_path: Option<PathBuf> = None;
     let mut db_path: Option<PathBuf> = None;
@@ -1438,7 +1634,11 @@ where
 
     match command.as_str() {
         "watch" => parse_watch_args(&args[2..]),
+        "backfill" => parse_backfill_args(&args[2..]),
+        "cross-file-refs" => parse_cross_file_refs_args(&args[2..]),
+        "delete" => parse_delete_args(&args[2..]),
         "export" => parse_export_args(&args[2..]),
+        "index" => parse_index_args(&args[2..]),
         "import-lsif" => parse_import_lsif_args(&args[2..]),
         "ingest-coverage" => parse_ingest_coverage_args(&args[2..]),
         "enrich" => parse_enrich_args(&args[2..]),
