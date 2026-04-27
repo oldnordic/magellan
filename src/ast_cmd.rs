@@ -25,17 +25,17 @@
 //!
 //! Show all AST nodes for a file:
 //! ```bash
-//! magellan ast --db .codemcp/magellan.db --file src/main.rs
+//! magellan ast --db .magellan/magellan.db --file src/main.rs
 //! ```
 //!
 //! Find node at byte position 100:
 //! ```bash
-//! magellan ast --db .codemcp/magellan.db --file src/main.rs --position 100
+//! magellan ast --db .magellan/magellan.db --file src/main.rs --position 100
 //! ```
 //!
 //! Output as JSON:
 //! ```bash
-//! magellan ast --db .codemcp/magellan.db --file src/main.rs --output json
+//! magellan ast --db .magellan/magellan.db --file src/main.rs --output json
 //! ```
 //!
 //! ## `magellan find-ast`
@@ -56,12 +56,12 @@
 //!
 //! Find all if expressions:
 //! ```bash
-//! magellan find-ast --db .codemcp/magellan.db --kind if_expression
+//! magellan find-ast --db .magellan/magellan.db --kind if_expression
 //! ```
 //!
 //! Find all function definitions as JSON:
 //! ```bash
-//! magellan find-ast --db .codemcp/magellan.db --kind function_item --output json
+//! magellan find-ast --db .magellan/magellan.db --kind function_item --output json
 //! ```
 //!
 //! ### Common Node Kinds

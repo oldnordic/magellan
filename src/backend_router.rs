@@ -41,8 +41,6 @@ pub enum BackendType {
     SQLite,
     /// Geometric backend (spatial indexing)
     Geometric,
-    /// Native V3 backend (B-tree storage)
-    NativeV3,
 }
 
 /// Unified backend interface
@@ -63,8 +61,7 @@ impl MagellanBackend {
                 // Fallback to SQLite if geometric backend is not available
                 BackendType::SQLite
             }
-            Some("v3") => BackendType::NativeV3,
-            Some("db") | Some("sqlite") | _ => BackendType::SQLite,
+            Some("db") | Some("sqlite") | Some("v3") | _ => BackendType::SQLite,
         }
     }
 
@@ -82,8 +79,7 @@ impl MagellanBackend {
             BackendType::Geometric => Err(anyhow::anyhow!(
                 "Geometric backend requires 'geometric-backend' feature"
             )),
-            BackendType::SQLite | BackendType::NativeV3 => {
-                // For SQLite/V3, CodeGraph::open already handles creating if not exists
+            BackendType::SQLite => {
                 let graph = CodeGraph::open(db_path).context("Failed to create SQLite database")?;
                 Ok(MagellanBackend::SQLite(graph))
             }
@@ -113,7 +109,7 @@ impl MagellanBackend {
             BackendType::Geometric => Err(anyhow::anyhow!(
                 "Geometric backend requires 'geometric-backend' feature"
             )),
-            BackendType::SQLite | BackendType::NativeV3 => {
+            BackendType::SQLite => {
                 let graph = CodeGraph::open(db_path).context("Failed to open SQLite database")?;
                 Ok(MagellanBackend::SQLite(graph))
             }
@@ -874,8 +870,8 @@ mod tests {
             BackendType::SQLite
         ));
         assert!(matches!(
-            MagellanBackend::detect_type(Path::new("test.v3")),
-            BackendType::NativeV3
+            MagellanBackend::detect_type(Path::new("test.db")),
+            BackendType::SQLite
         ));
     }
 }

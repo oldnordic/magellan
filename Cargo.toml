@@ -1,6 +1,6 @@
 [package]
 name = "magellan"
-version = "3.1.6"
+version = "3.1.7"
 edition = "2021"
 license = "GPL-3.0"
 repository = "https://github.com/oldnordic/magellan"
@@ -60,21 +60,11 @@ path = "benches/kv_metadata_bench.rs"
 [features]
 # Default: SQLite backend (stable, widely compatible)
 default = ["sqlite-backend"]
-# native-v3 disabled to avoid format conflicts - use only sqlite-backend for now
-
 # SQLite backend (stable, uses SQLite for storage)
 # Use this for compatibility and stability
 sqlite-backend = ["sqlitegraph/sqlite-backend"]
 
-# Native V3 backend (recommended for performance)
-# 10-20x faster traversals, unlimited capacity, B+Tree storage
-# Uses native binary format instead of SQLite
-native-v3 = ["sqlitegraph/native-v3"]
-
-# GeoGraphDB backend (experimental - 3D spatial indexing for CFG)
-# Provides O(log n) path queries instead of O(2^n) enumeration
-# NOTE: This feature requires geographdb-core which is not on crates.io.
-# Use `cargo build --features geometric-backend` when building from source.
+# GeoGraphDB backend for 3D spatial indexing of CFG data
 geometric-backend = ["dep:geographdb-core"]
 
 # Java bytecode CFG (placeholder for future ASM integration)
@@ -99,14 +89,9 @@ windows = []
 # Web UI server (optional)
 web-ui = ["dep:axum", "dep:tower", "dep:tower-http"]
 
-# Benchmarks for performance testing
-# NOTE: geometric-backend requires geographdb-core which is not on crates.io
-# benchmarks = ["geometric-backend"]
-
 # Debug instrumentation (disabled by default for performance)
 # Enable with: cargo build --features debug-prints
-# NOTE: Requires geographdb-core which is not on crates.io
-# debug-prints = ["geographdb-core/debug-prints"]
+debug-prints = ["geographdb-core/debug-prints"]
 
 # Optional LLVM IR-based CFG extraction for C/C++ (requires clang)
 [dependencies]
@@ -152,9 +137,7 @@ tempfile = "3.10"
 glam = { version = "0.27", features = ["serde"] }
 
 # GeoGraphDB spatial indexing (optional - for geometric-backend feature)
-# Note: geographdb-core is not published to crates.io, so geometric-backend
-# feature is only available when building from source with --features geometric-backend
-geographdb-core = { path = "../geographdb-core", optional = true }
+geographdb-core = { version = "0.1.0", optional = true }
 
 # External tools CFG extraction (C/C++ via clang/LLVM IR text, Java via javac/bytecode)
 # Uses external tools (clang, javac) and parses their output files directly

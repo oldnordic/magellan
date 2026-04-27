@@ -3,8 +3,12 @@
 //! Usage: magellan <command> [arguments]
 
 mod ast_cmd;
+mod backfill_cmd;
 mod cli;
 mod collisions_cmd;
+mod cross_file_refs_cmd;
+mod delete_cmd;
+mod index_cmd;
 mod condense_cmd;
 mod context_cmd;
 mod cycles_cmd;
@@ -79,6 +83,46 @@ fn main() -> ExitCode {
     }
 
     match parse_args() {
+        Ok(Command::Backfill { db_path }) => {
+            if let Err(e) = backfill_cmd::run_backfill(db_path) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::CrossFileRefs {
+            db_path,
+            fqn,
+            output_format,
+        }) => {
+            if let Err(e) = cross_file_refs_cmd::run_cross_file_refs(db_path, fqn, output_format) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::Delete {
+            db_path,
+            file_path,
+            root,
+        }) => {
+            if let Err(e) = delete_cmd::run_delete(db_path, file_path, root) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::Index {
+            db_path,
+            file_path,
+            root,
+        }) => {
+            if let Err(e) = index_cmd::run_index(db_path, file_path, root) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
         Ok(Command::Status {
             output_format,
             db_path,

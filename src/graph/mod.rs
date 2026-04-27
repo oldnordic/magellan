@@ -85,7 +85,7 @@ pub use ops::test_helpers;
 
 // Re-export symbol ID generation function
 pub use symbols::generate_symbol_id;
-#[cfg(all(test, not(feature = "native-v3")))]
+#[cfg(test)]
 mod ast_tests;
 #[cfg(test)]
 mod tests;
@@ -218,40 +218,13 @@ impl CodeGraph {
 
         // Phase 1: read-only compatibility preflight for existing DB files.
         // This MUST run before any sqlitegraph or Magellan side-table writes occur.
-        // Skip preflight for V3 backend (not a SQLite database).
-        #[cfg(not(feature = "native-v3"))]
         {
             db_compat::preflight_sqlitegraph_compat(&db_path_buf)
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?;
         }
 
-        // Phase 2: Backend opening (conditional compilation)
-        // Select backend based on feature flags:
-        // - native-v3: High-performance native binary backend
-        // - sqlite-backend (default): Stable SQLite backend
-
-        #[cfg(feature = "native-v3")]
-        let (backend, v3_backend_arc): (
-            Arc<dyn GraphBackend>,
-            Option<Arc<sqlitegraph::backend::native::v3::V3Backend>>,
-        ) = {
-            use sqlitegraph::backend::native::v3::V3Backend;
-            // Native V3 backend: open if exists, create if not
-            let v3_backend = if db_path_buf.exists() {
-                V3Backend::open(&db_path_buf)?
-            } else {
-                V3Backend::create(&db_path_buf)?
-            };
-            eprintln!("Using V3 backend: {:?}", db_path_buf);
-            // Create Arc<V3Backend> for side tables
-            let v3_arc: Arc<V3Backend> = Arc::new(v3_backend);
-            // Use Arc clone for graph operations - this is the SAME backend instance
-            // We use Arc instead of Rc for thread safety and to avoid double-open issues
-            let backend: Arc<dyn GraphBackend> = Arc::clone(&v3_arc) as Arc<dyn GraphBackend>;
-            (backend, Some(v3_arc))
-        };
-
-        #[cfg(all(not(feature = "native-v3"), feature = "sqlite-backend"))]
+        // Phase 2: Backend opening
+        #[cfg(feature = "sqlite-backend")]
         let backend: Arc<dyn GraphBackend> = {
             use sqlitegraph::{SqliteGraph, SqliteGraphBackend};
             let sqlite_graph = SqliteGraph::open(&db_path_buf)?;
@@ -259,12 +232,11 @@ impl CodeGraph {
             Arc::new(SqliteGraphBackend::from_graph(sqlite_graph))
         };
 
-        #[cfg(all(not(feature = "native-v3"), not(feature = "sqlite-backend")))]
-        compile_error!("Either 'native-v3' or 'sqlite-backend' feature must be enabled");
+        #[cfg(not(feature = "sqlite-backend"))]
+        compile_error!("'sqlite-backend' feature must be enabled");
 
         // Phase 2b: Configure SQLite performance PRAGMAs
-        // SQLite-only configuration (V3 backend doesn't use SQLite)
-        #[cfg(all(not(feature = "native-v3"), feature = "sqlite-backend"))]
+        #[cfg(feature = "sqlite-backend")]
         {
             // Note: sqlitegraph 1.0.0 already configures these in from_connection(),
             // but we set them explicitly here to ensure they're applied even if
@@ -321,9 +293,7 @@ impl CodeGraph {
         // Populate file_index with existing File nodes from database
         files.rebuild_file_index()?;
 
-        // Phase 3: SQLite-specific side-table initialization (ONLY for SQLite backend)
-        // V3 backend also uses SQLite side-tables for now (KV support coming)
-        #[cfg(not(feature = "native-v3"))]
+        // Phase 3: SQLite-specific side-table initialization
         let (side_tables, chunks, execution_log, metrics, needs_backfill) = {
             // Phase 3a: Magellan-owned DB compatibility metadata.
             // MUST run after sqlitegraph open and before any other Magellan side-table writes.
@@ -406,33 +376,6 @@ impl CodeGraph {
                 // Backfill needed if: no metrics but we have symbols
                 metric_count == 0 && symbol_count > 0
             };
-
-            (side_tables, chunks, execution_log, metrics, needs_backfill)
-        };
-
-        // V3 backend: Use V3 KV store for side-tables (NO SQLITE!)
-        // All side tables (chunks, execution_log, metrics) use the V3 KV store
-        #[cfg(feature = "native-v3")]
-        let (side_tables, chunks, execution_log, metrics, needs_backfill) = {
-            use side_tables::v3_impl::V3SideTables;
-
-            // Get the Arc<V3Backend> for side tables
-            let v3_arc = v3_backend_arc.expect("V3 backend should be initialized");
-
-            // Create V3 side tables using KV store (no SQLite!)
-            let side_tables: Arc<dyn side_tables::SideTables> = Arc::new(V3SideTables::new(v3_arc));
-
-            // Create ChunkStore with SideTables backend
-            let chunks = ChunkStore::with_side_tables(side_tables.clone());
-
-            // Create ExecutionLog with SideTables backend
-            let execution_log = execution_log::ExecutionLog::with_side_tables(side_tables.clone());
-
-            // Create MetricsOps with SideTables backend
-            let metrics = metrics::MetricsOps::with_side_tables(side_tables.clone());
-
-            // No backfill needed for new V3 databases
-            let needs_backfill = false;
 
             (side_tables, chunks, execution_log, metrics, needs_backfill)
         };
@@ -1013,96 +956,6 @@ impl CodeGraph {
     // ===== V3-Exclusive KV Operations =====
     // These methods are ONLY available with the V3 backend.
     // They will return None or error when using SQLite backend.
-
-    /// KV prefix scan - V3 exclusive
-    ///
-    /// Returns all KV entries with keys starting with the given prefix.
-    /// Only available with V3 backend (SQLite returns empty vec).
-    ///
-    /// # Arguments
-    /// * `prefix` - Key prefix to search for
-    ///
-    /// # Returns
-    /// Vector of (key, value) tuples
-    #[cfg(feature = "native-v3")]
-    pub fn kv_prefix_scan(
-        &self,
-        prefix: &[u8],
-    ) -> Vec<(Vec<u8>, sqlitegraph::backend::native::v3::KvValue)> {
-        use side_tables::v3_impl::V3SideTables;
-
-        // Try to downcast side_tables to V3SideTables
-        if let Some(v3_tables) = self.side_tables.as_any().downcast_ref::<V3SideTables>() {
-            v3_tables.kv_prefix_scan(prefix)
-        } else {
-            Vec::new()
-        }
-    }
-
-    /// FQN completion - V3 exclusive
-    ///
-    /// Returns all fully-qualified names starting with the given prefix.
-    /// Only available with V3 backend (SQLite returns empty vec).
-    ///
-    /// # Arguments
-    /// * `prefix` - FQN prefix to complete
-    /// * `limit` - Maximum number of results
-    ///
-    /// # Returns
-    /// Vector of matching FQNs
-    #[cfg(feature = "native-v3")]
-    pub fn complete_fqn(&self, prefix: &str, limit: usize) -> Vec<String> {
-        use side_tables::v3_impl::V3SideTables;
-
-        if let Some(v3_tables) = self.side_tables.as_any().downcast_ref::<V3SideTables>() {
-            v3_tables.complete_fqn(prefix, limit)
-        } else {
-            Vec::new()
-        }
-    }
-
-    /// Lookup symbol by FQN - V3 exclusive
-    ///
-    /// Returns symbol ID for the given fully-qualified name.
-    /// Only available with V3 backend (SQLite returns None).
-    ///
-    /// # Arguments
-    /// * `fqn` - Fully-qualified name to lookup
-    ///
-    /// # Returns
-    /// Some(symbol_id) if found, None otherwise
-    #[cfg(feature = "native-v3")]
-    pub fn lookup_symbol_by_fqn(&self, fqn: &str) -> Option<i64> {
-        use side_tables::v3_impl::V3SideTables;
-
-        if let Some(v3_tables) = self.side_tables.as_any().downcast_ref::<V3SideTables>() {
-            v3_tables.lookup_symbol_by_fqn(fqn)
-        } else {
-            None
-        }
-    }
-
-    /// Get symbols by label - V3 exclusive (KV-based)
-    ///
-    /// Returns all symbol IDs with the given label using KV store prefix scan.
-    /// Only available with V3 backend (SQLite returns empty vec).
-    /// This is faster than the SQL-based version for V3 databases.
-    ///
-    /// # Arguments
-    /// * `label` - Label name (e.g., "test", "entry_point")
-    ///
-    /// # Returns
-    /// Vector of symbol IDs
-    #[cfg(feature = "native-v3")]
-    pub fn get_symbols_by_label_kv(&self, label: &str) -> Vec<i64> {
-        use side_tables::v3_impl::V3SideTables;
-
-        if let Some(v3_tables) = self.side_tables.as_any().downcast_ref::<V3SideTables>() {
-            v3_tables.get_symbols_by_label(label)
-        } else {
-            Vec::new()
-        }
-    }
 
     /// Get symbol node by entity ID
     ///

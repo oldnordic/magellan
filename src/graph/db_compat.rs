@@ -422,11 +422,11 @@ pub enum DbCompatError {
         found: i64,
         expected: i64,
     },
-    #[error("DB_COMPAT: missing graph_meta table: {path}")]
+    #[error("DB_COMPAT: expected sqlitegraph database but missing graph_meta table: {path}")]
     MissingGraphMeta { path: PathBuf },
     #[error("DB_COMPAT: graph_meta missing schema_version column: {path}")]
     GraphMetaMissingSchemaVersion { path: PathBuf },
-    #[error("DB_COMPAT: graph_meta missing row id=1: {path}")]
+    #[error("DB_COMPAT: graph_meta missing expected row id=1: {path}")]
     MissingGraphMetaRow { path: PathBuf, id: i64 },
     #[error("DB_COMPAT: sqlite preflight failure: {path}")]
     PreflightSqliteFailure { path: PathBuf },
@@ -436,17 +436,64 @@ pub fn preflight_sqlitegraph_compat(db_path: &Path) -> Result<PreflightOk, DbCom
     if is_in_memory_path(db_path) || !db_path.exists() {
         return Ok(PreflightOk::NewDb);
     }
+
+    let header = std::fs::read(db_path).map_err(|_| DbCompatError::PreflightSqliteFailure {
+        path: db_path.to_path_buf(),
+    })?;
+    if header.len() < 16 || &header[..16] != b"SQLite format 3\0" {
+        return Err(DbCompatError::NotSqlite {
+            path: db_path.to_path_buf(),
+        });
+    }
+
     let conn = rusqlite::Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|e| map_sqlite_open_err(db_path, e))?;
-    let found: i64 = conn
+
+    let has_graph_meta: bool = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='graph_meta' LIMIT 1",
+            [],
+            |_row| Ok(true),
+        )
+        .optional()
+        .map_err(|e| map_sqlite_query_err(db_path, e))?
+        .unwrap_or(false);
+    if !has_graph_meta {
+        return Err(DbCompatError::MissingGraphMeta {
+            path: db_path.to_path_buf(),
+        });
+    }
+
+    let has_schema_version: bool = conn
+        .query_row(
+            "SELECT 1 FROM pragma_table_info('graph_meta') WHERE name='schema_version' LIMIT 1",
+            [],
+            |_row| Ok(true),
+        )
+        .optional()
+        .map_err(|e| map_sqlite_query_err(db_path, e))?
+        .unwrap_or(false);
+    if !has_schema_version {
+        return Err(DbCompatError::GraphMetaMissingSchemaVersion {
+            path: db_path.to_path_buf(),
+        });
+    }
+
+    let found: Option<i64> = conn
         .query_row(
             "SELECT schema_version FROM graph_meta WHERE id=1",
             [],
             |row| row.get(0),
         )
-        .map_err(|_| DbCompatError::MissingGraphMeta {
+        .optional()
+        .map_err(|e| map_sqlite_query_err(db_path, e))?;
+    let Some(found) = found else {
+        return Err(DbCompatError::MissingGraphMetaRow {
             path: db_path.to_path_buf(),
-        })?;
+            id: 1,
+        });
+    };
+
     let expected = expected_sqlitegraph_schema_version();
     if found != expected {
         return Err(DbCompatError::SqliteGraphSchemaMismatch {

@@ -125,7 +125,6 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
-    #[cfg(not(feature = "native-v3"))]
     fn test_get_ast_children() {
         let dir = tempdir().unwrap();
         let db_path = dir.path().join("test.db");
@@ -154,20 +153,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "native-v3")]
-    fn test_get_ast_children_v3() {
-        // V3 backend - just verify the function doesn't panic
-        let temp_dir =
-            std::env::temp_dir().join(format!("magellan_ast_test2_{}", std::process::id()));
-        std::fs::create_dir_all(&temp_dir).unwrap();
-        let db_path = temp_dir.join("test.db");
-        let graph = CodeGraph::open(&db_path).unwrap();
-
-        let _children = graph.get_ast_children(1).unwrap();
-    }
-
-    #[test]
-    #[cfg(not(feature = "native-v3"))]
     fn test_get_ast_node_at_position() {
         let dir = tempdir().unwrap();
         let db_path = dir.path().join("test.db");
@@ -195,20 +180,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "native-v3")]
-    fn test_get_ast_node_at_position_v3() {
-        // V3 backend - just verify the function doesn't panic
-        let temp_dir =
-            std::env::temp_dir().join(format!("magellan_ast_test3_{}", std::process::id()));
-        std::fs::create_dir_all(&temp_dir).unwrap();
-        let db_path = temp_dir.join("test.db");
-        let graph = CodeGraph::open(&db_path).unwrap();
-
-        let _node = graph.get_ast_node_at_position("test.rs", 25).unwrap();
-    }
-
-    #[test]
-    #[cfg(not(feature = "native-v3"))]
     fn test_get_ast_nodes_by_kind() {
         let dir = tempdir().unwrap();
         let db_path = dir.path().join("test.db");
@@ -233,20 +204,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "native-v3")]
-    fn test_get_ast_nodes_by_kind_v3() {
-        // V3 backend - just verify the function doesn't panic
-        let temp_dir =
-            std::env::temp_dir().join(format!("magellan_ast_test4_{}", std::process::id()));
-        std::fs::create_dir_all(&temp_dir).unwrap();
-        let db_path = temp_dir.join("test.db");
-        let graph = CodeGraph::open(&db_path).unwrap();
-
-        let _nodes = graph.get_ast_nodes_by_kind("if_expression").unwrap();
-    }
-
-    #[test]
-    #[cfg(not(feature = "native-v3"))]
     fn test_count_ast_nodes() {
         let dir = tempdir().unwrap();
         let db_path = dir.path().join("test.db");
@@ -263,20 +220,5 @@ mod tests {
         .unwrap();
 
         assert_eq!(graph.count_ast_nodes().unwrap(), 2);
-    }
-
-    #[test]
-    #[cfg(feature = "native-v3")]
-    fn test_count_ast_nodes_v3() {
-        // V3 backend uses KV store for AST nodes - test basic functionality
-        let temp_dir =
-            std::env::temp_dir().join(format!("magellan_ast_test_{}", std::process::id()));
-        std::fs::create_dir_all(&temp_dir).unwrap();
-        let db_path = temp_dir.join("test.db");
-        let graph = CodeGraph::open(&db_path).unwrap();
-
-        // V3 returns 0 for count_ast_nodes (not yet fully implemented)
-        // Just verify it doesn't panic
-        let _count = graph.count_ast_nodes().unwrap();
     }
 }

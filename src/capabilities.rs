@@ -16,8 +16,6 @@ pub enum BackendType {
     SQLite,
     /// Geometric backend (GeoGraphDB with 3D spatial indexing)
     Geometric,
-    /// Native V3 backend (sqlitegraph native mode)
-    NativeV3,
 }
 
 impl BackendType {
@@ -26,7 +24,6 @@ impl BackendType {
         match self {
             Self::SQLite => "db",
             Self::Geometric => "geo",
-            Self::NativeV3 => "v3",
         }
     }
 
@@ -35,7 +32,6 @@ impl BackendType {
         match self {
             Self::SQLite => "SQLite",
             Self::Geometric => "Geometric",
-            Self::NativeV3 => "Native V3",
         }
     }
 
@@ -46,7 +42,6 @@ impl BackendType {
             Some("geo") => Some(Self::Geometric),
             #[cfg(not(feature = "geometric-backend"))]
             Some("geo") => None, // Geo not built
-            Some("v3") => Some(Self::NativeV3),
             Some("db") | Some("sqlite") | Some(_) => Some(Self::SQLite),
             None => Some(Self::SQLite), // Default
         }
@@ -172,32 +167,6 @@ impl BackendCapabilities {
         }
     }
 
-    /// Get capabilities for Native V3 backend
-    #[cfg(feature = "native-v3")]
-    fn native_v3() -> Self {
-        Self {
-            backend_type: BackendType::NativeV3,
-            supports_symbol_queries: true,
-            supports_call_graph: true,
-            supports_cfg_analysis: true,
-            supports_chunks: true,
-            supports_cycles: true,
-            supports_paths: false, // Not yet in V3
-            supports_slice: true,
-            supports_historical_snapshot: false,
-            supports_vacuum_maintenance: true,
-            supports_dead_code: true,
-            supports_reachability: true,
-            supports_export: true,
-            supports_ast: true,
-            supports_labels: true,
-            database_extension_hint: "v3".to_string(),
-            format_hint: "sqlitegraph native V3 format".to_string(),
-            build_enabled: true,
-            required_feature: Some("native-v3".to_string()),
-            cfg_feature: Some("native-v3".to_string()),
-        }
-    }
 
     /// Get capabilities for a backend type (returns empty if not built)
     pub fn for_backend(backend_type: BackendType) -> Self {
@@ -212,10 +181,6 @@ impl BackendCapabilities {
             #[cfg(not(feature = "geometric-backend"))]
             BackendType::Geometric => Self::not_built(BackendType::Geometric, "geometric-backend"),
 
-            #[cfg(feature = "native-v3")]
-            BackendType::NativeV3 => Self::native_v3(),
-            #[cfg(not(feature = "native-v3"))]
-            BackendType::NativeV3 => Self::not_built(BackendType::NativeV3, "native-v3"),
         }
     }
 
@@ -255,15 +220,13 @@ impl BackendCapabilities {
         #[cfg(feature = "geometric-backend")]
         backends.push(BackendType::Geometric);
 
-        #[cfg(feature = "native-v3")]
-        backends.push(BackendType::NativeV3);
 
         backends
     }
 
     /// Get the default backend for this build
     pub fn default_backend() -> BackendType {
-        // Priority order: SQLite > Geometric > NativeV3
+        // Priority order: SQLite > Geometric
         #[cfg(feature = "sqlite-backend")]
         return BackendType::SQLite;
 
@@ -271,7 +234,7 @@ impl BackendCapabilities {
         return BackendType::Geometric;
 
         #[cfg(all(not(feature = "sqlite-backend"), not(feature = "geometric-backend")))]
-        return BackendType::NativeV3;
+        compile_error!("Either 'sqlite-backend' or 'geometric-backend' feature must be enabled");
     }
 
     /// Check if a specific command is supported by this backend
@@ -363,7 +326,6 @@ pub fn all_capabilities() -> Vec<BackendCapabilities> {
     vec![
         BackendCapabilities::for_backend(BackendType::SQLite),
         BackendCapabilities::for_backend(BackendType::Geometric),
-        BackendCapabilities::for_backend(BackendType::NativeV3),
     ]
 }
 
@@ -478,13 +440,13 @@ pub fn command_metadata() -> Vec<CommandMetadata> {
             name: "ast",
             description: "Query AST nodes",
             required_capability: Capability::Ast,
-            supported_backends: Some(vec![BackendType::SQLite, BackendType::NativeV3]),
+            supported_backends: Some(vec![BackendType::SQLite]),
         },
         CommandMetadata {
             name: "label",
             description: "Manage symbol labels",
             required_capability: Capability::Labels,
-            supported_backends: Some(vec![BackendType::SQLite, BackendType::NativeV3]),
+            supported_backends: Some(vec![BackendType::SQLite]),
         },
         CommandMetadata {
             name: "get",
@@ -711,7 +673,6 @@ mod tests {
     fn test_backend_type_extension() {
         assert_eq!(BackendType::SQLite.extension(), "db");
         assert_eq!(BackendType::Geometric.extension(), "geo");
-        assert_eq!(BackendType::NativeV3.extension(), "v3");
     }
 
     #[test]
@@ -723,10 +684,6 @@ mod tests {
         assert_eq!(
             BackendType::from_extension(Some("sqlite")),
             Some(BackendType::SQLite)
-        );
-        assert_eq!(
-            BackendType::from_extension(Some("v3")),
-            Some(BackendType::NativeV3)
         );
         // Geo depends on feature flag
     }

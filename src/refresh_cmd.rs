@@ -34,7 +34,7 @@ pub struct RefreshArgs {
 impl Default for RefreshArgs {
     fn default() -> Self {
         Self {
-            db_path: PathBuf::from(".codemcp/codegraph.db"),
+            db_path: PathBuf::from(".magellan/magellan.db"),
             dry_run: false,
             include_untracked: false,
             staged: false,
@@ -520,7 +520,7 @@ mod tests {
     #[test]
     fn test_refresh_args_default() {
         let args = RefreshArgs::default();
-        assert_eq!(args.db_path, PathBuf::from(".codemcp/codegraph.db"));
+        assert_eq!(args.db_path, PathBuf::from(".magellan/magellan.db"));
         assert!(!args.dry_run);
         assert!(!args.include_untracked);
         assert!(!args.staged);
