@@ -306,6 +306,7 @@ impl CodeGraph {
             let side_conn = rusqlite::Connection::open(&db_path_buf).map_err(|e| {
                 anyhow::anyhow!("Failed to open shared side-table connection: {}", e)
             })?;
+            side_conn.pragma_update(None, "busy_timeout", 5000)?;
             let side_conn_arc = Arc::new(std::sync::Mutex::new(side_conn));
 
             // Check whether DDL needs to run at all.
@@ -327,6 +328,7 @@ impl CodeGraph {
             let shared_conn = rusqlite::Connection::open(&db_path_buf).map_err(|e| {
                 anyhow::anyhow!("Failed to open shared connection for ChunkStore: {}", e)
             })?;
+            shared_conn.pragma_update(None, "busy_timeout", 5000)?;
 
             // Initialize ChunkStore with shared connection and ensure schema exists
             let chunks = ChunkStore::with_connection(shared_conn);
