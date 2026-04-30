@@ -309,12 +309,12 @@ impl CodeGraph {
             let side_conn_arc = Arc::new(std::sync::Mutex::new(side_conn));
 
             // Check whether DDL needs to run at all.
-            let needs_ddl = db_compat::needs_schema_upgrade(&side_conn_arc.lock().unwrap())
+            let needs_ddl = db_compat::needs_schema_upgrade(&side_conn_arc.lock().unwrap_or_else(|e| e.into_inner()))
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
             // Phase 3a: Magellan-owned DB compatibility metadata.
             // MUST run after sqlitegraph open and before any other Magellan side-table writes.
-            db_compat::ensure_magellan_meta(&side_conn_arc.lock().unwrap(), &db_path_buf)
+            db_compat::ensure_magellan_meta(&side_conn_arc.lock().unwrap_or_else(|e| e.into_inner()), &db_path_buf)
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
             // Create SQLite side tables reusing the shared connection
@@ -341,16 +341,16 @@ impl CodeGraph {
             // Only run AST / CFG / coverage DDL when the schema is new or was upgraded.
             // On warm opens this skips ~6 redundant CREATE TABLE IF NOT EXISTS calls.
             if needs_ddl {
-                db_compat::ensure_ast_schema(&side_conn_arc.lock().unwrap())
+                db_compat::ensure_ast_schema(&side_conn_arc.lock().unwrap_or_else(|e| e.into_inner()))
                     .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                db_compat::ensure_cfg_schema(&side_conn_arc.lock().unwrap())
+                db_compat::ensure_cfg_schema(&side_conn_arc.lock().unwrap_or_else(|e| e.into_inner()))
                     .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                db_compat::ensure_metrics_schema(&side_conn_arc.lock().unwrap())
+                db_compat::ensure_metrics_schema(&side_conn_arc.lock().unwrap_or_else(|e| e.into_inner()))
                     .map_err(|e| anyhow::anyhow!(e.to_string()))?;
             }
 
             // Coverage schema is not versioned in magellan_meta; always ensure it.
-            db_compat::ensure_coverage_schema(&side_conn_arc.lock().unwrap(), &db_path_buf)
+            db_compat::ensure_coverage_schema(&side_conn_arc.lock().unwrap_or_else(|e| e.into_inner()), &db_path_buf)
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
             // Detect if this is an upgrade (metrics tables exist but are empty)
@@ -358,14 +358,14 @@ impl CodeGraph {
                 // Check if metrics tables are empty
                 let metric_count: i64 = side_conn_arc
                     .lock()
-                    .unwrap()
+                    .unwrap_or_else(|e| e.into_inner())
                     .query_row("SELECT COUNT(*) FROM file_metrics", [], |row| row.get(0))
                     .unwrap_or(0);
 
                 // Also check if we have symbols (indicating existing database)
                 let symbol_count: i64 = side_conn_arc
                     .lock()
-                    .unwrap()
+                    .unwrap_or_else(|e| e.into_inner())
                     .query_row(
                         "SELECT COUNT(*) FROM graph_entities WHERE kind = 'Symbol'",
                         [],
