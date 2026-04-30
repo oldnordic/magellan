@@ -203,7 +203,7 @@ pub struct CodeGraph {
 
     /// Shared SQLite connection for Magellan side-table operations.
     /// Eliminates redundant connections opened by schema checks and diagnostics.
-    pub(crate) side_conn: std::sync::Mutex<rusqlite::Connection>,
+    pub(crate) side_conn: Arc<std::sync::Mutex<rusqlite::Connection>>,
 
     /// Database file path for re-opening connections
     db_path: PathBuf,
@@ -306,19 +306,20 @@ impl CodeGraph {
             let side_conn = rusqlite::Connection::open(&db_path_buf).map_err(|e| {
                 anyhow::anyhow!("Failed to open shared side-table connection: {}", e)
             })?;
+            let side_conn_arc = Arc::new(std::sync::Mutex::new(side_conn));
 
             // Check whether DDL needs to run at all.
-            let needs_ddl = db_compat::needs_schema_upgrade(&side_conn)
+            let needs_ddl = db_compat::needs_schema_upgrade(&side_conn_arc.lock().unwrap())
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
             // Phase 3a: Magellan-owned DB compatibility metadata.
             // MUST run after sqlitegraph open and before any other Magellan side-table writes.
-            db_compat::ensure_magellan_meta(&side_conn, &db_path_buf)
+            db_compat::ensure_magellan_meta(&side_conn_arc.lock().unwrap(), &db_path_buf)
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
-            // Create SQLite side tables (still needs its own connection for internal locking)
+            // Create SQLite side tables reusing the shared connection
             let side_tables: Arc<dyn side_tables::SideTables> = Arc::new(
-                side_tables::sqlite_impl::SqliteSideTables::open(&db_path_buf)?,
+                side_tables::sqlite_impl::SqliteSideTables::with_mutex(Arc::clone(&side_conn_arc))?,
             );
 
             // Open a shared connection for ChunkStore to enable transactional operations
@@ -331,40 +332,40 @@ impl CodeGraph {
             let chunks = ChunkStore::with_connection(shared_conn);
             chunks.ensure_schema()?;
 
-            // Initialize ExecutionLog and ensure schema exists
-            let execution_log = execution_log::ExecutionLog::new(&db_path_buf);
-            execution_log.ensure_schema()?;
+            // Initialize ExecutionLog reusing the shared connection
+            let execution_log = execution_log::ExecutionLog::with_connection(Arc::clone(&side_conn_arc));
 
-            // Initialize MetricsOps
-            let metrics = metrics::MetricsOps::new(&db_path_buf);
-
-            // Ensure metrics tables exist
-            metrics.ensure_schema()?;
+            // Initialize MetricsOps reusing the shared connection
+            let metrics = metrics::MetricsOps::with_connection(Arc::clone(&side_conn_arc));
 
             // Only run AST / CFG / coverage DDL when the schema is new or was upgraded.
             // On warm opens this skips ~6 redundant CREATE TABLE IF NOT EXISTS calls.
             if needs_ddl {
-                db_compat::ensure_ast_schema(&side_conn)
+                db_compat::ensure_ast_schema(&side_conn_arc.lock().unwrap())
                     .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                db_compat::ensure_cfg_schema(&side_conn)
+                db_compat::ensure_cfg_schema(&side_conn_arc.lock().unwrap())
                     .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                db_compat::ensure_metrics_schema(&side_conn)
+                db_compat::ensure_metrics_schema(&side_conn_arc.lock().unwrap())
                     .map_err(|e| anyhow::anyhow!(e.to_string()))?;
             }
 
             // Coverage schema is not versioned in magellan_meta; always ensure it.
-            db_compat::ensure_coverage_schema(&side_conn, &db_path_buf)
+            db_compat::ensure_coverage_schema(&side_conn_arc.lock().unwrap(), &db_path_buf)
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
             // Detect if this is an upgrade (metrics tables exist but are empty)
             let needs_backfill = {
                 // Check if metrics tables are empty
-                let metric_count: i64 = side_conn
+                let metric_count: i64 = side_conn_arc
+                    .lock()
+                    .unwrap()
                     .query_row("SELECT COUNT(*) FROM file_metrics", [], |row| row.get(0))
                     .unwrap_or(0);
 
                 // Also check if we have symbols (indicating existing database)
-                let symbol_count: i64 = side_conn
+                let symbol_count: i64 = side_conn_arc
+                    .lock()
+                    .unwrap()
                     .query_row(
                         "SELECT COUNT(*) FROM graph_entities WHERE kind = 'Symbol'",
                         [],
@@ -376,7 +377,7 @@ impl CodeGraph {
                 metric_count == 0 && symbol_count > 0
             };
 
-            (side_tables, chunks, execution_log, metrics, needs_backfill, side_conn)
+            (side_tables, chunks, execution_log, metrics, needs_backfill, side_conn_arc)
         };
 
         // Initialize file node cache with capacity of 128 entries
@@ -412,7 +413,7 @@ impl CodeGraph {
             file_node_cache,
             cfg_ops: cfg_ops::CfgOps::new(ChunkStore::new(&db_path_buf)),
             side_tables,
-            side_conn: std::sync::Mutex::new(side_conn),
+            side_conn,
             db_path: db_path_buf,
         };
 
