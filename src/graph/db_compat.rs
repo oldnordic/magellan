@@ -12,11 +12,44 @@ pub fn expected_sqlitegraph_schema_version() -> i64 {
 
 pub use crate::migrate_cmd::MAGELLAN_SCHEMA_VERSION;
 
-pub fn ensure_magellan_meta(db_path: &Path) -> Result<(), DbCompatError> {
+/// Check if the database schema needs to be created or upgraded.
+///
+/// Returns `true` when:
+/// - `magellan_meta` table does not exist (new database)
+/// - `magellan_meta.magellan_schema_version` != `MAGELLAN_SCHEMA_VERSION`
+pub fn needs_schema_upgrade(conn: &rusqlite::Connection) -> Result<bool, DbCompatError> {
+    let has_meta: bool = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='magellan_meta' LIMIT 1",
+            [],
+            |_| Ok(true),
+        )
+        .optional()
+        .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?
+        .unwrap_or(false);
+
+    if !has_meta {
+        return Ok(true);
+    }
+
+    let version: i64 = conn
+        .query_row(
+            "SELECT magellan_schema_version FROM magellan_meta WHERE id=1",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    Ok(version != MAGELLAN_SCHEMA_VERSION)
+}
+
+pub fn ensure_magellan_meta(
+    conn: &rusqlite::Connection,
+    db_path: &Path,
+) -> Result<(), DbCompatError> {
     if is_in_memory_path(db_path) {
         return Ok(());
     }
-    let conn = rusqlite::Connection::open(db_path).map_err(|e| map_sqlite_open_err(db_path, e))?;
     conn.execute(
         "CREATE TABLE IF NOT EXISTS magellan_meta (
             id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -28,11 +61,14 @@ pub fn ensure_magellan_meta(db_path: &Path) -> Result<(), DbCompatError> {
     )
     .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
-    let existing: Option<(i64, i64)> = conn.query_row(
-        "SELECT magellan_schema_version, sqlitegraph_schema_version FROM magellan_meta WHERE id=1",
-        [],
-        |row| Ok((row.get(0)?, row.get(1)?)),
-    ).optional().map_err(|e| map_sqlite_query_err(db_path, e))?;
+    let existing: Option<(i64, i64)> = conn
+        .query_row(
+            "SELECT magellan_schema_version, sqlitegraph_schema_version FROM magellan_meta WHERE id=1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     let expected_sqlitegraph = expected_sqlitegraph_schema_version();
     match existing {
@@ -46,7 +82,7 @@ pub fn ensure_magellan_meta(db_path: &Path) -> Result<(), DbCompatError> {
                  VALUES (1, ?1, ?2, ?3)",
                 params![MAGELLAN_SCHEMA_VERSION, expected_sqlitegraph, created_at],
             ).map_err(|e| map_sqlite_query_err(db_path, e))?;
-            ensure_geo_index_meta_schema(&conn)?;
+            ensure_geo_index_meta_schema(conn)?;
             Ok(())
         }
         Some((found_magellan, found_sqlitegraph)) => {
@@ -55,31 +91,31 @@ pub fn ensure_magellan_meta(db_path: &Path) -> Result<(), DbCompatError> {
                 while current_version < MAGELLAN_SCHEMA_VERSION {
                     match current_version {
                         4 => {
-                            ensure_ast_schema(&conn)?;
+                            ensure_ast_schema(conn)?;
                             current_version = 5;
                         }
                         5 => {
-                            ensure_ast_schema(&conn)?;
+                            ensure_ast_schema(conn)?;
                             current_version = 6;
                         }
                         6 => {
-                            ensure_cfg_schema(&conn)?;
+                            ensure_cfg_schema(conn)?;
                             current_version = 7;
                         }
                         7 => {
-                            ensure_cfg_hash_column(&conn)?;
+                            ensure_cfg_hash_column(conn)?;
                             current_version = 8;
                         }
                         8 => {
-                            ensure_statements_column(&conn)?;
+                            ensure_statements_column(conn)?;
                             current_version = 9;
                         }
                         9 => {
-                            ensure_4d_coordinates_columns(&conn)?;
+                            ensure_4d_coordinates_columns(conn)?;
                             current_version = 10;
                         }
                         10 => {
-                            ensure_geo_index_meta_schema(&conn)?;
+                            ensure_geo_index_meta_schema(conn)?;
                             current_version = 11;
                         }
                         _ => {

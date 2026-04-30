@@ -72,75 +72,71 @@ impl MetricsOps {
     fn compute_file_fan_in(&self, file_path: &str) -> Result<i64> {
         use rusqlite::params;
 
-        let conn = self.connect()?;
+        self.with_conn(|conn| {
+            let ref_count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM graph_entities ge
+                     JOIN graph_edges edge ON edge.target_id = ge.id
+                     JOIN graph_entities source ON source.id = edge.source_id
+                     WHERE source.kind = 'Symbol'
+                     AND json_extract(source.data, '$.file_path') != ?1
+                     AND json_extract(ge.data, '$.file_path') = ?1",
+                    params![file_path, file_path],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0);
 
-        // Count incoming references from other files
-        let ref_count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM graph_entities ge
-                 JOIN graph_edges edge ON edge.target_id = ge.id
-                 JOIN graph_entities source ON source.id = edge.source_id
-                 WHERE source.kind = 'Symbol'
-                 AND json_extract(source.data, '$.file_path') != ?1
-                 AND json_extract(ge.data, '$.file_path') = ?1",
-                params![file_path, file_path],
-                |row| row.get(0),
-            )
-            .unwrap_or(0);
+            let call_count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM graph_entities ge
+                     JOIN graph_edges edge ON edge.target_id = ge.id
+                     JOIN graph_entities call ON call.id = edge.source_id
+                     WHERE call.kind = 'Call'
+                     AND json_extract(call.data, '$.file') != ?1
+                     AND json_extract(ge.data, '$.file_path') = ?1",
+                    params![file_path, file_path],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0);
 
-        // Also count incoming calls from other files
-        let call_count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM graph_entities ge
-                 JOIN graph_edges edge ON edge.target_id = ge.id
-                 JOIN graph_entities call ON call.id = edge.source_id
-                 WHERE call.kind = 'Call'
-                 AND json_extract(call.data, '$.file') != ?1
-                 AND json_extract(ge.data, '$.file_path') = ?1",
-                params![file_path, file_path],
-                |row| row.get(0),
-            )
-            .unwrap_or(0);
-
-        Ok(ref_count + call_count)
+            Ok(ref_count + call_count)
+        })
     }
 
     /// Compute file-level fan-out (outgoing references/calls to other files)
     fn compute_file_fan_out(&self, file_path: &str) -> Result<i64> {
         use rusqlite::params;
 
-        let conn = self.connect()?;
+        self.with_conn(|conn| {
+            let ref_count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM graph_entities ge
+                     JOIN graph_edges edge ON edge.source_id = ge.id
+                     JOIN graph_entities target ON target.id = edge.target_id
+                     WHERE ge.kind = 'Symbol'
+                     AND json_extract(ge.data, '$.file_path') = ?1
+                     AND json_extract(target.data, '$.file_path') != ?1",
+                    params![file_path, file_path],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0);
 
-        // Count outgoing references to symbols in other files
-        let ref_count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM graph_entities ge
-                 JOIN graph_edges edge ON edge.source_id = ge.id
-                 JOIN graph_entities target ON target.id = edge.target_id
-                 WHERE ge.kind = 'Symbol'
-                 AND json_extract(ge.data, '$.file_path') = ?1
-                 AND json_extract(target.data, '$.file_path') != ?1",
-                params![file_path, file_path],
-                |row| row.get(0),
-            )
-            .unwrap_or(0);
+            let call_count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM graph_entities ge
+                     JOIN graph_entities call ON call.id = ge.id
+                     JOIN graph_edges edge ON edge.source_id = call.id
+                     JOIN graph_entities target ON target.id = edge.target_id
+                     WHERE call.kind = 'Call'
+                     AND json_extract(call.data, '$.file') = ?1
+                     AND json_extract(target.data, '$.file_path') != ?1",
+                    params![file_path, file_path],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0);
 
-        // Also count outgoing calls to symbols in other files
-        let call_count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM graph_entities ge
-                 JOIN graph_entities call ON call.id = ge.id
-                 JOIN graph_edges edge ON edge.source_id = call.id
-                 JOIN graph_entities target ON target.id = edge.target_id
-                 WHERE call.kind = 'Call'
-                 AND json_extract(call.data, '$.file') = ?1
-                 AND json_extract(target.data, '$.file_path') != ?1",
-                params![file_path, file_path],
-                |row| row.get(0),
-            )
-            .unwrap_or(0);
-
-        Ok(ref_count + call_count)
+            Ok(ref_count + call_count)
+        })
     }
 
     /// Compute and store metrics for a single symbol
@@ -210,49 +206,52 @@ impl MetricsOps {
     fn find_symbol_id(&self, fqn: &str) -> Result<Option<i64>> {
         use rusqlite::params;
 
-        let conn = self.connect()?;
-        let result = conn
-            .query_row(
-                "SELECT id FROM graph_entities WHERE kind = 'Symbol' AND json_extract(data, '$.fqn') = ?1",
-                params![fqn],
-                |row| row.get::<_, i64>(0),
-            )
-            .optional()
-            .map_err(|e| anyhow::anyhow!("Failed to find symbol_id: {}", e))?;
+        self.with_conn(|conn| {
+            let result = conn
+                .query_row(
+                    "SELECT id FROM graph_entities WHERE kind = 'Symbol' AND json_extract(data, '$.fqn') = ?1",
+                    params![fqn],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()
+                .map_err(|e| anyhow::anyhow!("Failed to find symbol_id: {}", e))?;
 
-        Ok(result)
+            Ok(result)
+        })
     }
 
     /// Compute symbol-level fan-in (incoming edges)
     fn compute_symbol_fan_in(&self, symbol_id: i64) -> Result<i64> {
         use rusqlite::params;
 
-        let conn = self.connect()?;
-        let count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM graph_edges WHERE to_id = ?1",
-                params![symbol_id],
-                |row| row.get(0),
-            )
-            .unwrap_or(0);
+        self.with_conn(|conn| {
+            let count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM graph_edges WHERE to_id = ?1",
+                    params![symbol_id],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0);
 
-        Ok(count)
+            Ok(count)
+        })
     }
 
     /// Compute symbol-level fan-out (outgoing edges)
     fn compute_symbol_fan_out(&self, symbol_id: i64) -> Result<i64> {
         use rusqlite::params;
 
-        let conn = self.connect()?;
-        let count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM graph_edges WHERE from_id = ?1",
-                params![symbol_id],
-                |row| row.get(0),
-            )
-            .unwrap_or(0);
+        self.with_conn(|conn| {
+            let count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM graph_edges WHERE from_id = ?1",
+                    params![symbol_id],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0);
 
-        Ok(count)
+            Ok(count)
+        })
     }
 
     /// Compute cyclomatic complexity from CFG blocks
@@ -270,23 +269,19 @@ impl MetricsOps {
     fn compute_cyclomatic_complexity(&self, symbol_id: i64) -> Result<i64> {
         use rusqlite::params;
 
-        let conn = self.connect()?;
+        self.with_conn(|conn| {
+            let decision_points: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM cfg_blocks
+                     WHERE function_id = ?1
+                     AND terminator != 'fallthrough'",
+                    params![symbol_id],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0);
 
-        // Count CFG blocks for this function that have non-fallthrough terminators
-        // These represent decision points (branches)
-        let decision_points: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM cfg_blocks 
-                 WHERE function_id = ?1 
-                 AND terminator != 'fallthrough'",
-                params![symbol_id],
-                |row| row.get(0),
-            )
-            .unwrap_or(0);
-
-        // Cyclomatic complexity = decision_points + 1
-        // Minimum complexity is 1 (a function with no branches)
-        Ok(decision_points.max(0) + 1)
+            Ok(decision_points.max(0) + 1)
+        })
     }
 
     /// Get current Unix timestamp in seconds
