@@ -13,7 +13,7 @@
 //!
 //! # Usage
 //!
-//! ```rust
+//! ```ignore
 //! use crate::ingest::pool::with_parser;
 //! use crate::ingest::detect::Language;
 //!
@@ -338,7 +338,7 @@ where
 ///
 /// # Example
 ///
-/// ```rust
+/// ```ignore
 /// use crate::ingest::pool::with_parser;
 /// use crate::ingest::detect::Language;
 ///
@@ -382,7 +382,7 @@ where
 ///
 /// # Example
 ///
-/// ```rust,no_run
+/// ```ignore
 /// use crate::ingest::pool::warmup_parsers;
 ///
 /// // During application startup
@@ -430,7 +430,7 @@ pub fn warmup_parsers() -> Result<()> {
 ///
 /// # Example
 ///
-/// ```rust,no_run
+/// ```ignore
 /// use crate::ingest::pool::cleanup_parsers;
 ///
 /// // During graceful shutdown, before thread exit

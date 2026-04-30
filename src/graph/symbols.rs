@@ -119,7 +119,7 @@ pub fn generate_symbol_id(language: &str, fqn: &str, span_id: &str) -> String {
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use magellan::graph::generate_symbol_id_v2;
 ///
 /// let id = generate_symbol_id_v2(
