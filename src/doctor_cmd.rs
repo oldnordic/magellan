@@ -277,7 +277,44 @@ pub fn run_doctor(db_path: PathBuf, fix: bool, output_format: OutputFormat) -> R
                 issues_found += 1;
             }
 
-            // Check 10: Coverage schema
+            // Check 10: Connection health
+            let start = std::time::Instant::now();
+            let conn_ok = graph
+                .count_files()
+                .map(|_| true)
+                .unwrap_or(false);
+            let elapsed_ms = start.elapsed().as_millis();
+            if conn_ok {
+                if elapsed_ms > 500 {
+                    checks.push(CheckResult {
+                        name: "Connection health".to_string(),
+                        status: "warning".to_string(),
+                        message: Some(format!("Slow query response: {}ms", elapsed_ms)),
+                        fix_hint: Some(
+                            "Database may be under contention; restart watcher or reduce concurrent access"
+                                .to_string(),
+                        ),
+                    });
+                    issues_found += 1;
+                } else {
+                    checks.push(CheckResult {
+                        name: "Connection health".to_string(),
+                        status: "ok".to_string(),
+                        message: Some(format!("{}ms", elapsed_ms)),
+                        fix_hint: None,
+                    });
+                }
+            } else {
+                checks.push(CheckResult {
+                    name: "Connection health".to_string(),
+                    status: "error".to_string(),
+                    message: Some("Failed to query database".to_string()),
+                    fix_hint: None,
+                });
+                issues_found += 1;
+            }
+
+            // Check 11: Coverage schema
             match graph.check_coverage_schema() {
                 Ok(true) => {
                     checks.push(CheckResult {
