@@ -401,6 +401,7 @@ pub enum Command {
     Doctor {
         db_path: PathBuf,
         fix: bool,
+        output_format: OutputFormat,
     },
     #[cfg(feature = "web-ui")]
     WebUi {
@@ -1339,6 +1340,7 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
 fn parse_doctor_args(args: &[String]) -> Result<Command> {
     let mut db_path: Option<PathBuf> = None;
     let mut fix = false;
+    let mut output_format = OutputFormat::Human;
 
     let mut i = 0;
     while i < args.len() {
@@ -1354,6 +1356,17 @@ fn parse_doctor_args(args: &[String]) -> Result<Command> {
                 fix = true;
                 i += 1;
             }
+            "--json" => {
+                output_format = OutputFormat::Json;
+                i += 1;
+            }
+            "--output" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--output requires an argument"));
+                }
+                output_format = parse_output_format(&args[i + 1])?;
+                i += 2;
+            }
             _ => {
                 return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
             }
@@ -1362,7 +1375,7 @@ fn parse_doctor_args(args: &[String]) -> Result<Command> {
 
     let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
 
-    Ok(Command::Doctor { db_path, fix })
+    Ok(Command::Doctor { db_path, fix, output_format })
 }
 
 /// Parse the `web-ui` command arguments
