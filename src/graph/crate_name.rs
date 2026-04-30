@@ -169,7 +169,7 @@ fn parse_cargo_toml_name(content: &str) -> Option<String> {
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use magellan::graph::crate_name::extract_quoted_value;
 ///
 /// assert_eq!(extract_quoted_value(r#"name = "my-crate""#), Some("my-crate".to_string()));

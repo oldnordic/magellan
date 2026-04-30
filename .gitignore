@@ -95,3 +95,4 @@ PLAN_*.md
 QWEN.md
 .worktrees/
 .internal/
+.magellan/
