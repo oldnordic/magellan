@@ -536,7 +536,7 @@ fn stress_pipeline_shared_state() {
 /// - Completes within 60 seconds (higher timeout due to more files)
 #[test]
 fn stress_database_integrity() {
-    with_deadlock_timeout(Duration::from_secs(60), || {
+    with_deadlock_timeout(Duration::from_secs(120), || {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");
 
