@@ -35,6 +35,8 @@ pub use schema::{FileMetrics, SymbolMetrics};
 enum MetricsOpsBackend {
     /// SQLite database path
     Sqlite(std::path::PathBuf),
+    /// Shared connection from CodeGraph (avoids opening new connections)
+    Shared(Arc<std::sync::Mutex<rusqlite::Connection>>),
     /// SideTables abstraction (V3 backend)
     SideTables(Arc<dyn super::side_tables::SideTables>),
 }
@@ -64,6 +66,20 @@ impl MetricsOps {
         Self {
             backend: MetricsOpsBackend::SideTables(side_tables),
         }
+    }
+
+    /// Create a MetricsOps using a shared connection.
+    ///
+    /// This avoids opening a separate connection to the same database,
+    /// reducing connection overhead and WAL contention.
+    pub fn with_connection(conn: Arc<std::sync::Mutex<rusqlite::Connection>>) -> Self {
+        let metrics = Self {
+            backend: MetricsOpsBackend::Shared(conn),
+        };
+        if let Err(e) = metrics.ensure_schema() {
+            eprintln!("Warning: Failed to ensure MetricsOps schema: {}", e);
+        }
+        metrics
     }
 
     /// Create an in-memory MetricsOps for testing/stub usage.
@@ -98,28 +114,50 @@ impl MetricsOps {
         match &self.backend {
             MetricsOpsBackend::Sqlite(_) => {
                 let conn = self.connect()?;
-                // Delegate to db_compat module which has the schema definition
+                crate::graph::db_compat::ensure_metrics_schema(&conn)
+                    .map_err(|e| anyhow::anyhow!("Failed to ensure metrics schema: {}", e))
+            }
+            MetricsOpsBackend::Shared(conn_arc) => {
+                let conn = conn_arc.lock().unwrap();
                 crate::graph::db_compat::ensure_metrics_schema(&conn)
                     .map_err(|e| anyhow::anyhow!("Failed to ensure metrics schema: {}", e))
             }
             MetricsOpsBackend::SideTables(_) => {
-                // V3 backend handles schema automatically
                 Ok(())
             }
         }
     }
 
     /// Open a connection to the database (SQLite backend only)
-    /// Get a SQLite connection for metrics operations.
-    ///
-    /// Returns an error when using SideTables backend (V3) since metrics
-    /// computation uses direct SQL that hasn't been migrated to SideTables yet.
     fn connect(&self) -> Result<rusqlite::Connection, rusqlite::Error> {
         match &self.backend {
             MetricsOpsBackend::Sqlite(path) => rusqlite::Connection::open(path),
+            MetricsOpsBackend::Shared(_) => Err(rusqlite::Error::InvalidParameterName(
+                "Direct SQLite connection not available for shared backend".to_string(),
+            )),
             MetricsOpsBackend::SideTables(_) => Err(rusqlite::Error::InvalidParameterName(
                 "Metrics not available with V3 backend".to_string(),
             )),
+        }
+    }
+
+    /// Execute a closure with a connection reference, handling all backends.
+    fn with_conn<F, R>(&self, f: F) -> Result<R>
+    where
+        F: FnOnce(&rusqlite::Connection) -> Result<R>,
+    {
+        match &self.backend {
+            MetricsOpsBackend::Sqlite(_) => {
+                let conn = self.connect()?;
+                f(&conn)
+            }
+            MetricsOpsBackend::Shared(conn_arc) => {
+                let conn = conn_arc.lock().unwrap();
+                f(&conn)
+            }
+            MetricsOpsBackend::SideTables(_) => {
+                Err(anyhow::anyhow!("Metrics not available with V3 backend"))
+            }
         }
     }
 
@@ -139,27 +177,35 @@ impl MetricsOps {
         match &self.backend {
             MetricsOpsBackend::Sqlite(_) => {
                 let conn = self.connect()?;
-                conn.execute(
-                    "INSERT OR REPLACE INTO file_metrics (
-                        file_path, symbol_count, loc, estimated_loc,
-                        fan_in, fan_out, complexity_score, last_updated
-                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                    params![
-                        &metrics.file_path,
-                        metrics.symbol_count,
-                        metrics.loc,
-                        metrics.estimated_loc,
-                        metrics.fan_in,
-                        metrics.fan_out,
-                        metrics.complexity_score,
-                        metrics.last_updated,
-                    ],
-                )
-                .map_err(|e| anyhow::anyhow!("Failed to upsert file metrics: {}", e))?;
-                Ok(())
+                Self::upsert_file_metrics_conn(&conn, metrics)
+            }
+            MetricsOpsBackend::Shared(conn_arc) => {
+                let conn = conn_arc.lock().unwrap();
+                Self::upsert_file_metrics_conn(&conn, metrics)
             }
             MetricsOpsBackend::SideTables(side_tables) => side_tables.store_file_metrics(metrics),
         }
+    }
+
+    fn upsert_file_metrics_conn(conn: &rusqlite::Connection, metrics: &FileMetrics) -> Result<()> {
+        conn.execute(
+            "INSERT OR REPLACE INTO file_metrics (
+                file_path, symbol_count, loc, estimated_loc,
+                fan_in, fan_out, complexity_score, last_updated
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                &metrics.file_path,
+                metrics.symbol_count,
+                metrics.loc,
+                metrics.estimated_loc,
+                metrics.fan_in,
+                metrics.fan_out,
+                metrics.complexity_score,
+                metrics.last_updated,
+            ],
+        )
+        .map_err(|e| anyhow::anyhow!("Failed to upsert file metrics: {}", e))?;
+        Ok(())
     }
 
     /// Upsert symbol metrics (insert or replace)
@@ -167,30 +213,38 @@ impl MetricsOps {
         match &self.backend {
             MetricsOpsBackend::Sqlite(_) => {
                 let conn = self.connect()?;
-                conn.execute(
-                    "INSERT OR REPLACE INTO symbol_metrics (
-                        symbol_id, symbol_name, kind, file_path,
-                        loc, estimated_loc, fan_in, fan_out,
-                        cyclomatic_complexity, last_updated
-                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-                    params![
-                        metrics.symbol_id,
-                        &metrics.symbol_name,
-                        &metrics.kind,
-                        &metrics.file_path,
-                        metrics.loc,
-                        metrics.estimated_loc,
-                        metrics.fan_in,
-                        metrics.fan_out,
-                        metrics.cyclomatic_complexity,
-                        metrics.last_updated,
-                    ],
-                )
-                .map_err(|e| anyhow::anyhow!("Failed to upsert symbol metrics: {}", e))?;
-                Ok(())
+                Self::upsert_symbol_metrics_conn(&conn, metrics)
+            }
+            MetricsOpsBackend::Shared(conn_arc) => {
+                let conn = conn_arc.lock().unwrap();
+                Self::upsert_symbol_metrics_conn(&conn, metrics)
             }
             MetricsOpsBackend::SideTables(side_tables) => side_tables.store_symbol_metrics(metrics),
         }
+    }
+
+    fn upsert_symbol_metrics_conn(conn: &rusqlite::Connection, metrics: &SymbolMetrics) -> Result<()> {
+        conn.execute(
+            "INSERT OR REPLACE INTO symbol_metrics (
+                symbol_id, symbol_name, kind, file_path,
+                loc, estimated_loc, fan_in, fan_out,
+                cyclomatic_complexity, last_updated
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                metrics.symbol_id,
+                &metrics.symbol_name,
+                &metrics.kind,
+                &metrics.file_path,
+                metrics.loc,
+                metrics.estimated_loc,
+                metrics.fan_in,
+                metrics.fan_out,
+                metrics.cyclomatic_complexity,
+                metrics.last_updated,
+            ],
+        )
+        .map_err(|e| anyhow::anyhow!("Failed to upsert symbol metrics: {}", e))?;
+        Ok(())
     }
 
     /// Delete all metrics for a file (both file_metrics and symbol_metrics rows)
@@ -198,24 +252,11 @@ impl MetricsOps {
         match &self.backend {
             MetricsOpsBackend::Sqlite(_) => {
                 let conn = self.connect()?;
-
-                // Delete symbol metrics for this file first (foreign key dependency)
-                let symbol_count = conn
-                    .execute(
-                        "DELETE FROM symbol_metrics WHERE file_path = ?1",
-                        params![file_path],
-                    )
-                    .map_err(|e| anyhow::anyhow!("Failed to delete symbol metrics: {}", e))?;
-
-                // Delete file metrics
-                conn.execute(
-                    "DELETE FROM file_metrics WHERE file_path = ?1",
-                    params![file_path],
-                )
-                .map_err(|e| anyhow::anyhow!("Failed to delete file metrics: {}", e))?;
-
-                // Return total rows deleted
-                Ok(symbol_count)
+                Self::delete_file_metrics_conn(&conn, file_path)
+            }
+            MetricsOpsBackend::Shared(conn_arc) => {
+                let conn = conn_arc.lock().unwrap();
+                Self::delete_file_metrics_conn(&conn, file_path)
             }
             MetricsOpsBackend::SideTables(side_tables) => {
                 side_tables.delete_metrics_for_file(file_path)
@@ -223,38 +264,66 @@ impl MetricsOps {
         }
     }
 
+    fn delete_file_metrics_conn(conn: &rusqlite::Connection, file_path: &str) -> Result<usize> {
+        let symbol_count = conn
+            .execute(
+                "DELETE FROM symbol_metrics WHERE file_path = ?1",
+                params![file_path],
+            )
+            .map_err(|e| anyhow::anyhow!("Failed to delete symbol metrics: {}", e))?;
+
+        conn.execute(
+            "DELETE FROM file_metrics WHERE file_path = ?1",
+            params![file_path],
+        )
+        .map_err(|e| anyhow::anyhow!("Failed to delete file metrics: {}", e))?;
+
+        Ok(symbol_count)
+    }
+
     /// Get file metrics by path
     pub fn get_file_metrics(&self, file_path: &str) -> Result<Option<FileMetrics>> {
         match &self.backend {
             MetricsOpsBackend::Sqlite(_) => {
                 let conn = self.connect()?;
-                let result = conn
-                    .query_row(
-                        "SELECT file_path, symbol_count, loc, estimated_loc,
-                                fan_in, fan_out, complexity_score, last_updated
-                         FROM file_metrics
-                         WHERE file_path = ?1",
-                        params![file_path],
-                        |row| {
-                            Ok(FileMetrics {
-                                file_path: row.get(0)?,
-                                symbol_count: row.get(1)?,
-                                loc: row.get(2)?,
-                                estimated_loc: row.get(3)?,
-                                fan_in: row.get(4)?,
-                                fan_out: row.get(5)?,
-                                complexity_score: row.get(6)?,
-                                last_updated: row.get(7)?,
-                            })
-                        },
-                    )
-                    .optional()
-                    .map_err(|e| anyhow::anyhow!("Failed to get file metrics: {}", e))?;
-
-                Ok(result)
+                Self::get_file_metrics_conn(&conn, file_path)
+            }
+            MetricsOpsBackend::Shared(conn_arc) => {
+                let conn = conn_arc.lock().unwrap();
+                Self::get_file_metrics_conn(&conn, file_path)
             }
             MetricsOpsBackend::SideTables(side_tables) => side_tables.get_file_metrics(file_path),
         }
+    }
+
+    fn get_file_metrics_conn(
+        conn: &rusqlite::Connection,
+        file_path: &str,
+    ) -> Result<Option<FileMetrics>> {
+        let result = conn
+            .query_row(
+                "SELECT file_path, symbol_count, loc, estimated_loc,
+                        fan_in, fan_out, complexity_score, last_updated
+                 FROM file_metrics
+                 WHERE file_path = ?1",
+                params![file_path],
+                |row| {
+                    Ok(FileMetrics {
+                        file_path: row.get(0)?,
+                        symbol_count: row.get(1)?,
+                        loc: row.get(2)?,
+                        estimated_loc: row.get(3)?,
+                        fan_in: row.get(4)?,
+                        fan_out: row.get(5)?,
+                        complexity_score: row.get(6)?,
+                        last_updated: row.get(7)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|e| anyhow::anyhow!("Failed to get file metrics: {}", e))?;
+
+        Ok(result)
     }
 
     /// Get symbol metrics by symbol_id
@@ -262,36 +331,47 @@ impl MetricsOps {
         match &self.backend {
             MetricsOpsBackend::Sqlite(_) => {
                 let conn = self.connect()?;
-                let result = conn
-                    .query_row(
-                        "SELECT symbol_id, symbol_name, kind, file_path,
-                                loc, estimated_loc, fan_in, fan_out,
-                                cyclomatic_complexity, last_updated
-                         FROM symbol_metrics
-                         WHERE symbol_id = ?1",
-                        params![symbol_id],
-                        |row| {
-                            Ok(SymbolMetrics {
-                                symbol_id: row.get(0)?,
-                                symbol_name: row.get(1)?,
-                                kind: row.get(2)?,
-                                file_path: row.get(3)?,
-                                loc: row.get(4)?,
-                                estimated_loc: row.get(5)?,
-                                fan_in: row.get(6)?,
-                                fan_out: row.get(7)?,
-                                cyclomatic_complexity: row.get(8)?,
-                                last_updated: row.get(9)?,
-                            })
-                        },
-                    )
-                    .optional()
-                    .map_err(|e| anyhow::anyhow!("Failed to get symbol metrics: {}", e))?;
-
-                Ok(result)
+                Self::get_symbol_metrics_conn(&conn, symbol_id)
+            }
+            MetricsOpsBackend::Shared(conn_arc) => {
+                let conn = conn_arc.lock().unwrap();
+                Self::get_symbol_metrics_conn(&conn, symbol_id)
             }
             MetricsOpsBackend::SideTables(side_tables) => side_tables.get_symbol_metrics(symbol_id),
         }
+    }
+
+    fn get_symbol_metrics_conn(
+        conn: &rusqlite::Connection,
+        symbol_id: i64,
+    ) -> Result<Option<SymbolMetrics>> {
+        let result = conn
+            .query_row(
+                "SELECT symbol_id, symbol_name, kind, file_path,
+                        loc, estimated_loc, fan_in, fan_out,
+                        cyclomatic_complexity, last_updated
+                 FROM symbol_metrics
+                 WHERE symbol_id = ?1",
+                params![symbol_id],
+                |row| {
+                    Ok(SymbolMetrics {
+                        symbol_id: row.get(0)?,
+                        symbol_name: row.get(1)?,
+                        kind: row.get(2)?,
+                        file_path: row.get(3)?,
+                        loc: row.get(4)?,
+                        estimated_loc: row.get(5)?,
+                        fan_in: row.get(6)?,
+                        fan_out: row.get(7)?,
+                        cyclomatic_complexity: row.get(8)?,
+                        last_updated: row.get(9)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|e| anyhow::anyhow!("Failed to get symbol metrics: {}", e))?;
+
+        Ok(result)
     }
 
     /// Get hotspots (files with highest complexity scores)
@@ -307,76 +387,86 @@ impl MetricsOps {
         match &self.backend {
             MetricsOpsBackend::Sqlite(_) => {
                 let conn = self.connect()?;
-
-                // Build query with optional filters
-                let mut query = String::from(
-                    "SELECT file_path, symbol_count, loc, estimated_loc,
-                            fan_in, fan_out, complexity_score, last_updated
-                     FROM file_metrics
-                     WHERE 1=1",
-                );
-                let mut param_count = 0;
-
-                if min_loc.is_some() {
-                    param_count += 1;
-                    query.push_str(&format!(" AND loc >= ?{param_count}"));
-                }
-                if min_fan_in.is_some() {
-                    param_count += 1;
-                    query.push_str(&format!(" AND fan_in >= ?{param_count}"));
-                }
-                if min_fan_out.is_some() {
-                    param_count += 1;
-                    query.push_str(&format!(" AND fan_out >= ?{param_count}"));
-                }
-
-                param_count += 1;
-                query.push_str(&format!(
-                    " ORDER BY complexity_score DESC LIMIT ?{param_count}"
-                ));
-
-                let mut stmt = conn.prepare(&query)?;
-
-                // Build params based on which filters are active
-                let mut query_params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
-
-                if let Some(min_loc) = min_loc {
-                    query_params.push(Box::new(min_loc));
-                }
-                if let Some(min_fi) = min_fan_in {
-                    query_params.push(Box::new(min_fi));
-                }
-                if let Some(min_fo) = min_fan_out {
-                    query_params.push(Box::new(min_fo));
-                }
-                query_params.push(Box::new(limit.unwrap_or(20) as i64));
-
-                // Convert to references for query
-                let param_refs: Vec<&dyn rusqlite::types::ToSql> =
-                    query_params.iter().map(|p| p.as_ref()).collect();
-
-                let mut rows = stmt.query(&*param_refs)?;
-
-                let mut results = Vec::new();
-                while let Some(row) = rows.next()? {
-                    results.push(FileMetrics {
-                        file_path: row.get(0)?,
-                        symbol_count: row.get(1)?,
-                        loc: row.get(2)?,
-                        estimated_loc: row.get(3)?,
-                        fan_in: row.get(4)?,
-                        fan_out: row.get(5)?,
-                        complexity_score: row.get(6)?,
-                        last_updated: row.get(7)?,
-                    });
-                }
-
-                Ok(results)
+                Self::get_hotspots_conn(&conn, limit, min_loc, min_fan_in, min_fan_out)
+            }
+            MetricsOpsBackend::Shared(conn_arc) => {
+                let conn = conn_arc.lock().unwrap();
+                Self::get_hotspots_conn(&conn, limit, min_loc, min_fan_in, min_fan_out)
             }
             MetricsOpsBackend::SideTables(side_tables) => {
                 side_tables.get_hotspots(limit, min_loc, min_fan_in, min_fan_out)
             }
         }
+    }
+
+    fn get_hotspots_conn(
+        conn: &rusqlite::Connection,
+        limit: Option<u32>,
+        min_loc: Option<i64>,
+        min_fan_in: Option<i64>,
+        min_fan_out: Option<i64>,
+    ) -> Result<Vec<FileMetrics>> {
+        let mut query = String::from(
+            "SELECT file_path, symbol_count, loc, estimated_loc,
+                    fan_in, fan_out, complexity_score, last_updated
+             FROM file_metrics
+             WHERE 1=1",
+        );
+        let mut param_count = 0;
+
+        if min_loc.is_some() {
+            param_count += 1;
+            query.push_str(&format!(" AND loc >= ?{param_count}"));
+        }
+        if min_fan_in.is_some() {
+            param_count += 1;
+            query.push_str(&format!(" AND fan_in >= ?{param_count}"));
+        }
+        if min_fan_out.is_some() {
+            param_count += 1;
+            query.push_str(&format!(" AND fan_out >= ?{param_count}"));
+        }
+
+        param_count += 1;
+        query.push_str(&format!(
+            " ORDER BY complexity_score DESC LIMIT ?{param_count}"
+        ));
+
+        let mut stmt = conn.prepare(&query)?;
+
+        let mut query_params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+        if let Some(min_loc) = min_loc {
+            query_params.push(Box::new(min_loc));
+        }
+        if let Some(min_fi) = min_fan_in {
+            query_params.push(Box::new(min_fi));
+        }
+        if let Some(min_fo) = min_fan_out {
+            query_params.push(Box::new(min_fo));
+        }
+        query_params.push(Box::new(limit.unwrap_or(20) as i64));
+
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            query_params.iter().map(|p| p.as_ref()).collect();
+
+        let mut rows = stmt.query(&*param_refs)?;
+
+        let mut results = Vec::new();
+        while let Some(row) = rows.next()? {
+            results.push(FileMetrics {
+                file_path: row.get(0)?,
+                symbol_count: row.get(1)?,
+                loc: row.get(2)?,
+                estimated_loc: row.get(3)?,
+                fan_in: row.get(4)?,
+                fan_out: row.get(5)?,
+                complexity_score: row.get(6)?,
+                last_updated: row.get(7)?,
+            });
+        }
+
+        Ok(results)
     }
 }
 

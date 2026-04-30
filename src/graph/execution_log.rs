@@ -6,7 +6,7 @@
 use anyhow::Result;
 use rusqlite::{params, OptionalExtension};
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// Execution log entry
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -29,8 +29,10 @@ pub struct ExecutionRecord {
 
 /// Backend storage for ExecutionLog
 enum ExecutionLogBackend {
-    /// SQLite database path
+    /// SQLite database path (opens new connection per operation)
     Sqlite(std::path::PathBuf),
+    /// Shared connection from CodeGraph (avoids opening new connections)
+    Shared(Arc<Mutex<rusqlite::Connection>>),
     /// SideTables abstraction (V3 backend)
     SideTables(Arc<dyn super::side_tables::SideTables>),
 }
@@ -39,6 +41,7 @@ enum ExecutionLogBackend {
 ///
 /// Uses either:
 /// - SQLite connection to database file (legacy)
+/// - Shared connection from CodeGraph
 /// - SideTables trait abstraction (V3 backend)
 pub struct ExecutionLog {
     backend: ExecutionLogBackend,
@@ -50,6 +53,19 @@ impl ExecutionLog {
         Self {
             backend: ExecutionLogBackend::Sqlite(db_path.to_path_buf()),
         }
+    }
+
+    /// Create an ExecutionLog using a shared connection.
+    ///
+    /// This eliminates redundant connection opens by reusing CodeGraph's side_conn.
+    pub fn with_connection(conn: Arc<Mutex<rusqlite::Connection>>) -> Self {
+        let log = Self {
+            backend: ExecutionLogBackend::Shared(conn),
+        };
+        if let Err(e) = log.ensure_schema() {
+            eprintln!("Warning: Failed to ensure ExecutionLog schema: {}", e);
+        }
+        log
     }
 
     /// Create an ExecutionLog using the SideTables abstraction.
@@ -91,72 +107,114 @@ impl ExecutionLog {
 
     /// Get a connection to the database (SQLite backend only).
     ///
-    /// Returns an error when using SideTables backend (V3) since direct SQLite
-    /// connections are not available with that backend.
+    /// Returns an error when using Shared or SideTables backends.
     pub fn connect(&self) -> Result<rusqlite::Connection, rusqlite::Error> {
         match &self.backend {
             ExecutionLogBackend::Sqlite(path) => rusqlite::Connection::open(path),
+            ExecutionLogBackend::Shared(_) => Err(rusqlite::Error::InvalidParameterName(
+                "Direct SQLite connection not available for shared backend".to_string(),
+            )),
             ExecutionLogBackend::SideTables(_) => Err(rusqlite::Error::InvalidParameterName(
                 "SQLite connection not available for SideTables backend".to_string(),
             )),
         }
     }
 
+    fn ensure_schema_sqlite(
+        conn: &rusqlite::Connection,
+    ) -> Result<(), anyhow::Error> {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS execution_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    execution_id TEXT NOT NULL UNIQUE,
+                    tool_version TEXT NOT NULL,
+                    args TEXT NOT NULL,
+                    root TEXT,
+                    db_path TEXT NOT NULL,
+                    started_at INTEGER NOT NULL,
+                    finished_at INTEGER,
+                    duration_ms INTEGER,
+                    outcome TEXT NOT NULL,
+                    error_message TEXT,
+                    files_indexed INTEGER DEFAULT 0,
+                    symbols_indexed INTEGER DEFAULT 0,
+                    references_indexed INTEGER DEFAULT 0
+                )",
+            [],
+        )
+        .map_err(|e| anyhow::anyhow!("Failed to create execution_log table: {}", e))?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_execution_log_started_at
+                    ON execution_log(started_at DESC)",
+            [],
+        )
+        .map_err(|e| anyhow::anyhow!("Failed to create started_at index: {}", e))?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_execution_log_execution_id
+                    ON execution_log(execution_id)",
+            [],
+        )
+        .map_err(|e| anyhow::anyhow!("Failed to create execution_id index: {}", e))?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_execution_log_outcome
+                    ON execution_log(outcome)",
+            [],
+        )
+        .map_err(|e| anyhow::anyhow!("Failed to create outcome index: {}", e))?;
+
+        Ok(())
+    }
+
     pub fn ensure_schema(&self) -> Result<()> {
         match &self.backend {
             ExecutionLogBackend::Sqlite(_) => {
                 let conn = self.connect()?;
-
-                conn.execute(
-                    "CREATE TABLE IF NOT EXISTS execution_log (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            execution_id TEXT NOT NULL UNIQUE,
-                            tool_version TEXT NOT NULL,
-                            args TEXT NOT NULL,
-                            root TEXT,
-                            db_path TEXT NOT NULL,
-                            started_at INTEGER NOT NULL,
-                            finished_at INTEGER,
-                            duration_ms INTEGER,
-                            outcome TEXT NOT NULL,
-                            error_message TEXT,
-                            files_indexed INTEGER DEFAULT 0,
-                            symbols_indexed INTEGER DEFAULT 0,
-                            references_indexed INTEGER DEFAULT 0
-                        )",
-                    [],
-                )
-                .map_err(|e| anyhow::anyhow!("Failed to create execution_log table: {}", e))?;
-
-                // Indexes
-                conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_execution_log_started_at
-                            ON execution_log(started_at DESC)",
-                    [],
-                )
-                .map_err(|e| anyhow::anyhow!("Failed to create started_at index: {}", e))?;
-
-                conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_execution_log_execution_id
-                            ON execution_log(execution_id)",
-                    [],
-                )
-                .map_err(|e| anyhow::anyhow!("Failed to create execution_id index: {}", e))?;
-
-                conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_execution_log_outcome
-                            ON execution_log(outcome)",
-                    [],
-                )
-                .map_err(|e| anyhow::anyhow!("Failed to create outcome index: {}", e))?;
-
-                Ok(())
+                Self::ensure_schema_sqlite(&conn)
+            }
+            ExecutionLogBackend::Shared(conn_arc) => {
+                let conn = conn_arc.lock().unwrap();
+                Self::ensure_schema_sqlite(&conn)
             }
             ExecutionLogBackend::SideTables(_) => {
                 // V3 backend handles schema automatically
                 Ok(())
             }
         }
+    }
+
+    fn start_execution_sqlite(
+        conn: &rusqlite::Connection,
+        execution_id: &str,
+        tool_version: &str,
+        args: &[String],
+        root: Option<&str>,
+        db_path: &str,
+    ) -> Result<i64> {
+        let args_json = serde_json::to_string(args)?;
+        let started_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+
+        conn.execute(
+            "INSERT INTO execution_log
+                    (execution_id, tool_version, args, root, db_path, started_at, outcome)
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'running')",
+            params![
+                execution_id,
+                tool_version,
+                args_json,
+                root,
+                db_path,
+                started_at
+            ],
+        )
+        .map_err(|e| anyhow::anyhow!("Failed to insert execution log: {}", e))?;
+
+        Ok(conn.last_insert_rowid())
     }
 
     pub fn start_execution(
@@ -170,33 +228,69 @@ impl ExecutionLog {
         match &self.backend {
             ExecutionLogBackend::Sqlite(_) => {
                 let conn = self.connect()?;
-                let args_json = serde_json::to_string(args)?;
-                let started_at = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs() as i64;
-
-                conn.execute(
-                    "INSERT INTO execution_log
-                            (execution_id, tool_version, args, root, db_path, started_at, outcome)
-                            VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'running')",
-                    params![
-                        execution_id,
-                        tool_version,
-                        args_json,
-                        root,
-                        db_path,
-                        started_at
-                    ],
+                Self::start_execution_sqlite(&conn, execution_id, tool_version, args, root, db_path)
+            }
+            ExecutionLogBackend::Shared(conn_arc) => {
+                let conn = conn_arc.lock().unwrap();
+                Self::start_execution_sqlite(
+                    &conn, execution_id, tool_version, args, root, db_path,
                 )
-                .map_err(|e| anyhow::anyhow!("Failed to insert execution log: {}", e))?;
-
-                Ok(conn.last_insert_rowid())
             }
             ExecutionLogBackend::SideTables(side_tables) => {
                 side_tables.start_execution(execution_id, tool_version, args, root, db_path)
             }
         }
+    }
+
+    fn finish_execution_sqlite(
+        conn: &rusqlite::Connection,
+        execution_id: &str,
+        outcome: &str,
+        error_message: Option<&str>,
+        files_indexed: usize,
+        symbols_indexed: usize,
+        references_indexed: usize,
+    ) -> Result<()> {
+        let now = std::time::SystemTime::now();
+        let finished_at_secs =
+            now.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+        let finished_at_ms = now
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+
+        let started_at_secs: i64 = conn
+            .query_row(
+                "SELECT started_at FROM execution_log WHERE execution_id = ?1",
+                params![execution_id],
+                |row| row.get(0),
+            )
+            .optional()?
+            .unwrap_or(finished_at_secs);
+        let started_at_ms = started_at_secs * 1000;
+
+        let duration_ms = finished_at_ms - started_at_ms;
+
+        conn.execute(
+            "UPDATE execution_log
+                    SET finished_at = ?1, outcome = ?2, error_message = ?3,
+                        duration_ms = ?4, files_indexed = ?5, symbols_indexed = ?6,
+                        references_indexed = ?7
+                    WHERE execution_id = ?8",
+            params![
+                finished_at_secs,
+                outcome,
+                error_message,
+                duration_ms,
+                files_indexed as i64,
+                symbols_indexed as i64,
+                references_indexed as i64,
+                execution_id,
+            ],
+        )
+        .map_err(|e| anyhow::anyhow!("Failed to update execution log: {}", e))?;
+
+        Ok(())
     }
 
     pub fn finish_execution(
@@ -211,47 +305,27 @@ impl ExecutionLog {
         match &self.backend {
             ExecutionLogBackend::Sqlite(_) => {
                 let conn = self.connect()?;
-                let now = std::time::SystemTime::now();
-                let finished_at_secs =
-                    now.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
-                let finished_at_ms = now
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_millis() as i64;
-
-                // Get started_at to compute duration
-                let started_at_secs: i64 = conn
-                    .query_row(
-                        "SELECT started_at FROM execution_log WHERE execution_id = ?1",
-                        params![execution_id],
-                        |row| row.get(0),
-                    )
-                    .optional()?
-                    .unwrap_or(finished_at_secs);
-                let started_at_ms = started_at_secs * 1000;
-
-                let duration_ms = finished_at_ms - started_at_ms;
-
-                conn.execute(
-                    "UPDATE execution_log
-                            SET finished_at = ?1, outcome = ?2, error_message = ?3,
-                                duration_ms = ?4, files_indexed = ?5, symbols_indexed = ?6,
-                                references_indexed = ?7
-                            WHERE execution_id = ?8",
-                    params![
-                        finished_at_secs,
-                        outcome,
-                        error_message,
-                        duration_ms,
-                        files_indexed as i64,
-                        symbols_indexed as i64,
-                        references_indexed as i64,
-                        execution_id,
-                    ],
+                Self::finish_execution_sqlite(
+                    &conn,
+                    execution_id,
+                    outcome,
+                    error_message,
+                    files_indexed,
+                    symbols_indexed,
+                    references_indexed,
                 )
-                .map_err(|e| anyhow::anyhow!("Failed to update execution log: {}", e))?;
-
-                Ok(())
+            }
+            ExecutionLogBackend::Shared(conn_arc) => {
+                let conn = conn_arc.lock().unwrap();
+                Self::finish_execution_sqlite(
+                    &conn,
+                    execution_id,
+                    outcome,
+                    error_message,
+                    files_indexed,
+                    symbols_indexed,
+                    references_indexed,
+                )
             }
             ExecutionLogBackend::SideTables(side_tables) => side_tables.finish_execution(
                 execution_id,
@@ -264,12 +338,30 @@ impl ExecutionLog {
         }
     }
 
+    fn row_to_execution_record(row: &rusqlite::Row) -> Result<ExecutionRecord, rusqlite::Error> {
+        Ok(ExecutionRecord {
+            id: row.get(0)?,
+            execution_id: row.get(1)?,
+            tool_version: row.get(2)?,
+            args: row.get(3)?,
+            root: row.get(4)?,
+            db_path: row.get(5)?,
+            started_at: row.get(6)?,
+            finished_at: row.get(7)?,
+            duration_ms: row.get(8)?,
+            outcome: row.get(9)?,
+            error_message: row.get(10)?,
+            files_indexed: row.get(11)?,
+            symbols_indexed: row.get(12)?,
+            references_indexed: row.get(13)?,
+        })
+    }
+
     /// Get an execution record by execution_id
     pub fn get_by_execution_id(&self, execution_id: &str) -> Result<Option<ExecutionRecord>> {
         match &self.backend {
             ExecutionLogBackend::Sqlite(_) => {
                 let conn = self.connect()?;
-
                 let result = conn
                     .query_row(
                         "SELECT id, execution_id, tool_version, args, root, db_path,
@@ -278,28 +370,26 @@ impl ExecutionLog {
                          FROM execution_log
                          WHERE execution_id = ?1",
                         params![execution_id],
-                        |row| {
-                            Ok(ExecutionRecord {
-                                id: row.get(0)?,
-                                execution_id: row.get(1)?,
-                                tool_version: row.get(2)?,
-                                args: row.get(3)?,
-                                root: row.get(4)?,
-                                db_path: row.get(5)?,
-                                started_at: row.get(6)?,
-                                finished_at: row.get(7)?,
-                                duration_ms: row.get(8)?,
-                                outcome: row.get(9)?,
-                                error_message: row.get(10)?,
-                                files_indexed: row.get(11)?,
-                                symbols_indexed: row.get(12)?,
-                                references_indexed: row.get(13)?,
-                            })
-                        },
+                        Self::row_to_execution_record,
                     )
                     .optional()
                     .map_err(|e| anyhow::anyhow!("Failed to query execution log: {}", e))?;
-
+                Ok(result)
+            }
+            ExecutionLogBackend::Shared(conn_arc) => {
+                let conn = conn_arc.lock().unwrap();
+                let result = conn
+                    .query_row(
+                        "SELECT id, execution_id, tool_version, args, root, db_path,
+                                started_at, finished_at, duration_ms, outcome, error_message,
+                                files_indexed, symbols_indexed, references_indexed
+                         FROM execution_log
+                         WHERE execution_id = ?1",
+                        params![execution_id],
+                        Self::row_to_execution_record,
+                    )
+                    .optional()
+                    .map_err(|e| anyhow::anyhow!("Failed to query execution log: {}", e))?;
                 Ok(result)
             }
             ExecutionLogBackend::SideTables(side_tables) => side_tables.get_execution(execution_id),
@@ -308,43 +398,33 @@ impl ExecutionLog {
 
     /// Get all execution records, ordered by most recent first
     pub fn list_all(&self, limit: Option<usize>) -> Result<Vec<ExecutionRecord>> {
+        let limit_clause = limit.map(|l| format!(" LIMIT {}", l)).unwrap_or_default();
+        let sql = format!(
+            "SELECT id, execution_id, tool_version, args, root, db_path,
+                    started_at, finished_at, duration_ms, outcome, error_message,
+                    files_indexed, symbols_indexed, references_indexed
+             FROM execution_log
+             ORDER BY started_at DESC{}",
+            limit_clause
+        );
+
         match &self.backend {
             ExecutionLogBackend::Sqlite(_) => {
                 let conn = self.connect()?;
-
-                let limit_clause = limit.map(|l| format!(" LIMIT {}", l)).unwrap_or_default();
-                let sql = format!(
-                    "SELECT id, execution_id, tool_version, args, root, db_path,
-                            started_at, finished_at, duration_ms, outcome, error_message,
-                            files_indexed, symbols_indexed, references_indexed
-                     FROM execution_log
-                     ORDER BY started_at DESC{}",
-                    limit_clause
-                );
-
                 let mut stmt = conn.prepare(&sql)?;
                 let records = stmt
-                    .query_map([], |row| {
-                        Ok(ExecutionRecord {
-                            id: row.get(0)?,
-                            execution_id: row.get(1)?,
-                            tool_version: row.get(2)?,
-                            args: row.get(3)?,
-                            root: row.get(4)?,
-                            db_path: row.get(5)?,
-                            started_at: row.get(6)?,
-                            finished_at: row.get(7)?,
-                            duration_ms: row.get(8)?,
-                            outcome: row.get(9)?,
-                            error_message: row.get(10)?,
-                            files_indexed: row.get(11)?,
-                            symbols_indexed: row.get(12)?,
-                            references_indexed: row.get(13)?,
-                        })
-                    })?
+                    .query_map([], Self::row_to_execution_record)?
                     .collect::<Result<Vec<_>, _>>()
                     .map_err(|e| anyhow::anyhow!("Failed to collect execution records: {}", e))?;
-
+                Ok(records)
+            }
+            ExecutionLogBackend::Shared(conn_arc) => {
+                let conn = conn_arc.lock().unwrap();
+                let mut stmt = conn.prepare(&sql)?;
+                let records = stmt
+                    .query_map([], Self::row_to_execution_record)?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|e| anyhow::anyhow!("Failed to collect execution records: {}", e))?;
                 Ok(records)
             }
             ExecutionLogBackend::SideTables(side_tables) => side_tables.list_executions(limit),

@@ -267,20 +267,26 @@ pub trait SideTables: Send + Sync {
 pub mod sqlite_impl {
     use super::*;
     use rusqlite::{params, Connection, OptionalExtension};
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
 
     /// SQLite-based side tables implementation
     pub struct SqliteSideTables {
-        conn: Mutex<Connection>,
+        conn: Arc<Mutex<Connection>>,
     }
 
     impl SqliteSideTables {
         /// Open or create side tables in SQLite database
         pub fn open(db_path: &Path) -> Result<Self> {
             let conn = Connection::open(db_path)?;
-            let tables = Self {
-                conn: Mutex::new(conn),
-            };
+            Self::with_mutex(Arc::new(Mutex::new(conn)))
+        }
+
+        /// Create from an existing connection reference-counted mutex.
+        ///
+        /// This allows `CodeGraph` to share its `side_conn` with `SqliteSideTables`,
+        /// eliminating redundant connection opens.
+        pub fn with_mutex(conn: Arc<Mutex<Connection>>) -> Result<Self> {
+            let tables = Self { conn };
             tables.ensure_schema()?;
             Ok(tables)
         }
