@@ -171,6 +171,22 @@ pub fn ensure_cfg_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatErro
         [],
     )
     .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    // Check if cfg_edges table already exists (with any schema - legacy or new)
+    // If it exists, skip creating tables/indexes to avoid schema conflicts
+    let table_exists: bool = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='cfg_edges' LIMIT 1",
+            [],
+            |_row| Ok(true),
+        )
+        .unwrap_or(false);
+
+    if table_exists {
+        // cfg_edges already exists - don't try to create with potentially incompatible schema
+        return Ok(());
+    }
+
     conn.execute(
         "CREATE TABLE IF NOT EXISTS cfg_edges (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -344,6 +360,21 @@ pub fn ensure_coverage_schema(
     conn: &rusqlite::Connection,
     db_path: &std::path::Path,
 ) -> Result<(), DbCompatError> {
+    // Check if cfg_edges has the expected 'id' column before creating coverage tables
+    // that reference it. If not, skip coverage schema (this is a legacy database).
+    let has_cfg_edges_id: bool = conn
+        .query_row(
+            "SELECT 1 FROM pragma_table_info('cfg_edges') WHERE name='id' LIMIT 1",
+            [],
+            |_row| Ok(true),
+        )
+        .unwrap_or(false);
+
+    if !has_cfg_edges_id {
+        // Legacy database with different cfg_edges schema - skip coverage tables
+        return Ok(());
+    }
+
     conn.execute(
         "CREATE TABLE IF NOT EXISTS cfg_block_coverage (
             block_id INTEGER PRIMARY KEY,
