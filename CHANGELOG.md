@@ -41,7 +41,9 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Path resolution in query functions** (`symbol_nodes_in_file`, `symbol_nodes_in_file_with_ids`):
   - Relative paths (e.g., `src/main.rs`) were not matching paths in the database (which stores absolute paths)
   - Added `resolve_query_path()` helper that canonicalizes relative paths using current working directory
+  - `rebuild_file_index()` now stores absolute canonical paths in the in-memory index
   - Now all query operations work consistently regardless of path format
+- **Legacy database schema compatibility**: `ensure_cfg_schema()` and `ensure_coverage_schema()` now detect existing cfg_edges table with legacy schema before attempting schema modifications that would fail on legacy databases
 - **splice dead-code / splice reachable**: Fixed by using local magellan path in splice's Cargo.toml
 - Stale installed binary causing `backfill` command to fail with "Direct SQLite connection not available for shared backend" - rebuilt and reinstalled to `~/.local/bin/magellan`
 - **mirage hotspots**: Fixed `mirage hotspots --entry main` returning "0 functions" (needed `mut db` for `conn_mut()` call)
