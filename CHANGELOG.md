@@ -15,6 +15,11 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - `docs/superpowers/skills/verification-before-completion.md` - Skill for completion gates
   - `docs/superpowers/MASTER_PLAN.md` - Master plan for toolchain improvement
 
+- **Phase 3: Cross-Project Federation**:
+  - `magellan registry scan --root <dir>` - Discovers .magellan/*.db files recursively
+  - `magellan registry list --root <dir>` - Lists discovered databases with stats
+  - `src/registry_cmd.rs` - New command module for database discovery
+
 ### Fixed
 
 - **Path resolution in query functions** (`symbol_nodes_in_file`, `symbol_nodes_in_file_with_ids`):
