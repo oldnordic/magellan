@@ -28,6 +28,14 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - Supports registry settings (auto_scan, scan_roots)
   - Added `toml` crate dependency for config parsing
 
+- **Phase 5: Validation Pipeline** (verification infrastructure):
+  - `scripts/validate-completion.sh` - Pre-completion 5-gate validation pipeline
+  - `magellan verify --root <dir> --db <db>` - Path integrity verification (filesystem vs DB)
+  - `splice verify --before <snap> --after <snap>` - Snapshot comparison tool
+  - `.claude/hooks/` - Pre-commit hooks (stub-check.fish, build-check.fish)
+  - `src/checksum.rs` - File/span checksum computation for audit trails
+  - `src/code_validator.rs` - Rust-analyzer validation for LSP-verified mutations
+
 ### Fixed
 
 - **Path resolution in query functions** (`symbol_nodes_in_file`, `symbol_nodes_in_file_with_ids`):
