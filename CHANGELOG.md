@@ -30,13 +30,22 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Hook configuration updated to run stub-check and build-check via proper git pre-commit hook (not Claude Code hooks)
 - Clippy validation now checks `--lib --bins` only (not tests) to avoid pre-existing test issues
 - splice dependency now uses local magellan path for development
-- All Phase 1 P0 commands now verified working: magellan backfill, magellan dead-code, splice dead-code, splice reachable, mirage hotspots, mirage unreachable
+- All Phase 1 P0 commands verified working: magellan backfill, magellan dead-code, splice dead-code, splice reachable, mirage hotspots, mirage unreachable
+
+### Phase 2 Investigation (2026-05-01)
+
+Investigated consistency issues from MASTER_PLAN Phase 2:
+
+- **`llmgrep search --query "fn"`**: Returns 0 results is **expected behavior** - "fn" is a Rust keyword, not a symbol name. Use `--kind fn` to filter by function type (e.g., `llmgrep search --query test --kind fn` returns 729 results)
+
+- **`splice query --label` vs `magellan query --file`**: Different semantics (label-based vs file-based query) - not a bug, design difference
+
+- **`mirage hotpaths`**: Command exists and works correctly (discovered during investigation)
 
 ### Known Issues
 
 - `mirage hotspots`: Verified working after `mut db` fix in mirage repo
 - `mirage unreachable`: Verified working - `--within-functions` flag name is correct
-- `llmgrep search --query "fn"`: Returns 0 results because "fn" is a Rust keyword, not a symbol name (use `--kind Function` to search functions instead)
 - `tests/stress_concurrent_edits.rs::stress_database_integrity` can still deadlock (pre-existing)
 - `tests/call_graph_tests.rs::test_cross_file_call_resolution` may fail (pre-existing)
 
