@@ -32,6 +32,7 @@
 pub mod backend_router;
 pub mod capabilities;
 pub mod common;
+pub mod config;
 pub mod context;
 pub mod diagnostics;
 pub mod error_codes;

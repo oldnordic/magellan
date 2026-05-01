@@ -20,6 +20,14 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - `magellan registry list --root <dir>` - Lists discovered databases with stats
   - `src/registry_cmd.rs` - New command module for database discovery
 
+- **Phase 4: LLM Integration** (config file parsing):
+  - `src/config.rs` - Configuration management module (~/.config/magellan/config.toml)
+  - `magellan config show` - Display current configuration
+  - `magellan config init` - Create default config file
+  - Supports LLM provider settings (ollama, openai, anthropic, custom)
+  - Supports registry settings (auto_scan, scan_roots)
+  - Added `toml` crate dependency for config parsing
+
 ### Fixed
 
 - **Path resolution in query functions** (`symbol_nodes_in_file`, `symbol_nodes_in_file_with_ids`):

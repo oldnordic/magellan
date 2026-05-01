@@ -16,6 +16,7 @@ mod refresh_cmd;
 mod refs_cmd;
 mod registry_cmd;
 mod condense_cmd;
+mod config_cmd;
 mod context_cmd;
 mod cycles_cmd;
 mod dead_code_cmd;
@@ -117,6 +118,20 @@ fn main() -> ExitCode {
             output_format,
         }) => {
             if let Err(e) = registry_cmd::run_registry_list(root, output_format) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::ConfigShow { output_format }) => {
+            if let Err(e) = config_cmd::run_config_show(output_format) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::ConfigInit { force }) => {
+            if let Err(e) = config_cmd::run_config_init(force) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }

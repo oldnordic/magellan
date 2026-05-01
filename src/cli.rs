@@ -384,6 +384,12 @@ pub enum Command {
         root: PathBuf,
         output_format: OutputFormat,
     },
+    ConfigShow {
+        output_format: OutputFormat,
+    },
+    ConfigInit {
+        force: bool,
+    },
     Delete {
         db_path: PathBuf,
         file_path: PathBuf,
@@ -775,6 +781,40 @@ fn parse_registry_list_args(args: &[String]) -> Result<Command> {
         root,
         output_format,
     })
+}
+
+fn parse_config_show_args(args: &[String]) -> Result<Command> {
+    let mut output_format = OutputFormat::Human;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--output" => {
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output_format = parse_output_format(&value)?;
+            }
+            _ => i += 1,
+        }
+    }
+
+    Ok(Command::ConfigShow { output_format })
+}
+
+fn parse_config_init_args(args: &[String]) -> Result<Command> {
+    let mut force = false;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--force" => {
+                force = true;
+                i += 1;
+            }
+            _ => i += 1,
+        }
+    }
+
+    Ok(Command::ConfigInit { force })
 }
 
 fn parse_delete_args(args: &[String]) -> Result<Command> {
@@ -1745,6 +1785,17 @@ where
                 "scan" => parse_registry_scan_args(&args[3..]),
                 "list" => parse_registry_list_args(&args[3..]),
                 _ => Err(anyhow::anyhow!("Unknown registry subcommand: {}", args[2])),
+            }
+        }
+        "config" => {
+            // Config has subcommands
+            if args.len() < 3 {
+                return Err(anyhow::anyhow!("config subcommand required: show, init"));
+            }
+            match args[2].as_str() {
+                "show" => parse_config_show_args(&args[3..]),
+                "init" => parse_config_init_args(&args[3..]),
+                _ => Err(anyhow::anyhow!("Unknown config subcommand: {}", args[2])),
             }
         }
         "condense" => parse_condense_args(&args[2..]),
