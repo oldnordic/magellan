@@ -3,6 +3,39 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.8] - 2026-05-01
+
+### Added
+
+- **LLM Enforcement Infrastructure** (Phase 0):
+  - `scripts/validate-completion.sh` - 5-gate validation pipeline (stubs, check, test, clippy, db)
+  - `.claude/hooks/stub-check.fish` - Pre-commit hook blocking TODO/unimplemented/panic in non-test code
+  - `.claude/hooks/build-check.fish` - Pre-commit hook running cargo check/test/clippy
+  - `docs/superpowers/skills/no-stubs-enforcement.md` - Skill for zero-tolerance stub policy
+  - `docs/superpowers/skills/verification-before-completion.md` - Skill for completion gates
+  - `docs/superpowers/MASTER_PLAN.md` - Master plan for toolchain improvement
+
+### Fixed
+
+- **Path resolution in query functions** (`symbol_nodes_in_file`, `symbol_nodes_in_file_with_ids`):
+  - Relative paths (e.g., `src/main.rs`) were not matching paths in the database (which stores absolute paths)
+  - Added `resolve_query_path()` helper that canonicalizes relative paths using current working directory
+  - Now all query operations work consistently regardless of path format
+- **splice dead-code / splice reachable**: Fixed by using local magellan path in splice's Cargo.toml
+- Stale installed binary causing `backfill` command to fail with "Direct SQLite connection not available for shared backend" - rebuilt and reinstalled to `~/.local/bin/magellan`
+- **mirage hotspots**: Fixed `mirage hotspots --entry main` returning "0 functions" (needed `mut db` for `conn_mut()` call)
+
+### Changed
+
+- Hook configuration updated to run stub-check and build-check via proper git pre-commit hook (not Claude Code hooks)
+- Clippy validation now checks `--lib --bins` only (not tests) to avoid pre-existing test issues
+- splice dependency now uses local magellan path for development
+
+### Known Issues
+
+- `tests/stress_concurrent_edits.rs::stress_database_integrity` can still deadlock (pre-existing)
+- `tests/call_graph_tests.rs::test_cross_file_call_resolution` may fail (pre-existing)
+
 ## [3.1.7] - 2026-04-27
 
 ### Added
