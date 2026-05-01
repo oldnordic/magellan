@@ -30,9 +30,13 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Hook configuration updated to run stub-check and build-check via proper git pre-commit hook (not Claude Code hooks)
 - Clippy validation now checks `--lib --bins` only (not tests) to avoid pre-existing test issues
 - splice dependency now uses local magellan path for development
+- All Phase 1 P0 commands now verified working: magellan backfill, magellan dead-code, splice dead-code, splice reachable, mirage hotspots, mirage unreachable
 
 ### Known Issues
 
+- `mirage hotspots`: Verified working after `mut db` fix in mirage repo
+- `mirage unreachable`: Verified working - `--within-functions` flag name is correct
+- `llmgrep search --query "fn"`: Returns 0 results because "fn" is a Rust keyword, not a symbol name (use `--kind Function` to search functions instead)
 - `tests/stress_concurrent_edits.rs::stress_database_integrity` can still deadlock (pre-existing)
 - `tests/call_graph_tests.rs::test_cross_file_call_resolution` may fail (pre-existing)
 
