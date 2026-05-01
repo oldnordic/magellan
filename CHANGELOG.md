@@ -50,7 +50,7 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Hook configuration updated to run stub-check and build-check via proper git pre-commit hook (not Claude Code hooks)
 - Clippy validation now checks `--lib --bins` only (not tests) to avoid pre-existing test issues
-- splice dependency now uses local magellan path for development
+- splice now depends on magellan from crates.io (version 3.1.7) for external users
 - All Phase 1 P0 commands verified working: magellan backfill, magellan dead-code, splice dead-code, splice reachable, mirage hotspots, mirage unreachable
 
 ### Phase 2 Investigation (2026-05-01)
