@@ -24,6 +24,7 @@ fn benchmark_chunk_operations(c: &mut Criterion) {
             let db_path = temp_dir.path().join("test.db");
 
             let chunk_store = ChunkStore::new(&db_path);
+            chunk_store.ensure_schema().unwrap();
 
             for i in 0..100 {
                 let chunk = CodeChunk::new(
@@ -48,6 +49,7 @@ fn benchmark_chunk_operations(c: &mut Criterion) {
             // Store chunks first
             {
                 let chunk_store = ChunkStore::new(&db_path);
+                chunk_store.ensure_schema().unwrap();
 
                 for i in 0..100 {
                     let chunk = CodeChunk::new(
@@ -84,6 +86,7 @@ fn benchmark_execution_log_ops(c: &mut Criterion) {
             let db_path = temp_dir.path().join("test.db");
 
             let execution_log = ExecutionLog::new(&db_path);
+            execution_log.ensure_schema().unwrap();
 
             let args = vec!["scan".to_string()];
 
@@ -112,6 +115,7 @@ fn benchmark_metrics_ops(c: &mut Criterion) {
             let db_path = temp_dir.path().join("test.db");
 
             let metrics = MetricsOps::new(&db_path);
+            metrics.ensure_schema().unwrap();
 
             for i in 0..100 {
                 let file_metrics = FileMetrics {
@@ -159,6 +163,7 @@ pub fn helper() {
 
             // Store chunks
             let chunk_store = ChunkStore::new(&db_path);
+            chunk_store.ensure_schema().unwrap();
 
             let chunk = CodeChunk::new(
                 "test.rs".to_string(),
@@ -172,6 +177,7 @@ pub fn helper() {
 
             // Log execution
             let execution_log = ExecutionLog::new(&db_path);
+            execution_log.ensure_schema().unwrap();
 
             let args = vec!["scan".to_string()];
             execution_log
