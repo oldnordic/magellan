@@ -227,19 +227,23 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
-    fn test_delete_imports_in_file() {
-        let temp_dir = TempDir::new().unwrap();
+    fn test_delete_imports_in_file() -> Result<()> {
+        let temp_dir = TempDir::new()?;
         let db_path = temp_dir.path().join("test.db");
-        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
+        let mut graph = crate::CodeGraph::open(&db_path)?;
 
         // Create a file node first
         let test_file = "test.rs";
         let source = b"use std::collections::HashMap;";
-        graph.index_file(test_file, source).unwrap();
+        graph.index_file(test_file, source)?;
 
         // index_file already creates import nodes, so we should have at least 1
-        // Get the file_id
-        let file_id = graph.files.find_file_node(test_file).unwrap().unwrap();
+        // Get the file_id (normalize path to match index_file storage format)
+        let normalized_path = crate::graph::files::normalize_path_for_index(test_file);
+        let file_id = graph
+            .files
+            .find_file_node(&normalized_path)?
+            .expect("file node should exist after index_file");
 
         // Create some additional test imports
         let imports = vec![ImportFact {
@@ -264,22 +268,27 @@ mod tests {
         assert_eq!(count, 1);
 
         // Delete all imports for this file (should be 2 total now)
-        let deleted = graph.imports.delete_imports_in_file(test_file).unwrap();
+        let deleted = graph.imports.delete_imports_in_file(test_file)?;
         assert_eq!(deleted, 2); // 1 from index_file + 1 from manual index_imports
+        Ok(())
     }
 
     #[test]
-    fn test_index_imports_creates_nodes() {
-        let temp_dir = TempDir::new().unwrap();
+    fn test_index_imports_creates_nodes() -> Result<()> {
+        let temp_dir = TempDir::new()?;
         let db_path = temp_dir.path().join("test.db");
-        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
+        let mut graph = crate::CodeGraph::open(&db_path)?;
 
         let test_file = "test.rs";
         let source = b"use crate::foo::bar;";
-        graph.index_file(test_file, source).unwrap();
+        graph.index_file(test_file, source)?;
 
-        // Get the file_id
-        let file_id = graph.files.find_file_node(test_file).unwrap().unwrap();
+        // Get the file_id (normalize path to match index_file storage format)
+        let normalized_path = crate::graph::files::normalize_path_for_index(test_file);
+        let file_id = graph
+            .files
+            .find_file_node(&normalized_path)?
+            .expect("file node should exist after index_file");
 
         let imports = vec![ImportFact {
             file_path: PathBuf::from(test_file),
@@ -314,32 +323,37 @@ mod tests {
             .map(|&id| graph.imports.backend.get_node(snapshot, id).unwrap());
 
         assert!(import_node.is_some(), "Import node should be created");
+        Ok(())
     }
 
     #[test]
-    fn test_index_imports_with_module_resolver() {
-        let temp_dir = TempDir::new().unwrap();
+    fn test_index_imports_with_module_resolver() -> Result<()> {
+        let temp_dir = TempDir::new()?;
         let db_path = temp_dir.path().join("test.db");
-        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
+        let mut graph = crate::CodeGraph::open(&db_path)?;
 
         // Create test files with relative paths
         let lib_file = "src/lib.rs";
         let foo_file = "src/foo.rs";
 
         // Create directories
-        std::fs::create_dir_all(temp_dir.path().join("src")).unwrap();
+        std::fs::create_dir_all(temp_dir.path().join("src"))?;
 
         // Index lib.rs
-        graph.index_file(lib_file, b"fn lib() {}").unwrap();
+        graph.index_file(lib_file, b"fn lib() {}")?;
 
         // Index foo.rs
-        graph.index_file(foo_file, b"fn foo() {}").unwrap();
+        graph.index_file(foo_file, b"fn foo() {}")?;
 
         // Build module index for resolver
-        graph.module_resolver.build_module_index().unwrap();
+        graph.module_resolver.build_module_index()?;
 
-        // Get file_id for lib.rs
-        let file_id = graph.files.find_file_node(lib_file).unwrap().unwrap();
+        // Get file_id for lib.rs (normalize path to match index_file storage format)
+        let normalized_lib = crate::graph::files::normalize_path_for_index(lib_file);
+        let file_id = graph
+            .files
+            .find_file_node(&normalized_lib)?
+            .expect("lib.rs file node should exist after index_file");
 
         // Create import that references crate::foo
         let imports = vec![ImportFact {
@@ -392,35 +406,44 @@ mod tests {
             resolved_id.is_some(),
             "Import should have resolved_file_id in metadata"
         );
+        Ok(())
     }
 
     #[test]
-    fn test_cross_file_import_edges() {
-        let temp_dir = TempDir::new().unwrap();
+    fn test_cross_file_import_edges() -> Result<()> {
+        let temp_dir = TempDir::new()?;
         let db_path = temp_dir.path().join("test.db");
-        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
+        let mut graph = crate::CodeGraph::open(&db_path)?;
 
         // Create test files with relative paths
         let lib_file = "src/lib.rs";
         let helper_file = "src/helper.rs";
 
         // Create directories
-        std::fs::create_dir_all(temp_dir.path().join("src")).unwrap();
+        std::fs::create_dir_all(temp_dir.path().join("src"))?;
 
         // Index lib.rs
-        graph.index_file(lib_file, b"fn lib() {}").unwrap();
+        graph.index_file(lib_file, b"fn lib() {}")?;
 
         // Index helper.rs
-        graph.index_file(helper_file, b"fn helper() {}").unwrap();
+        graph.index_file(helper_file, b"fn helper() {}")?;
 
         // Build module index for resolver
-        graph.module_resolver.build_module_index().unwrap();
+        graph.module_resolver.build_module_index()?;
 
-        // Get file_id for lib.rs
-        let lib_file_id = graph.files.find_file_node(lib_file).unwrap().unwrap();
+        // Get file_id for lib.rs (normalize path to match index_file storage format)
+        let normalized_lib = crate::graph::files::normalize_path_for_index(lib_file);
+        let lib_file_id = graph
+            .files
+            .find_file_node(&normalized_lib)?
+            .expect("lib.rs file node should exist after index_file");
 
         // Get file_id for helper.rs (target of import)
-        let helper_file_id = graph.files.find_file_node(helper_file).unwrap().unwrap();
+        let normalized_helper = crate::graph::files::normalize_path_for_index(helper_file);
+        let helper_file_id = graph
+            .files
+            .find_file_node(&normalized_helper)?
+            .expect("helper.rs file node should exist after index_file");
 
         // Create import that references crate::helper
         let imports = vec![ImportFact {
@@ -437,16 +460,14 @@ mod tests {
             end_col: 50,
         }];
 
-        // Index imports with module resolver
-        let count = graph
-            .imports
-            .index_imports(
-                lib_file,
-                lib_file_id.as_i64(),
-                imports,
-                Some(&graph.module_resolver),
-            )
-            .unwrap();
+        // Index imports with module resolver (use normalized path for resolve_path)
+        let normalized_lib_for_resolve = crate::graph::files::normalize_path_for_index(lib_file);
+        let count = graph.imports.index_imports(
+            &normalized_lib_for_resolve,
+            lib_file_id.as_i64(),
+            imports,
+            Some(&graph.module_resolver),
+        )?;
 
         assert_eq!(count, 1);
 
@@ -515,5 +536,6 @@ mod tests {
             helper_file_id.as_i64(),
             "DEFINES edge should point to helper.rs file"
         );
+        Ok(())
     }
 }
