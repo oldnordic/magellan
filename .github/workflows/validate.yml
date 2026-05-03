@@ -15,7 +15,8 @@ jobs:
       - name: Check public docs for AI/LLM terminology
         run: |
           echo "🔍 Checking public docs for AI/LLM terminology..."
-          if grep -ri "LLM\|AI assistant\|production-ready" README.md MANUAL.md CHANGELOG.md Cargo.toml 2>/dev/null; then
+          # Use word boundaries to avoid matching tool names like 'llmgrep'
+          if grep -riE "\bLLM\b|\bAI assistant\b|production-ready" README.md MANUAL.md CHANGELOG.md Cargo.toml 2>/dev/null; then
             echo "❌ FAIL: AI/LLM terminology found in public documentation"
             echo "   This is a code intelligence toolchain, not an AI product"
             echo "   Internal docs (.planning/, .internal/, BUILD_*.md, etc.) are fine"
