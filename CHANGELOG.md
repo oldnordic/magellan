@@ -3,6 +3,30 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **FTS5 Full-Text Search Integration** (Schema v12):
+  - `symbol_fts` FTS5 virtual table for fast prefix searches
+  - 2.5× speedup on prefix queries (0.005s → 0.002s)
+  - Automatic index rebuild after batch indexing
+  - Migration: `magellan migrate --db <path>`
+
+## [3.1.9] - 2026-05-03
+
+### Added
+
+- **FTS5 Integration Complete**:
+  - Schema v12 with `symbol_fts` FTS5 table
+  - `CodeGraph::rebuild_fts5_index()` for automatic sync
+  - Performance: 60% faster prefix searches
+  - Documentation: `FTS5_INTEGRATION_COMPLETE.md`
+
+### Changed
+
+- Version bump: 3.1.8 → 3.1.9
+
 ## [3.1.8] - 2026-05-01
 
 ### Added

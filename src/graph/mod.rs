@@ -205,6 +205,11 @@ pub struct CodeGraph {
 }
 
 impl CodeGraph {
+    /// Get the database file path
+    pub fn db_path(&self) -> &Path {
+        &self.db_path
+    }
+
     /// Open a graph database at the given path
     ///
     /// # Arguments
@@ -926,6 +931,34 @@ impl CodeGraph {
     #[doc(hidden)]
     pub fn __backend_for_benchmarks(&self) -> &std::sync::Arc<dyn sqlitegraph::GraphBackend> {
         &self.files.backend
+    }
+
+    /// Rebuild FTS5 symbol search index
+    ///
+    /// Rebuilds the FTS5 virtual table (symbol_fts) that indexes symbol names
+    /// from graph_entities for fast prefix and full-text search.
+    ///
+    /// This should be called after batch indexing operations to ensure the
+    /// FTS5 index is synchronized with graph_entities.
+    ///
+    /// # Performance
+    /// Typically ~500ms for 1,000 files. Call after batch completion, not per-file.
+    ///
+    /// # Arguments
+    /// * `db_path` - Path to the database file (needed for direct SQLite connection)
+    pub fn rebuild_fts5_index(db_path: &Path) -> Result<()> {
+        use rusqlite::Connection;
+        
+        // Open direct SQLite connection for FTS5 rebuild
+        let conn = Connection::open(db_path)?;
+        
+        // Rebuild FTS5 index - this scans all rows in graph_entities and rebuilds
+        conn.execute(
+            "INSERT INTO symbol_fts(symbol_fts) VALUES('rebuild')",
+            [],
+        )?;
+        
+        Ok(())
     }
 
     /// Get backend reference.
