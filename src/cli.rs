@@ -26,11 +26,15 @@ pub fn print_short_usage() {
     eprintln!("  refs        Show references: magellan refs --db code.db --name foo");
     eprintln!("  query       List file symbols: magellan query --db code.db --file src/lib.rs");
     eprintln!("  backfill    Recompute metrics: magellan backfill --db code.db");
-    eprintln!("  delete      Remove file from index: magellan delete --db code.db --file src/lib.rs");
+    eprintln!(
+        "  delete      Remove file from index: magellan delete --db code.db --file src/lib.rs"
+    );
     eprintln!("  dead-code   Find unused code: magellan dead-code --db code.db --entry <id>");
     eprintln!("  export      Export to JSON: magellan export --db code.db --format json");
     eprintln!("  index       Index single file: magellan index --db code.db --file src/lib.rs");
-    eprintln!("  cross-file-refs  Cross-file refs: magellan cross-file-refs --db code.db --fqn foo::bar");
+    eprintln!(
+        "  cross-file-refs  Cross-file refs: magellan cross-file-refs --db code.db --fqn foo::bar"
+    );
     eprintln!();
     eprintln!("Global: --output <human|json|pretty>");
     eprintln!();

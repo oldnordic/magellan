@@ -29,7 +29,8 @@ fn benchmark_b1_neighbor_expansion(c: &mut Criterion) {
 
     // Baseline: standard neighbors()
     group.bench_function("baseline", |b| {
-        let backend: &std::sync::Arc<dyn sqlitegraph::GraphBackend> = graph.__backend_for_benchmarks();
+        let backend: &std::sync::Arc<dyn sqlitegraph::GraphBackend> =
+            graph.__backend_for_benchmarks();
         let snapshot = sqlitegraph::SnapshotId::current();
         b.iter(|| {
             for &node_id in &node_ids {
@@ -48,7 +49,8 @@ fn benchmark_b1_neighbor_expansion(c: &mut Criterion) {
     // Perf: clustered neighbors (if feature available)
     #[cfg(feature = "v2_experimental")]
     group.bench_function("clustered", |b| {
-        let backend: &std::sync::Arc<dyn sqlitegraph::GraphBackend> = graph.__backend_for_benchmarks();
+        let backend: &std::sync::Arc<dyn sqlitegraph::GraphBackend> =
+            graph.__backend_for_benchmarks();
         b.iter(|| {
             for &node_id in &node_ids {
                 // Use clustered adjacency if available
@@ -78,7 +80,8 @@ fn benchmark_b2_reachability(c: &mut Criterion) {
 
     // Baseline: standard traversal using neighbors()
     group.bench_function("baseline", |b| {
-        let backend: &std::sync::Arc<dyn sqlitegraph::GraphBackend> = graph.__backend_for_benchmarks();
+        let backend: &std::sync::Arc<dyn sqlitegraph::GraphBackend> =
+            graph.__backend_for_benchmarks();
         let snapshot = sqlitegraph::SnapshotId::current();
         let mut visited = std::collections::HashSet::new();
         let mut stack = Vec::new();
@@ -131,7 +134,8 @@ fn benchmark_b2_reachability(c: &mut Criterion) {
     // Perf: clustered traversal (if feature available)
     #[cfg(feature = "v2_experimental")]
     group.bench_function("clustered", |b| {
-        let backend: &std::sync::Arc<dyn sqlitegraph::GraphBackend> = graph.__backend_for_benchmarks();
+        let backend: &std::sync::Arc<dyn sqlitegraph::GraphBackend> =
+            graph.__backend_for_benchmarks();
         let snapshot = sqlitegraph::SnapshotId::current();
         let mut visited = std::collections::HashSet::new();
         let mut stack = Vec::new();

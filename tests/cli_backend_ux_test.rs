@@ -180,5 +180,4 @@ fn test_backend_type_properties() {
 
     assert_eq!(BackendType::Geometric.extension(), "geo");
     assert_eq!(BackendType::Geometric.display_name(), "Geometric");
-
 }

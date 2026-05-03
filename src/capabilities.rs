@@ -167,7 +167,6 @@ impl BackendCapabilities {
         }
     }
 
-
     /// Get capabilities for a backend type (returns empty if not built)
     pub fn for_backend(backend_type: BackendType) -> Self {
         match backend_type {
@@ -180,7 +179,6 @@ impl BackendCapabilities {
             BackendType::Geometric => Self::geometric(),
             #[cfg(not(feature = "geometric-backend"))]
             BackendType::Geometric => Self::not_built(BackendType::Geometric, "geometric-backend"),
-
         }
     }
 
@@ -219,7 +217,6 @@ impl BackendCapabilities {
 
         #[cfg(feature = "geometric-backend")]
         backends.push(BackendType::Geometric);
-
 
         backends
     }

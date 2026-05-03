@@ -1,5 +1,4 @@
 use magellan::{CodeGraph, Parser};
-use std::path::PathBuf;
 use tempfile::TempDir;
 
 #[test]
@@ -31,9 +30,10 @@ fn test_extract_reference_to_function() {
         .find(|s| s.name.as_ref().map(|n| n == "foo").unwrap_or(false))
         .unwrap();
 
-    // Extract references
+    // Extract references using normalized path (matches symbol file_paths)
     let mut parser = Parser::new().unwrap();
-    let references = parser.extract_references(PathBuf::from(path), source, &symbols);
+    let normalized_path = std::env::current_dir().unwrap().join(path);
+    let references = parser.extract_references(normalized_path, source, &symbols);
 
     // Should find 1 reference to foo
     let foo_refs: Vec<_> = references
@@ -72,9 +72,10 @@ fn test_exclude_references_within_defining_span() {
     let symbols = graph.symbols_in_file(path).unwrap();
     assert_eq!(symbols.len(), 1);
 
-    // Extract references
+    // Extract references using normalized path (matches symbol file_paths)
     let mut parser = Parser::new().unwrap();
-    let references = parser.extract_references(PathBuf::from(path), source, &symbols);
+    let normalized_path = std::env::current_dir().unwrap().join(path);
+    let references = parser.extract_references(normalized_path, source, &symbols);
 
     // Should find ZERO references to foo (the call is within foo's own span)
     let foo_refs: Vec<_> = references
@@ -151,9 +152,10 @@ fn test_scoped_identifier_reference() {
         .find(|s| s.name.as_ref().map(|n| n == "foo").unwrap_or(false))
         .unwrap();
 
-    // Extract references
+    // Extract references using normalized path (matches symbol file_paths)
     let mut parser = Parser::new().unwrap();
-    let references = parser.extract_references(PathBuf::from(path), source, &symbols);
+    let normalized_path = std::env::current_dir().unwrap().join(path);
+    let references = parser.extract_references(normalized_path, source, &symbols);
 
     // Debug: print all references
     for ref_fact in &references {

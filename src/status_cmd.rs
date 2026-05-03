@@ -5,7 +5,9 @@
 use anyhow::Result;
 use magellan::backend_router::{BackendType, MagellanBackend};
 use magellan::capabilities::{capabilities_for_path, BackendCapabilities};
-use magellan::output::{generate_execution_id, output_json, CoverageInfo, JsonResponse, StatusResponse};
+use magellan::output::{
+    generate_execution_id, output_json, CoverageInfo, JsonResponse, StatusResponse,
+};
 use magellan::{CodeGraph, OutputFormat};
 use std::path::PathBuf;
 
@@ -104,12 +106,13 @@ pub fn run_status(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
     let chunk_count = graph.count_chunks()?;
 
     // Query coverage data directly from side tables
-    let (coverage_blocks, coverage_edges, coverage_meta) =
-        match rusqlite::Connection::open(&db_path) {
-            Ok(conn) => {
-                let blocks = query_coverage_count(&conn, "cfg_block_coverage");
-                let edges = query_coverage_count(&conn, "cfg_edge_coverage");
-                let meta = conn
+    let (coverage_blocks, coverage_edges, coverage_meta) = match rusqlite::Connection::open(
+        &db_path,
+    ) {
+        Ok(conn) => {
+            let blocks = query_coverage_count(&conn, "cfg_block_coverage");
+            let edges = query_coverage_count(&conn, "cfg_edge_coverage");
+            let meta = conn
                     .query_row(
                         "SELECT source_kind, source_revision, ingested_at FROM cfg_coverage_meta LIMIT 1",
                         [],
@@ -122,14 +125,14 @@ pub fn run_status(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
                         },
                     )
                     .ok();
-                drop(conn);
-                (blocks, edges, meta)
-            }
-            Err(e) => {
-                eprintln!("Warning: could not query coverage data: {}", e);
-                (0, 0, None)
-            }
-        };
+            drop(conn);
+            (blocks, edges, meta)
+        }
+        Err(e) => {
+            eprintln!("Warning: could not query coverage data: {}", e);
+            (0, 0, None)
+        }
+    };
 
     let has_coverage = coverage_blocks > 0 || coverage_meta.is_some();
     let coverage = if has_coverage {
@@ -293,11 +296,7 @@ fn query_coverage_count(conn: &rusqlite::Connection, table: &str) -> usize {
     let sql = format!("SELECT COUNT(*) FROM {} WHERE hit_count > 0", table);
     match conn.query_row(&sql, [], |row| row.get::<_, i64>(0)) {
         Ok(n) => n as usize,
-        Err(rusqlite::Error::SqliteFailure(_code, Some(msg)))
-            if msg.contains("no such table") =>
-        {
-            0
-        }
+        Err(rusqlite::Error::SqliteFailure(_code, Some(msg))) if msg.contains("no such table") => 0,
         Err(e) => {
             eprintln!("Warning: coverage query failed for {}: {}", table, e);
             0

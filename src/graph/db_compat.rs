@@ -47,6 +47,7 @@ pub fn ensure_magellan_meta(db_path: &Path) -> Result<(), DbCompatError> {
                 params![MAGELLAN_SCHEMA_VERSION, expected_sqlitegraph, created_at],
             ).map_err(|e| map_sqlite_query_err(db_path, e))?;
             ensure_geo_index_meta_schema(&conn)?;
+            ensure_symbol_fts_schema(&conn)?;
             Ok(())
         }
         Some((found_magellan, found_sqlitegraph)) => {
@@ -81,6 +82,10 @@ pub fn ensure_magellan_meta(db_path: &Path) -> Result<(), DbCompatError> {
                         10 => {
                             ensure_geo_index_meta_schema(&conn)?;
                             current_version = 11;
+                        }
+                        11 => {
+                            ensure_symbol_fts_schema(&conn)?;
+                            current_version = 12;
                         }
                         _ => {
                             return Err(DbCompatError::MagellanSchemaMismatch {
@@ -319,6 +324,23 @@ pub fn ensure_geo_index_meta_schema(conn: &rusqlite::Connection) -> Result<(), D
     Ok(())
 }
 
+/// Add symbol_fts FTS5 virtual table for fast symbol search (v11 -> v12 migration)
+///
+/// Creates an FTS5 virtual table that indexes symbol names from graph_entities
+/// for prefix and full-text search capabilities.
+pub fn ensure_symbol_fts_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
+    conn.execute(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS symbol_fts USING fts5(
+            name,
+            content='graph_entities',
+            content_rowid='id'
+        )",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    Ok(())
+}
+
 /// Ensure cfg_hash column exists in cfg_blocks table (v7 -> v8 migration)
 ///
 /// Adds cfg_hash column for cache invalidation in downstream tools.
@@ -334,11 +356,8 @@ pub fn ensure_cfg_hash_column(conn: &rusqlite::Connection) -> Result<(), DbCompa
         .unwrap_or(false);
 
     if !has_column {
-        conn.execute(
-            "ALTER TABLE cfg_blocks ADD COLUMN cfg_hash TEXT",
-            [],
-        )
-        .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+        conn.execute("ALTER TABLE cfg_blocks ADD COLUMN cfg_hash TEXT", [])
+            .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
     }
 
     // Create index for hash-based cache lookups

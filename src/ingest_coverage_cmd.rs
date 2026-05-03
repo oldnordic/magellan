@@ -58,20 +58,11 @@ pub fn run_ingest_coverage(db_path: PathBuf, lcov_path: PathBuf) -> Result<()> {
     let tx = conn.transaction()?;
 
     // Insert block coverage
-    let (total_blocks, unmapped_lines) = insert_block_coverage(
-        &tx,
-        &line_hits,
-        &source_revision,
-        ingested_at,
-    )?;
+    let (total_blocks, unmapped_lines) =
+        insert_block_coverage(&tx, &line_hits, &source_revision, ingested_at)?;
 
     // Insert edge coverage
-    let total_edges = insert_edge_coverage(
-        &tx,
-        &branch_hits,
-        &source_revision,
-        ingested_at,
-    )?;
+    let total_edges = insert_edge_coverage(&tx, &branch_hits, &source_revision, ingested_at)?;
 
     // Update metadata, but don't overwrite a real revision with "unknown"
     let revision_to_store: String = if source_revision == "unknown" {
@@ -153,8 +144,8 @@ fn parse_lcov_file(path: &Path) -> Result<LcovData> {
     use lcov::{Reader, Record};
 
     let mut data = LcovData::default();
-    let reader = Reader::open_file(path)
-        .with_context(|| format!("Failed to open LCOV file: {:?}", path))?;
+    let reader =
+        Reader::open_file(path).with_context(|| format!("Failed to open LCOV file: {:?}", path))?;
 
     let mut current_file = String::new();
 
@@ -223,7 +214,12 @@ fn insert_block_coverage(
             .collect::<Result<Vec<_>, _>>()?;
 
         if let Some((block_id, _, _)) = blocks.first() {
-            stmt.execute(params![block_id, *hits as i64, source_revision, ingested_at])?;
+            stmt.execute(params![
+                block_id,
+                *hits as i64,
+                source_revision,
+                ingested_at
+            ])?;
             count += 1;
         } else {
             unmapped += 1;
