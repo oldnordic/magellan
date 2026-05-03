@@ -753,6 +753,12 @@ fn process_dirty_paths_batched(graph: &mut CodeGraph, dirty_paths: &[PathBuf]) -
             total_read_time.as_millis(),
             total_reconcile_time.as_millis()
         );
+        
+        // Rebuild FTS5 index after batch processing to keep search index synchronized
+        // This is efficient when called per-batch (~500ms per 1,000 files)
+        if let Err(e) = crate::graph::CodeGraph::rebuild_fts5_index(graph.db_path()) {
+            eprintln!("Warning: FTS5 rebuild failed: {}", e);
+        }
     }
 
     Ok(total_processed)

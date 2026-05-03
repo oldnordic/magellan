@@ -24,6 +24,7 @@ use anyhow::Result;
 use sqlitegraph::{GraphBackend, NodeId, NodeSpec, SnapshotId};
 use std::collections::HashMap;
 use std::hash::Hasher;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use xxhash_rust::xxh64::Xxh64;
@@ -148,8 +149,19 @@ impl FileOps {
 
             if node.kind == "File" {
                 if let Ok(file_node) = serde_json::from_value::<FileNode>(node.data) {
+                    // Store absolute canonical path for consistent lookups
+                    let abs_path = if Path::new(&file_node.path).is_absolute() {
+                        file_node.path.clone()
+                    } else if let Ok(cwd) = std::env::current_dir() {
+                        cwd.join(&file_node.path)
+                            .canonicalize()
+                            .map(|p| p.to_string_lossy().to_string())
+                            .unwrap_or(file_node.path.clone())
+                    } else {
+                        file_node.path.clone()
+                    };
                     self.file_index
-                        .insert(file_node.path.clone(), NodeId::from(id));
+                        .insert(abs_path, NodeId::from(id));
                 }
             }
         }

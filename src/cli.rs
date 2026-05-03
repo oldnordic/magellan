@@ -136,6 +136,7 @@ pub fn print_full_usage() {
     eprintln!("  index           Index a single source file");
     eprintln!("  delete          Remove a file from the index");
     eprintln!("  cross-file-refs Show references to a symbol from other files");
+    eprintln!("  registry        Discover and list Magellan databases (scan, list)");
     eprintln!("  export          Export graph data to JSON/JSONL/CSV/SCIP");
     eprintln!("  status          Show database statistics");
     eprintln!("  query           List symbols in a file");
@@ -374,6 +375,20 @@ pub enum Command {
         db_path: PathBuf,
         fqn: String,
         output_format: OutputFormat,
+    },
+    RegistryScan {
+        root: PathBuf,
+        output_format: OutputFormat,
+    },
+    RegistryList {
+        root: PathBuf,
+        output_format: OutputFormat,
+    },
+    ConfigShow {
+        output_format: OutputFormat,
+    },
+    ConfigInit {
+        force: bool,
     },
     Delete {
         db_path: PathBuf,
@@ -707,6 +722,100 @@ fn parse_cross_file_refs_args(args: &[String]) -> Result<Command> {
         fqn,
         output_format,
     })
+}
+
+fn parse_registry_scan_args(args: &[String]) -> Result<Command> {
+    let mut root: Option<PathBuf> = None;
+    let mut output_format = OutputFormat::Human;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--root" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--root requires an argument"));
+                }
+                root = Some(PathBuf::from(&args[i + 1]));
+                i += 2;
+            }
+            "--output" => {
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output_format = parse_output_format(&value)?;
+            }
+            _ => i += 1,
+        }
+    }
+
+    let root = root.unwrap_or_else(|| PathBuf::from("."));
+
+    Ok(Command::RegistryScan {
+        root,
+        output_format,
+    })
+}
+
+fn parse_registry_list_args(args: &[String]) -> Result<Command> {
+    let mut root: Option<PathBuf> = None;
+    let mut output_format = OutputFormat::Human;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--root" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--root requires an argument"));
+                }
+                root = Some(PathBuf::from(&args[i + 1]));
+                i += 2;
+            }
+            "--output" => {
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output_format = parse_output_format(&value)?;
+            }
+            _ => i += 1,
+        }
+    }
+
+    let root = root.unwrap_or_else(|| PathBuf::from("."));
+
+    Ok(Command::RegistryList {
+        root,
+        output_format,
+    })
+}
+
+fn parse_config_show_args(args: &[String]) -> Result<Command> {
+    let mut output_format = OutputFormat::Human;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--output" => {
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output_format = parse_output_format(&value)?;
+            }
+            _ => i += 1,
+        }
+    }
+
+    Ok(Command::ConfigShow { output_format })
+}
+
+fn parse_config_init_args(args: &[String]) -> Result<Command> {
+    let mut force = false;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--force" => {
+                force = true;
+                i += 1;
+            }
+            _ => i += 1,
+        }
+    }
+
+    Ok(Command::ConfigInit { force })
 }
 
 fn parse_delete_args(args: &[String]) -> Result<Command> {
@@ -1680,6 +1789,28 @@ where
         "reachable" => parse_reachable_args(&args[2..]),
         "dead-code" => parse_dead_code_args(&args[2..]),
         "cycles" => parse_cycles_args(&args[2..]),
+        "registry" => {
+            // Registry has subcommands
+            if args.len() < 3 {
+                return Err(anyhow::anyhow!("registry subcommand required: scan, list"));
+            }
+            match args[2].as_str() {
+                "scan" => parse_registry_scan_args(&args[3..]),
+                "list" => parse_registry_list_args(&args[3..]),
+                _ => Err(anyhow::anyhow!("Unknown registry subcommand: {}", args[2])),
+            }
+        }
+        "config" => {
+            // Config has subcommands
+            if args.len() < 3 {
+                return Err(anyhow::anyhow!("config subcommand required: show, init"));
+            }
+            match args[2].as_str() {
+                "show" => parse_config_show_args(&args[3..]),
+                "init" => parse_config_init_args(&args[3..]),
+                _ => Err(anyhow::anyhow!("Unknown config subcommand: {}", args[2])),
+            }
+        }
         "condense" => parse_condense_args(&args[2..]),
         "paths" => parse_paths_args(&args[2..]),
         "slice" => parse_slice_args(&args[2..]),

@@ -9,7 +9,14 @@ mod collisions_cmd;
 mod cross_file_refs_cmd;
 mod delete_cmd;
 mod index_cmd;
+mod path_enumeration_cmd;
+mod query_cmd;
+mod reachable_cmd;
+mod refresh_cmd;
+mod refs_cmd;
+mod registry_cmd;
 mod condense_cmd;
+mod config_cmd;
 mod context_cmd;
 mod cycles_cmd;
 mod dead_code_cmd;
@@ -23,11 +30,6 @@ mod import_lsif_cmd;
 mod ingest_coverage_cmd;
 mod label_cmd;
 mod migrate_cmd;
-mod path_enumeration_cmd;
-mod query_cmd;
-mod reachable_cmd;
-mod refresh_cmd;
-mod refs_cmd;
 mod slice_cmd;
 mod status_cmd;
 mod verify_cmd;
@@ -96,6 +98,40 @@ fn main() -> ExitCode {
             output_format,
         }) => {
             if let Err(e) = cross_file_refs_cmd::run_cross_file_refs(db_path, fqn, output_format) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::RegistryScan {
+            root,
+            output_format,
+        }) => {
+            if let Err(e) = registry_cmd::run_registry_scan(root, output_format) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::RegistryList {
+            root,
+            output_format,
+        }) => {
+            if let Err(e) = registry_cmd::run_registry_list(root, output_format) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::ConfigShow { output_format }) => {
+            if let Err(e) = config_cmd::run_config_show(output_format) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::ConfigInit { force }) => {
+            if let Err(e) = config_cmd::run_config_init(force) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
