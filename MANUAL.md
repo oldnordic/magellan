@@ -1,6 +1,6 @@
 # Magellan Manual
 
-**Version:** 3.1.8
+**Version:** 3.1.9
 
 This manual documents the current user-facing Magellan CLI. The supported normal
 workflow uses a SQLite `.db` database.
@@ -120,7 +120,11 @@ magellan migrate --db code.db --dry-run
 magellan migrate --db code.db --no-backup
 ```
 
-Current Magellan schema version: `11`.
+Current Magellan schema version: `12`.
+
+**Schema v12 changes:** Added FTS5 full-text search index for fast prefix search.
+Migration is automatic and creates a backup. See [docs/SCHEMA_SQLITE.md](docs/SCHEMA_SQLITE.md)
+for FTS5 performance details and limitations.
 
 ## Query Commands
 
