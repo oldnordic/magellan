@@ -78,7 +78,7 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Clippy validation now checks `--lib --bins` only (not tests) to avoid pre-existing test issues
 - splice now depends on magellan from crates.io (version 3.1.7) for external users
 - All Phase 1 P0 commands verified working: magellan backfill, magellan dead-code, splice dead-code, splice reachable, mirage hotspots, mirage unreachable
-- Removed AI/LLM terminology from public documentation — this is a code intelligence toolchain, not an AI product
+- Removed AI terminology from public documentation — this is a code intelligence toolchain, not an AI product
 
 ### Phase 2 Investigation (2026-05-01)
 
