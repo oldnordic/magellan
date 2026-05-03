@@ -38,6 +38,36 @@ pub struct FileOps {
     pub file_index: HashMap<String, NodeId>,
 }
 
+/// Normalize a path to absolute form for consistent indexing
+///
+/// This ensures paths stored in file_index match between:
+/// - find_or_create_file_node() (during indexing)
+/// - rebuild_file_index() (during database open)
+/// - resolve_query_path() (during queries)
+///
+/// Note: Does NOT canonicalize (file doesn't need to exist). Just makes relative
+/// paths absolute from current directory.
+///
+/// # Arguments
+/// * `path` - The path to normalize (may be relative or absolute)
+///
+/// # Returns
+/// Absolute path string
+pub(crate) fn normalize_path_for_index(path: &str) -> String {
+    let path_buf = PathBuf::from(path);
+    if path_buf.is_absolute() {
+        return path.to_string();
+    }
+
+    // Relative path: make absolute from current directory (don't canonicalize - file may not exist)
+    if let Ok(cwd) = std::env::current_dir() {
+        return cwd.join(&path_buf).to_string_lossy().to_string();
+    }
+
+    // Fallback: return as-is
+    path.to_string()
+}
+
 impl FileOps {
     /// Get current Unix timestamp in seconds
     fn now() -> i64 {
@@ -71,7 +101,11 @@ impl FileOps {
         let now = Self::now();
         let mtime = Self::get_file_mtime(path);
 
-        if let Some(id) = self.find_file_node(path)? {
+        // Normalize path to absolute canonical form for consistent indexing
+        // This matches rebuild_file_index() behavior and ensures queries work correctly
+        let normalized_path = normalize_path_for_index(path);
+
+        if let Some(id) = self.find_file_node(&normalized_path)? {
             // File exists, update hash and timestamps
             let snapshot = SnapshotId::current();
             let node = self.backend.get_node(snapshot, id.as_i64())?;
@@ -93,8 +127,8 @@ impl FileOps {
             // Create new NodeSpec with updated data
             let node_spec = NodeSpec {
                 kind: "File".to_string(),
-                name: path.to_string(),
-                file_path: Some(path.to_string()),
+                name: normalized_path.to_string(),
+                file_path: Some(normalized_path.to_string()),
                 data: updated_data,
             };
 
@@ -103,14 +137,14 @@ impl FileOps {
             let new_id = self.backend.insert_node(node_spec)?;
             let new_node_id = NodeId::from(new_id);
 
-            // Update index
-            self.file_index.insert(path.to_string(), new_node_id);
+            // Update index with normalized path
+            self.file_index.insert(normalized_path.to_string(), new_node_id);
 
             Ok(new_node_id)
         } else {
             // Create new file node with timestamps
             let file_node = FileNode {
-                path: path.to_string(),
+                path: normalized_path.to_string(),
                 hash: hash.to_string(),
                 last_indexed_at: now,
                 last_modified: mtime,
@@ -118,16 +152,16 @@ impl FileOps {
 
             let node_spec = NodeSpec {
                 kind: "File".to_string(),
-                name: path.to_string(),
-                file_path: Some(path.to_string()),
+                name: normalized_path.to_string(),
+                file_path: Some(normalized_path.to_string()),
                 data: serde_json::to_value(file_node)?,
             };
 
             let id = self.backend.insert_node(node_spec)?;
             let node_id = NodeId::from(id);
 
-            // Update index
-            self.file_index.insert(path.to_string(), node_id);
+            // Update index with normalized path
+            self.file_index.insert(normalized_path.to_string(), node_id);
 
             Ok(node_id)
         }
@@ -149,19 +183,9 @@ impl FileOps {
 
             if node.kind == "File" {
                 if let Ok(file_node) = serde_json::from_value::<FileNode>(node.data) {
-                    // Store absolute canonical path for consistent lookups
-                    let abs_path = if Path::new(&file_node.path).is_absolute() {
-                        file_node.path.clone()
-                    } else if let Ok(cwd) = std::env::current_dir() {
-                        cwd.join(&file_node.path)
-                            .canonicalize()
-                            .map(|p| p.to_string_lossy().to_string())
-                            .unwrap_or(file_node.path.clone())
-                    } else {
-                        file_node.path.clone()
-                    };
-                    self.file_index
-                        .insert(abs_path, NodeId::from(id));
+                    // Normalize path to match normalize_path_for_index() format
+                    let normalized_path = normalize_path_for_index(&file_node.path);
+                    self.file_index.insert(normalized_path, NodeId::from(id));
                 }
             }
         }
