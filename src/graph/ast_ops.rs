@@ -20,9 +20,10 @@ impl CodeGraph {
     /// Uses SideTables trait for backend-agnostic storage.
     /// For V3 backend, this requires prefix scan support (not yet implemented).
     pub fn get_ast_nodes_by_file(&self, file_path: &str) -> Result<Vec<AstNodeWithText>> {
-        // Find file_id from file_path
+        // Find file_id from file_path (normalize to match index_file storage format)
         // Note: file_index lookup doesn't require &mut self since it's cached
-        let file_id = self.files.file_index.get(file_path).copied();
+        let normalized_path = crate::graph::files::normalize_path_for_index(file_path);
+        let file_id = self.files.file_index.get(&normalized_path).copied();
 
         match file_id {
             Some(id) => {

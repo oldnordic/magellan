@@ -211,7 +211,7 @@ fn test_cross_file_call_resolution() {
     let mut graph = CodeGraph::open(&db_path).unwrap();
 
     // File 1: Define a callee function
-    let caller_path = "src/caller.rs";
+    let caller_path = "caller.rs";
     let caller_source = r#"
 pub fn caller() {
     callee();
@@ -223,7 +223,7 @@ pub fn another_caller() {
 "#;
 
     // File 2: Define the callee function
-    let callee_path = "src/callee.rs";
+    let callee_path = "callee.rs";
     let callee_source = r#"
 pub fn callee() {
     println!("Called from another file");

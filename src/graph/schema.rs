@@ -270,6 +270,7 @@ impl ModulePathCache {
     ///
     /// Scans all File nodes and extracts module declarations
     /// to build path -> file_id mappings.
+    /// Normalizes paths to match how resolve_path() will query them.
     pub fn build_from_index(backend: &std::sync::Arc<dyn sqlitegraph::GraphBackend>) -> Self {
         let mut cache = Self::new();
 
@@ -300,12 +301,15 @@ impl ModulePathCache {
 
             let file_path_str = file_path.as_deref().unwrap_or("");
 
+            // Normalize path to match how resolve_path() will query (absolute paths)
+            let normalized_path = crate::graph::files::normalize_path_for_index(file_path_str);
+
             // Build module path from file path
             // For Rust: src/foo/bar.rs -> crate::foo::bar
             // For Rust: src/foo/mod.rs -> crate::foo
             // For Rust: src/lib.rs -> crate
-            if file_path_str.ends_with(".rs") {
-                let module_path = Self::file_path_to_module_path(file_path_str);
+            if normalized_path.ends_with(".rs") {
+                let module_path = Self::file_path_to_module_path(&normalized_path);
                 cache.insert(module_path, entity_id);
             }
         }
@@ -316,15 +320,32 @@ impl ModulePathCache {
     /// Convert file path to module path (public for use by ModuleResolver)
     ///
     /// Examples:
+    /// - "/home/user/project/src/lib.rs" -> "crate"
+    /// - "/home/user/project/src/main.rs" -> "crate"
+    /// - "/home/user/project/src/foo.rs" -> "crate::foo"
+    /// - "/home/user/project/src/foo/mod.rs" -> "crate::foo"
+    /// - "/home/user/project/src/foo/bar.rs" -> "crate::foo::bar"
     /// - "src/lib.rs" -> "crate"
-    /// - "src/main.rs" -> "crate"
     /// - "src/foo.rs" -> "crate::foo"
-    /// - "src/foo/mod.rs" -> "crate::foo"
-    /// - "src/foo/bar.rs" -> "crate::foo::bar"
-    /// - "src/foo/bar/mod.rs" -> "crate::foo::bar"
     pub fn file_path_to_module_path(file_path: &str) -> String {
+        // Find the "src/" component and extract everything from there
+        // This handles both absolute paths (/home/user/project/src/lib.rs) and relative (src/lib.rs)
+        let src_path = file_path
+            .rsplit_once("/src/")
+            .or_else(|| file_path.rsplit_once("\\src\\"))
+            .map(|(_, rest)| format!("src/{}", rest))
+            .or_else(|| {
+                // Maybe it starts with src/
+                if file_path.starts_with("src/") {
+                    Some(file_path.to_string())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_else(|| file_path.to_string());
+
         // Remove leading "src/" or trailing ".rs"
-        let path = file_path.strip_prefix("src/").unwrap_or(file_path);
+        let path = src_path.strip_prefix("src/").unwrap_or(&src_path);
         let path = path.strip_suffix(".rs").unwrap_or(path);
 
         // Split by "/"
