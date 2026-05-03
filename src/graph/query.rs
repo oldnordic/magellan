@@ -21,7 +21,7 @@ use super::CodeGraph;
 /// Resolve a path to absolute form, handling relative paths consistently.
 ///
 /// This function ensures that paths used in database queries are in the same
-/// format as paths stored in the database (absolute, canonicalized).
+/// Resolve a query path to the same format used when indexing
 ///
 /// # Arguments
 /// * `path` - The path to resolve (may be relative or absolute)
@@ -34,16 +34,9 @@ fn resolve_query_path(path: &str) -> String {
         return path.to_string();
     }
 
-    // Try to canonicalize relative paths using current working directory
-    if let Ok(canonical) = std::env::current_dir() {
-        if let Ok(resolved) = canonical.join(&path_buf).canonicalize() {
-            return resolved.to_string_lossy().to_string();
-        }
-    }
-
-    // Fallback: make absolute from current directory
+    // Make absolute from current directory (don't canonicalize - matches normalize_path_for_index)
     if let Ok(cwd) = std::env::current_dir() {
-        return cwd.join(path_buf).to_string_lossy().to_string();
+        return cwd.join(&path_buf).to_string_lossy().to_string();
     }
 
     // Last resort: return as-is
@@ -247,7 +240,9 @@ pub fn symbol_extents(
 /// This is a minimal query helper for testing. It reuses existing graph queries
 /// and maintains determinism. No new indexes or caching.
 pub fn symbol_id_by_name(graph: &mut CodeGraph, path: &str, name: &str) -> Result<Option<i64>> {
-    let file_id = match graph.files.find_file_node(path)? {
+    // Normalize path to match index format
+    let normalized_path = crate::graph::files::normalize_path_for_index(path);
+    let file_id = match graph.files.find_file_node(&normalized_path)? {
         Some(id) => id,
         None => return Ok(None),
     };
