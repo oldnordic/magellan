@@ -861,7 +861,9 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         );
 
         // Remove from in-memory index AFTER successful deletions.
-        graph.files.file_index.remove(path);
+        // Normalize path to match how it was stored in the index
+        let normalized_path = crate::graph::files::normalize_path_for_index(path);
+        graph.files.file_index.remove(&normalized_path);
 
         // Invalidate cache for this file
         graph.invalidate_cache(path);
@@ -1318,7 +1320,6 @@ mod tests {
             .unwrap();
         assert!(if_count > 0, "if_expression should be indexed");
     }
-
 }
 
 /// Count AST nodes for a file path.
