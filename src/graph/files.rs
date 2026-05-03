@@ -93,7 +93,9 @@ impl FileOps {
     /// Note: file_index is populated when CodeGraph opens, so this
     /// should find all existing File nodes. Returns None if not found.
     pub fn find_file_node(&mut self, path: &str) -> Result<Option<NodeId>> {
-        Ok(self.file_index.get(path).copied())
+        // Normalize path to match how files are stored after index_file
+        let normalized_path = normalize_path_for_index(path);
+        Ok(self.file_index.get(&normalized_path).copied())
     }
 
     /// Find existing file node or create new one
@@ -138,7 +140,8 @@ impl FileOps {
             let new_node_id = NodeId::from(new_id);
 
             // Update index with normalized path
-            self.file_index.insert(normalized_path.to_string(), new_node_id);
+            self.file_index
+                .insert(normalized_path.to_string(), new_node_id);
 
             Ok(new_node_id)
         } else {
