@@ -64,6 +64,9 @@ impl ModuleResolver {
             return None;
         }
 
+        // Normalize current_file to match paths stored in cache (built from index_file)
+        let current_file = crate::graph::files::normalize_path_for_index(current_file);
+
         let first = import_path[0].as_str();
 
         match first {
@@ -76,7 +79,7 @@ impl ModuleResolver {
             "super" => {
                 // Relative to parent module
                 // super::foo -> "crate::parent::foo"
-                let current_module = Self::file_path_to_module_path(current_file);
+                let current_module = Self::file_path_to_module_path(&current_file);
                 let parent_module = Self::get_parent_module(&current_module)?;
                 let relative_path: Vec<String> = std::iter::once(parent_module)
                     .chain(import_path[1..].iter().cloned())
@@ -87,7 +90,7 @@ impl ModuleResolver {
             "self" => {
                 // Relative to current module
                 // self::foo -> "crate::current::foo"
-                let current_module = Self::file_path_to_module_path(current_file);
+                let current_module = Self::file_path_to_module_path(&current_file);
                 let relative_path: Vec<String> = std::iter::once(current_module)
                     .chain(import_path[1..].iter().cloned())
                     .collect();
@@ -239,35 +242,40 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_crate_path() {
-        let temp_dir = TempDir::new().unwrap();
+    fn test_resolve_crate_path() -> Result<()> {
+        let temp_dir = TempDir::new()?;
         let db_path = temp_dir.path().join("test.db");
-        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
+        let mut graph = crate::CodeGraph::open(&db_path)?;
 
         // Create some test files
         let test_file1 = temp_dir.path().join("src/lib.rs");
-        std::fs::create_dir_all(test_file1.parent().unwrap()).unwrap();
-        std::fs::write(&test_file1, b"fn lib() {}").unwrap();
+        std::fs::create_dir_all(
+            test_file1
+                .parent()
+                .ok_or_else(|| anyhow::anyhow!("parent dir missing"))?,
+        )?;
+        std::fs::write(&test_file1, b"fn lib() {}")?;
 
         // Use relative path for indexing to match how real projects work
         let file1_relative = "src/lib.rs";
-        graph.index_file(file1_relative, b"fn lib() {}").unwrap();
+        graph.index_file(file1_relative, b"fn lib() {}")?;
 
         let test_file2 = temp_dir.path().join("src/foo.rs");
-        std::fs::write(&test_file2, b"fn foo() {}").unwrap();
+        std::fs::write(&test_file2, b"fn foo() {}")?;
 
         // Use relative path for indexing
         let file2_relative = "src/foo.rs";
-        graph.index_file(file2_relative, b"fn foo() {}").unwrap();
+        graph.index_file(file2_relative, b"fn foo() {}")?;
 
         // Build module index
         let mut resolver =
             ModuleResolver::new(graph.files.backend.clone(), temp_dir.path().to_path_buf());
-        resolver.build_module_index().unwrap();
+        resolver.build_module_index()?;
 
         // Resolve crate::foo
         let foo_path = vec!["crate".to_string(), "foo".to_string()];
         let foo_id = resolver.resolve_path(file1_relative, &foo_path);
         assert!(foo_id.is_some(), "Should resolve crate::foo");
+        Ok(())
     }
 }
