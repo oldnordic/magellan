@@ -12,9 +12,7 @@ fn bench_context_summary(c: &mut Criterion) {
     let (mut graph, _temp_dir) = setup_test_graph();
 
     c.bench_function("context_summary", |b| {
-        b.iter(|| {
-            magellan::context::get_project_summary(black_box(&mut graph))
-        })
+        b.iter(|| magellan::context::get_project_summary(black_box(&mut graph)))
     });
 }
 
@@ -79,9 +77,7 @@ fn bench_context_large_codebase(c: &mut Criterion) {
     let mut group = c.benchmark_group("context_large");
 
     group.bench_function("summary_100k", |b| {
-        b.iter(|| {
-            magellan::context::get_project_summary(black_box(&mut graph))
-        })
+        b.iter(|| magellan::context::get_project_summary(black_box(&mut graph)))
     });
 
     group.bench_function("list_100k_page1", |b| {

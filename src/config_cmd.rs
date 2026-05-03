@@ -8,9 +8,7 @@ use magellan::output::OutputFormat;
 use std::path::PathBuf;
 
 /// Show the current configuration
-pub fn run_config_show(
-    output_format: OutputFormat,
-) -> Result<()> {
+pub fn run_config_show(output_format: OutputFormat) -> Result<()> {
     let cfg = config::load()?;
 
     match output_format {
@@ -42,13 +40,14 @@ pub fn run_config_show(
 }
 
 /// Create a default config file
-pub fn run_config_init(
-    force: bool,
-) -> Result<()> {
+pub fn run_config_init(force: bool) -> Result<()> {
     let path = config::default_config_path();
 
     if path.exists() && !force {
-        println!("Config already exists at {}. Use --force to overwrite.", path.display());
+        println!(
+            "Config already exists at {}. Use --force to overwrite.",
+            path.display()
+        );
         return Ok(());
     }
 

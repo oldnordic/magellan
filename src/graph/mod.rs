@@ -650,7 +650,11 @@ impl CodeGraph {
         let conn = rusqlite::Connection::open(&self.db_path).map_err(|e| {
             anyhow::anyhow!("Failed to open connection for coverage schema check: {}", e)
         })?;
-        let tables = ["cfg_block_coverage", "cfg_edge_coverage", "cfg_coverage_meta"];
+        let tables = [
+            "cfg_block_coverage",
+            "cfg_edge_coverage",
+            "cfg_coverage_meta",
+        ];
         for table in tables {
             let count: i64 = conn
                 .query_row(
@@ -948,16 +952,13 @@ impl CodeGraph {
     /// * `db_path` - Path to the database file (needed for direct SQLite connection)
     pub fn rebuild_fts5_index(db_path: &Path) -> Result<()> {
         use rusqlite::Connection;
-        
+
         // Open direct SQLite connection for FTS5 rebuild
         let conn = Connection::open(db_path)?;
-        
+
         // Rebuild FTS5 index - this scans all rows in graph_entities and rebuilds
-        conn.execute(
-            "INSERT INTO symbol_fts(symbol_fts) VALUES('rebuild')",
-            [],
-        )?;
-        
+        conn.execute("INSERT INTO symbol_fts(symbol_fts) VALUES('rebuild')", [])?;
+
         Ok(())
     }
 

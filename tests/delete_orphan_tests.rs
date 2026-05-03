@@ -349,6 +349,54 @@ impl TestStruct {
 }
 
 // ============================================================================
+// Test 5b: Re-index without delete should not create duplicate file nodes
+// ============================================================================
+
+#[test]
+fn test_reindex_no_duplicate_file_nodes() {
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+    let mut graph = CodeGraph::open(&db_path).unwrap();
+
+    let path = "dup_test.rs";
+    let source = br#"
+fn first() -> i32 { 1 }
+fn second() -> i32 { 2 }
+"#;
+
+    // First index
+    let count1 = graph.index_file(path, source).unwrap();
+    assert_eq!(count1, 2, "Should index 2 functions");
+
+    // Second index (same file, simulating watcher re-index)
+    let count2 = graph.index_file(path, source).unwrap();
+    assert_eq!(count2, 2, "Should still index 2 functions");
+
+    // Third index (same file again)
+    let count3 = graph.index_file(path, source).unwrap();
+    assert_eq!(count3, 2, "Should still index 2 functions after third index");
+
+    // Verify only ONE File node exists for this path
+    let all_files = graph.all_file_nodes_readonly().unwrap();
+    let matching: Vec<_> = all_files.keys().filter(|p| p.contains("dup_test.rs")).collect();
+    assert_eq!(
+        matching.len(),
+        1,
+        "Should have exactly 1 File node for dup_test.rs, found: {:?}",
+        matching
+    );
+
+    // Verify only 2 Symbol nodes exist (not 6)
+    let symbols = graph.symbols_in_file(path).unwrap();
+    assert_eq!(
+        symbols.len(),
+        2,
+        "Should have exactly 2 symbols, found {}",
+        symbols.len()
+    );
+}
+
+// ============================================================================
 // Test 6: Complex graph with multiple symbol types
 // ============================================================================
 

@@ -168,7 +168,13 @@ fn test_symbol_fact_persistence() {
     let symbol = &symbols[0];
 
     // Verify all fields are persisted correctly
-    assert_eq!(symbol.file_path, PathBuf::from(path));
+    // normalize_path_for_index converts relative paths to absolute using current_dir
+    let expected_path = if PathBuf::from(path).is_absolute() {
+        PathBuf::from(path)
+    } else {
+        std::env::current_dir().unwrap().join(path)
+    };
+    assert_eq!(symbol.file_path, expected_path);
     assert_eq!(symbol.kind, SymbolKind::Function);
     assert_eq!(symbol.name, Some("my_function".to_string()));
     assert!(symbol.byte_start < symbol.byte_end);

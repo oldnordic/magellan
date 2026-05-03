@@ -141,8 +141,7 @@ pub fn save_to(config: &Config, path: &PathBuf) -> Result<()> {
             .with_context(|| format!("Failed to create config directory: {}", parent.display()))?;
     }
 
-    let content = toml::to_string_pretty(config)
-        .context("Failed to serialize config to TOML")?;
+    let content = toml::to_string_pretty(config).context("Failed to serialize config to TOML")?;
 
     std::fs::write(path, content)
         .with_context(|| format!("Failed to write config to {}", path.display()))?;
@@ -165,7 +164,9 @@ mod tests {
     #[test]
     fn test_config_path() {
         let path = default_config_path();
-        assert!(path.to_string_lossy().contains(".config/magellan/config.toml"));
+        assert!(path
+            .to_string_lossy()
+            .contains(".config/magellan/config.toml"));
     }
 
     #[test]
