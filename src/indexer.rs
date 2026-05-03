@@ -504,6 +504,9 @@ pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>
             paths_during_scan.len()
         );
         total_processed += process_dirty_paths(&mut graph, &paths_during_scan)?;
+        if let Err(e) = graph.checkpoint_wal() {
+            eprintln!("Warning: WAL checkpoint failed after scan flush: {}", e);
+        }
     }
 
     // Main watch loop
@@ -518,6 +521,9 @@ pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>
                 let dirty_paths = main_state.drain_dirty_paths()?;
                 if !dirty_paths.is_empty() {
                     total_processed += process_dirty_paths(&mut graph, &dirty_paths)?;
+                    if let Err(e) = graph.checkpoint_wal() {
+                        eprintln!("Warning: WAL checkpoint failed after watch batch: {}", e);
+                    }
                 }
             }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {

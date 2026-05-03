@@ -157,7 +157,7 @@ pub trait AmbiguityOps {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```ignore
     /// let symbol = graph.resolve_by_symbol_id(
     ///     "my_crate::Handler",
     ///     "abc123..."
@@ -224,7 +224,7 @@ pub trait AmbiguityOps {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```ignore
     /// let candidates = graph.get_candidates("my_crate::Handler")?;
     ///
     /// if candidates.is_empty() {

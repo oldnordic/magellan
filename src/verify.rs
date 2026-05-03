@@ -5,6 +5,7 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::hash::Hasher;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
@@ -154,12 +155,12 @@ fn get_all_fs_files(root: &Path) -> Result<HashMap<PathBuf, String>> {
     Ok(result)
 }
 
-/// Compute SHA-256 hash of file contents
+/// Compute xxHash64 of file contents (must match `files::FileOps::compute_hash`)
 fn compute_hash(content: &[u8]) -> String {
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
+    use xxhash_rust::xxh64::Xxh64;
+    let mut hasher = Xxh64::new(0);
     hasher.update(content);
-    hex::encode(hasher.finalize())
+    format!("{:016x}", hasher.finish())
 }
 
 /// Get current Unix timestamp in seconds

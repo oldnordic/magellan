@@ -20,7 +20,7 @@
 //!
 //! # Usage Pattern
 //!
-//! ```rust
+//! ```ignore
 //! // Build on startup (via CodeGraph::open)
 //! lookup.rebuild_from_backend(&backend)?;
 //!

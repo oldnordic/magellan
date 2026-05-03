@@ -16,7 +16,7 @@
 //!
 //! # Usage Pattern
 //!
-//! ```rust
+//! ```ignore
 //! let mut index = SymbolIndex::new();
 //! index.build_index(&conn)?;
 //! if let Some(entity_id) = index.lookup("abc123...") {
@@ -45,7 +45,7 @@ use crate::graph::schema::SymbolNode;
 ///
 /// # Usage Pattern
 ///
-/// ```rust
+/// ```ignore
 /// let mut index = SymbolIndex::new();
 /// index.build_index(&conn)?;
 /// if let Some(entity_id) = index.lookup("abc123...") {
