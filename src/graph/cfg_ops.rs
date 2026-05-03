@@ -170,6 +170,11 @@ impl CfgOps {
         }
         tx.commit()?;
 
+        // Checkpoint WAL after bulk block insert
+        if let Err(e) = crate::graph::wal::checkpoint_conn(&conn) {
+            eprintln!("Warning: WAL checkpoint failed after CFG block insert: {}", e);
+        }
+
         Ok(blocks.len())
     }
 

@@ -22,59 +22,49 @@ impl MetricsOps {
         source: &[u8],
         symbol_facts: &[crate::graph::schema::SymbolNode],
     ) -> Result<()> {
-        // Count symbols in this file
-        let symbol_count = symbol_facts.len() as i64;
+        self.with_conn(|conn| {
+            let symbol_count = symbol_facts.len() as i64;
+            let loc = source.iter().filter(|&&b| b == b'\n').count() as i64 + 1;
+            let estimated_loc = source.len() as f64 / 40.0;
 
-        // Compute actual LOC (newline count + 1)
-        let loc = source.iter().filter(|&&b| b == b'\n').count() as i64 + 1;
+            let fan_in = Self::compute_file_fan_in_conn(conn, file_path)?;
+            let fan_out = Self::compute_file_fan_out_conn(conn, file_path)?;
+            let complexity_score = calculate_complexity(loc, fan_in, fan_out);
 
-        // Compute estimated LOC (bytes / 40 heuristic)
-        let estimated_loc = source.len() as f64 / 40.0;
+            let file_metrics = FileMetrics {
+                file_path: file_path.to_string(),
+                symbol_count,
+                loc,
+                estimated_loc,
+                fan_in,
+                fan_out,
+                complexity_score,
+                last_updated: Self::now_timestamp(),
+            };
+            Self::upsert_file_metrics_conn(conn, &file_metrics)?;
 
-        // Compute fan-in (incoming edges from other files)
-        let fan_in = self.compute_file_fan_in(file_path)?;
-
-        // Compute fan-out (outgoing edges to other files)
-        let fan_out = self.compute_file_fan_out(file_path)?;
-
-        // Compute complexity score (weighted)
-        let complexity_score = calculate_complexity(loc, fan_in, fan_out);
-
-        // Store file metrics
-        let file_metrics = FileMetrics {
-            file_path: file_path.to_string(),
-            symbol_count,
-            loc,
-            estimated_loc,
-            fan_in,
-            fan_out,
-            complexity_score,
-            last_updated: Self::now_timestamp(),
-        };
-        self.upsert_file_metrics(&file_metrics)?;
-
-        // Compute per-symbol metrics
-        for symbol in symbol_facts {
-            if let Err(e) = self.compute_and_store_symbol_metrics(symbol, file_path) {
-                // Log error but don't fail entire file metrics
-                let symbol_name = symbol.name.as_deref().unwrap_or("<unknown>");
-                eprintln!(
-                    "Warning: Failed to compute metrics for symbol '{}': {}",
-                    symbol_name, e
-                );
+            for symbol in symbol_facts {
+                if let Err(e) = Self::compute_and_store_symbol_metrics_conn(conn, symbol, file_path) {
+                    let symbol_name = symbol.name.as_deref().unwrap_or("<unknown>");
+                    eprintln!(
+                        "Warning: Failed to compute metrics for symbol '{}': {}",
+                        symbol_name, e
+                    );
+                }
             }
-        }
 
-        Ok(())
+            Ok(())
+        })
     }
 
     /// Compute file-level fan-in (incoming references/calls from other files)
     fn compute_file_fan_in(&self, file_path: &str) -> Result<i64> {
+        self.with_conn(|conn| Self::compute_file_fan_in_conn(conn, file_path))
+    }
+
+    fn compute_file_fan_in_conn(conn: &rusqlite::Connection, file_path: &str) -> Result<i64> {
         use rusqlite::params;
 
-        let conn = self.connect()?;
-
-        // Count incoming references from other files
         let ref_count: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM graph_entities ge
@@ -88,7 +78,6 @@ impl MetricsOps {
             )
             .unwrap_or(0);
 
-        // Also count incoming calls from other files
         let call_count: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM graph_entities ge
@@ -107,11 +96,12 @@ impl MetricsOps {
 
     /// Compute file-level fan-out (outgoing references/calls to other files)
     fn compute_file_fan_out(&self, file_path: &str) -> Result<i64> {
+        self.with_conn(|conn| Self::compute_file_fan_out_conn(conn, file_path))
+    }
+
+    fn compute_file_fan_out_conn(conn: &rusqlite::Connection, file_path: &str) -> Result<i64> {
         use rusqlite::params;
 
-        let conn = self.connect()?;
-
-        // Count outgoing references to symbols in other files
         let ref_count: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM graph_entities ge
@@ -125,7 +115,6 @@ impl MetricsOps {
             )
             .unwrap_or(0);
 
-        // Also count outgoing calls to symbols in other files
         let call_count: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM graph_entities ge
@@ -133,7 +122,7 @@ impl MetricsOps {
                  JOIN graph_edges edge ON edge.source_id = call.id
                  JOIN graph_entities target ON target.id = edge.target_id
                  WHERE call.kind = 'Call'
-                 AND json_extract(call.data, '$.file') = ?1
+                AND json_extract(call.data, '$.file') = ?1
                  AND json_extract(target.data, '$.file_path') != ?1",
                 params![file_path, file_path],
                 |row| row.get(0),
@@ -149,30 +138,31 @@ impl MetricsOps {
         symbol: &crate::graph::schema::SymbolNode,
         file_path: &str,
     ) -> Result<()> {
-        // Get the FQN for lookup
+        self.with_conn(|conn| Self::compute_and_store_symbol_metrics_conn(conn, symbol, file_path))
+    }
+
+    fn compute_and_store_symbol_metrics_conn(
+        conn: &rusqlite::Connection,
+        symbol: &crate::graph::schema::SymbolNode,
+        file_path: &str,
+    ) -> Result<()> {
         let fqn = symbol.fqn.as_deref().unwrap_or("");
         if fqn.is_empty() {
-            return Ok(()); // Skip symbols without FQN
-        }
-
-        // Get symbol_id from graph_entities for this symbol
-        let symbol_id = self.find_symbol_id(fqn)?;
-
-        if symbol_id.is_none() {
-            // Symbol not in database yet (might be during initial indexing)
             return Ok(());
         }
 
+        let symbol_id = Self::find_symbol_id_conn(conn, fqn)?;
+        if symbol_id.is_none() {
+            return Ok(());
+        }
         let symbol_id = symbol_id.unwrap();
 
-        // Compute LOC from span (end_line - start_line + 1)
         let loc = if symbol.end_line > 0 && symbol.end_line >= symbol.start_line {
             (symbol.end_line - symbol.start_line + 1) as i64
         } else {
             1
         };
 
-        // Compute estimated LOC from byte span
         let byte_span = if symbol.byte_end > symbol.byte_start {
             symbol.byte_end - symbol.byte_start
         } else {
@@ -180,14 +170,10 @@ impl MetricsOps {
         };
         let estimated_loc = byte_span as f64 / 40.0;
 
-        // Compute symbol-level fan-in and fan-out
-        let fan_in = self.compute_symbol_fan_in(symbol_id)?;
-        let fan_out = self.compute_symbol_fan_out(symbol_id)?;
+        let fan_in = Self::compute_symbol_fan_in_conn(conn, symbol_id)?;
+        let fan_out = Self::compute_symbol_fan_out_conn(conn, symbol_id)?;
+        let cyclomatic_complexity = Self::compute_cyclomatic_complexity_conn(conn, symbol_id)?;
 
-        // Compute cyclomatic complexity from CFG blocks
-        let cyclomatic_complexity = self.compute_cyclomatic_complexity(symbol_id)?;
-
-        // Create symbol metrics
         let symbol_name = symbol.name.as_deref().unwrap_or("").to_string();
         let metrics = SymbolMetrics {
             symbol_id,
@@ -202,15 +188,18 @@ impl MetricsOps {
             last_updated: Self::now_timestamp(),
         };
 
-        self.upsert_symbol_metrics(&metrics)?;
+        Self::upsert_symbol_metrics_conn(conn, &metrics)?;
         Ok(())
     }
 
     /// Find symbol_id by FQN
     fn find_symbol_id(&self, fqn: &str) -> Result<Option<i64>> {
+        self.with_conn(|conn| Self::find_symbol_id_conn(conn, fqn))
+    }
+
+    fn find_symbol_id_conn(conn: &rusqlite::Connection, fqn: &str) -> Result<Option<i64>> {
         use rusqlite::params;
 
-        let conn = self.connect()?;
         let result = conn
             .query_row(
                 "SELECT id FROM graph_entities WHERE kind = 'Symbol' AND json_extract(data, '$.fqn') = ?1",
@@ -225,9 +214,12 @@ impl MetricsOps {
 
     /// Compute symbol-level fan-in (incoming edges)
     fn compute_symbol_fan_in(&self, symbol_id: i64) -> Result<i64> {
+        self.with_conn(|conn| Self::compute_symbol_fan_in_conn(conn, symbol_id))
+    }
+
+    fn compute_symbol_fan_in_conn(conn: &rusqlite::Connection, symbol_id: i64) -> Result<i64> {
         use rusqlite::params;
 
-        let conn = self.connect()?;
         let count: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM graph_edges WHERE to_id = ?1",
@@ -241,9 +233,12 @@ impl MetricsOps {
 
     /// Compute symbol-level fan-out (outgoing edges)
     fn compute_symbol_fan_out(&self, symbol_id: i64) -> Result<i64> {
+        self.with_conn(|conn| Self::compute_symbol_fan_out_conn(conn, symbol_id))
+    }
+
+    fn compute_symbol_fan_out_conn(conn: &rusqlite::Connection, symbol_id: i64) -> Result<i64> {
         use rusqlite::params;
 
-        let conn = self.connect()?;
         let count: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM graph_edges WHERE from_id = ?1",
@@ -268,24 +263,25 @@ impl MetricsOps {
     /// # Returns
     /// Cyclomatic complexity as i64 (minimum value is 1)
     fn compute_cyclomatic_complexity(&self, symbol_id: i64) -> Result<i64> {
+        self.with_conn(|conn| Self::compute_cyclomatic_complexity_conn(conn, symbol_id))
+    }
+
+    fn compute_cyclomatic_complexity_conn(
+        conn: &rusqlite::Connection,
+        symbol_id: i64,
+    ) -> Result<i64> {
         use rusqlite::params;
 
-        let conn = self.connect()?;
-
-        // Count CFG blocks for this function that have non-fallthrough terminators
-        // These represent decision points (branches)
         let decision_points: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM cfg_blocks 
-                 WHERE function_id = ?1 
+                "SELECT COUNT(*) FROM cfg_blocks
+                 WHERE function_id = ?1
                  AND terminator != 'fallthrough'",
                 params![symbol_id],
                 |row| row.get(0),
             )
             .unwrap_or(0);
 
-        // Cyclomatic complexity = decision_points + 1
-        // Minimum complexity is 1 (a function with no branches)
         Ok(decision_points.max(0) + 1)
     }
 

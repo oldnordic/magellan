@@ -254,8 +254,8 @@ fn main() -> ExitCode {
             }
             ExitCode::SUCCESS
         }
-        Ok(Command::Doctor { db_path, fix }) => {
-            if let Err(e) = doctor_cmd::run_doctor(db_path, fix) {
+        Ok(Command::Doctor { db_path, fix, output_format }) => {
+            if let Err(e) = doctor_cmd::run_doctor(db_path, fix, output_format) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
