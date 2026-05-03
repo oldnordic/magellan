@@ -6,7 +6,7 @@ use anyhow::Result;
 use rusqlite::params;
 use sqlitegraph::{BackendDirection, GraphBackend, NeighborQuery, SnapshotId};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::graph::ambiguity::AmbiguityOps;
 use crate::graph::schema::{EdgeEndpoints, SymbolNode};
@@ -17,6 +17,38 @@ use crate::ingest::{SymbolFact, SymbolKind};
 use crate::references::ReferenceFact;
 
 use super::CodeGraph;
+
+/// Resolve a path to absolute form, handling relative paths consistently.
+///
+/// This function ensures that paths used in database queries are in the same
+/// format as paths stored in the database (absolute, canonicalized).
+///
+/// # Arguments
+/// * `path` - The path to resolve (may be relative or absolute)
+///
+/// # Returns
+/// Resolved path as a String, in the same format the database uses
+fn resolve_query_path(path: &str) -> String {
+    let path_buf = PathBuf::from(path);
+    if path_buf.is_absolute() {
+        return path.to_string();
+    }
+
+    // Try to canonicalize relative paths using current working directory
+    if let Ok(canonical) = std::env::current_dir() {
+        if let Ok(resolved) = canonical.join(&path_buf).canonicalize() {
+            return resolved.to_string_lossy().to_string();
+        }
+    }
+
+    // Fallback: make absolute from current directory
+    if let Ok(cwd) = std::env::current_dir() {
+        return cwd.join(path_buf).to_string_lossy().to_string();
+    }
+
+    // Last resort: return as-is
+    path.to_string()
+}
 
 /// Query all symbols defined in a file
 ///
@@ -61,12 +93,13 @@ pub fn symbols_in_file_with_kind(
 
 /// Query symbols in a file along with their node IDs for deterministic CLI output.
 pub fn symbol_nodes_in_file(graph: &mut CodeGraph, path: &str) -> Result<Vec<(i64, SymbolFact)>> {
-    let file_id = match graph.files.find_file_node(path)? {
+    let resolved_path = resolve_query_path(path);
+    let file_id = match graph.files.find_file_node(&resolved_path)? {
         Some(id) => id,
         None => return Ok(Vec::new()),
     };
 
-    let path_buf = PathBuf::from(path);
+    let path_buf = PathBuf::from(&resolved_path);
     let snapshot = SnapshotId::current();
 
     let neighbor_ids = graph.files.backend.neighbors(
@@ -111,12 +144,13 @@ pub fn symbol_nodes_in_file_with_ids(
     graph: &mut CodeGraph,
     path: &str,
 ) -> Result<Vec<(i64, SymbolFact, Option<String>)>> {
-    let file_id = match graph.files.find_file_node(path)? {
+    let resolved_path = resolve_query_path(path);
+    let file_id = match graph.files.find_file_node(&resolved_path)? {
         Some(id) => id,
         None => return Ok(Vec::new()),
     };
 
-    let path_buf = PathBuf::from(path);
+    let path_buf = PathBuf::from(&resolved_path);
     let snapshot = SnapshotId::current();
 
     let neighbor_ids = graph.files.backend.neighbors(

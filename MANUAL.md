@@ -1,6 +1,6 @@
 # Magellan Manual
 
-**Version:** 3.1.7
+**Version:** 3.1.9
 
 This manual documents the current user-facing Magellan CLI. The supported normal
 workflow uses a SQLite `.db` database.
@@ -120,7 +120,11 @@ magellan migrate --db code.db --dry-run
 magellan migrate --db code.db --no-backup
 ```
 
-Current Magellan schema version: `11`.
+Current Magellan schema version: `12`.
+
+**Schema v12 changes:** Added FTS5 full-text search index for fast prefix search.
+Migration is automatic and creates a backup. See [docs/SCHEMA_SQLITE.md](docs/SCHEMA_SQLITE.md)
+for FTS5 performance details and limitations.
 
 ## Query Commands
 
@@ -166,6 +170,30 @@ magellan refs --db code.db --symbol-id <SYMBOL_ID> --direction out
 magellan cross-file-refs --db code.db --fqn crate::module::symbol
 magellan cross-file-refs --db code.db --fqn crate::module::symbol --output pretty
 ```
+
+### Registry (Cross-Project Discovery)
+
+```bash
+# Scan for databases
+magellan registry scan --root /home/feanor/Projects
+magellan registry scan --root . --output json
+
+# List discovered databases
+magellan registry list --root /home/feanor/Projects
+```
+
+### Configuration
+
+```bash
+# Show current configuration
+magellan config show
+magellan config show --output json
+
+# Initialize default config
+magellan config init
+```
+
+Config is stored in `~/.config/magellan/config.toml`.
 
 ## Source Retrieval
 

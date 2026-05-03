@@ -1,6 +1,6 @@
 [package]
 name = "magellan"
-version = "3.1.7"
+version = "3.1.9"
 edition = "2021"
 license = "GPL-3.0"
 repository = "https://github.com/oldnordic/magellan"
@@ -103,6 +103,7 @@ thiserror = "1.0"
 indicatif = "0.17"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+toml = "0.8"
 tree-sitter = "0.22"
 tree-sitter-rust = "0.21"
 tree-sitter-python = "0.21"

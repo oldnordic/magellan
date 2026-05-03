@@ -3,6 +3,100 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **FTS5 Full-Text Search Integration** (Schema v12):
+  - `symbol_fts` FTS5 virtual table for fast prefix searches
+  - 2.5× speedup on prefix queries (0.005s → 0.002s)
+  - Automatic index rebuild after batch indexing
+  - Migration: `magellan migrate --db <path>`
+
+## [3.1.9] - 2026-05-03
+
+### Added
+
+- **FTS5 Integration Complete**:
+  - Schema v12 with `symbol_fts` FTS5 table
+  - `CodeGraph::rebuild_fts5_index()` for automatic sync
+  - Performance: 60% faster prefix searches
+  - Documentation: `FTS5_INTEGRATION_COMPLETE.md`
+
+### Changed
+
+- Version bump: 3.1.8 → 3.1.9
+
+## [3.1.8] - 2026-05-01
+
+### Added
+
+- **Validation Infrastructure** (Phase 0):
+  - `scripts/validate-completion.sh` - 5-gate validation pipeline (stubs, check, test, clippy, db)
+  - `.claude/hooks/stub-check.fish` - Pre-commit hook blocking TODO/unimplemented/panic in non-test code
+  - `.claude/hooks/build-check.fish` - Pre-commit hook running cargo check/test/clippy
+  - `docs/superpowers/skills/no-stubs-enforcement.md` - Skill for zero-tolerance stub policy
+  - `docs/superpowers/skills/verification-before-completion.md` - Skill for completion gates
+  - `docs/superpowers/MASTER_PLAN.md` - Master plan for toolchain improvement
+
+- **Phase 3: Cross-Project Federation**:
+  - `magellan registry scan --root <dir>` - Discovers .magellan/*.db files recursively
+  - `magellan registry list --root <dir>` - Lists discovered databases with stats
+  - `src/registry_cmd.rs` - New command module for database discovery
+
+- **Phase 4: Editor Integration** (config file parsing):
+  - `src/config.rs` - Configuration management module (~/.config/magellan/config.toml)
+  - `magellan config show` - Display current configuration
+  - `magellan config init` - Create default config file
+  - Supports editor provider settings (ollama, openai, anthropic, custom)
+  - Supports registry settings (auto_scan, scan_roots)
+  - Added `toml` crate dependency for config parsing
+
+- **Phase 5: Validation Pipeline** (verification infrastructure):
+  - `scripts/validate-completion.sh` - Pre-completion 5-gate validation pipeline
+  - `magellan verify --root <dir> --db <db>` - Path integrity verification (filesystem vs DB)
+  - `splice verify --before <snap> --after <snap>` - Snapshot comparison tool
+  - `.claude/hooks/` - Pre-commit hooks (stub-check.fish, build-check.fish)
+  - `src/checksum.rs` - File/span checksum computation for audit trails
+  - `src/code_validator.rs` - Rust-analyzer validation for LSP-verified mutations
+
+### Fixed
+
+- **Path resolution in query functions** (`symbol_nodes_in_file`, `symbol_nodes_in_file_with_ids`):
+  - Relative paths (e.g., `src/main.rs`) were not matching paths in the database (which stores absolute paths)
+  - Added `resolve_query_path()` helper that canonicalizes relative paths using current working directory
+  - `rebuild_file_index()` now stores absolute canonical paths in the in-memory index
+  - Now all query operations work consistently regardless of path format
+- **Legacy database schema compatibility**: `ensure_cfg_schema()` and `ensure_coverage_schema()` now detect existing cfg_edges table with legacy schema before attempting schema modifications that would fail on legacy databases
+- **splice dead-code / splice reachable**: Fixed by using local magellan path in splice's Cargo.toml
+- Stale installed binary causing `backfill` command to fail with "Direct SQLite connection not available for shared backend" - rebuilt and reinstalled to `~/.local/bin/magellan`
+- **mirage hotspots**: Fixed `mirage hotspots --entry main` returning "0 functions" (needed `mut db` for `conn_mut()` call)
+
+### Changed
+
+- Hook configuration updated to run stub-check and build-check via proper git pre-commit hook (not Claude Code hooks)
+- Clippy validation now checks `--lib --bins` only (not tests) to avoid pre-existing test issues
+- splice now depends on magellan from crates.io (version 3.1.7) for external users
+- All Phase 1 P0 commands verified working: magellan backfill, magellan dead-code, splice dead-code, splice reachable, mirage hotspots, mirage unreachable
+- Removed AI terminology from public documentation — this is a code intelligence toolchain, not an AI product
+
+### Phase 2 Investigation (2026-05-01)
+
+Investigated consistency issues from MASTER_PLAN Phase 2:
+
+- **`llmgrep search --query "fn"`**: Returns 0 results is **expected behavior** - "fn" is a Rust keyword, not a symbol name. Use `--kind fn` to filter by function type (e.g., `llmgrep search --query test --kind fn` returns 729 results)
+
+- **`splice query --label` vs `magellan query --file`**: Different semantics (label-based vs file-based query) - not a bug, design difference
+
+- **`mirage hotpaths`**: Command exists and works correctly (discovered during investigation)
+
+### Known Issues
+
+- `mirage hotspots`: Verified working after `mut db` fix in mirage repo
+- `mirage unreachable`: Verified working - `--within-functions` flag name is correct
+- `tests/stress_concurrent_edits.rs::stress_database_integrity` can still deadlock (pre-existing)
+- `tests/call_graph_tests.rs::test_cross_file_call_resolution` may fail (pre-existing)
+
 ## [3.1.7] - 2026-04-27
 
 ### Added

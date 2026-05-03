@@ -20,7 +20,8 @@ use std::path::{Path, PathBuf};
 /// v9: cfg_blocks.statements column for AST snippets
 /// v10: cfg_blocks 4D spatial-temporal coordinate columns
 /// v11: geo_index_meta table for lazy geometric index tracking
-pub const MAGELLAN_SCHEMA_VERSION: i64 = 11;
+/// v12: symbol_fts FTS5 virtual table for fast symbol search
+pub const MAGELLAN_SCHEMA_VERSION: i64 = 12;
 
 /// Migration result summary
 #[derive(Debug, Clone)]
@@ -303,16 +304,16 @@ fn migrate_from_version(tx: &Transaction, old_version: i64) -> Result<()> {
         // v10 -> v11: Add geo_index_meta table for lazy geometric index tracking
         // This table records when a .geo file was built from the SQLite database
         tx.execute(
-            "CREATE TABLE IF NOT EXISTS geo_index_meta (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                geo_path TEXT NOT NULL,
-                built_at INTEGER NOT NULL,
-                schema_version INTEGER NOT NULL,
-                symbol_count INTEGER NOT NULL,
-                call_count INTEGER NOT NULL,
-                cfg_block_count INTEGER NOT NULL,
-                checksum TEXT NOT NULL
-            )",
+            "CREATE TABLE IF NOT EXISTS geo_index_meta (\n                id INTEGER PRIMARY KEY CHECK (id = 1),\n                geo_path TEXT NOT NULL,\n                built_at INTEGER NOT NULL,\n                schema_version INTEGER NOT NULL,\n                symbol_count INTEGER NOT NULL,\n                call_count INTEGER NOT NULL,\n                cfg_block_count INTEGER NOT NULL,\n                checksum TEXT NOT NULL\n            )",
+            [],
+        )?;
+    }
+
+    if old_version < 12 {
+        // v11 -> v12: Add FTS5 virtual table for fast symbol search
+        // FTS5 indexes the 'name' column from graph_entities for prefix/full-text search
+        tx.execute(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS symbol_fts USING fts5(\n                name,\n                content='graph_entities',\n                content_rowid='id'\n            )",
             [],
         )?;
     }
