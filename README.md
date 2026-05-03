@@ -1,6 +1,6 @@
 # Magellan
 
-**Version:** 3.1.7
+**Version:** 3.1.9
 
 Magellan is a deterministic codebase indexing tool. It watches or scans source
 trees, extracts symbols, references, calls, AST nodes, code chunks, CFG data, and
@@ -26,6 +26,8 @@ supported workflow.
 Optional source builds may include experimental geometric index code, but the
 SQLite database remains the source of truth.
 
+**Schema version:** 12 (FTS5 full-text search enabled)
+
 ## Features
 
 - Multi-language symbol extraction with tree-sitter:
@@ -34,7 +36,7 @@ SQLite database remains the source of truth.
 - File watching and one-shot indexing
 - References and call graph queries
 - AST node storage and AST queries
-- Code chunks for source retrieval and LLM context
+- Code chunks for source retrieval and editor context
 - CFG blocks and CFG edges for control-flow analysis
 - Coverage ingestion from LCOV into CFG coverage side tables
 - Graph algorithms: reachability, dead code, cycles, condensation, paths, slice

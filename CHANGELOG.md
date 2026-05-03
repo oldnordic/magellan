@@ -31,7 +31,7 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- **LLM Enforcement Infrastructure** (Phase 0):
+- **Validation Infrastructure** (Phase 0):
   - `scripts/validate-completion.sh` - 5-gate validation pipeline (stubs, check, test, clippy, db)
   - `.claude/hooks/stub-check.fish` - Pre-commit hook blocking TODO/unimplemented/panic in non-test code
   - `.claude/hooks/build-check.fish` - Pre-commit hook running cargo check/test/clippy
@@ -44,11 +44,11 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - `magellan registry list --root <dir>` - Lists discovered databases with stats
   - `src/registry_cmd.rs` - New command module for database discovery
 
-- **Phase 4: LLM Integration** (config file parsing):
+- **Phase 4: Editor Integration** (config file parsing):
   - `src/config.rs` - Configuration management module (~/.config/magellan/config.toml)
   - `magellan config show` - Display current configuration
   - `magellan config init` - Create default config file
-  - Supports LLM provider settings (ollama, openai, anthropic, custom)
+  - Supports editor provider settings (ollama, openai, anthropic, custom)
   - Supports registry settings (auto_scan, scan_roots)
   - Added `toml` crate dependency for config parsing
 
@@ -78,6 +78,7 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Clippy validation now checks `--lib --bins` only (not tests) to avoid pre-existing test issues
 - splice now depends on magellan from crates.io (version 3.1.7) for external users
 - All Phase 1 P0 commands verified working: magellan backfill, magellan dead-code, splice dead-code, splice reachable, mirage hotspots, mirage unreachable
+- Removed AI/LLM terminology from public documentation — this is a code intelligence toolchain, not an AI product
 
 ### Phase 2 Investigation (2026-05-01)
 

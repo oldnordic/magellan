@@ -1,0 +1,52 @@
+name: Validate
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check public docs for AI/LLM terminology
+        run: |
+          echo "🔍 Checking public docs for AI/LLM terminology..."
+          if grep -ri "LLM\|AI assistant\|production-ready" README.md MANUAL.md CHANGELOG.md Cargo.toml 2>/dev/null; then
+            echo "❌ FAIL: AI/LLM terminology found in public documentation"
+            echo "   This is a code intelligence toolchain, not an AI product"
+            echo "   Internal docs (.planning/, .internal/, BUILD_*.md, etc.) are fine"
+            exit 1
+          fi
+          echo "✅ No AI/LLM terminology in public docs"
+
+      - name: Check license is GPL-3.0 only
+        run: |
+          echo "🔍 Checking license..."
+          if grep -q "GPL-3.0-or-later" Cargo.toml; then
+            echo "❌ FAIL: License must be GPL-3.0 only, not GPL-3.0-or-later"
+            exit 1
+          fi
+          echo "✅ License is GPL-3.0"
+
+      - name: Check public docs for exaggerated claims
+        run: |
+          echo "🔍 Checking public docs for exaggerated claims..."
+          if grep -ri "production-ready" README.md MANUAL.md CHANGELOG.md 2>/dev/null; then
+            echo "❌ FAIL: No software is production-ready, use 'stable' instead"
+            echo "   Internal docs can use whatever terminology is useful"
+            exit 1
+          fi
+          echo "✅ No exaggerated claims in public docs"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: cargo check
+        run: cargo check --all-targets
+
+      - name: cargo test
+        run: cargo test --all-targets
