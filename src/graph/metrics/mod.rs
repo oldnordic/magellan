@@ -122,9 +122,7 @@ impl MetricsOps {
                 crate::graph::db_compat::ensure_metrics_schema(&conn)
                     .map_err(|e| anyhow::anyhow!("Failed to ensure metrics schema: {}", e))
             }
-            MetricsOpsBackend::SideTables(_) => {
-                Ok(())
-            }
+            MetricsOpsBackend::SideTables(_) => Ok(()),
         }
     }
 
@@ -223,7 +221,10 @@ impl MetricsOps {
         }
     }
 
-    fn upsert_symbol_metrics_conn(conn: &rusqlite::Connection, metrics: &SymbolMetrics) -> Result<()> {
+    fn upsert_symbol_metrics_conn(
+        conn: &rusqlite::Connection,
+        metrics: &SymbolMetrics,
+    ) -> Result<()> {
         conn.execute(
             "INSERT OR REPLACE INTO symbol_metrics (
                 symbol_id, symbol_name, kind, file_path,

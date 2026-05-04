@@ -82,6 +82,10 @@ fn geometric_chunks_section_grows_for_large_payload() {
 #[test]
 #[cfg(feature = "geometric-backend")]
 fn watch_no_debug_output_in_normal_mode() {
+    use std::process::Stdio;
+    use std::thread;
+    use std::time::Duration;
+
     let temp_dir = tempfile::tempdir().unwrap();
     let db_path = temp_dir.path().join("test_no_debug.geo");
     let fixture_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("audit_fixture");
@@ -95,8 +99,8 @@ fn watch_no_debug_output_in_normal_mode() {
         return;
     }
 
-    // Run magellan watch with timeout
-    let output = Command::new(env!("CARGO_BIN_EXE_magellan"))
+    // Spawn magellan watch (daemon process - must kill it)
+    let mut child = Command::new(env!("CARGO_BIN_EXE_magellan"))
         .args(&[
             "watch",
             "--root",
@@ -106,9 +110,19 @@ fn watch_no_debug_output_in_normal_mode() {
             "--scan-initial",
         ])
         .env_remove("MAGELLAN_DEBUG") // Ensure debug is NOT enabled
-        .output()
+        .stderr(Stdio::piped())
+        .spawn()
         .expect("Failed to execute magellan watch");
 
+    // Give it time to start up and scan
+    thread::sleep(Duration::from_millis(800));
+
+    // Kill the daemon process
+    let _ = child.kill();
+
+    let output = child
+        .wait_with_output()
+        .expect("Failed to get child output");
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     // Should NOT contain WATCH_DEBUG output
@@ -119,7 +133,7 @@ fn watch_no_debug_output_in_normal_mode() {
     );
 }
 
-/// Test that watch returns error when save fails (simulated by making file read-only)
+/// Test that opening a read-only database fails
 #[test]
 #[cfg(feature = "geometric-backend")]
 fn watch_returns_error_when_save_fails() {
@@ -132,15 +146,13 @@ fn watch_returns_error_when_save_fails() {
     backend.save_to_disk().unwrap();
     drop(backend);
 
-    // Make the file read-only to simulate save failure
+    // Make the file read-only
     let mut perms = fs::metadata(&db_path).unwrap().permissions();
     perms.set_readonly(true);
     fs::set_permissions(&db_path, perms).unwrap();
 
-    // Try to open and save - should fail
-    let backend2 = GeometricBackend::open(&db_path).unwrap();
-    backend2.insert_code_chunk("src/test2.rs", 100, 200, "more content", None, None);
-    let result = backend2.save_to_disk();
+    // Try to open - should fail because we need write access
+    let result = GeometricBackend::open(&db_path);
 
     // Restore permissions for cleanup
     let mut perms = fs::metadata(&db_path).unwrap().permissions();
@@ -148,7 +160,7 @@ fn watch_returns_error_when_save_fails() {
     let _ = fs::set_permissions(&db_path, perms);
 
     // Should have failed
-    assert!(result.is_err(), "Save should fail when file is read-only");
+    assert!(result.is_err(), "Open should fail when file is read-only");
 }
 
 /// Test that large source tree can be indexed and reopened

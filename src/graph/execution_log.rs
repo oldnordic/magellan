@@ -120,9 +120,7 @@ impl ExecutionLog {
         }
     }
 
-    fn ensure_schema_sqlite(
-        conn: &rusqlite::Connection,
-    ) -> Result<(), anyhow::Error> {
+    fn ensure_schema_sqlite(conn: &rusqlite::Connection) -> Result<(), anyhow::Error> {
         conn.execute(
             "CREATE TABLE IF NOT EXISTS execution_log (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -232,9 +230,7 @@ impl ExecutionLog {
             }
             ExecutionLogBackend::Shared(conn_arc) => {
                 let conn = conn_arc.lock().unwrap();
-                Self::start_execution_sqlite(
-                    &conn, execution_id, tool_version, args, root, db_path,
-                )
+                Self::start_execution_sqlite(&conn, execution_id, tool_version, args, root, db_path)
             }
             ExecutionLogBackend::SideTables(side_tables) => {
                 side_tables.start_execution(execution_id, tool_version, args, root, db_path)
@@ -252,8 +248,7 @@ impl ExecutionLog {
         references_indexed: usize,
     ) -> Result<()> {
         let now = std::time::SystemTime::now();
-        let finished_at_secs =
-            now.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+        let finished_at_secs = now.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
         let finished_at_ms = now
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()

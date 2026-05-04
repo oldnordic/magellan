@@ -1488,7 +1488,11 @@ fn parse_doctor_args(args: &[String]) -> Result<Command> {
 
     let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
 
-    Ok(Command::Doctor { db_path, fix, output_format })
+    Ok(Command::Doctor {
+        db_path,
+        fix,
+        output_format,
+    })
 }
 
 /// Parse the `web-ui` command arguments

@@ -47,8 +47,8 @@ fn geometric_cfg_blocks_nonzero_after_index() {
     let backend = GeometricBackend::create(&db_path).unwrap();
 
     // Manually extract symbols with CFG
-    let (symbols, cfg_blocks, _edges) =
-        magellan::graph::geometric_backend::extract_symbols_and_cfg_from_file(
+    let (symbols, cfg_blocks, _edges, _calls) =
+        magellan::graph::geometric_backend::extract_symbols_cfg_and_calls_from_file(
             &PathBuf::from("/test.rs"),
             SIMPLE_RUST,
             Language::Rust,
@@ -85,8 +85,8 @@ fn geometric_cfg_persists_after_reopen() {
 
     // Create backend with CFG
     let backend = GeometricBackend::create(&db_path).unwrap();
-    let (symbols, cfg_blocks, _edges) =
-        magellan::graph::geometric_backend::extract_symbols_and_cfg_from_file(
+    let (symbols, cfg_blocks, _edges, _calls) =
+        magellan::graph::geometric_backend::extract_symbols_cfg_and_calls_from_file(
             &PathBuf::from("/test.rs"),
             LOOP_RUST,
             Language::Rust,
@@ -120,8 +120,8 @@ fn geometric_status_reports_real_cfg_count() {
     let backend = GeometricBackend::create(&db_path).unwrap();
 
     // Index with CFG
-    let (symbols, cfg_blocks, _edges) =
-        magellan::graph::geometric_backend::extract_symbols_and_cfg_from_file(
+    let (symbols, cfg_blocks, _edges, _calls) =
+        magellan::graph::geometric_backend::extract_symbols_cfg_and_calls_from_file(
             &PathBuf::from("/test.rs"),
             SIMPLE_RUST,
             Language::Rust,
@@ -154,8 +154,8 @@ fn geometric_cfg_associates_with_real_functions() {
     let backend = GeometricBackend::create(&db_path).unwrap();
 
     // Extract both symbols and CFG
-    let (symbols, cfg_blocks, _edges) =
-        magellan::graph::geometric_backend::extract_symbols_and_cfg_from_file(
+    let (symbols, cfg_blocks, _edges, _calls) =
+        magellan::graph::geometric_backend::extract_symbols_cfg_and_calls_from_file(
             &PathBuf::from("/test.rs"),
             SIMPLE_RUST,
             Language::Rust,
@@ -200,8 +200,8 @@ fn geometric_query_and_cfg_coexist_after_reopen() {
     let backend = GeometricBackend::create(&db_path).unwrap();
 
     // Extract both symbols and CFG
-    let (symbols, cfg_blocks, _edges) =
-        magellan::graph::geometric_backend::extract_symbols_and_cfg_from_file(
+    let (symbols, cfg_blocks, _edges, _calls) =
+        magellan::graph::geometric_backend::extract_symbols_cfg_and_calls_from_file(
             &PathBuf::from("/test.rs"),
             SIMPLE_RUST,
             Language::Rust,

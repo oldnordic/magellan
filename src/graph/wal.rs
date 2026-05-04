@@ -23,8 +23,7 @@ pub fn checkpoint_wal(db_path: &Path) -> Result<(), rusqlite::Error> {
 /// # Errors
 /// Returns `DatabaseBusy` if the checkpoint is blocked by active readers.
 pub fn checkpoint_conn(conn: &Connection) -> Result<(), rusqlite::Error> {
-    let busy: i32 = conn
-        .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| row.get(0))?;
+    let busy: i32 = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| row.get(0))?;
     if busy != 0 {
         return Err(rusqlite::Error::SqliteFailure(
             rusqlite::ffi::Error {

@@ -633,11 +633,8 @@ fn leaf() {}
         .enumerate_paths(main_fqn, Some(leaf_fqn), 10, 100)
         .unwrap();
 
-    // Should return a valid result
-    assert!(
-        result_to_leaf.total_enumerated >= 0,
-        "Total enumerated should be non-negative"
-    );
+    // total_enumerated is usize so always non-negative; just verify it exists
+    let _ = result_to_leaf.total_enumerated;
 }
 
 #[test]

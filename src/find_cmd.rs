@@ -246,7 +246,7 @@ pub fn run_find(
         args.push("--first".to_string());
     }
 
-    let graph = CodeGraph::open(&db_path)?;
+    let mut graph = CodeGraph::open(&db_path)?;
     let exec_id = magellan::output::generate_execution_id();
     let root_str = root.as_ref().map(|p| p.to_string_lossy().to_string());
     let db_path_str = db_path.to_string_lossy().to_string();
@@ -259,31 +259,27 @@ pub fn run_find(
         &db_path_str,
     )?;
 
-    // Helper to finish execution on return
-    let finish_execution = |outcome: &str, error_msg: Option<String>| -> Result<()> {
-        graph.execution_log().finish_execution(
-            &exec_id,
-            outcome,
-            error_msg.as_deref(),
-            0,
-            0,
-            0, // No indexing counts for find command
-        )
-    };
-
     if let Some(pattern) = glob_pattern {
-        let mut graph_mut = CodeGraph::open(&db_path)?;
-        finish_execution("success", None)?;
-        return run_glob_listing(&mut graph_mut, &pattern, output_format, &exec_id);
+        let result = run_glob_listing(&mut graph, &pattern, output_format, &exec_id);
+        let _ = graph.execution_log().finish_execution(
+            &exec_id,
+            if result.is_ok() { "success" } else { "error" },
+            result
+                .as_ref()
+                .err()
+                .map(|e: &anyhow::Error| e.to_string())
+                .as_deref(),
+            0,
+            0,
+            0,
+        );
+        return result;
     }
 
     // Handle --symbol-id precise lookup
     if let Some(sid) = symbol_id {
-        let mut graph_lookup = CodeGraph::open(&db_path)?;
-        match query::find_by_symbol_id(&mut graph_lookup, &sid)? {
+        let result = match query::find_by_symbol_id(&mut graph, &sid)? {
             Some(symbol) => {
-                // Output single result in human mode
-                finish_execution("success", None)?;
                 println!("Found symbol ID: {}", sid);
                 if let Some(name) = &symbol.name {
                     println!("  Name:     {}", name);
@@ -299,40 +295,63 @@ pub fn run_find(
                     "  Location: Line {}, Column {}",
                     symbol.start_line, symbol.start_col
                 );
-                return Ok(());
+                Ok(())
             }
             None => {
-                finish_execution("success", None)?;
                 eprintln!("Symbol ID '{}' not found", sid);
-                return Ok(());
+                Ok(())
             }
-        }
+        };
+        let _ = graph.execution_log().finish_execution(
+            &exec_id,
+            if result.is_ok() { "success" } else { "error" },
+            result
+                .as_ref()
+                .err()
+                .map(|e: &anyhow::Error| e.to_string())
+                .as_deref(),
+            0,
+            0,
+            0,
+        );
+        return result;
     }
 
     // Handle --ambiguous symbol name query (show all candidates)
     if let Some(amb_name) = ambiguous_name {
-        let mut graph_lookup = CodeGraph::open(&db_path)?;
-        let candidates = query::get_ambiguous_candidates(&mut graph_lookup, &amb_name)?;
-
-        if candidates.is_empty() {
-            finish_execution("success", None)?;
-            eprintln!("No symbols found with name '{}'", amb_name);
-            return Ok(());
-        }
-
-        // Display candidates with SymbolId and canonical FQN
-        for (entity_id, symbol) in candidates.iter().enumerate() {
-            let sid = symbol.1.symbol_id.as_deref().unwrap_or("<none>");
-            let canon = symbol.1.canonical_fqn.as_deref().unwrap_or("<none>");
-            eprintln!("  [{}]", entity_id + 1);
-            eprintln!("    Symbol ID: {}", sid);
-            eprintln!("    Canonical: {}", canon);
-            eprintln!("    Name: {}", symbol.1.name.as_deref().unwrap_or("<none>"));
-            eprintln!("    Kind: {}", symbol.1.kind);
-        }
-
-        finish_execution("success", None)?;
-        return Ok(());
+        let result = match query::get_ambiguous_candidates(&mut graph, &amb_name) {
+            Ok(candidates) => {
+                if candidates.is_empty() {
+                    eprintln!("No symbols found with name '{}'", amb_name);
+                    Ok(())
+                } else {
+                    for (entity_id, symbol) in candidates.iter().enumerate() {
+                        let sid = symbol.1.symbol_id.as_deref().unwrap_or("<none>");
+                        let canon = symbol.1.canonical_fqn.as_deref().unwrap_or("<none>");
+                        eprintln!("  [{}]", entity_id + 1);
+                        eprintln!("    Symbol ID: {}", sid);
+                        eprintln!("    Canonical: {}", canon);
+                        eprintln!("    Name: {}", symbol.1.name.as_deref().unwrap_or("<none>"));
+                        eprintln!("    Kind: {}", symbol.1.kind);
+                    }
+                    Ok(())
+                }
+            }
+            Err(e) => Err(e),
+        };
+        let _ = graph.execution_log().finish_execution(
+            &exec_id,
+            if result.is_ok() { "success" } else { "error" },
+            result
+                .as_ref()
+                .err()
+                .map(|e: &anyhow::Error| e.to_string())
+                .as_deref(),
+            0,
+            0,
+            0,
+        );
+        return result;
     }
 
     let name = name.ok_or_else(|| {
@@ -346,11 +365,9 @@ pub fn run_find(
 
     match backend_type {
         BackendType::Geometric => {
-            // Use geometric backend
             let backend = MagellanBackend::open(&db_path)?;
-            match backend.find_symbol_by_fqn(&name) {
+            let result = match backend.find_symbol_by_fqn(&name) {
                 Ok(Some(info)) => {
-                    finish_execution("success", None)?;
                     println!("Found symbol: {}", info.fqn);
                     println!("  Name:     {}", info.name);
                     println!("  Kind:     {:?}", info.kind);
@@ -359,38 +376,43 @@ pub fn run_find(
                         "  Location: Line {}, Column {}",
                         info.start_line, info.start_col
                     );
-                    return Ok(());
+                    Ok(())
                 }
                 Ok(None) => {
-                    finish_execution("success", None)?;
                     eprintln!("Symbol '{}' not found", name);
-                    return Ok(());
+                    Ok(())
                 }
-                Err(e) => {
-                    finish_execution("error", Some(e.to_string()))?;
-                    return Err(e);
-                }
-            }
+                Err(e) => Err(e),
+            };
+            let _ = graph.execution_log().finish_execution(
+                &exec_id,
+                if result.is_ok() { "success" } else { "error" },
+                result
+                    .as_ref()
+                    .err()
+                    .map(|e: &anyhow::Error| e.to_string())
+                    .as_deref(),
+                0,
+                0,
+                0,
+            );
+            return result;
         }
         BackendType::SQLite => {
-            // Use SQLite backend (existing behavior)
-            let mut graph_mut = CodeGraph::open(&db_path)?;
             let results = match path.as_ref() {
                 Some(file_path) => {
                     let path_str = resolve_path(file_path, &root);
-                    match find_in_file(&mut graph_mut, &path_str, &name)? {
+                    match find_in_file(&mut graph, &path_str, &name)? {
                         Some(symbol) => vec![symbol],
                         None => vec![],
                     }
                 }
-                None => find_all_files(&mut graph_mut, &name)?,
+                None => find_all_files(&mut graph, &name)?,
             };
 
-            // Handle JSON output mode
             if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
-                finish_execution("success", None)?;
-                return output_json_mode(
-                    &mut graph_mut,
+                let result = output_json_mode(
+                    &mut graph,
                     &name,
                     results,
                     path.as_ref().map(|p| resolve_path(p, &root)),
@@ -403,9 +425,21 @@ pub fn run_find(
                     with_checksums,
                     context_lines,
                 );
+                let _ = graph.execution_log().finish_execution(
+                    &exec_id,
+                    if result.is_ok() { "success" } else { "error" },
+                    result
+                        .as_ref()
+                        .err()
+                        .map(|e: &anyhow::Error| e.to_string())
+                        .as_deref(),
+                    0,
+                    0,
+                    0,
+                );
+                return result;
             }
 
-            // Human mode (existing behavior)
             if results.is_empty() {
                 println!("Symbol '{}' not found", name);
                 println!(
@@ -424,9 +458,7 @@ pub fn run_find(
                 println!("  Location: Line {}, Column {}", symbol.line, symbol.col);
                 println!("  Node ID:  {}", symbol.node_id);
             } else {
-                // Multiple results
                 if first {
-                    // Emit deprecation warning
                     eprintln!(
                         "WARNING: --first is deprecated. Use --symbol-id for precise lookups."
                     );
@@ -441,7 +473,6 @@ pub fn run_find(
                     println!("  Location: Line {}, Column {}", symbol.line, symbol.col);
                     println!("  Node ID:  {}", symbol.node_id);
                 } else {
-                    // Ambiguous, no --first: show ranked list of candidates
                     eprintln!(
                         "Ambiguous symbol name '{}': found {} candidates",
                         name,
@@ -450,7 +481,6 @@ pub fn run_find(
                     eprintln!();
                     eprintln!("Top matches:");
 
-                    // Show up to 10 candidates with numbered options
                     let display_count = results.len().min(10);
                     for (i, symbol) in results.iter().take(display_count).enumerate() {
                         let fqn = symbol
@@ -485,7 +515,9 @@ pub fn run_find(
                 }
             }
 
-            finish_execution("success", None)?;
+            let _ = graph
+                .execution_log()
+                .finish_execution(&exec_id, "success", None, 0, 0, 0);
             Ok(())
         }
     }

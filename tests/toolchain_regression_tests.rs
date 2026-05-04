@@ -64,7 +64,9 @@ fn test_doctor_accepts_output_flag() {
         "JSON report should contain 'checks' array"
     );
 
-    let checks = report["checks"].as_array().expect("checks should be an array");
+    let checks = report["checks"]
+        .as_array()
+        .expect("checks should be an array");
     assert!(!checks.is_empty(), "checks array should not be empty");
 
     // Every check must have a name and status.
@@ -98,7 +100,10 @@ fn test_doctor_output_pretty_is_valid_json() {
         .output()
         .expect("magellan doctor should execute");
 
-    assert!(output.status.success(), "doctor --output pretty should succeed");
+    assert!(
+        output.status.success(),
+        "doctor --output pretty should succeed"
+    );
 
     let stdout = String::from_utf8(output.stdout).unwrap();
     let report: serde_json::Value =
@@ -126,7 +131,10 @@ fn test_doctor_output_human_has_icons() {
         .output()
         .expect("magellan doctor should execute");
 
-    assert!(output.status.success(), "doctor --output human should succeed");
+    assert!(
+        output.status.success(),
+        "doctor --output human should succeed"
+    );
 
     let stdout = String::from_utf8(output.stdout).unwrap();
     // Human output should contain emoji/icons and the word "Magellan Doctor"
@@ -153,8 +161,22 @@ fn test_magellan_cli_contract() {
     }
 
     let commands: Vec<Vec<&str>> = vec![
-        vec!["status", "--db", db_path.to_str().unwrap(), "--output", "json"],
-        vec!["find", "--db", db_path.to_str().unwrap(), "--name", "main", "--output", "json"],
+        vec![
+            "status",
+            "--db",
+            db_path.to_str().unwrap(),
+            "--output",
+            "json",
+        ],
+        vec![
+            "find",
+            "--db",
+            db_path.to_str().unwrap(),
+            "--name",
+            "main",
+            "--output",
+            "json",
+        ],
         vec![
             "query",
             "--db",
@@ -221,11 +243,16 @@ fn test_database_health_after_indexing() {
     assert!(status.status.success(), "status command failed");
 
     let stdout = String::from_utf8(status.stdout).unwrap();
-    let json: serde_json::Value = serde_json::from_str(&stdout).expect("status should emit valid JSON");
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("status should emit valid JSON");
     let files = json
         .get("data")
         .and_then(|d| d.get("files"))
         .and_then(|v| v.as_i64())
         .unwrap_or(0);
-    assert!(files > 0, "Database should contain indexed files, got: {}", stdout);
+    assert!(
+        files > 0,
+        "Database should contain indexed files, got: {}",
+        stdout
+    );
 }

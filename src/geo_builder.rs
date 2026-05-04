@@ -271,6 +271,7 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
+    #[cfg(not(feature = "geometric-backend"))]
     fn test_build_geo_index_without_feature() {
         // When geometric-backend is disabled, build_geo_index should fail
         let temp_dir = TempDir::new().unwrap();

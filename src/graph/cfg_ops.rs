@@ -172,7 +172,10 @@ impl CfgOps {
 
         // Checkpoint WAL after bulk block insert
         if let Err(e) = crate::graph::wal::checkpoint_conn(&conn) {
-            eprintln!("Warning: WAL checkpoint failed after CFG block insert: {}", e);
+            eprintln!(
+                "Warning: WAL checkpoint failed after CFG block insert: {}",
+                e
+            );
         }
 
         Ok(blocks.len())
@@ -272,6 +275,54 @@ impl CfgOps {
             .map(|(i, _)| format!("?{}", i + 1))
             .collect::<Vec<_>>()
             .join(", ");
+
+        // Delete path elements first (FK to cfg_paths without cascade)
+        let path_elements_sql = format!(
+            "DELETE FROM cfg_path_elements WHERE path_id IN (SELECT path_id FROM cfg_paths WHERE function_id IN ({}))",
+            placeholders
+        );
+        if let Ok(mut path_elements_stmt) = conn.prepare(&path_elements_sql) {
+            let params = function_ids.to_vec();
+            let _ = path_elements_stmt.execute(rusqlite::params_from_iter(&params));
+        }
+
+        // Delete cfg_paths (FK to graph_entities without cascade)
+        let paths_sql = format!(
+            "DELETE FROM cfg_paths WHERE function_id IN ({})",
+            placeholders
+        );
+        if let Ok(mut paths_stmt) = conn.prepare(&paths_sql) {
+            let params = function_ids.to_vec();
+            let _ = paths_stmt.execute(rusqlite::params_from_iter(&params));
+        }
+
+        // Delete dominators referencing blocks of these functions
+        let dom_sql = format!(
+            "DELETE FROM cfg_dominators WHERE block_id IN (SELECT id FROM cfg_blocks WHERE function_id IN ({})) OR dominator_id IN (SELECT id FROM cfg_blocks WHERE function_id IN ({}))",
+            placeholders, placeholders
+        );
+        if let Ok(mut dom_stmt) = conn.prepare(&dom_sql) {
+            let params: Vec<i64> = function_ids
+                .iter()
+                .chain(function_ids.iter())
+                .copied()
+                .collect();
+            let _ = dom_stmt.execute(rusqlite::params_from_iter(&params));
+        }
+
+        let post_dom_sql = format!(
+            "DELETE FROM cfg_post_dominators WHERE block_id IN (SELECT id FROM cfg_blocks WHERE function_id IN ({})) OR post_dominator_id IN (SELECT id FROM cfg_blocks WHERE function_id IN ({}))",
+            placeholders, placeholders
+        );
+        if let Ok(mut post_dom_stmt) = conn.prepare(&post_dom_sql) {
+            let params: Vec<i64> = function_ids
+                .iter()
+                .chain(function_ids.iter())
+                .copied()
+                .collect();
+            let _ = post_dom_stmt.execute(rusqlite::params_from_iter(&params));
+        }
+
         let edge_sql = format!(
             "DELETE FROM cfg_edges WHERE function_id IN ({})",
             placeholders

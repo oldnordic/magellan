@@ -344,10 +344,7 @@ fn geometric_condense_and_paths_survive_reopen() {
         let path_result = backend.enumerate_paths(main_sym.id, None, 5, 10);
         // Should be able to enumerate (even if no specific target found)
         // The key is that it doesn't panic or error
-        assert!(
-            path_result.total_enumerated >= 0,
-            "Paths should work after reopen"
-        );
+        let _ = path_result.total_enumerated; // usize is always >= 0
     }
 }
 

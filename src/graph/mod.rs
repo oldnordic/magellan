@@ -315,13 +315,18 @@ impl CodeGraph {
             let side_conn_arc = Arc::new(std::sync::Mutex::new(side_conn));
 
             // Check whether DDL needs to run at all.
-            let needs_ddl = db_compat::needs_schema_upgrade(&side_conn_arc.lock().unwrap_or_else(|e| e.into_inner()))
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            let needs_ddl = db_compat::needs_schema_upgrade(
+                &side_conn_arc.lock().unwrap_or_else(|e| e.into_inner()),
+            )
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
             // Phase 3a: Magellan-owned DB compatibility metadata.
             // MUST run after sqlitegraph open and before any other Magellan side-table writes.
-            db_compat::ensure_magellan_meta(&side_conn_arc.lock().unwrap_or_else(|e| e.into_inner()), &db_path_buf)
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            db_compat::ensure_magellan_meta(
+                &side_conn_arc.lock().unwrap_or_else(|e| e.into_inner()),
+                &db_path_buf,
+            )
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
             // Create SQLite side tables reusing the shared connection
             let side_tables: Arc<dyn side_tables::SideTables> = Arc::new(
@@ -340,7 +345,8 @@ impl CodeGraph {
             chunks.ensure_schema()?;
 
             // Initialize ExecutionLog reusing the shared connection
-            let execution_log = execution_log::ExecutionLog::with_connection(Arc::clone(&side_conn_arc));
+            let execution_log =
+                execution_log::ExecutionLog::with_connection(Arc::clone(&side_conn_arc));
 
             // Initialize MetricsOps reusing the shared connection
             let metrics = metrics::MetricsOps::with_connection(Arc::clone(&side_conn_arc));
@@ -348,17 +354,26 @@ impl CodeGraph {
             // Only run AST / CFG / coverage DDL when the schema is new or was upgraded.
             // On warm opens this skips ~6 redundant CREATE TABLE IF NOT EXISTS calls.
             if needs_ddl {
-                db_compat::ensure_ast_schema(&side_conn_arc.lock().unwrap_or_else(|e| e.into_inner()))
-                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                db_compat::ensure_cfg_schema(&side_conn_arc.lock().unwrap_or_else(|e| e.into_inner()))
-                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                db_compat::ensure_metrics_schema(&side_conn_arc.lock().unwrap_or_else(|e| e.into_inner()))
-                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                db_compat::ensure_ast_schema(
+                    &side_conn_arc.lock().unwrap_or_else(|e| e.into_inner()),
+                )
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                db_compat::ensure_cfg_schema(
+                    &side_conn_arc.lock().unwrap_or_else(|e| e.into_inner()),
+                )
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                db_compat::ensure_metrics_schema(
+                    &side_conn_arc.lock().unwrap_or_else(|e| e.into_inner()),
+                )
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
             }
 
             // Coverage schema is not versioned in magellan_meta; always ensure it.
-            db_compat::ensure_coverage_schema(&side_conn_arc.lock().unwrap_or_else(|e| e.into_inner()), &db_path_buf)
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            db_compat::ensure_coverage_schema(
+                &side_conn_arc.lock().unwrap_or_else(|e| e.into_inner()),
+                &db_path_buf,
+            )
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
             // Detect if this is an upgrade (metrics tables exist but are empty)
             let needs_backfill = {
@@ -384,7 +399,14 @@ impl CodeGraph {
                 metric_count == 0 && symbol_count > 0
             };
 
-            (side_tables, chunks, execution_log, metrics, needs_backfill, side_conn_arc)
+            (
+                side_tables,
+                chunks,
+                execution_log,
+                metrics,
+                needs_backfill,
+                side_conn_arc,
+            )
         };
 
         // Initialize file node cache with capacity of 128 entries
@@ -445,7 +467,10 @@ impl CodeGraph {
 
     /// Checkpoint the SQLite WAL to prevent unbounded growth.
     pub fn checkpoint_wal(&self) -> Result<()> {
-        let conn = self.side_conn.lock().map_err(|e| anyhow::anyhow!("Mutex poisoned: {}", e))?;
+        let conn = self
+            .side_conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Mutex poisoned: {}", e))?;
         wal::checkpoint_conn(&conn).map_err(|e| anyhow::anyhow!("WAL checkpoint failed: {}", e))
     }
 
