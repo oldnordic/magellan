@@ -10,15 +10,14 @@ mod tests {
     use magellan::graph::geometric_backend::{GeometricBackend, InsertSymbol};
     use magellan::ingest::{Language, SymbolKind};
     use std::collections::HashSet;
-    use std::path::Path;
 
     /// Helper: Create a temporary test database path
-    fn temp_db_path() -> String {
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis();
-        format!("/tmp/geo_hygiene_test_{}.geo", timestamp)
+    ///
+    /// Uses a unique temp directory to avoid collisions when tests run in parallel.
+    fn temp_db_path() -> (tempfile::TempDir, std::path::PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.geo");
+        (dir, path)
     }
 
     /// Helper: Create a simple InsertSymbol
@@ -49,8 +48,8 @@ mod tests {
     /// Test 1: Re-indexing the same file does not duplicate its symbols
     #[test]
     fn geometric_reindex_same_file_does_not_duplicate_symbols() {
-        let db_path = temp_db_path();
-        let backend = GeometricBackend::create(Path::new(&db_path)).expect("Should create DB");
+        let (_dir, db_path) = temp_db_path();
+        let backend = GeometricBackend::create(&db_path).expect("Should create DB");
 
         let file_path = "/test/src/lib.rs";
 
@@ -99,8 +98,8 @@ mod tests {
     /// Test 2: Re-indexing same tree does not grow total symbol count
     #[test]
     fn geometric_reindex_same_tree_does_not_grow_symbol_count() {
-        let db_path = temp_db_path();
-        let backend = GeometricBackend::create(Path::new(&db_path)).expect("Should create DB");
+        let (_dir, db_path) = temp_db_path();
+        let backend = GeometricBackend::create(&db_path).expect("Should create DB");
 
         let files = vec!["/test/src/a.rs", "/test/src/b.rs", "/test/src/c.rs"];
 
@@ -143,8 +142,8 @@ mod tests {
     /// Test 3: Canonical path handling prevents relative/absolute duplicates
     #[test]
     fn geometric_canonical_path_prevents_relative_absolute_duplicates() {
-        let db_path = temp_db_path();
-        let backend = GeometricBackend::create(Path::new(&db_path)).expect("Should create DB");
+        let (_dir, db_path) = temp_db_path();
+        let backend = GeometricBackend::create(&db_path).expect("Should create DB");
 
         // These should be treated as the same file due to path normalization
         // The normalization extracts the /src/ suffix from both paths
@@ -188,8 +187,8 @@ mod tests {
     /// Test 4: Find returns unique symbol after repeated index
     #[test]
     fn geometric_find_unique_symbol_after_repeat_index() {
-        let db_path = temp_db_path();
-        let backend = GeometricBackend::create(Path::new(&db_path)).expect("Should create DB");
+        let (_dir, db_path) = temp_db_path();
+        let backend = GeometricBackend::create(&db_path).expect("Should create DB");
 
         let file_path = "/test/src/lib.rs";
 
@@ -224,8 +223,8 @@ mod tests {
     /// Test 5: Symbol metadata indices are correctly rebuilt after bulk removal
     #[test]
     fn geometric_rebuild_indices_after_bulk_removal() {
-        let db_path = temp_db_path();
-        let backend = GeometricBackend::create(Path::new(&db_path)).expect("Should create DB");
+        let (_dir, db_path) = temp_db_path();
+        let backend = GeometricBackend::create(&db_path).expect("Should create DB");
 
         let file_a = "/test/src/a.rs";
         let file_b = "/test/src/b.rs";
@@ -277,8 +276,8 @@ mod tests {
     /// Test 6: Multiple files can be cleared independently
     #[test]
     fn geometric_independent_file_clearing() {
-        let db_path = temp_db_path();
-        let backend = GeometricBackend::create(Path::new(&db_path)).expect("Should create DB");
+        let (_dir, db_path) = temp_db_path();
+        let backend = GeometricBackend::create(&db_path).expect("Should create DB");
 
         let files = vec!["/test/src/a.rs", "/test/src/b.rs", "/test/src/c.rs"];
 
