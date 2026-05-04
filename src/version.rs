@@ -30,7 +30,6 @@ fn compiled_backends() -> String {
     #[cfg(feature = "geometric-backend")]
     backends.push("geometric");
 
-
     if backends.is_empty() {
         // Fallback - at least sqlite should be available
         backends.push("sqlite");

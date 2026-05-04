@@ -19,10 +19,7 @@ pub struct DiscoveredDb {
 /// Scan for Magellan databases in a directory tree
 ///
 /// Searches for .magellan/*.db files and returns metadata about each discovered database.
-pub fn run_registry_scan(
-    root: PathBuf,
-    output_format: OutputFormat,
-) -> Result<()> {
+pub fn run_registry_scan(root: PathBuf, output_format: OutputFormat) -> Result<()> {
     let discovered = scan_for_databases(&root)?;
 
     match output_format {
@@ -34,7 +31,11 @@ pub fn run_registry_scan(
             if discovered.is_empty() {
                 println!("No Magellan databases found under {}", root.display());
             } else {
-                println!("Found {} database(s) under {}:\n", discovered.len(), root.display());
+                println!(
+                    "Found {} database(s) under {}:\n",
+                    discovered.len(),
+                    root.display()
+                );
                 for db in &discovered {
                     println!("  {}: {}", db.project_name, db.path);
                     if let (Some(files), Some(symbols)) = (db.file_count, db.symbol_count) {
@@ -140,10 +141,7 @@ fn discover_database(db_path: &Path) -> Result<Option<DiscoveredDb>> {
 }
 
 /// List known databases with detailed info
-pub fn run_registry_list(
-    root: PathBuf,
-    output_format: OutputFormat,
-) -> Result<()> {
+pub fn run_registry_list(root: PathBuf, output_format: OutputFormat) -> Result<()> {
     let discovered = scan_for_databases(&root)?;
 
     match output_format {
@@ -155,17 +153,17 @@ pub fn run_registry_list(
             if discovered.is_empty() {
                 println!("No databases found. Run 'magellan registry scan --root <dir>' first.");
             } else {
-                println!("{:<30} {:<50} {:>10} {:>10}", "Project", "Path", "Files", "Symbols");
+                println!(
+                    "{:<30} {:<50} {:>10} {:>10}",
+                    "Project", "Path", "Files", "Symbols"
+                );
                 println!("{}", "-".repeat(100));
                 for db in &discovered {
                     let files = db.file_count.unwrap_or(-1);
                     let symbols = db.symbol_count.unwrap_or(-1);
                     println!(
                         "{:<30} {:<50} {:>10} {:>10}",
-                        db.project_name,
-                        db.path,
-                        files,
-                        symbols
+                        db.project_name, db.path, files, symbols
                     );
                 }
             }

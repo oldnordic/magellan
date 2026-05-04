@@ -314,7 +314,70 @@ pub fn run_doctor(db_path: PathBuf, fix: bool, output_format: OutputFormat) -> R
                 issues_found += 1;
             }
 
-            // Check 11: Coverage schema
+            // Check 11: Duplicate file nodes
+            let mut dupes_found = Vec::new();
+            {
+                use std::collections::HashMap;
+                let mut path_counts: HashMap<String, usize> = HashMap::new();
+                let backend = graph.backend();
+                if let Ok(ids) = backend.entity_ids() {
+                    let snapshot = sqlitegraph::SnapshotId::current();
+                    for id in ids {
+                        if let Ok(node) = backend.get_node(snapshot, id) {
+                            if node.kind == "File" {
+                                if let Ok(file_node) = serde_json::from_value::<
+                                    magellan::graph::schema::FileNode,
+                                >(node.data)
+                                {
+                                    *path_counts
+                                        .entry(file_node.path)
+                                        .or_insert(0) += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+                for (path, count) in path_counts {
+                    if count > 1 {
+                        dupes_found.push((path, count));
+                    }
+                }
+            }
+            if dupes_found.is_empty() {
+                checks.push(CheckResult {
+                    name: "Duplicate file nodes".to_string(),
+                    status: "ok".to_string(),
+                    message: None,
+                    fix_hint: None,
+                });
+            } else {
+                let total_dupes: usize = dupes_found.iter().map(|(_, c)| c - 1).sum();
+                checks.push(CheckResult {
+                    name: "Duplicate file nodes".to_string(),
+                    status: "warning".to_string(),
+                    message: Some(format!(
+                        "{} file(s) with {} extra nodes",
+                        dupes_found.len(),
+                        total_dupes
+                    )),
+                    fix_hint: Some("Re-index to clean up: magellan watch --root . --scan-initial".to_string()),
+                });
+                if fix {
+                    let mut fixed = 0;
+                    for (path, _) in &dupes_found {
+                        match graph.delete_file(path) {
+                            Ok(_) => fixed += 1,
+                            Err(_e) => {}
+                        }
+                    }
+                    if fixed == dupes_found.len() {
+                        issues_fixed += 1;
+                    }
+                }
+                issues_found += 1;
+            }
+
+            // Check 12: Coverage schema
             match graph.check_coverage_schema() {
                 Ok(true) => {
                     checks.push(CheckResult {

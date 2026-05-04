@@ -98,17 +98,58 @@ impl FileOps {
         Ok(self.file_index.get(&normalized_path).copied())
     }
 
-    /// Find existing file node or create new one
+    /// Find ALL file nodes matching a path by scanning the database.
+    ///
+    /// Unlike `find_file_node` which uses the in-memory HashMap (only holds one entry
+    /// per path), this scans all entities and returns every File node whose path
+    /// matches. Use this when cleaning up duplicates.
+    pub fn find_all_file_nodes(&self, path: &str) -> Result<Vec<(NodeId, FileNode)>> {
+        let normalized_path = normalize_path_for_index(path);
+        let mut results = Vec::new();
+        let ids = self.backend.entity_ids()?;
+        let snapshot = SnapshotId::current();
+        for id in ids {
+            let node = match self.backend.get_node(snapshot, id) {
+                Ok(n) => n,
+                Err(_) => continue,
+            };
+            if node.kind == "File" {
+                if let Ok(file_node) = serde_json::from_value::<FileNode>(node.data) {
+                    let stored_path = normalize_path_for_index(&file_node.path);
+                    if stored_path == normalized_path {
+                        results.push((NodeId::from(id), file_node));
+                    }
+                }
+            }
+        }
+        Ok(results)
+    }
+
+    /// Find existing file node or create new one.
+    ///
+    /// If multiple file nodes exist with the same path (duplicates from earlier
+    /// indexing bugs), all are deleted before creating the new one.
     pub fn find_or_create_file_node(&mut self, path: &str, hash: &str) -> Result<NodeId> {
         let now = Self::now();
         let mtime = Self::get_file_mtime(path);
 
         // Normalize path to absolute canonical form for consistent indexing
-        // This matches rebuild_file_index() behavior and ensures queries work correctly
         let normalized_path = normalize_path_for_index(path);
 
-        if let Some(id) = self.find_file_node(&normalized_path)? {
-            // File exists, update hash and timestamps
+        // Find ALL file nodes with this path (not just the one in file_index)
+        let all_existing = self.find_all_file_nodes(&normalized_path)?;
+
+        if !all_existing.is_empty() {
+            // If duplicates exist, delete all of them and their edges before creating fresh
+            if all_existing.len() > 1 {
+                for (old_id, _) in &all_existing {
+                    let _ = self.backend.delete_entity(old_id.as_i64());
+                }
+                self.file_index.remove(&normalized_path);
+            }
+
+            // Use the first (or only) existing node's metadata as baseline
+            let id = all_existing[0].0;
             let snapshot = SnapshotId::current();
             let node = self.backend.get_node(snapshot, id.as_i64())?;
 

@@ -27,8 +27,8 @@ pub fn run_index(db_path: PathBuf, file_path: PathBuf, root: Option<PathBuf>) ->
     );
     tracker.start(&graph)?;
 
-    let source = std::fs::read(&path_str)
-        .with_context(|| format!("Failed to read file: {}", path_str))?;
+    let source =
+        std::fs::read(&path_str).with_context(|| format!("Failed to read file: {}", path_str))?;
 
     let symbol_count = graph.index_file(&path_str, &source)?;
 

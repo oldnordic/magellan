@@ -695,6 +695,27 @@ pub fn delete_file(graph: &mut CodeGraph, path: &str) -> Result<DeleteResult> {
 /// # Returns
 /// DeleteResult with detailed counts of deleted entities.
 pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResult> {
+    // === PHASE 0: Clean up duplicate file nodes ===
+    // If multiple File nodes exist for the same path (from earlier indexing bugs),
+    // delete all but the first one before proceeding with normal deletion.
+    let all_file_nodes = graph.files.find_all_file_nodes(path)?;
+    if all_file_nodes.len() > 1 {
+        for (dup_id, _) in all_file_nodes.iter().skip(1) {
+            // delete_entity cascades to edges, but symbol nodes may become orphaned.
+            // We clean those up below via the normal deletion path.
+            let _ = graph.files.backend.delete_entity(dup_id.as_i64());
+        }
+        // Rebuild file_index so find_file_node returns the remaining single node
+        let normalized_path = crate::graph::files::normalize_path_for_index(path);
+        graph.files.file_index.remove(&normalized_path);
+        if let Some((remaining_id, _)) = all_file_nodes.first() {
+            graph
+                .files
+                .file_index
+                .insert(normalized_path, *remaining_id);
+        }
+    }
+
     // === PHASE 1: Count items to be deleted (before any deletion) ===
     // These are the expected counts we will verify against.
 
@@ -766,7 +787,8 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
             Err(sqlitegraph::SqliteGraphError::NotFound(_)) => {
                 // Stale entry in file_index - entity was deleted but index not updated
                 // Remove stale entry and return empty result
-                graph.files.file_index.remove(path);
+                let normalized_path = crate::graph::files::normalize_path_for_index(path);
+                graph.files.file_index.remove(&normalized_path);
                 return Ok(DeleteResult {
                     symbols_deleted: 0,
                     references_deleted: 0,
@@ -839,10 +861,11 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         chunks_deleted = graph.chunks.delete_chunks_for_file(path)?;
 
         // Delete AST nodes using SideTables (works with both SQLite and V3)
+        let normalized_path = crate::graph::files::normalize_path_for_index(path);
         let file_id_for_ast = graph
             .files
             .file_index
-            .get(path)
+            .get(&normalized_path)
             .map(|id| id.as_i64())
             .unwrap_or(0);
         ast_nodes_deleted = if file_id_for_ast > 0 {
@@ -906,10 +929,11 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         );
 
         // Delete AST nodes using SideTables (even if no file node, clean up orphaned data)
+        let normalized_path = crate::graph::files::normalize_path_for_index(path);
         let file_id_for_ast = graph
             .files
             .file_index
-            .get(path)
+            .get(&normalized_path)
             .map(|id| id.as_i64())
             .unwrap_or(0);
         ast_nodes_deleted = if file_id_for_ast > 0 {
@@ -1088,7 +1112,8 @@ pub mod test_helpers {
             graph.files.backend.delete_entity(file_id.as_i64())?;
             deleted_entity_ids.push(file_id.as_i64());
             // Remove from file_index immediately to keep in-memory state consistent
-            graph.files.file_index.remove(path);
+            let normalized_path = crate::graph::files::normalize_path_for_index(path);
+            graph.files.file_index.remove(&normalized_path);
 
             // Delete references in this file.
             references_deleted = graph.references.delete_references_in_file(path)?;
@@ -1147,7 +1172,8 @@ pub mod test_helpers {
             chunks_deleted = graph.side_tables.delete_chunks_for_file(path)?;
 
             // Remove from in-memory index after all deletions complete
-            graph.files.file_index.remove(path);
+            let normalized_path = crate::graph::files::normalize_path_for_index(path);
+            graph.files.file_index.remove(&normalized_path);
 
             // Invalidate cache for this file
             graph.invalidate_cache(path);
@@ -1328,7 +1354,8 @@ mod tests {
 /// v6: Uses file_id to efficiently count AST nodes per file.
 fn count_ast_nodes_for_file(graph: &CodeGraph, path: &str) -> usize {
     // First, get the file_id by looking up in the file_index
-    let file_id = match graph.files.file_index.get(path) {
+    let normalized_path = crate::graph::files::normalize_path_for_index(path);
+    let file_id = match graph.files.file_index.get(&normalized_path) {
         Some(id) => id.as_i64(),
         None => return 0, // No file node, no AST nodes to count
     };
@@ -1420,7 +1447,8 @@ pub fn reconcile_file_path(
             Err(sqlitegraph::SqliteGraphError::NotFound(_)) => {
                 // Stale entry in file_index - entity was deleted but index not updated
                 // Remove stale entry and treat as new file
-                graph.files.file_index.remove(path_key);
+                let normalized_path = crate::graph::files::normalize_path_for_index(path_key);
+                graph.files.file_index.remove(&normalized_path);
                 false // File needs to be re-indexed
             }
             Err(e) => return Err(e.into()),
@@ -1522,7 +1550,8 @@ pub fn reconcile_file_path_with_source(
                 file_node.hash == new_hash
             }
             Err(sqlitegraph::SqliteGraphError::NotFound(_)) => {
-                graph.files.file_index.remove(path_key);
+                let normalized_path = crate::graph::files::normalize_path_for_index(path_key);
+                graph.files.file_index.remove(&normalized_path);
                 false
             }
             Err(e) => return Err(e.into()),
