@@ -44,7 +44,8 @@ impl MetricsOps {
             Self::upsert_file_metrics_conn(conn, &file_metrics)?;
 
             for symbol in symbol_facts {
-                if let Err(e) = Self::compute_and_store_symbol_metrics_conn(conn, symbol, file_path) {
+                if let Err(e) = Self::compute_and_store_symbol_metrics_conn(conn, symbol, file_path)
+                {
                     let symbol_name = symbol.name.as_deref().unwrap_or("<unknown>");
                     eprintln!(
                         "Warning: Failed to compute metrics for symbol '{}': {}",

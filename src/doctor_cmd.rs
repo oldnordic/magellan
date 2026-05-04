@@ -262,10 +262,7 @@ pub fn run_doctor(db_path: PathBuf, fix: bool, output_format: OutputFormat) -> R
                     name: "Context index".to_string(),
                     status: "missing".to_string(),
                     message: Some("Context index not built".to_string()),
-                    fix_hint: Some(format!(
-                        "Run 'magellan context build --db {:?}'",
-                        db_path
-                    )),
+                    fix_hint: Some(format!("Run 'magellan context build --db {:?}'", db_path)),
                 });
                 if fix {
                     use magellan::context::build_context_index;
@@ -279,10 +276,7 @@ pub fn run_doctor(db_path: PathBuf, fix: bool, output_format: OutputFormat) -> R
 
             // Check 10: Connection health
             let start = std::time::Instant::now();
-            let conn_ok = graph
-                .count_files()
-                .map(|_| true)
-                .unwrap_or(false);
+            let conn_ok = graph.count_files().map(|_| true).unwrap_or(false);
             let elapsed_ms = start.elapsed().as_millis();
             if conn_ok {
                 if elapsed_ms > 500 {
@@ -329,9 +323,7 @@ pub fn run_doctor(db_path: PathBuf, fix: bool, output_format: OutputFormat) -> R
                                     magellan::graph::schema::FileNode,
                                 >(node.data)
                                 {
-                                    *path_counts
-                                        .entry(file_node.path)
-                                        .or_insert(0) += 1;
+                                    *path_counts.entry(file_node.path).or_insert(0) += 1;
                                 }
                             }
                         }
@@ -360,7 +352,9 @@ pub fn run_doctor(db_path: PathBuf, fix: bool, output_format: OutputFormat) -> R
                         dupes_found.len(),
                         total_dupes
                     )),
-                    fix_hint: Some("Re-index to clean up: magellan watch --root . --scan-initial".to_string()),
+                    fix_hint: Some(
+                        "Re-index to clean up: magellan watch --root . --scan-initial".to_string(),
+                    ),
                 });
                 if fix {
                     let mut fixed = 0;
@@ -470,7 +464,10 @@ pub fn run_doctor(db_path: PathBuf, fix: bool, output_format: OutputFormat) -> R
             if issues_found == 0 {
                 println!("✅ No issues found! Your Magellan installation is healthy.");
             } else {
-                println!("⚠️  Found {} issue(s), {} fixed", issues_found, issues_fixed);
+                println!(
+                    "⚠️  Found {} issue(s), {} fixed",
+                    issues_found, issues_fixed
+                );
                 println!();
                 println!("Quick fixes:");
                 println!(

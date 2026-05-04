@@ -88,7 +88,7 @@ pub fn run_query(
         );
     }
 
-    let graph = CodeGraph::open(&db_path)?;
+    let mut graph = CodeGraph::open(&db_path)?;
     let exec_id = magellan::output::generate_execution_id();
     let root_str = root.as_ref().map(|p| p.to_string_lossy().to_string());
     let db_path_str = db_path.to_string_lossy().to_string();
@@ -101,28 +101,19 @@ pub fn run_query(
         &db_path_str,
     )?;
 
-    // Helper to finish execution on return
-    let finish_execution =
-        |graph: &CodeGraph, outcome: &str, error_msg: Option<String>| -> Result<()> {
-            graph.execution_log().finish_execution(
-                &exec_id,
-                outcome,
-                error_msg.as_deref(),
-                0,
-                0,
-                0, // No indexing counts for query command
-            )
-        };
-
     if explain {
         println!("{}", QUERY_EXPLAIN_TEXT);
-        finish_execution(&graph, "success", None)?;
+        let _ = graph
+            .execution_log()
+            .finish_execution(&exec_id, "success", None, 0, 0, 0);
         return Ok(());
     }
 
     if show_extent && symbol.is_none() {
         let err_msg = "--show-extent requires --symbol <name>".to_string();
-        finish_execution(&graph, "error", Some(err_msg.clone()))?;
+        let _ = graph
+            .execution_log()
+            .finish_execution(&exec_id, "error", Some(&err_msg), 0, 0, 0);
         anyhow::bail!(err_msg);
     }
 
@@ -132,7 +123,14 @@ pub fn run_query(
             Some(k) => Some(k),
             None => {
                 let err_msg = format!("Unknown symbol kind: '{}'. Valid kinds: function, method, class, interface, enum, module, union, namespace, typealias", s);
-                finish_execution(&graph, "error", Some(err_msg.clone()))?;
+                let _ = graph.execution_log().finish_execution(
+                    &exec_id,
+                    "error",
+                    Some(&err_msg),
+                    0,
+                    0,
+                    0,
+                );
                 anyhow::bail!(err_msg);
             }
         },
@@ -143,7 +141,10 @@ pub fn run_query(
         Some(fp) => fp,
         None => {
             let err_msg = "--file is required unless --explain is used".to_string();
-            finish_execution(&graph, "error", Some(err_msg.clone()))?;
+            let _ =
+                graph
+                    .execution_log()
+                    .finish_execution(&exec_id, "error", Some(&err_msg), 0, 0, 0);
             anyhow::bail!(err_msg);
         }
     };
@@ -152,9 +153,8 @@ pub fn run_query(
 
     // Handle JSON output mode - use symbol_nodes_in_file_with_ids for symbol_id propagation
     if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
-        let mut graph_mut = CodeGraph::open(&db_path)?;
         let mut symbols_with_ids =
-            magellan::graph::query::symbol_nodes_in_file_with_ids(&mut graph_mut, &path_str)?;
+            magellan::graph::query::symbol_nodes_in_file_with_ids(&mut graph, &path_str)?;
 
         // Apply kind filter
         if let Some(ref filter_kind) = kind_filter {
@@ -172,14 +172,16 @@ pub fn run_query(
             .map(|(_, fact, symbol_id)| (fact, symbol_id))
             .collect();
 
-        finish_execution(&graph, "success", None)?;
+        let _ = graph
+            .execution_log()
+            .finish_execution(&exec_id, "success", None, 0, 0, 0);
         return output_json_mode(
             &path_str,
             symbols_with_ids,
             kind_str,
             show_extent,
             &symbol,
-            &mut graph_mut,
+            &mut graph,
             &exec_id,
             output_format,
             with_context,
@@ -192,8 +194,7 @@ pub fn run_query(
     }
 
     // Human mode - use existing flow
-    let mut graph_mut = CodeGraph::open(&db_path)?;
-    let mut symbols = graph_mut.symbols_in_file_with_kind(&path_str, kind_filter)?;
+    let mut symbols = graph.symbols_in_file_with_kind(&path_str, kind_filter)?;
 
     if let Some(ref symbol_name) = symbol {
         symbols.retain(|s| s.name.as_deref() == Some(symbol_name.as_str()));
@@ -211,7 +212,9 @@ pub fn run_query(
             ),
             None => println!("  Hint: run `magellan query --explain` for selector syntax."),
         }
-        finish_execution(&graph, "success", None)?;
+        let _ = graph
+            .execution_log()
+            .finish_execution(&exec_id, "success", None, 0, 0, 0);
         return Ok(());
     }
 
@@ -226,7 +229,7 @@ pub fn run_query(
         // Show callers if requested
         if with_callers {
             let symbol_path = symbol.file_path.to_string_lossy().to_string();
-            if let Ok(callers) = graph_mut.callers_of_symbol(&symbol_path, name) {
+            if let Ok(callers) = graph.callers_of_symbol(&symbol_path, name) {
                 if !callers.is_empty() {
                     println!("    Called from:");
                     for caller in &callers {
@@ -244,7 +247,7 @@ pub fn run_query(
         // Show callees if requested
         if with_callees {
             let symbol_path = symbol.file_path.to_string_lossy().to_string();
-            if let Ok(callees) = graph_mut.calls_from_symbol(&symbol_path, name) {
+            if let Ok(callees) = graph.calls_from_symbol(&symbol_path, name) {
                 if !callees.is_empty() {
                     println!("    Calls:");
                     for callee in &callees {
@@ -257,10 +260,12 @@ pub fn run_query(
 
     if show_extent {
         if let Some(ref symbol_name) = symbol {
-            let mut extents = graph_mut.symbol_extents(&path_str, symbol_name)?;
+            let mut extents = graph.symbol_extents(&path_str, symbol_name)?;
             if extents.is_empty() {
                 println!("  (no extent info found for '{}')", symbol_name);
-                finish_execution(&graph, "success", None)?;
+                let _ = graph
+                    .execution_log()
+                    .finish_execution(&exec_id, "success", None, 0, 0, 0);
                 return Ok(());
             }
             println!();
@@ -276,7 +281,9 @@ pub fn run_query(
         }
     }
 
-    finish_execution(&graph, "success", None)?;
+    let _ = graph
+        .execution_log()
+        .finish_execution(&exec_id, "success", None, 0, 0, 0);
     Ok(())
 }
 

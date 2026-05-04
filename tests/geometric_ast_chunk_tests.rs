@@ -10,6 +10,8 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use magellan::graph::geo_index::{scan_directory_with_progress, IndexingMode};
+
 /// Test AST indexing populates nodes
 #[test]
 #[cfg(feature = "geometric-backend")]
@@ -41,7 +43,7 @@ fn helper() -> i32 {
 
     let mut backend = GeometricBackend::create(&db_path).unwrap();
     let indexed =
-        scan_directory_with_progress(&mut backend, &src_dir, None, IndexingMode::CfgFirst).unwrap();
+        scan_directory_with_progress(&mut backend, &src_dir, None, IndexingMode::FullAst).unwrap();
 
     assert!(indexed > 0, "Should have indexed at least one file");
 
@@ -94,7 +96,7 @@ pub fn add(a: i32, b: i32) -> i32 {
 
     {
         let mut backend = GeometricBackend::create(&db_path).unwrap();
-        scan_directory_with_progress(&mut backend, &src_dir, None, IndexingMode::CfgFirst).unwrap();
+        scan_directory_with_progress(&mut backend, &src_dir, None, IndexingMode::FullAst).unwrap();
         backend.save_to_disk().unwrap();
     }
 
@@ -133,7 +135,7 @@ fn main() {
     use magellan::graph::geometric_backend::GeometricBackend;
 
     let mut backend = GeometricBackend::create(&db_path).unwrap();
-    scan_directory_with_progress(&mut backend, &src_dir, None, IndexingMode::CfgFirst).unwrap();
+    scan_directory_with_progress(&mut backend, &src_dir, None, IndexingMode::FullAst).unwrap();
     backend.save_to_disk().unwrap();
 
     // Find function_item nodes
@@ -176,7 +178,7 @@ fn foo() {}
     // Index and save
     {
         let mut backend = GeometricBackend::create(&db_path).unwrap();
-        scan_directory_with_progress(&mut backend, &src_dir, None, IndexingMode::CfgFirst).unwrap();
+        scan_directory_with_progress(&mut backend, &src_dir, None, IndexingMode::FullAst).unwrap();
         backend.save_to_disk().unwrap();
     }
 
@@ -223,7 +225,7 @@ pub fn add(a: i32, b: i32) -> i32 {
     use magellan::graph::geometric_backend::GeometricBackend;
 
     let mut backend = GeometricBackend::create(&db_path).unwrap();
-    scan_directory_with_progress(&mut backend, &src_dir, None, IndexingMode::CfgFirst).unwrap();
+    scan_directory_with_progress(&mut backend, &src_dir, None, IndexingMode::FullAst).unwrap();
     backend.save_to_disk().unwrap();
 
     // Get a chunk by span
@@ -275,7 +277,7 @@ fn helper() {
     use magellan::graph::geometric_backend::GeometricBackend;
 
     let mut backend = GeometricBackend::create(&db_path).unwrap();
-    scan_directory_with_progress(&mut backend, &src_dir, None, IndexingMode::CfgFirst).unwrap();
+    scan_directory_with_progress(&mut backend, &src_dir, None, IndexingMode::FullAst).unwrap();
     backend.save_to_disk().unwrap();
 
     let file_path = test_file.to_string_lossy().to_string();
@@ -322,7 +324,7 @@ pub fn public_fn() {}
     use magellan::graph::geometric_backend::GeometricBackend;
 
     let mut backend = GeometricBackend::create(&db_path).unwrap();
-    scan_directory_with_progress(&mut backend, &src_dir, None, IndexingMode::CfgFirst).unwrap();
+    scan_directory_with_progress(&mut backend, &src_dir, None, IndexingMode::FullAst).unwrap();
     backend.save_to_disk().unwrap();
 
     // Check labels were assigned
@@ -373,7 +375,7 @@ fn foo() -> i32 { 42 }
     // First session: index and save
     {
         let mut backend = GeometricBackend::create(&db_path).unwrap();
-        scan_directory_with_progress(&mut backend, &src_dir, None, IndexingMode::CfgFirst).unwrap();
+        scan_directory_with_progress(&mut backend, &src_dir, None, IndexingMode::FullAst).unwrap();
 
         // Record initial state
         let ast_count = backend.get_ast_nodes_by_file(&file_path).len();

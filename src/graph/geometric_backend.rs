@@ -952,6 +952,37 @@ impl GeometricBackend {
         Ok(ids)
     }
 
+    /// Insert symbols and their associated CFG blocks, automatically remapping
+    /// function_id from array indices to actual symbol IDs.
+    ///
+    /// This is the recommended way to insert extracted data because
+    /// extract_all_from_file stores function_id as array indices, but
+    /// insert_symbols assigns actual symbol IDs. Callers that use
+    /// insert_symbols + insert_cfg_block separately must remap function_id
+    /// themselves, which is error-prone.
+    pub fn insert_symbols_and_cfg_blocks(
+        &self,
+        symbols: Vec<InsertSymbol>,
+        mut cfg_blocks: Vec<SerializableCfgBlock>,
+    ) -> Result<(Vec<u64>, Vec<u64>)> {
+        let symbol_ids = self.insert_symbols(symbols)?;
+
+        // Remap function_id from array indices to actual symbol IDs
+        for block in &mut cfg_blocks {
+            let idx = block.function_id as usize;
+            if idx < symbol_ids.len() {
+                block.function_id = symbol_ids[idx] as i64;
+            }
+        }
+
+        let mut cfg_ids = Vec::new();
+        for block in cfg_blocks {
+            cfg_ids.push(self.insert_cfg_block(block)?);
+        }
+
+        Ok((symbol_ids, cfg_ids))
+    }
+
     /// Clear all data associated with a specific file path
     ///
     /// This removes symbols, call edges, CFG blocks, AST nodes, and chunks

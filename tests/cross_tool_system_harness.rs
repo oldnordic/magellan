@@ -345,6 +345,7 @@ fn main() {
 /// Test: Full cross-tool harness passes
 #[test]
 #[cfg(feature = "geometric-backend")]
+#[ignore = "requires freshly built binaries installed in ~/.local/bin"]
 fn cross_tool_system_harness_passes() {
     harness::run_harness().expect("Cross-tool harness failed");
 }
@@ -352,6 +353,7 @@ fn cross_tool_system_harness_passes() {
 /// Test: Database is shareable between tools
 #[test]
 #[cfg(feature = "geometric-backend")]
+#[ignore = "requires freshly built binaries installed in ~/.local/bin"]
 fn geo_database_is_shareable_between_tools() {
     use std::process::Command;
 

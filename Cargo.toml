@@ -58,8 +58,8 @@ harness = false
 path = "benches/kv_metadata_bench.rs"
 
 [features]
-# Default: SQLite backend (stable, widely compatible)
-default = ["sqlite-backend"]
+# Default: Hybrid SQLite + Geometric backend
+default = ["sqlite-backend", "geometric-backend"]
 # SQLite backend (stable, uses SQLite for storage)
 # Use this for compatibility and stability
 sqlite-backend = ["sqlitegraph/sqlite-backend"]

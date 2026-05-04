@@ -99,7 +99,10 @@ pub fn run_ingest_coverage(db_path: PathBuf, lcov_path: PathBuf) -> Result<()> {
     // Checkpoint WAL to prevent unbounded growth after bulk coverage insert
     drop(conn);
     if let Err(e) = _graph.checkpoint_wal() {
-        eprintln!("Warning: WAL checkpoint failed after coverage ingest: {}", e);
+        eprintln!(
+            "Warning: WAL checkpoint failed after coverage ingest: {}",
+            e
+        );
     }
 
     if unmapped_lines > 0 {

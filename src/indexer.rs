@@ -100,16 +100,16 @@ pub fn read_batch_sources(paths: &[PathBuf]) -> Vec<(PathBuf, Vec<u8>, usize)> {
         .collect()
 }
 
-// Debug macro - enabled for debug-prints or when geometric-backend needs it
-#[cfg(any(feature = "debug-prints", feature = "geometric-backend"))]
+// Debug macro - only enabled when debug-prints feature is active
+#[cfg(feature = "debug-prints")]
 macro_rules! debug_print {
     ($($arg:tt)*) => {
         { eprintln!($($arg)*); }
     };
 }
 
-#[cfg(not(any(feature = "debug-prints", feature = "geometric-backend")))]
-#[allow(unused_macros)] // Macro is used when geometric-backend feature is enabled
+#[cfg(not(feature = "debug-prints"))]
+#[allow(unused_macros)]
 macro_rules! debug_print {
     ($($arg:tt)*) => {
         // Optimized out when debug-prints feature is disabled
@@ -842,7 +842,7 @@ pub fn run_watch_pipeline_geometric(
                 debug_print!("[WATCH_DEBUG] Saving data after initial scan...");
                 match backend.save_to_disk() {
                     Ok(_) => debug_print!("[WATCH_DEBUG] Data saved successfully"),
-                    Err(e) => debug_print!("[WATCH_DEBUG] ERROR saving data: {}", e),
+                    Err(_e) => debug_print!("[WATCH_DEBUG] ERROR saving data: {}", _e),
                 }
                 debug_print!("[WATCH_DEBUG] Save operation completed.");
             }

@@ -34,26 +34,25 @@ impl MetricsOps {
         &self,
         progress: Option<&(dyn Fn(usize, usize, &str) + Send + Sync)>,
     ) -> Result<BackfillResult> {
-        let conn = self.connect()?;
+        // Collect file paths using with_conn to support Shared backend
+        let files: Vec<String> = self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT DISTINCT json_extract(data, '$.file_path') as file_path
+                 FROM graph_entities
+                 WHERE kind = 'Symbol'
+                 AND json_extract(data, '$.file_path') IS NOT NULL
+                 ORDER BY file_path",
+            )?;
 
-        // Get all unique file paths from graph_entities (Symbol nodes)
-        let mut stmt = conn.prepare(
-            "SELECT DISTINCT json_extract(data, '$.file_path') as file_path
-             FROM graph_entities
-             WHERE kind = 'Symbol'
-             AND json_extract(data, '$.file_path') IS NOT NULL
-             ORDER BY file_path",
-        )?;
+            let files: Vec<String> = stmt
+                .query_map([], |row| {
+                    let file_path: String = row.get(0)?;
+                    Ok(file_path)
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
 
-        let files: Vec<String> = stmt
-            .query_map([], |row| {
-                let file_path: String = row.get(0)?;
-                Ok(file_path)
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
-
-        drop(stmt);
-        drop(conn); // Release lock before long operation
+            Ok(files)
+        })?;
 
         let total = files.len();
         let mut processed = 0;
@@ -109,26 +108,26 @@ impl MetricsOps {
     /// # Returns
     /// Vector of SymbolNode structs for all symbols in the file
     fn get_file_symbols(&self, file_path: &str) -> Result<Vec<crate::graph::schema::SymbolNode>> {
-        let conn = self.connect()?;
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT data
+                 FROM graph_entities
+                 WHERE kind = 'Symbol'
+                 AND json_extract(data, '$.file_path') = ?1",
+            )?;
 
-        let mut stmt = conn.prepare(
-            "SELECT data
-             FROM graph_entities
-             WHERE kind = 'Symbol'
-             AND json_extract(data, '$.file_path') = ?1",
-        )?;
+            let symbols = stmt
+                .query_map(params![file_path], |row| {
+                    let data: String = row.get(0)?;
+                    // Parse JSON to extract SymbolNode
+                    let symbol: crate::graph::schema::SymbolNode = serde_json::from_str(&data)
+                        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+                    Ok(symbol)
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
 
-        let symbols = stmt
-            .query_map(params![file_path], |row| {
-                let data: String = row.get(0)?;
-                // Parse JSON to extract SymbolNode
-                let symbol: crate::graph::schema::SymbolNode = serde_json::from_str(&data)
-                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-                Ok(symbol)
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
-
-        Ok(symbols)
+            Ok(symbols)
+        })
     }
 }
 
