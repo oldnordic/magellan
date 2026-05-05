@@ -552,8 +552,8 @@ pub fn run_context_impact(
                     "data": {
                         "target": target,
                         "depth_limit": depth,
-                        "total_affected": 0,
-                        "affected": [],
+                        "total_impacted": 0,
+                        "impacted": [],
                     },
                 });
                 let formatted = if matches!(output_format, OutputFormat::Pretty) {
@@ -602,8 +602,8 @@ pub fn run_context_impact(
                 "data": {
                     "target": target,
                     "depth_limit": depth,
-                    "total_affected": all_impacted.len(),
-                    "affected": impacted_json,
+                    "total_impacted": all_impacted.len(),
+                    "impacted": impacted_json,
                 },
             });
             let formatted = if matches!(output_format, OutputFormat::Pretty) {
