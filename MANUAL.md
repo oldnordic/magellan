@@ -244,9 +244,9 @@ magellan slice --db code.db --target <SYMBOL_ID> --direction backward
 magellan slice --db code.db --target <SYMBOL_ID> --direction forward --verbose
 ```
 
-## Context Analysis (LLM Context Queries)
+## Context Analysis Commands
 
-Context commands provide symbol-centric context for LLM consumption — definition, callers, callees, impact analysis, and source code snippets.
+Context commands provide symbol-centric context for automated code analysis — definition, callers, callees, impact analysis, and source code snippets.
 
 ### Build Context Index
 

@@ -3,11 +3,11 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.2.0] - 2026-05-06
 
 ### Added
 
-- **Context Analysis Commands** (LLM Context Queries):
+- **Context Analysis Commands** (Cross-Project Symbol Queries):
   - `magellan context build` — Build context index
   - `magellan context summary` — Show project summary
   - `magellan context list` — Paginated symbol listing (multi-DB)

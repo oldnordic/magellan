@@ -1360,7 +1360,7 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                 if i + 1 >= args.len() {
                     return Err(anyhow::anyhow!("--db requires an argument"));
                 }
-                db_paths = parse_db_paths(&args[i + 1])?;
+                db_paths.extend(parse_db_paths(&args[i + 1])?);
                 i += 2;
             }
             "--output" => {
@@ -1395,7 +1395,7 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                         if i + 1 >= args.len() {
                             return Err(anyhow::anyhow!("--db requires an argument"));
                         }
-                        db_paths = parse_db_paths(&args[i + 1])?;
+                        db_paths.extend(parse_db_paths(&args[i + 1])?);
                         i += 2;
                     }
                     "--kind" => {
@@ -1480,7 +1480,7 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                         if i + 1 >= args.len() {
                             return Err(anyhow::anyhow!("--db requires an argument"));
                         }
-                        db_paths = parse_db_paths(&args[i + 1])?;
+                        db_paths.extend(parse_db_paths(&args[i + 1])?);
                         i += 2;
                     }
                     "--name" => {
@@ -1562,7 +1562,7 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                         if i + 1 >= args.len() {
                             return Err(anyhow::anyhow!("--db requires an argument"));
                         }
-                        db_paths = parse_db_paths(&args[i + 1])?;
+                        db_paths.extend(parse_db_paths(&args[i + 1])?);
                         i += 2;
                     }
                     "--path" => {
@@ -1596,7 +1596,7 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                         if i + 1 >= args.len() {
                             return Err(anyhow::anyhow!("--db requires an argument"));
                         }
-                        db_paths = parse_db_paths(&args[i + 1])?;
+                        db_paths.extend(parse_db_paths(&args[i + 1])?);
                         i += 2;
                     }
                     "--name" => {
@@ -1666,7 +1666,7 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                         if i + 1 >= args.len() {
                             return Err(anyhow::anyhow!("--db requires an argument"));
                         }
-                        db_paths = parse_db_paths(&args[i + 1])?;
+                        db_paths.extend(parse_db_paths(&args[i + 1])?);
                         i += 2;
                     }
                     "--name" => {
@@ -1735,7 +1735,7 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
         let mut i = 1;
         while i < args.len() {
             if args[i] == "--db" && i + 1 < args.len() {
-                db_paths = parse_db_paths(&args[i + 1])?;
+                db_paths.extend(parse_db_paths(&args[i + 1])?);
                 break;
             }
             i += 1;
