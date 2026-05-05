@@ -50,4 +50,4 @@ jobs:
         run: cargo check --all-targets
 
       - name: cargo test
-        run: cargo test --all-targets
+        run: cargo test
