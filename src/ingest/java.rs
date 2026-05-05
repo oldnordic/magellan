@@ -674,7 +674,7 @@ impl JavaParser {
 
 impl Default for JavaParser {
     fn default() -> Self {
-        Self::new().expect("Failed to create Java parser")
+        Self::new().expect("Failed to create Java parser") // M-UNWRAP: tree-sitter language is a build-time invariant
     }
 }
 

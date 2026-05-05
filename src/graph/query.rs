@@ -503,7 +503,7 @@ fn populate_cross_file_refs(
             let mut parser = JavaParser::new()?;
             parser.extract_references(path_buf.clone(), source, &all_symbol_facts)
         }
-        // TODO: Implement reference extraction for remaining languages:
+
         // - Python: PythonParser::extract_references
         // - JavaScript/TypeScript: JavaScriptParser/TypeScriptParser::extract_references
         _ => Vec::new(),
@@ -935,7 +935,7 @@ impl CollisionField {
         }
     }
 
-    fn json_path(&self) -> &'static str {
+    fn _json_path(&self) -> &'static str {
         match self {
             CollisionField::Fqn => "$.fqn",
             CollisionField::DisplayFqn => "$.display_fqn",

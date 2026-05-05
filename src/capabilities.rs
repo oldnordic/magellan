@@ -173,17 +173,16 @@ impl BackendCapabilities {
             #[cfg(feature = "sqlite-backend")]
             BackendType::SQLite => Self::sqlite(),
             #[cfg(not(feature = "sqlite-backend"))]
-            BackendType::SQLite => Self::not_built(BackendType::SQLite, "sqlite-backend"),
-
+            BackendType::SQLite => Self::_not_built(BackendType::SQLite, "sqlite-backend"),
             #[cfg(feature = "geometric-backend")]
             BackendType::Geometric => Self::geometric(),
             #[cfg(not(feature = "geometric-backend"))]
-            BackendType::Geometric => Self::not_built(BackendType::Geometric, "geometric-backend"),
+            BackendType::Geometric => Self::_not_built(BackendType::Geometric, "geometric-backend"),
         }
     }
 
     /// Create a "not built" capability set
-    fn not_built(backend_type: BackendType, feature: &str) -> Self {
+    fn _not_built(backend_type: BackendType, feature: &str) -> Self {
         Self {
             backend_type,
             supports_symbol_queries: false,

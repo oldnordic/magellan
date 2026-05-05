@@ -523,6 +523,7 @@ pub enum Command {
     Verify {
         root_path: PathBuf,
         db_path: PathBuf,
+        output_format: OutputFormat,
     },
     /// Refresh index based on git changes
     Refresh {
@@ -1287,7 +1288,6 @@ fn parse_enrich_args(args: &[String]) -> Result<Command> {
 
 /// Parse the `context` command arguments
 fn parse_context_args(args: &[String]) -> Result<Command> {
-    eprintln!("DEBUG parse_context_args: {:?}", args);
     if args.is_empty() {
         return Err(anyhow::anyhow!(
             "context subcommand required: build, summary, list, symbol, file, impact, affected"
@@ -1295,7 +1295,6 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
     }
 
     let mut db_paths: Vec<PathBuf> = Vec::new();
-    let mut output_format = OutputFormat::Human;
 
     // Pre-scan for global flags (--db, --output) that may appear before subcommand
     let mut i = 0;
@@ -1312,16 +1311,16 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                 if i + 1 >= args.len() {
                     return Err(anyhow::anyhow!("--output requires an argument"));
                 }
-                output_format = parse_output_format(&args[i + 1])?;
+                let _ = parse_output_format(&args[i + 1])?;
                 i += 2;
             }
             _ => break,
         }
     }
 
-    eprintln!("DEBUG after pre-scan: i={}, subcommand_name={:?}", i, args.get(i));
-    let subcommand_name = args.get(i).map(|s| s.as_str()).unwrap_or("");
-    eprintln!("DEBUG matching subcommand: {:?}", subcommand_name);
+    // Slice args so subcommand is at index 0, flags start at index 1
+    let args = &args[i..];
+    let subcommand_name = args.get(0).map(|s| s.as_str()).unwrap_or("");
     let subcommand = match subcommand_name {
         "build" => ContextSubcommand::Build,
         "summary" => ContextSubcommand::Summary,
@@ -1670,7 +1669,7 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
         _ => {
             return Err(anyhow::anyhow!(
                 "Unknown context subcommand: {}. Use: build, summary, list, symbol, file, impact, affected",
-                args[0]
+                subcommand_name
             ));
         }
     };
@@ -2382,6 +2381,7 @@ fn parse_refs_args(args: &[String]) -> Result<Command> {
 fn parse_verify_args(args: &[String]) -> Result<Command> {
     let mut root_path: Option<PathBuf> = None;
     let mut db_path: Option<PathBuf> = None;
+    let mut output_format = OutputFormat::Human;
 
     let mut i = 0;
     while i < args.len() {
@@ -2400,6 +2400,15 @@ fn parse_verify_args(args: &[String]) -> Result<Command> {
                 db_path = Some(PathBuf::from(&args[i + 1]));
                 i += 2;
             }
+            "--output" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!(
+                        "--output requires an argument (human|json|pretty)"
+                    ));
+                }
+                output_format = parse_output_format(&args[i + 1])?;
+                i += 2;
+            }
             _ => return Err(anyhow::anyhow!("Unknown argument: {}", args[i])),
         }
     }
@@ -2407,7 +2416,11 @@ fn parse_verify_args(args: &[String]) -> Result<Command> {
     let root_path = root_path.ok_or_else(|| anyhow::anyhow!("--root is required"))?;
     let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
 
-    Ok(Command::Verify { root_path, db_path })
+    Ok(Command::Verify {
+        root_path,
+        db_path,
+        output_format,
+    })
 }
 
 /// Parse the `refresh` command arguments
@@ -3988,9 +4001,14 @@ mod tests {
 
         let result = parse_verify_args(&args).unwrap();
         match result {
-            Command::Verify { root_path, db_path } => {
+            Command::Verify {
+                root_path,
+                db_path,
+                output_format,
+            } => {
                 assert_eq!(root_path, PathBuf::from("/home/test"));
                 assert_eq!(db_path, PathBuf::from("test.db"));
+                assert!(matches!(output_format, OutputFormat::Human));
             }
             _ => panic!("Expected Verify command"),
         }

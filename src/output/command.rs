@@ -1157,7 +1157,7 @@ pub fn generate_execution_id() -> String {
 
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_secs();
     let pid = process::id();
 

@@ -497,7 +497,7 @@ impl CParser {
 
 impl Default for CParser {
     fn default() -> Self {
-        Self::new().expect("Failed to create C parser")
+        Self::new().expect("Failed to create C parser") // M-UNWRAP: tree-sitter language is a build-time invariant
     }
 }
 

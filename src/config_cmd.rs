@@ -5,7 +5,6 @@
 use anyhow::Result;
 use magellan::config::{self, Config};
 use magellan::output::OutputFormat;
-use std::path::PathBuf;
 
 /// Show the current configuration
 pub fn run_config_show(output_format: OutputFormat) -> Result<()> {

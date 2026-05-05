@@ -264,7 +264,7 @@ impl ImportExtractor {
 
         // Check for braced list: foo::{bar, baz as qux}
         if path.contains('{') {
-            let base_end = path.find('{').unwrap();
+            let base_end = path.find('{').unwrap(); // M-UNWRAP: checked path.contains('{') above
             let base_path = path[..base_end].trim();
             let list_str = &path[base_end + 1..];
             let list_end = list_str.rfind('}').unwrap_or(list_str.len());
@@ -280,7 +280,14 @@ impl ImportExtractor {
             // Parse imported names (handle "as" aliases)
             let imported_names: Vec<String> = list
                 .split(',')
-                .map(|s| s.trim().split(" as ").next().unwrap().trim().to_string())
+                .map(|s| {
+                    s.trim()
+                        .split(" as ")
+                        .next()
+                        .unwrap() // M-UNWRAP: split on non-empty string always yields at least one element
+                        .trim()
+                        .to_string()
+                })
                 .filter(|s| !s.is_empty())
                 .collect();
 
@@ -323,7 +330,7 @@ impl ImportExtractor {
 
 impl Default for ImportExtractor {
     fn default() -> Self {
-        Self::new().expect("Failed to create ImportExtractor")
+        Self::new().expect("Failed to create ImportExtractor") // M-UNWRAP: tree-sitter language is a build-time invariant
     }
 }
 

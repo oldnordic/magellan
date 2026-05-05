@@ -230,7 +230,11 @@ fn parse_clangd_json(file_path: &Path, workspace: &Path) -> Result<Vec<LspSignat
 
     // Use clangd-query to get AST information
     let output = Command::new("clangd-query")
-        .args(["--dump-ast", "--include-refs", file_path.to_str().unwrap()])
+        .args([
+            std::ffi::OsStr::new("--dump-ast"),
+            std::ffi::OsStr::new("--include-refs"),
+            file_path.as_os_str(),
+        ])
         .current_dir(workspace)
         .output();
 
@@ -250,10 +254,10 @@ fn parse_clangd_json(file_path: &Path, workspace: &Path) -> Result<Vec<LspSignat
             // Fallback: use clang with -Xclang -ast-dump=json
             let output = Command::new("clang")
                 .args([
-                    "-Xclang",
-                    "-ast-dump=json",
-                    "-fsyntax-only",
-                    file_path.to_str().unwrap(),
+                    std::ffi::OsStr::new("-Xclang"),
+                    std::ffi::OsStr::new("-ast-dump=json"),
+                    std::ffi::OsStr::new("-fsyntax-only"),
+                    file_path.as_os_str(),
                 ])
                 .current_dir(workspace)
                 .output()
@@ -357,9 +361,9 @@ fn parse_javac_output(file_path: &Path, workspace: &Path) -> Result<Vec<LspSigna
     // Use javac -Xprint to print declarations
     let output = Command::new("javac")
         .args([
-            "-Xprint",
-            "-parameters", // Include parameter names
-            file_path.to_str().unwrap(),
+            std::ffi::OsStr::new("-Xprint"),
+            std::ffi::OsStr::new("-parameters"), // Include parameter names
+            file_path.as_os_str(),
         ])
         .current_dir(workspace)
         .output()

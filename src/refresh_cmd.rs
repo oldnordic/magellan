@@ -25,6 +25,7 @@ pub struct RefreshArgs {
     pub staged: bool,
     /// If true, only process unstaged changes
     pub unstaged: bool,
+    #[allow(dead_code, reason = "TODO: wire up force refresh logic")]
     /// If true, force refresh even if no changes detected
     pub force: bool,
     /// Output format (Human, Json, or Pretty)
@@ -75,6 +76,7 @@ impl RefreshReport {
         }
     }
 
+    #[allow(dead_code, reason = "used in tests, future public API")]
     /// Total number of changes (updated + deleted + added)
     pub fn total_changes(&self) -> usize {
         self.updated.len() + self.deleted.len() + self.added.len()

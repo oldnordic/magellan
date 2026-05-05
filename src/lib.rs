@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 #![allow(unused_imports)]
 //! Magellan: A dumb, deterministic codebase mapping tool
 //!

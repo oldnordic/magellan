@@ -24,7 +24,7 @@
 //! }
 //! ```
 
-#![allow(dead_code)] // Future optimization, not yet integrated
+// Future optimization, not yet integrated
 
 use anyhow::Result;
 use rusqlite::Connection;
@@ -52,11 +52,19 @@ use crate::graph::schema::SymbolNode;
 ///     // Symbol found, use entity_id
 /// }
 /// ```
+#[allow(
+    dead_code,
+    reason = "Future optimization: O(1) SymbolId lookup, not yet integrated into main query path"
+)]
 pub struct SymbolIndex {
     /// Map: SymbolId (32-char BLAKE3 hash) -> entity_id (i64)
     index: HashMap<String, i64>,
 }
 
+#[allow(
+    dead_code,
+    reason = "Associated items used in module tests and reserved for future integration"
+)]
 impl SymbolIndex {
     /// Create empty SymbolIndex
     pub fn new() -> Self {

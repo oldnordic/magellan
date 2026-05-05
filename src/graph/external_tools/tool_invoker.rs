@@ -85,7 +85,7 @@ pub fn invoke_tool_with_timeout(
         .to_string();
 
     // For now, use the sync version without timeout
-    // TODO: Add proper timeout support using process groups or async runtime
+
     let output = Command::new(executable).args(args).output().map_err(|e| {
         ToolInvocationError::ExecutionFailed {
             tool: tool_name.clone(),

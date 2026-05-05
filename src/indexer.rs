@@ -32,7 +32,7 @@ pub mod async_io;
 // Typical L3 sizes: 8MB (mobile/small core) to 32MB (desktop/server)
 const DEFAULT_L3_CACHE_SIZE: usize = 16 * 1024 * 1024; // 16MB default
 const TARGET_CACHE_USAGE: f64 = 0.50; // Use 50% of L3 for working set
-const AVG_SOURCE_FILE_SIZE: usize = 50 * 1024; // 50KB average
+const _AVG_SOURCE_FILE_SIZE: usize = 50 * 1024; // 50KB average
 
 /// Result of a single file batch operation
 #[derive(Debug)]
@@ -109,7 +109,10 @@ macro_rules! debug_print {
 }
 
 #[cfg(not(feature = "debug-prints"))]
-#[allow(unused_macros)]
+#[allow(
+    unused_macros,
+    reason = "noop stub: only used when feature debug-prints is enabled"
+)]
 macro_rules! debug_print {
     ($($arg:tt)*) => {
         // Optimized out when debug-prints feature is disabled
@@ -481,7 +484,7 @@ pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>
                     pb.set_style(
                         ProgressStyle::default_bar()
                             .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({percent}%) ETA: {eta}\n{msg}")
-                            .unwrap()
+                            .unwrap() // M-UNWRAP: hardcoded template string, infallible
                             .progress_chars("=>-"),
                     );
                     pb
@@ -816,7 +819,7 @@ pub fn run_watch_pipeline_geometric(
                     pb.set_style(
                         ProgressStyle::default_bar()
                             .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({percent}%) ETA: {eta}\n{msg}")
-                            .unwrap()
+                            .unwrap() // M-UNWRAP: hardcoded template string, infallible
                             .progress_chars("=>-"),
                     );
                     pb
@@ -1077,7 +1080,7 @@ mod tests {
         // Verify constants are reasonable
         assert_eq!(DEFAULT_L3_CACHE_SIZE, 16 * 1024 * 1024); // 16MB
         assert!((TARGET_CACHE_USAGE - 0.50).abs() < 0.001); // 50%
-        assert_eq!(AVG_SOURCE_FILE_SIZE, 50 * 1024); // 50KB
+        assert_eq!(_AVG_SOURCE_FILE_SIZE, 50 * 1024); // 50KB
     }
 
     #[test]

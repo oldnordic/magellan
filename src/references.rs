@@ -198,7 +198,7 @@ impl ReferenceExtractor {
 
 impl Default for ReferenceExtractor {
     fn default() -> Self {
-        Self::new().expect("Failed to create reference extractor")
+        Self::new().expect("Failed to create reference extractor") // M-UNWRAP: tree-sitter language is a build-time invariant
     }
 }
 
@@ -211,7 +211,8 @@ impl crate::ingest::Parser {
         source: &[u8],
         symbols: &[SymbolFact],
     ) -> Vec<ReferenceFact> {
-        let mut extractor = ReferenceExtractor::new().unwrap();
+        let mut extractor =
+            ReferenceExtractor::new().expect("Failed to create reference extractor"); // M-UNWRAP: tree-sitter language is a build-time invariant
         extractor.extract_references(file_path, source, symbols)
     }
 
@@ -236,7 +237,7 @@ impl crate::ingest::Parser {
         source: &[u8],
         symbols: &[SymbolFact],
     ) -> Vec<CallFact> {
-        let mut extractor = CallExtractor::new().unwrap();
+        let mut extractor = CallExtractor::new().expect("Failed to create call extractor"); // M-UNWRAP: tree-sitter language is a build-time invariant
         extractor.extract_calls(file_path, source, symbols)
     }
 }
@@ -440,6 +441,6 @@ impl CallExtractor {
 
 impl Default for CallExtractor {
     fn default() -> Self {
-        Self::new().expect("Failed to create call extractor")
+        Self::new().expect("Failed to create call extractor") // M-UNWRAP: tree-sitter language is a build-time invariant
     }
 }

@@ -128,12 +128,12 @@ impl<K: Hash + Eq + Clone, V> LruCache<K, V> {
     }
 
     /// Get current cache size
-    pub fn len(&self) -> usize {
+    pub fn _len(&self) -> usize {
         self.map.len()
     }
 
     /// Check if cache is empty
-    pub fn is_empty(&self) -> bool {
+    pub fn _is_empty(&self) -> bool {
         self.map.is_empty()
     }
 
@@ -147,7 +147,7 @@ impl<K: Hash + Eq + Clone, V> LruCache<K, V> {
     }
 
     /// Get hit rate as a percentage (0.0 to 1.0)
-    pub fn hit_rate(&self) -> f64 {
+    pub fn _hit_rate(&self) -> f64 {
         self.stats().hit_rate()
     }
 }
@@ -174,16 +174,16 @@ mod tests {
 
         // Empty cache
         assert_eq!(cache.get(&"a".to_string()), None);
-        assert_eq!(cache.len(), 0);
-        assert!(cache.is_empty());
+        assert_eq!(cache._len(), 0);
+        assert!(cache._is_empty());
 
         // Insert and get
         cache.put("a".to_string(), 1);
         cache.put("b".to_string(), 2);
         assert_eq!(cache.get(&"a".to_string()), Some(&1));
         assert_eq!(cache.get(&"b".to_string()), Some(&2));
-        assert_eq!(cache.len(), 2);
-        assert!(!cache.is_empty());
+        assert_eq!(cache._len(), 2);
+        assert!(!cache._is_empty());
     }
 
     #[test]
@@ -202,7 +202,7 @@ mod tests {
         assert_eq!(cache.get(&"a".to_string()), Some(&1));
         assert_eq!(cache.get(&"b".to_string()), None); // Evicted
         assert_eq!(cache.get(&"c".to_string()), Some(&3));
-        assert_eq!(cache.len(), 2);
+        assert_eq!(cache._len(), 2);
     }
 
     #[test]
@@ -223,7 +223,7 @@ mod tests {
         assert_eq!(cache.get(&"b".to_string()), None); // Evicted
         assert_eq!(cache.get(&"c".to_string()), Some(&3));
         assert_eq!(cache.get(&"d".to_string()), Some(&4));
-        assert_eq!(cache.len(), 3);
+        assert_eq!(cache._len(), 3);
     }
 
     #[test]
@@ -240,7 +240,7 @@ mod tests {
         assert_eq!(cache.get(&"a".to_string()), Some(&1));
         assert_eq!(cache.get(&"b".to_string()), None);
         assert_eq!(cache.get(&"c".to_string()), Some(&3));
-        assert_eq!(cache.len(), 2);
+        assert_eq!(cache._len(), 2);
     }
 
     #[test]
@@ -252,8 +252,8 @@ mod tests {
 
         cache.clear();
 
-        assert_eq!(cache.len(), 0);
-        assert!(cache.is_empty());
+        assert_eq!(cache._len(), 0);
+        assert!(cache._is_empty());
         assert_eq!(cache.get(&"a".to_string()), None);
     }
 
@@ -274,14 +274,14 @@ mod tests {
         assert_eq!(stats.misses, 1);
         assert_eq!(stats.size, 2);
 
-        let hit_rate = cache.hit_rate();
+        let hit_rate = cache._hit_rate();
         assert!((hit_rate - 2.0 / 3.0).abs() < f64::EPSILON);
     }
 
     #[test]
     fn test_cache_hit_rate_empty() {
         let cache: LruCache<String, i32> = LruCache::new(3);
-        assert_eq!(cache.hit_rate(), 0.0);
+        assert_eq!(cache._hit_rate(), 0.0);
     }
 
     #[test]
@@ -290,7 +290,7 @@ mod tests {
         cache.put("a".to_string(), 1);
         cache.get(&"a".to_string());
         cache.get(&"a".to_string());
-        assert_eq!(cache.hit_rate(), 1.0);
+        assert_eq!(cache._hit_rate(), 1.0);
     }
 
     #[test]
@@ -298,6 +298,6 @@ mod tests {
         let mut cache: LruCache<String, i32> = LruCache::new(3);
         cache.get(&"a".to_string());
         cache.get(&"b".to_string());
-        assert_eq!(cache.hit_rate(), 0.0);
+        assert_eq!(cache._hit_rate(), 0.0);
     }
 }

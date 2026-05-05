@@ -173,7 +173,10 @@ impl ExecutionLog {
                 Self::ensure_schema_sqlite(&conn)
             }
             ExecutionLogBackend::Shared(conn_arc) => {
-                let conn = conn_arc.lock().unwrap();
+                let conn = match conn_arc.lock() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
                 Self::ensure_schema_sqlite(&conn)
             }
             ExecutionLogBackend::SideTables(_) => {
@@ -194,7 +197,7 @@ impl ExecutionLog {
         let args_json = serde_json::to_string(args)?;
         let started_at = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs() as i64;
 
         conn.execute(
@@ -229,7 +232,10 @@ impl ExecutionLog {
                 Self::start_execution_sqlite(&conn, execution_id, tool_version, args, root, db_path)
             }
             ExecutionLogBackend::Shared(conn_arc) => {
-                let conn = conn_arc.lock().unwrap();
+                let conn = match conn_arc.lock() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
                 Self::start_execution_sqlite(&conn, execution_id, tool_version, args, root, db_path)
             }
             ExecutionLogBackend::SideTables(side_tables) => {
@@ -248,10 +254,13 @@ impl ExecutionLog {
         references_indexed: usize,
     ) -> Result<()> {
         let now = std::time::SystemTime::now();
-        let finished_at_secs = now.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+        let finished_at_secs = now
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
         let finished_at_ms = now
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_millis() as i64;
 
         let started_at_secs: i64 = conn
@@ -311,7 +320,10 @@ impl ExecutionLog {
                 )
             }
             ExecutionLogBackend::Shared(conn_arc) => {
-                let conn = conn_arc.lock().unwrap();
+                let conn = match conn_arc.lock() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
                 Self::finish_execution_sqlite(
                     &conn,
                     execution_id,
@@ -372,7 +384,10 @@ impl ExecutionLog {
                 Ok(result)
             }
             ExecutionLogBackend::Shared(conn_arc) => {
-                let conn = conn_arc.lock().unwrap();
+                let conn = match conn_arc.lock() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
                 let result = conn
                     .query_row(
                         "SELECT id, execution_id, tool_version, args, root, db_path,
@@ -414,7 +429,10 @@ impl ExecutionLog {
                 Ok(records)
             }
             ExecutionLogBackend::Shared(conn_arc) => {
-                let conn = conn_arc.lock().unwrap();
+                let conn = match conn_arc.lock() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
                 let mut stmt = conn.prepare(&sql)?;
                 let records = stmt
                     .query_map([], Self::row_to_execution_record)?

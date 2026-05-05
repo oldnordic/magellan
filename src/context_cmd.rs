@@ -64,7 +64,7 @@ pub fn run_context_list(
     kind: Option<String>,
     page: Option<usize>,
     page_size: Option<usize>,
-    cursor: Option<String>,
+    _cursor: Option<String>,
     project_filter: Option<String>,
     output_format: OutputFormat,
 ) -> Result<()> {

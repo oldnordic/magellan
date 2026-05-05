@@ -61,7 +61,6 @@ impl JavaBytecodeCfgExtractor {
         _class_path: &std::path::Path,
         _method_name: &str,
     ) -> Result<Vec<crate::graph::schema::CfgBlock>> {
-        // TODO: Implement using ASM's Analyzer class
         // See 44-02-PLAN.md for implementation details
         Ok(Vec::new())
     }

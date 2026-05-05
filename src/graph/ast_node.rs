@@ -13,7 +13,6 @@ use serde::{Deserialize, Serialize};
 pub mod kinds {
     /// Control flow nodes
     pub const IF: &str = "If";
-    pub const ELSE: &str = "Else";
     pub const MATCH: &str = "Match";
     pub const LOOP: &str = "Loop";
     pub const WHILE: &str = "While";
@@ -42,7 +41,6 @@ pub mod kinds {
 
     /// Other
     pub const ATTRIBUTE: &str = "Attribute";
-    pub const COMMENT: &str = "Comment";
 }
 
 /// AST node extracted from source code

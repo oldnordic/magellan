@@ -662,21 +662,25 @@ fn main() -> ExitCode {
             show_code,
             output_format,
         }) => {
-            if let Err(e) = label_cmd::run_label(db_path, label, list, count, show_code, output_format) {
+            if let Err(e) =
+                label_cmd::run_label(db_path, label, list, count, show_code, output_format)
+            {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
             ExitCode::SUCCESS
         }
-        Ok(Command::Verify { root_path, db_path }) => {
-            match verify_cmd::run_verify(root_path, db_path) {
-                Ok(exit_code) => ExitCode::from(exit_code),
-                Err(e) => {
-                    eprintln!("Error: {}", e);
-                    ExitCode::from(1)
-                }
+        Ok(Command::Verify {
+            root_path,
+            db_path,
+            output_format,
+        }) => match verify_cmd::run_verify(root_path, db_path, output_format) {
+            Ok(exit_code) => ExitCode::from(exit_code),
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                ExitCode::from(1)
             }
-        }
+        },
         Ok(Command::Watch {
             root_path,
             db_path,
