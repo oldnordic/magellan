@@ -4,13 +4,10 @@
 
 use anyhow::Result;
 use magellan::context::{
-    affected_analysis, build_context_index, get_file_context, get_or_build_context_index,
-    get_symbol_detail, get_symbol_detail_recursive, impact_analysis, list_symbols, ListQuery,
+    build_context_index, get_file_context, get_or_build_context_index, ListQuery,
 };
-use magellan::output::{
-    generate_execution_id, ContextResponse, OutputFormat, ProjectCalleeInfo, ProjectCallerInfo,
-    ProjectSymbolMatch, Span,
-};
+use magellan::graph::multi_db::MultiDbContext;
+use magellan::output::{generate_execution_id, ContextResponse, OutputFormat};
 use magellan::CodeGraph;
 use std::path::PathBuf;
 
@@ -74,42 +71,14 @@ pub fn run_context_list(
 
     let query = ListQuery {
         kind,
-        page: None, // We paginate globally after union
+        page: None,
         page_size: None,
         cursor: None,
         file_pattern: None,
     };
 
-    // Collect symbols across all DBs
-    let mut all_items: Vec<(String, magellan::context::SymbolListItem)> = Vec::new();
-    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-
-    for db_path in &db_paths {
-        let project = db_path
-            .file_stem()
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_else(|| "unknown".to_string());
-
-        let mut graph = match CodeGraph::open(db_path) {
-            Ok(g) => g,
-            Err(e) => {
-                eprintln!("Warning: skipping {}: {}", db_path.display(), e);
-                continue;
-            }
-        };
-
-        let result = match list_symbols(&mut graph, &query) {
-            Ok(r) => r,
-            Err(_) => continue,
-        };
-
-        for item in result.items {
-            let key = format!("{}:{}:{}:{}", project, item.name, item.file, item.line);
-            if seen.insert(key) {
-                all_items.push((project.clone(), item));
-            }
-        }
-    }
+    let mut mdb = MultiDbContext::from_paths(&db_paths)?;
+    let mut all_items = mdb.list_symbols(&query);
 
     // Post-filter by --project
     if let Some(ref filter) = project_filter {
@@ -213,126 +182,28 @@ pub fn run_context_symbol(
         anyhow::bail!("No database paths provided. Use --db <path> to specify.");
     }
 
-    // Collect matches across all DBs
-    let mut all_matches: Vec<ProjectSymbolMatch> = Vec::new();
-    let mut project_names: Vec<String> = Vec::new();
-    let mut seen_symbols: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut mdb = MultiDbContext::from_paths(&db_paths)?;
+    let mut all_matches = mdb.search_symbol(
+        &name,
+        file.as_deref(),
+        depth,
+        include_callers,
+        include_callees,
+    );
 
-    for db_path in &db_paths {
-        let project = db_path
-            .file_stem()
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_else(|| "unknown".to_string());
-
-        // Skip if --project filter doesn't match
-        if let Some(ref filter) = project_filter {
-            if project != *filter {
-                continue;
-            }
-        }
-
-        let mut graph = match CodeGraph::open(db_path) {
-            Ok(g) => g,
-            Err(e) => {
-                eprintln!("Warning: skipping {}: {}", db_path.display(), e);
-                continue;
-            }
-        };
-
-        // Depth 0 or None means single-hop (default behavior)
-        let detail = match depth {
-            Some(d) if d > 1 => get_symbol_detail_recursive(&mut graph, &name, file.as_deref(), d),
-            _ => get_symbol_detail(&mut graph, &name, file.as_deref()),
-        };
-
-        let detail = match detail {
-            Ok(d) => d,
-            Err(_) => continue, // Symbol not found in this DB, skip
-        };
-
-        // Dedup: skip if we already found this symbol in another DB
-        let symbol_key = format!("{}:{}:{}", project, detail.file, detail.line);
-        if !seen_symbols.insert(symbol_key) {
-            continue;
-        }
-
-        project_names.push(project.clone());
-
-        let span = Span {
-            span_id: magellan::output::Span::generate_id(
-                &detail.file,
-                detail.byte_start,
-                detail.byte_end,
-            ),
-            file_path: detail.file.clone(),
-            byte_start: detail.byte_start,
-            byte_end: detail.byte_end,
-            start_line: detail.line,
-            start_col: detail.start_col,
-            end_line: detail.end_line,
-            end_col: detail.end_col,
-            context: None,
-            semantics: None,
-            relationships: None,
-            checksums: None,
-        };
-
-        let callers: Option<Vec<ProjectCallerInfo>> = if include_callers {
-            Some(
-                detail
-                    .callers
-                    .iter()
-                    .map(|c| ProjectCallerInfo {
-                        project: project.clone(),
-                        name: c.name.clone(),
-                        file_path: c.file.clone(),
-                        line: c.line,
-                        column: 0,
-                        depth: c.depth,
-                    })
-                    .collect(),
-            )
-        } else {
-            None
-        };
-
-        let callees: Option<Vec<ProjectCalleeInfo>> = if include_callees {
-            Some(
-                detail
-                    .callees
-                    .iter()
-                    .map(|c| ProjectCalleeInfo {
-                        project: project.clone(),
-                        name: c.name.clone(),
-                        file_path: c.file.clone(),
-                        line: c.line as u32,
-                        depth: c.depth,
-                    })
-                    .collect(),
-            )
-        } else {
-            None
-        };
-
-        let source = if with_source {
-            read_source_lines(&detail.file, detail.line, detail.end_line)
-        } else {
-            None
-        };
-
-        all_matches.push(ProjectSymbolMatch {
-            project: project.clone(),
-            match_id: format!("{}::{}#{}", project, detail.name, detail.line),
-            span,
-            name: detail.name.clone(),
-            kind: detail.kind.clone(),
-            parent: None,
-            symbol_id: Some(format!("{}::{}#{}", project, detail.name, detail.line)),
-            callers,
-            callees,
-            source,
-        });
+    // Post-filter by --project
+    if let Some(ref filter) = project_filter {
+        all_matches.retain(|m| m.project == *filter);
     }
+
+    // Add source snippets if requested
+    if with_source {
+        for m in &mut all_matches {
+            m.source = read_source_lines(&m.span.file_path, m.span.start_line, m.span.end_line);
+        }
+    }
+
+    let project_names: Vec<String> = all_matches.iter().map(|m| m.project.clone()).collect();
 
     if all_matches.is_empty() {
         match output_format {
@@ -492,42 +363,11 @@ pub fn run_context_impact(
         anyhow::bail!("No database paths provided. Use --db <path> to specify.");
     }
 
-    let mut all_impacted: Vec<(String, magellan::context::SymbolRelation)> = Vec::new();
-    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut mdb = MultiDbContext::from_paths(&db_paths)?;
+    let mut all_impacted = mdb.impact(&symbol_name, file.as_deref(), depth);
 
-    for db_path in &db_paths {
-        let project = db_path
-            .file_stem()
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_else(|| "unknown".to_string());
-
-        if let Some(ref filter) = project_filter {
-            if project != *filter {
-                continue;
-            }
-        }
-
-        let mut graph = match CodeGraph::open(db_path) {
-            Ok(g) => g,
-            Err(e) => {
-                eprintln!("Warning: skipping {}: {}", db_path.display(), e);
-                continue;
-            }
-        };
-
-        match impact_analysis(&mut graph, &symbol_name, file.as_deref(), depth) {
-            Ok(impacted) => {
-                for r in impacted {
-                    let key = format!("{}:{}:{}:{}", project, r.name, r.file, r.line);
-                    if seen.insert(key) {
-                        all_impacted.push((project.clone(), r));
-                    }
-                }
-            }
-            Err(e) => {
-                eprintln!("Warning: could not analyze {}: {}", project, e);
-            }
-        }
+    if let Some(ref filter) = project_filter {
+        all_impacted.retain(|(proj, _)| proj == filter);
     }
 
     if all_impacted.is_empty() {
@@ -648,42 +488,11 @@ pub fn run_context_affected(
         anyhow::bail!("No database paths provided. Use --db <path> to specify.");
     }
 
-    let mut all_affected: Vec<(String, magellan::context::SymbolRelation)> = Vec::new();
-    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut mdb = MultiDbContext::from_paths(&db_paths)?;
+    let mut all_affected = mdb.affected(&symbol_name, file.as_deref(), depth);
 
-    for db_path in &db_paths {
-        let project = db_path
-            .file_stem()
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_else(|| "unknown".to_string());
-
-        if let Some(ref filter) = project_filter {
-            if project != *filter {
-                continue;
-            }
-        }
-
-        let mut graph = match CodeGraph::open(db_path) {
-            Ok(g) => g,
-            Err(e) => {
-                eprintln!("Warning: skipping {}: {}", db_path.display(), e);
-                continue;
-            }
-        };
-
-        match affected_analysis(&mut graph, &symbol_name, file.as_deref(), depth) {
-            Ok(results) => {
-                for r in results {
-                    let key = format!("{}:{}:{}:{}", project, r.name, r.file, r.line);
-                    if seen.insert(key) {
-                        all_affected.push((project.clone(), r));
-                    }
-                }
-            }
-            Err(e) => {
-                eprintln!("Warning: could not analyze {}: {}", project, e);
-            }
-        }
+    if let Some(ref filter) = project_filter {
+        all_affected.retain(|(proj, _)| proj == filter);
     }
 
     let target = format!(
