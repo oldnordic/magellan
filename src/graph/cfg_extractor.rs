@@ -775,9 +775,7 @@ pub mod llvm_cfg {
             // Find clang in PATH
             let clang_path = Self::find_clang()?;
 
-            Ok(Self {
-                clang_path,
-            })
+            Ok(Self { clang_path })
         }
 
         /// Extract CFG blocks from LLVM IR for a C/C++ function
