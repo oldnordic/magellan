@@ -764,9 +764,6 @@ pub mod llvm_cfg {
     pub struct LlvmCfgExtractor {
         /// Path to clang binary for IR generation
         clang_path: std::path::PathBuf,
-        /// LLVM context for IR parsing
-        #[allow(dead_code)]
-        context: Option<inkwell::context::Context>,
     }
 
     impl LlvmCfgExtractor {
@@ -780,7 +777,6 @@ pub mod llvm_cfg {
 
             Ok(Self {
                 clang_path,
-                context: None, // Initialized when needed
             })
         }
 

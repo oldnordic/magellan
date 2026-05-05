@@ -159,17 +159,6 @@ impl MetricsOps {
         }
     }
 
-    /// Get current Unix timestamp in seconds
-    ///
-    /// Reserved for future timestamp tracking in metrics operations.
-    #[allow(dead_code)]
-    fn now() -> i64 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64
-    }
-
     /// Upsert file metrics (insert or replace)
     pub fn upsert_file_metrics(&self, metrics: &FileMetrics) -> Result<()> {
         match &self.backend {
