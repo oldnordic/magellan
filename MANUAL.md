@@ -244,6 +244,96 @@ magellan slice --db code.db --target <SYMBOL_ID> --direction backward
 magellan slice --db code.db --target <SYMBOL_ID> --direction forward --verbose
 ```
 
+## Context Analysis (LLM Context Queries)
+
+Context commands provide symbol-centric context for LLM consumption — definition, callers, callees, impact analysis, and source code snippets.
+
+### Build Context Index
+
+```bash
+magellan context build --db code.db
+```
+
+Builds the `.magellan/<project>.context.json` summary index. Required once per database before using summary commands.
+
+### Project Summary
+
+```bash
+magellan context summary --db code.db
+```
+
+Shows project name, version, language, file/symbol counts, and entry points.
+
+### List Symbols (Paginated)
+
+```bash
+magellan context list --db code.db
+magellan context list --db code.db --kind fn --page 2 --project magellan
+magellan context list --db code.db --output json
+```
+
+Multi-DB: pass a directory to `--db` and all `.magellan/*.db` files are queried.
+
+### Symbol Detail
+
+```bash
+magellan context symbol --db code.db --name parse_args
+magellan context symbol --db code.db --name parse_args --callers --callees
+magellan context symbol --db code.db --name parse_args --with-source --depth 2
+magellan context symbol --db code.db --name parse_args --file src/main.rs --output json
+```
+
+Flags:
+
+| Flag | Meaning |
+|------|---------|
+| `--name <NAME>` | Symbol name to look up (**required**) |
+| `--file <PATH>` | Limit search to specific file (optional) |
+| `--callers` | Include caller references |
+| `--callees` | Include callee references |
+| `--with-source` | Include source code snippet |
+| `--depth <N>` | Recursive lookup depth (default: 1) |
+| `--project <NAME>` | Filter to single project in multi-DB mode |
+| `--output <FORMAT>` | `human` (default), `json`, or `pretty` |
+
+### File Context
+
+```bash
+magellan context file --db code.db --path src/main.rs
+```
+
+Shows symbols in file, language, public symbols, imports.
+
+### Impact Analysis (Blast Radius)
+
+Find all symbols that transitively call the target — "what breaks if I change this?"
+
+```bash
+magellan context impact --db code.db --name parse_args --depth 3
+magellan context impact --db code.db --name parse_args --file src/main.rs --depth 2 --output json
+```
+
+### Affected Analysis (Dependency Reach)
+
+Find all symbols that the target transitively calls — "what does this symbol depend on?"
+
+```bash
+magellan context affected --db code.db --name run_main --depth 3
+magellan context affected --db code.db --name run_main --output json
+```
+
+### Multi-DB Queries
+
+All context commands except `build`, `summary`, and `file` support multi-DB mode:
+
+```bash
+magellan context list --db .magellan/ --output json
+magellan context symbol --db .magellan/ --name main --callers
+magellan context impact --db .magellan/ --symbol extract_symbols --depth 2
+```
+
+When `--db` points to a directory, all `.magellan/*.db` files are queried and results are tagged by project name.
+
 ## Coverage
 
 ```bash

@@ -35,6 +35,7 @@ pub fn print_short_usage() {
     eprintln!(
         "  cross-file-refs  Cross-file refs: magellan cross-file-refs --db code.db --fqn foo::bar"
     );
+    eprintln!("  context     Symbol context: magellan context symbol --db code.db --name main");
     eprintln!();
     eprintln!("Global: --output <human|json|pretty>");
     eprintln!();
@@ -133,6 +134,13 @@ pub fn print_full_usage() {
     eprintln!("  magellan condense --db <FILE> [--members] [--output <FORMAT>]");
     eprintln!("  magellan paths --db <FILE> --start <SYMBOL_ID> [--end <SYMBOL_ID>] [--max-depth <N>] [--max-paths <N>] [--output <FORMAT>]");
     eprintln!("  magellan slice --db <FILE> --target <SYMBOL_ID> [--direction <backward|forward>] [--verbose] [--output <FORMAT>]");
+    eprintln!("  magellan context build --db <FILE>");
+    eprintln!("  magellan context summary --db <FILE>");
+    eprintln!("  magellan context list --db <FILE> [--kind <KIND>] [--page <N>] [--project <NAME>] [--output <FORMAT>]");
+    eprintln!("  magellan context symbol --db <FILE> --name <NAME> [--callers] [--callees] [--with-source] [--depth <N>] [--output <FORMAT>]");
+    eprintln!("  magellan context file --db <FILE> --path <PATH>");
+    eprintln!("  magellan context impact --db <FILE> --name <NAME> [--file <PATH>] [--depth <N>] [--output <FORMAT>]");
+    eprintln!("  magellan context affected --db <FILE> --name <NAME> [--file <PATH>] [--depth <N>] [--output <FORMAT>]");
     eprintln!();
     eprintln!("Commands:");
     eprintln!("  watch           Watch directory and index changes");
@@ -166,6 +174,7 @@ pub fn print_full_usage() {
     eprintln!("  condense        Show call graph condensation (SCCs collapsed into supernodes)");
     eprintln!("  paths           Enumerate execution paths between symbols");
     eprintln!("  slice           Program slicing (backward/forward) from a target symbol");
+    eprintln!("  context         Code context queries for LLM consumption (build, summary, list, symbol, file, impact, affected)");
     eprintln!();
     eprintln!("Global arguments:");
     eprintln!("  --output <FORMAT>   Output format: human (default), json (compact), or pretty (formatted)");
@@ -318,6 +327,53 @@ pub fn print_full_usage() {
     eprintln!("  --target <ID>       Target symbol ID to slice from");
     eprintln!("  --direction <DIR>   Slice direction: backward (default) or forward");
     eprintln!("  --verbose           Show detailed statistics");
+    eprintln!();
+    eprintln!("Context arguments:");
+    eprintln!("  --db <FILE>         Path to sqlitegraph database (or directory for multi-DB)");
+    eprintln!();
+    eprintln!("Context build arguments:");
+    eprintln!("  --db <FILE>         Path to sqlitegraph database");
+    eprintln!();
+    eprintln!("Context summary arguments:");
+    eprintln!("  --db <FILE>         Path to sqlitegraph database");
+    eprintln!();
+    eprintln!("Context list arguments:");
+    eprintln!("  --db <FILE>         Path to sqlitegraph database");
+    eprintln!("  --kind <KIND>       Filter by symbol kind (optional)");
+    eprintln!("  --page <N>          Page number (default: 1)");
+    eprintln!("  --project <NAME>    Filter to single project (optional)");
+    eprintln!("  --output <FORMAT>   Output format: human (default), json, or pretty");
+    eprintln!();
+    eprintln!("Context symbol arguments:");
+    eprintln!("  --db <FILE>         Path to sqlitegraph database");
+    eprintln!("  --name <NAME>       Symbol name to look up (required)");
+    eprintln!("  --file <PATH>       Limit to specific file (optional)");
+    eprintln!("  --callers           Include caller references");
+    eprintln!("  --callees           Include callee references");
+    eprintln!("  --with-source       Include source code snippet");
+    eprintln!("  --depth <N>         Recursive lookup depth (default: 1)");
+    eprintln!("  --project <NAME>    Filter to single project (optional)");
+    eprintln!("  --output <FORMAT>   Output format: human (default), json, or pretty");
+    eprintln!();
+    eprintln!("Context file arguments:");
+    eprintln!("  --db <FILE>         Path to sqlitegraph database");
+    eprintln!("  --path <PATH>       File path to analyze (required)");
+    eprintln!();
+    eprintln!("Context impact arguments:");
+    eprintln!("  --db <FILE>         Path to sqlitegraph database");
+    eprintln!("  --name <NAME>       Symbol name to analyze (required)");
+    eprintln!("  --file <PATH>       Limit to specific file (optional)");
+    eprintln!("  --depth <N>         Max traversal depth (default: 3)");
+    eprintln!("  --project <NAME>    Filter to single project (optional)");
+    eprintln!("  --output <FORMAT>   Output format: human (default), json, or pretty");
+    eprintln!();
+    eprintln!("Context affected arguments:");
+    eprintln!("  --db <FILE>         Path to sqlitegraph database");
+    eprintln!("  --name <NAME>       Symbol name to analyze (required)");
+    eprintln!("  --file <PATH>       Limit to specific file (optional)");
+    eprintln!("  --depth <N>         Max traversal depth (default: 3)");
+    eprintln!("  --project <NAME>    Filter to single project (optional)");
+    eprintln!("  --output <FORMAT>   Output format: human (default), json, or pretty");
 }
 
 /// Context subcommands
@@ -1543,9 +1599,9 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                         db_paths = parse_db_paths(&args[i + 1])?;
                         i += 2;
                     }
-                    "--symbol" => {
+                    "--name" => {
                         if i + 1 >= args.len() {
-                            return Err(anyhow::anyhow!("--symbol requires an argument"));
+                            return Err(anyhow::anyhow!("--name requires an argument"));
                         }
                         symbol = Some(args[i + 1].clone());
                         i += 2;
@@ -1587,7 +1643,7 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
             }
 
             let symbol = symbol
-                .ok_or_else(|| anyhow::anyhow!("--symbol is required for impact subcommand"))?;
+                .ok_or_else(|| anyhow::anyhow!("--name is required for impact subcommand"))?;
             ContextSubcommand::Impact {
                 symbol,
                 file,
@@ -1613,9 +1669,9 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                         db_paths = parse_db_paths(&args[i + 1])?;
                         i += 2;
                     }
-                    "--symbol" => {
+                    "--name" => {
                         if i + 1 >= args.len() {
-                            return Err(anyhow::anyhow!("--symbol requires an argument"));
+                            return Err(anyhow::anyhow!("--name requires an argument"));
                         }
                         symbol = Some(args[i + 1].clone());
                         i += 2;
@@ -1657,7 +1713,7 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
             }
 
             let symbol = symbol
-                .ok_or_else(|| anyhow::anyhow!("--symbol is required for affected subcommand"))?;
+                .ok_or_else(|| anyhow::anyhow!("--name is required for affected subcommand"))?;
             ContextSubcommand::Affected {
                 symbol,
                 file,
