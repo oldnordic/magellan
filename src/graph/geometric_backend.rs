@@ -785,7 +785,7 @@ impl GeometricBackend {
     }
 
     /// Get storage reference
-    fn storage(&self) -> RwLockReadGuard<'_, SectionedStorage> {
+    fn _storage(&self) -> RwLockReadGuard<'_, SectionedStorage> {
         self.storage.read().unwrap()
     }
 
@@ -2168,17 +2168,6 @@ pub fn extract_ast_nodes_from_file(
     Ok(nodes)
 }
 
-/// Extract symbols, CFG, and call edges from a file
-/// Parse tree cache for single-parse extraction
-///
-/// This structure holds the parsed tree and source content to enable
-/// multiple extractions (symbols, CFG, calls) from a single parse.
-struct ParsedFile<'a> {
-    tree: tree_sitter::Tree,
-    content: &'a str,
-    path: &'a Path,
-}
-
 /// Extract symbols, CFG, and call edges from a file using a single parse for Rust
 ///
 /// This function implements single-parse extraction for Rust files to avoid
@@ -2500,9 +2489,6 @@ pub fn extract_rust_single_parse_timed(
 }
 
 /// Single-parse extraction for Rust files (backward compatible, no timing)
-fn extract_rust_single_parse(path: &Path, content: &str) -> Result<ExtractedFileData> {
-    extract_rust_single_parse_timed(path, content, false).map(|(data, _)| data)
-}
 
 /// Extract CFG from a pre-parsed tree
 ///

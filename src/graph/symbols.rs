@@ -120,9 +120,9 @@ pub fn generate_symbol_id(language: &str, fqn: &str, span_id: &str) -> String {
 /// # Examples
 ///
 /// ```ignore
-/// use magellan::graph::generate_symbol_id_v2;
+/// use magellan::graph::_generate_symbol_id_v2;
 ///
-/// let id = generate_symbol_id_v2(
+/// let id = _generate_symbol_id_v2(
 ///     "my_crate",
 ///     "src/lib.rs",
 ///     &["mod my_module".to_string(), "impl MyStruct".to_string()],
@@ -131,7 +131,7 @@ pub fn generate_symbol_id(language: &str, fqn: &str, span_id: &str) -> String {
 /// );
 /// assert_eq!(id.len(), 32);
 /// ```
-pub fn generate_symbol_id_v2(
+pub fn _generate_symbol_id_v2(
     crate_name: &str,
     file_path: &str,
     enclosing_items: &[String],
@@ -424,14 +424,14 @@ mod tests {
     #[test]
     fn test_generate_symbol_id_v2_deterministic() {
         // Same inputs should produce same ID
-        let id1 = generate_symbol_id_v2(
+        let id1 = _generate_symbol_id_v2(
             "my_crate",
             "src/lib.rs",
             &["mod my_module".to_string()],
             "Function",
             "my_function",
         );
-        let id2 = generate_symbol_id_v2(
+        let id2 = _generate_symbol_id_v2(
             "my_crate",
             "src/lib.rs",
             &["mod my_module".to_string()],
@@ -444,7 +444,7 @@ mod tests {
 
     #[test]
     fn test_generate_symbol_id_v2_length() {
-        let id = generate_symbol_id_v2("my_crate", "src/lib.rs", &[], "Function", "my_function");
+        let id = _generate_symbol_id_v2("my_crate", "src/lib.rs", &[], "Function", "my_function");
 
         assert_eq!(id.len(), 32, "SymbolId should be 32 characters (128 bits)");
         assert!(id.chars().all(|c| c.is_ascii_hexdigit()), "Should be hex");
@@ -452,18 +452,18 @@ mod tests {
 
     #[test]
     fn test_generate_symbol_id_v2_different_inputs() {
-        let id1 = generate_symbol_id_v2("crate_a", "src/lib.rs", &[], "Function", "foo");
-        let id2 = generate_symbol_id_v2("crate_b", "src/lib.rs", &[], "Function", "foo");
-        let id3 = generate_symbol_id_v2("crate_a", "src/main.rs", &[], "Function", "foo");
-        let id4 = generate_symbol_id_v2(
+        let id1 = _generate_symbol_id_v2("crate_a", "src/lib.rs", &[], "Function", "foo");
+        let id2 = _generate_symbol_id_v2("crate_b", "src/lib.rs", &[], "Function", "foo");
+        let id3 = _generate_symbol_id_v2("crate_a", "src/main.rs", &[], "Function", "foo");
+        let id4 = _generate_symbol_id_v2(
             "crate_a",
             "src/lib.rs",
             &["mod".to_string()],
             "Function",
             "foo",
         );
-        let id5 = generate_symbol_id_v2("crate_a", "src/lib.rs", &[], "Method", "foo");
-        let id6 = generate_symbol_id_v2("crate_a", "src/lib.rs", &[], "Function", "bar");
+        let id5 = _generate_symbol_id_v2("crate_a", "src/lib.rs", &[], "Method", "foo");
+        let id6 = _generate_symbol_id_v2("crate_a", "src/lib.rs", &[], "Function", "bar");
 
         // All different inputs should produce different IDs
         let ids = [&id1, &id2, &id3, &id4, &id5, &id6];
@@ -482,7 +482,7 @@ mod tests {
         // (In practice, file_path would change, but this test demonstrates the principle)
         let enclosing_items = vec!["impl MyStruct".to_string()];
 
-        let id1 = generate_symbol_id_v2(
+        let id1 = _generate_symbol_id_v2(
             "my_crate",
             "src/lib.rs",
             &enclosing_items,
@@ -490,7 +490,7 @@ mod tests {
             "my_method",
         );
 
-        let id2 = generate_symbol_id_v2(
+        let id2 = _generate_symbol_id_v2(
             "my_crate",
             "src/lib.rs",
             &enclosing_items,
@@ -504,9 +504,11 @@ mod tests {
     #[test]
     fn test_generate_symbol_id_v2_field_order() {
         // Field order is alphabetical: crate_name, enclosing_items, file_path, symbol_kind, symbol_name
-        let id1 = generate_symbol_id_v2("crate", "file.rs", &["scope".to_string()], "kind", "name");
+        let id1 =
+            _generate_symbol_id_v2("crate", "file.rs", &["scope".to_string()], "kind", "name");
 
-        let id2 = generate_symbol_id_v2("crate", "file.rs", &["scope".to_string()], "kind", "name");
+        let id2 =
+            _generate_symbol_id_v2("crate", "file.rs", &["scope".to_string()], "kind", "name");
 
         assert_eq!(id1, id2, "Alphabetical field order should be deterministic");
     }

@@ -58,11 +58,6 @@ impl MetricsOps {
         })
     }
 
-    /// Compute file-level fan-in (incoming references/calls from other files)
-    fn compute_file_fan_in(&self, file_path: &str) -> Result<i64> {
-        self.with_conn(|conn| Self::compute_file_fan_in_conn(conn, file_path))
-    }
-
     fn compute_file_fan_in_conn(conn: &rusqlite::Connection, file_path: &str) -> Result<i64> {
         use rusqlite::params;
 
@@ -93,11 +88,6 @@ impl MetricsOps {
             .unwrap_or(0);
 
         Ok(ref_count + call_count)
-    }
-
-    /// Compute file-level fan-out (outgoing references/calls to other files)
-    fn compute_file_fan_out(&self, file_path: &str) -> Result<i64> {
-        self.with_conn(|conn| Self::compute_file_fan_out_conn(conn, file_path))
     }
 
     fn compute_file_fan_out_conn(conn: &rusqlite::Connection, file_path: &str) -> Result<i64> {
@@ -131,15 +121,6 @@ impl MetricsOps {
             .unwrap_or(0);
 
         Ok(ref_count + call_count)
-    }
-
-    /// Compute and store metrics for a single symbol
-    fn compute_and_store_symbol_metrics(
-        &self,
-        symbol: &crate::graph::schema::SymbolNode,
-        file_path: &str,
-    ) -> Result<()> {
-        self.with_conn(|conn| Self::compute_and_store_symbol_metrics_conn(conn, symbol, file_path))
     }
 
     fn compute_and_store_symbol_metrics_conn(
@@ -193,11 +174,6 @@ impl MetricsOps {
         Ok(())
     }
 
-    /// Find symbol_id by FQN
-    fn find_symbol_id(&self, fqn: &str) -> Result<Option<i64>> {
-        self.with_conn(|conn| Self::find_symbol_id_conn(conn, fqn))
-    }
-
     fn find_symbol_id_conn(conn: &rusqlite::Connection, fqn: &str) -> Result<Option<i64>> {
         use rusqlite::params;
 
@@ -211,11 +187,6 @@ impl MetricsOps {
             .map_err(|e| anyhow::anyhow!("Failed to find symbol_id: {}", e))?;
 
         Ok(result)
-    }
-
-    /// Compute symbol-level fan-in (incoming edges)
-    fn compute_symbol_fan_in(&self, symbol_id: i64) -> Result<i64> {
-        self.with_conn(|conn| Self::compute_symbol_fan_in_conn(conn, symbol_id))
     }
 
     fn compute_symbol_fan_in_conn(conn: &rusqlite::Connection, symbol_id: i64) -> Result<i64> {
@@ -232,11 +203,6 @@ impl MetricsOps {
         Ok(count)
     }
 
-    /// Compute symbol-level fan-out (outgoing edges)
-    fn compute_symbol_fan_out(&self, symbol_id: i64) -> Result<i64> {
-        self.with_conn(|conn| Self::compute_symbol_fan_out_conn(conn, symbol_id))
-    }
-
     fn compute_symbol_fan_out_conn(conn: &rusqlite::Connection, symbol_id: i64) -> Result<i64> {
         use rusqlite::params;
 
@@ -249,22 +215,6 @@ impl MetricsOps {
             .unwrap_or(0);
 
         Ok(count)
-    }
-
-    /// Compute cyclomatic complexity from CFG blocks
-    ///
-    /// Cyclomatic Complexity = Number of decision points + 1
-    ///
-    /// Decision points are CFG blocks with terminators that indicate branching:
-    /// - return, continue, break (not fallthrough)
-    ///
-    /// # Arguments
-    /// * `symbol_id` - The entity ID of the symbol (function)
-    ///
-    /// # Returns
-    /// Cyclomatic complexity as i64 (minimum value is 1)
-    fn compute_cyclomatic_complexity(&self, symbol_id: i64) -> Result<i64> {
-        self.with_conn(|conn| Self::compute_cyclomatic_complexity_conn(conn, symbol_id))
     }
 
     fn compute_cyclomatic_complexity_conn(

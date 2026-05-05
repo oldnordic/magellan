@@ -22,7 +22,7 @@ pub struct ModuleResolver {
     /// Module path cache for O(1) lookups
     cache: ModulePathCache,
     /// Project root path (for resolving relative file paths)
-    project_root: PathBuf,
+    _project_root: PathBuf,
 }
 
 impl ModuleResolver {
@@ -32,7 +32,7 @@ impl ModuleResolver {
         Self {
             backend,
             cache,
-            project_root,
+            _project_root: project_root,
         }
     }
 
@@ -119,7 +119,7 @@ impl ModuleResolver {
     /// # Returns
     /// - Some(file_id) if the module is in cache
     /// - None if not found
-    pub fn get_file_for_module(&self, module_path: &str) -> Option<i64> {
+    pub fn _get_file_for_module(&self, module_path: &str) -> Option<i64> {
         self.cache.get(module_path)
     }
 
@@ -152,12 +152,12 @@ impl ModuleResolver {
     }
 
     /// Clear the module cache
-    pub fn clear_cache(&mut self) {
+    pub fn _clear_cache(&mut self) {
         self.cache.clear();
     }
 
     /// Get cache size (for testing/debugging)
-    pub fn cache_size(&self) -> usize {
+    pub fn _cache_size(&self) -> usize {
         self.cache.len()
     }
 }
@@ -231,14 +231,14 @@ mod tests {
         let resolver =
             ModuleResolver::new(graph.files.backend.clone(), temp_dir.path().to_path_buf());
 
-        assert_eq!(resolver.cache_size(), 0);
+        assert_eq!(resolver._cache_size(), 0);
 
         // Build index
         let mut resolver = resolver;
         resolver.build_module_index().unwrap();
 
         // Should have at least 0 entries (no files indexed yet)
-        assert_eq!(resolver.cache_size(), 0);
+        assert_eq!(resolver._cache_size(), 0);
     }
 
     #[test]

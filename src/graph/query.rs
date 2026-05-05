@@ -935,7 +935,7 @@ impl CollisionField {
         }
     }
 
-    fn json_path(&self) -> &'static str {
+    fn _json_path(&self) -> &'static str {
         match self {
             CollisionField::Fqn => "$.fqn",
             CollisionField::DisplayFqn => "$.display_fqn",

@@ -46,6 +46,10 @@ use crate::ingest::{SymbolFact, SymbolKind};
 
 /// Entry in the symbol lookup index
 #[derive(Debug, Clone)]
+#[allow(
+    dead_code,
+    reason = "SymbolEntry data model: fields populated during index build, reserved for future query paths"
+)]
 pub struct SymbolEntry {
     /// Entity ID in the graph database
     pub entity_id: i64,
@@ -112,25 +116,6 @@ impl SymbolEntry {
         entry.stable_symbol_id = Some(stable_symbol_id);
         entry
     }
-
-    /// Convert SymbolEntry to SymbolFact for use in reference extraction
-    pub fn to_fact(&self) -> SymbolFact {
-        SymbolFact {
-            file_path: PathBuf::from(&self.file_path),
-            kind: self.kind.clone(),
-            kind_normalized: self.kind_normalized.clone(),
-            name: self.name.clone(),
-            fqn: self.fqn.clone(),
-            canonical_fqn: self.canonical_fqn.clone(),
-            display_fqn: self.display_fqn.clone(),
-            byte_start: self.byte_start as usize,
-            byte_end: self.byte_end as usize,
-            start_line: self.start_line,
-            start_col: self.start_col,
-            end_line: self.end_line,
-            end_col: self.end_col,
-        }
-    }
 }
 
 /// In-memory symbol lookup index
@@ -175,11 +160,13 @@ impl SymbolLookup {
     }
 
     /// Get number of symbols in index
+    #[allow(dead_code, reason = "used in module tests")]
     pub fn len(&self) -> usize {
         self.count
     }
 
     /// Check if index is empty
+    #[allow(dead_code, reason = "used in module tests")]
     pub fn is_empty(&self) -> bool {
         self.count == 0
     }
@@ -313,6 +300,7 @@ impl SymbolLookup {
     ///
     /// # Returns
     /// Reference to SymbolEntry if found, None if not in index
+    #[allow(dead_code, reason = "used in module tests")]
     pub fn get_by_fqn(&self, fqn: &str) -> Option<&SymbolEntry> {
         self.fqn_index.get(fqn)
     }
@@ -321,46 +309,12 @@ impl SymbolLookup {
     ///
     /// # Returns
     /// Slice of entity_ids matching this name, empty if none found
+    #[allow(dead_code, reason = "used in module tests")]
     pub fn get_ids_by_name(&self, name: &str) -> &[i64] {
         self.name_index
             .get(name)
             .map(|v| v.as_slice())
             .unwrap_or(&[])
-    }
-
-    /// Get all FQN keys in the index
-    ///
-    /// Used for building the FQN -> entity_id map needed by index_calls
-    pub fn all_fqns(&self) -> impl Iterator<Item = (&String, i64)> + '_ {
-        self.fqn_index
-            .iter()
-            .map(|(fqn, entry)| (fqn, entry.entity_id))
-    }
-
-    /// Get all symbol facts for reference extraction
-    ///
-    /// This replaces the O(n) database scan in ReferenceOps::index_references_with_symbol_id.
-    /// Instead of scanning all entities and deserializing SymbolNodes, we return
-    /// pre-computed SymbolFacts from the in-memory index.
-    ///
-    /// # Returns
-    /// Vector of SymbolFact for all symbols in the index
-    pub fn get_all_symbol_facts(&self) -> Vec<SymbolFact> {
-        self.fqn_index
-            .values()
-            .map(|entry| entry.to_fact())
-            .collect()
-    }
-
-    /// Get map of entity_id -> stable_symbol_id
-    ///
-    /// Used by `populate_cross_file_refs` to resolve references to their stable IDs.
-    /// This replaces the O(n) scan that was previously done in query.rs.
-    ///
-    /// # Returns
-    /// HashMap mapping entity IDs to their stable symbol IDs
-    pub fn get_entity_to_symbol_id_map(&self) -> &HashMap<i64, String> {
-        &self.id_to_symbol_id
     }
 
     /// Build FQN -> entity_id map with current file preference
@@ -454,23 +408,6 @@ impl SymbolLookup {
         }
 
         Ok(self.count)
-    }
-
-    /// Get all SymbolEntries for a specific file
-    ///
-    /// Used when deleting symbols for a file
-    pub fn get_entries_for_file(&self, file_path: &str) -> Vec<&SymbolEntry> {
-        self.fqn_index
-            .values()
-            .filter(|entry| entry.file_path == file_path)
-            .collect()
-    }
-
-    /// Get all entries as an iterator
-    ///
-    /// Used for building symbol_facts in call_ops
-    pub fn iter_entries(&self) -> impl Iterator<Item = &SymbolEntry> {
-        self.fqn_index.values()
     }
 }
 

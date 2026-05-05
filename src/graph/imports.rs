@@ -155,67 +155,6 @@ impl ImportOps {
         self.backend.insert_edge(edge_spec)?;
         Ok(())
     }
-
-    /// Query all imports for a specific file
-    ///
-    /// # Arguments
-    /// * `file_id` - Node ID of the file
-    ///
-    /// # Returns
-    /// Vector of ImportFact for all imports in the file
-    pub fn get_imports_for_file(&self, file_id: i64) -> Result<Vec<ImportFact>> {
-        let snapshot = SnapshotId::current();
-
-        // Query incoming IMPORTS edges from the file
-        let neighbor_ids = self.backend.neighbors(
-            snapshot,
-            file_id,
-            NeighborQuery {
-                direction: BackendDirection::Outgoing,
-                edge_type: Some("IMPORTS".to_string()),
-            },
-        )?;
-
-        let mut imports = Vec::new();
-        for import_node_id in neighbor_ids {
-            if let Ok(Some(import)) = self.import_fact_from_node(import_node_id) {
-                imports.push(import);
-            }
-        }
-
-        Ok(imports)
-    }
-
-    /// Convert an import node to ImportFact
-    fn import_fact_from_node(&self, node_id: i64) -> Result<Option<ImportFact>> {
-        let snapshot = SnapshotId::current();
-        let node = self.backend.get_node(snapshot, node_id)?;
-
-        let import_node: Option<ImportNode> = serde_json::from_value(node.data).ok();
-
-        let import_node = match import_node {
-            Some(n) => n,
-            None => return Ok(None),
-        };
-
-        // Parse import_kind from normalized key
-        let import_kind =
-            ImportKind::from_str(&import_node.import_kind).unwrap_or(ImportKind::PlainUse);
-
-        Ok(Some(ImportFact {
-            file_path: PathBuf::from(&import_node.file),
-            import_kind,
-            import_path: import_node.import_path,
-            imported_names: import_node.imported_names,
-            is_glob: import_node.is_glob,
-            byte_start: import_node.byte_start as usize,
-            byte_end: import_node.byte_end as usize,
-            start_line: import_node.start_line as usize,
-            start_col: import_node.start_col as usize,
-            end_line: import_node.end_line as usize,
-            end_col: import_node.end_col as usize,
-        }))
-    }
 }
 
 // Re-export ImportKind for use within this module

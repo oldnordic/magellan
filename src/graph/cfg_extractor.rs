@@ -148,7 +148,7 @@ fn find_function_body<'a>(func_node: &Node<'a>) -> Option<Node<'a>> {
 ///
 /// Walks a function's AST to identify basic blocks and control flow.
 pub struct CfgExtractor<'a> {
-    source: &'a [u8],
+    _source: &'a [u8],
     next_block_id: usize,
     blocks: Vec<CfgBlock>,
 }
@@ -157,7 +157,7 @@ impl<'a> CfgExtractor<'a> {
     /// Create a new CFG extractor
     pub fn new(source: &'a [u8]) -> Self {
         Self {
-            source,
+            _source: source,
             next_block_id: 0,
             blocks: Vec::new(),
         }

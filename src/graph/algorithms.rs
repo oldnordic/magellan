@@ -125,13 +125,13 @@ fn reverse_reachable_from(
 #[derive(Debug, Clone)]
 struct SccCollapseResult {
     /// Maps each original node ID to its SCC supernode ID
-    node_to_supernode: AHashMap<i64, i64>,
+    _node_to_supernode: AHashMap<i64, i64>,
     /// Maps each supernode ID to the set of original node IDs in that SCC
     supernode_members: AHashMap<i64, AHashSet<i64>>,
     /// Edges between supernodes in the condensed DAG
     supernode_edges: Vec<(i64, i64)>,
     /// Total number of SCCs found
-    num_sccs: usize,
+    _num_sccs: usize,
 }
 
 /// Backend-agnostic collapse_sccs implementation
@@ -144,10 +144,10 @@ fn collapse_sccs(backend: &dyn GraphBackend) -> Result<SccCollapseResult, Sqlite
     // Step 2: Handle empty graph
     if scc_result.components.is_empty() {
         return Ok(SccCollapseResult {
-            node_to_supernode: AHashMap::new(),
+            _node_to_supernode: AHashMap::new(),
             supernode_members: AHashMap::new(),
             supernode_edges: Vec::new(),
-            num_sccs: 0,
+            _num_sccs: 0,
         });
     }
 
@@ -187,10 +187,10 @@ fn collapse_sccs(backend: &dyn GraphBackend) -> Result<SccCollapseResult, Sqlite
     supernode_edges.sort();
 
     Ok(SccCollapseResult {
-        node_to_supernode,
+        _node_to_supernode: node_to_supernode,
         supernode_members,
         supernode_edges,
-        num_sccs: scc_result.components.len(),
+        _num_sccs: scc_result.components.len(),
     })
 }
 
@@ -204,7 +204,7 @@ struct InternalPathEnumerationResult {
     /// Number of paths pruned by bounds (max_depth, max_paths)
     pruned_by_bounds: usize,
     /// Maximum depth reached during enumeration
-    max_depth_reached: usize,
+    _max_depth_reached: usize,
 }
 
 /// Configuration for path enumeration
@@ -219,7 +219,7 @@ struct PathEnumerationConfig {
     /// Optional set of nodes that terminate path exploration
     exit_nodes: Option<AHashSet<i64>>,
     /// Optional set of nodes that represent errors
-    error_nodes: Option<AHashSet<i64>>,
+    _error_nodes: Option<AHashSet<i64>>,
 }
 
 impl Default for PathEnumerationConfig {
@@ -229,7 +229,7 @@ impl Default for PathEnumerationConfig {
             max_paths: 1000,
             revisit_cap: 100,
             exit_nodes: None,
-            error_nodes: None,
+            _error_nodes: None,
         }
     }
 }
@@ -265,7 +265,7 @@ fn enumerate_paths(
         paths,
         total_found,
         pruned_by_bounds,
-        max_depth_reached,
+        _max_depth_reached: max_depth_reached,
     })
 }
 
@@ -1436,7 +1436,7 @@ impl CodeGraph {
             max_paths,
             revisit_cap: 100, // Prevent infinite loops in cyclic graphs
             exit_nodes,
-            error_nodes: None,
+            _error_nodes: None,
         };
 
         let enum_result = enumerate_paths(backend, start_entity_id, &config)?;
