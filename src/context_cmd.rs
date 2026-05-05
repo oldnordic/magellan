@@ -240,10 +240,9 @@ pub fn run_context_symbol(
         };
 
         // Depth 0 or None means single-hop (default behavior)
-        let detail = if depth.is_some() && depth.unwrap() > 1 {
-            get_symbol_detail_recursive(&mut graph, &name, file.as_deref(), depth.unwrap())
-        } else {
-            get_symbol_detail(&mut graph, &name, file.as_deref())
+        let detail = match depth {
+            Some(d) if d > 1 => get_symbol_detail_recursive(&mut graph, &name, file.as_deref(), d),
+            _ => get_symbol_detail(&mut graph, &name, file.as_deref()),
         };
 
         let detail = match detail {
