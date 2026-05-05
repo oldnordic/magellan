@@ -727,12 +727,10 @@ pub fn impact_analysis(
     let detail = get_symbol_detail(graph, symbol_name, file_path)?;
 
     let mut impacted: Vec<SymbolRelation> = Vec::new();
-    let mut visited: std::collections::HashSet<String> =
-        std::collections::HashSet::new();
+    let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     // BFS over callers
-    let mut queue: std::collections::VecDeque<(String, usize)> =
-        std::collections::VecDeque::new();
+    let mut queue: std::collections::VecDeque<(String, usize)> = std::collections::VecDeque::new();
     for c in &detail.callers {
         let key = format!("{}:{}", c.name, c.file);
         if visited.insert(key) {
@@ -860,8 +858,8 @@ mod tests {
         assert_eq!(result.items.len(), 50);
     }
 
-#[test]
-fn test_list_query_default() {
+    #[test]
+    fn test_list_query_default() {
         let query = ListQuery::default();
         assert_eq!(query.page, Some(1));
         assert_eq!(query.page_size, Some(50));

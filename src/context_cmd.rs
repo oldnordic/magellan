@@ -5,11 +5,10 @@
 use anyhow::Result;
 use magellan::context::{
     affected_analysis, build_context_index, get_file_context, get_or_build_context_index,
-    get_symbol_detail,
-    get_symbol_detail_recursive, impact_analysis, list_symbols, ListQuery,
+    get_symbol_detail, get_symbol_detail_recursive, impact_analysis, list_symbols, ListQuery,
 };
 use magellan::output::{
-    generate_execution_id, ContextResponse, OutputFormat, ProjectCallerInfo, ProjectCalleeInfo,
+    generate_execution_id, ContextResponse, OutputFormat, ProjectCalleeInfo, ProjectCallerInfo,
     ProjectSymbolMatch, Span,
 };
 use magellan::CodeGraph;
@@ -122,9 +121,7 @@ pub fn run_context_list(
     let size = page_size.unwrap_or(50);
 
     // Sort by project then name for consistent output
-    all_items.sort_by(|a, b| {
-        a.0.cmp(&b.0).then_with(|| a.1.name.cmp(&b.1.name))
-    });
+    all_items.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.name.cmp(&b.1.name)));
 
     let total_pages = (total_items + size - 1) / size;
     let start = ((page_num.saturating_sub(1)) * size).min(total_items);
@@ -331,10 +328,7 @@ pub fn run_context_symbol(
             name: detail.name.clone(),
             kind: detail.kind.clone(),
             parent: None,
-            symbol_id: Some(format!(
-                "{}::{}#{}",
-                project, detail.name, detail.line
-            )),
+            symbol_id: Some(format!("{}::{}#{}", project, detail.name, detail.line)),
             callers,
             callees,
             source,
@@ -389,7 +383,8 @@ pub fn run_context_symbol(
                         println!();
                         println!("Callers ({}):", callers.len());
                         for c in callers {
-                            let depth_str = c.depth.map_or(String::new(), |d| format!("[depth={}]", d));
+                            let depth_str =
+                                c.depth.map_or(String::new(), |d| format!("[depth={}]", d));
                             println!("  - {} ({}:{}) {}", c.name, c.file_path, c.line, depth_str);
                         }
                     }
@@ -400,7 +395,8 @@ pub fn run_context_symbol(
                         println!();
                         println!("Callees ({}):", callees.len());
                         for c in callees {
-                            let depth_str = c.depth.map_or(String::new(), |d| format!("[depth={}]", d));
+                            let depth_str =
+                                c.depth.map_or(String::new(), |d| format!("[depth={}]", d));
                             println!("  - {} ({}:{}) {}", c.name, c.file_path, c.line, depth_str);
                         }
                     }
@@ -614,11 +610,12 @@ pub fn run_context_impact(
             println!("{}", formatted);
         }
         OutputFormat::Human => {
+            println!("Impact analysis: {} (depth limit: {})", target, depth);
             println!(
-                "Impact analysis: {} (depth limit: {})",
-                target, depth
+                "{} symbol(s) affected across {} DB(s)\n",
+                all_impacted.len(),
+                db_paths.len()
             );
-            println!("{} symbol(s) affected across {} DB(s)\n", all_impacted.len(), db_paths.len());
 
             let mut last_project = String::new();
             for (proj, r) in &all_impacted {
@@ -759,10 +756,7 @@ pub fn run_context_affected(
             println!("{}", formatted);
         }
         OutputFormat::Human => {
-            println!(
-                "Affected analysis: {} (depth limit: {})",
-                target, depth
-            );
+            println!("Affected analysis: {} (depth limit: {})", target, depth);
             println!(
                 "{} symbol(s) reached across {} DB(s)\n",
                 all_affected.len(),

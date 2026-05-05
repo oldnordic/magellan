@@ -8,7 +8,7 @@ pub mod rich;
 pub use command::{
     generate_execution_id, output_json, CalleeInfo, CallerInfo, CollisionCandidate, CollisionGroup,
     CollisionsResponse, ContextResponse, CoverageInfo, ErrorResponse, FilesResponse, FindResponse,
-    JsonResponse, MigrateResponse, OutputFormat, ProjectCallerInfo, ProjectCalleeInfo,
+    JsonResponse, MigrateResponse, OutputFormat, ProjectCalleeInfo, ProjectCallerInfo,
     ProjectSymbolMatch, QueryResponse, ReferenceMatch, RefsResponse, Span, StatusResponse,
     SymbolMatch, ValidationError, ValidationResponse, ValidationWarning,
 };

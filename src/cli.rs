@@ -1557,8 +1557,8 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                 }
             }
 
-            let symbol =
-                symbol.ok_or_else(|| anyhow::anyhow!("--symbol is required for impact subcommand"))?;
+            let symbol = symbol
+                .ok_or_else(|| anyhow::anyhow!("--symbol is required for impact subcommand"))?;
             ContextSubcommand::Impact {
                 symbol,
                 file,
@@ -1627,8 +1627,8 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                 }
             }
 
-            let symbol =
-                symbol.ok_or_else(|| anyhow::anyhow!("--symbol is required for affected subcommand"))?;
+            let symbol = symbol
+                .ok_or_else(|| anyhow::anyhow!("--symbol is required for affected subcommand"))?;
             ContextSubcommand::Affected {
                 symbol,
                 file,

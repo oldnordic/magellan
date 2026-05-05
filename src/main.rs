@@ -235,9 +235,9 @@ fn main() -> ExitCode {
                 ContextSubcommand::Build => {
                     context_cmd::run_context_build(db_paths.into_iter().next().unwrap_or_default())
                 }
-                ContextSubcommand::Summary => {
-                    context_cmd::run_context_summary(db_paths.into_iter().next().unwrap_or_default())
-                }
+                ContextSubcommand::Summary => context_cmd::run_context_summary(
+                    db_paths.into_iter().next().unwrap_or_default(),
+                ),
                 ContextSubcommand::List {
                     kind,
                     page,
@@ -246,7 +246,13 @@ fn main() -> ExitCode {
                     project,
                     output_format,
                 } => context_cmd::run_context_list(
-                    db_paths, kind, page, page_size, cursor, project, output_format,
+                    db_paths,
+                    kind,
+                    page,
+                    page_size,
+                    cursor,
+                    project,
+                    output_format,
                 ),
                 ContextSubcommand::Symbol {
                     name,
@@ -278,14 +284,28 @@ fn main() -> ExitCode {
                     depth,
                     project,
                     output_format,
-                } => context_cmd::run_context_impact(db_paths, symbol, file, depth, project, output_format),
+                } => context_cmd::run_context_impact(
+                    db_paths,
+                    symbol,
+                    file,
+                    depth,
+                    project,
+                    output_format,
+                ),
                 ContextSubcommand::Affected {
                     symbol,
                     file,
                     depth,
                     project,
                     output_format,
-                } => context_cmd::run_context_affected(db_paths, symbol, file, depth, project, output_format),
+                } => context_cmd::run_context_affected(
+                    db_paths,
+                    symbol,
+                    file,
+                    depth,
+                    project,
+                    output_format,
+                ),
             };
             if let Err(e) = result {
                 eprintln!("Error: {}", e);
