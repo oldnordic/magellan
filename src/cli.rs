@@ -513,6 +513,7 @@ pub enum Command {
     GetFile {
         db_path: PathBuf,
         file_path: String,
+        output_format: OutputFormat,
     },
     Files {
         db_path: PathBuf,
@@ -540,6 +541,7 @@ pub enum Command {
         list: bool,
         count: bool,
         show_code: bool,
+        output_format: OutputFormat,
     },
     Collisions {
         db_path: PathBuf,
@@ -1285,14 +1287,42 @@ fn parse_enrich_args(args: &[String]) -> Result<Command> {
 
 /// Parse the `context` command arguments
 fn parse_context_args(args: &[String]) -> Result<Command> {
+    eprintln!("DEBUG parse_context_args: {:?}", args);
     if args.is_empty() {
         return Err(anyhow::anyhow!(
-            "context subcommand required: build, summary, list, symbol, file, server"
+            "context subcommand required: build, summary, list, symbol, file, impact, affected"
         ));
     }
 
     let mut db_paths: Vec<PathBuf> = Vec::new();
-    let subcommand = match args[0].as_str() {
+    let mut output_format = OutputFormat::Human;
+
+    // Pre-scan for global flags (--db, --output) that may appear before subcommand
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--db" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--db requires an argument"));
+                }
+                db_paths = parse_db_paths(&args[i + 1])?;
+                i += 2;
+            }
+            "--output" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--output requires an argument"));
+                }
+                output_format = parse_output_format(&args[i + 1])?;
+                i += 2;
+            }
+            _ => break,
+        }
+    }
+
+    eprintln!("DEBUG after pre-scan: i={}, subcommand_name={:?}", i, args.get(i));
+    let subcommand_name = args.get(i).map(|s| s.as_str()).unwrap_or("");
+    eprintln!("DEBUG matching subcommand: {:?}", subcommand_name);
+    let subcommand = match subcommand_name {
         "build" => ContextSubcommand::Build,
         "summary" => ContextSubcommand::Summary,
         "list" => {
@@ -2192,12 +2222,20 @@ fn parse_get_args(args: &[String]) -> Result<Command> {
 fn parse_get_file_args(args: &[String]) -> Result<Command> {
     let mut db_path: Option<PathBuf> = None;
     let mut file_path: Option<String> = None;
+    let mut output_format = OutputFormat::Human;
 
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
             "--db" => db_path = Some(parse_path_arg(args, &mut i, "--db")?),
             "--file" => file_path = Some(parse_required_arg(args, &mut i, "--file")?),
+            "--output" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--output requires an argument"));
+                }
+                output_format = parse_output_format(&args[i + 1])?;
+                i += 2;
+            }
             _ => return Err(anyhow::anyhow!("Unknown argument: {}", args[i])),
         }
     }
@@ -2205,7 +2243,11 @@ fn parse_get_file_args(args: &[String]) -> Result<Command> {
     let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
     let file_path = file_path.ok_or_else(|| anyhow::anyhow!("--file is required"))?;
 
-    Ok(Command::GetFile { db_path, file_path })
+    Ok(Command::GetFile {
+        db_path,
+        file_path,
+        output_format,
+    })
 }
 
 /// Parse the `refs` command arguments
@@ -2449,6 +2491,7 @@ fn parse_label_args(args: &[String]) -> Result<Command> {
     let mut list = false;
     let mut count = false;
     let mut show_code = false;
+    let mut output_format = OutputFormat::Human;
 
     let mut i = 0;
     while i < args.len() {
@@ -2479,6 +2522,13 @@ fn parse_label_args(args: &[String]) -> Result<Command> {
                 show_code = true;
                 i += 1;
             }
+            "--output" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--output requires an argument"));
+                }
+                output_format = parse_output_format(&args[i + 1])?;
+                i += 2;
+            }
             _ => return Err(anyhow::anyhow!("Unknown argument: {}", args[i])),
         }
     }
@@ -2491,6 +2541,7 @@ fn parse_label_args(args: &[String]) -> Result<Command> {
         list,
         count,
         show_code,
+        output_format,
     })
 }
 
@@ -3888,9 +3939,14 @@ mod tests {
 
         let result = parse_get_file_args(&args).unwrap();
         match result {
-            Command::GetFile { db_path, file_path } => {
+            Command::GetFile {
+                db_path,
+                file_path,
+                output_format,
+            } => {
                 assert_eq!(db_path, PathBuf::from("test.db"));
                 assert_eq!(file_path, "src/main.rs".to_string());
+                assert!(matches!(output_format, OutputFormat::Human));
             }
             _ => panic!("Expected GetFile command"),
         }
@@ -3958,11 +4014,13 @@ mod tests {
                 db_path,
                 label,
                 list,
+                output_format,
                 ..
             } => {
                 assert_eq!(db_path, PathBuf::from("test.db"));
                 assert_eq!(label, vec!["important", "refactored"]);
                 assert!(list);
+                assert!(matches!(output_format, OutputFormat::Human));
             }
             _ => panic!("Expected Label command"),
         }

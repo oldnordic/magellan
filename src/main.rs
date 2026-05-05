@@ -599,8 +599,12 @@ fn main() -> ExitCode {
             }
             ExitCode::SUCCESS
         }
-        Ok(Command::GetFile { db_path, file_path }) => {
-            if let Err(e) = get_cmd::run_get_file(db_path, file_path) {
+        Ok(Command::GetFile {
+            db_path,
+            file_path,
+            output_format,
+        }) => {
+            if let Err(e) = get_cmd::run_get_file(db_path, file_path, output_format) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
@@ -656,8 +660,9 @@ fn main() -> ExitCode {
             list,
             count,
             show_code,
+            output_format,
         }) => {
-            if let Err(e) = label_cmd::run_label(db_path, label, list, count, show_code) {
+            if let Err(e) = label_cmd::run_label(db_path, label, list, count, show_code, output_format) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
