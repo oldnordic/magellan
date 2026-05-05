@@ -14,8 +14,6 @@ use std::path::PathBuf;
 
 /// Represents a found symbol with its file path for refs lookup
 struct RefsSymbol {
-    #[allow(dead_code)]
-    name: String,
     file_path: String,
 }
 
@@ -35,7 +33,6 @@ fn find_symbol_all_files(graph: &mut CodeGraph, name: &str) -> Result<Vec<RefsSy
             if let Some(symbol_name) = &symbol.name {
                 if symbol_name == name {
                     results.push(RefsSymbol {
-                        name: symbol_name.clone(),
                         file_path: file_path.clone(),
                     });
                     break; // Found in this file, move to next
