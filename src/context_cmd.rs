@@ -4,10 +4,14 @@
 
 use anyhow::Result;
 use magellan::context::{
-    build_context_index, get_file_context, get_or_build_context_index, get_symbol_detail,
-    list_symbols, ListQuery,
+    affected_analysis, build_context_index, get_file_context, get_or_build_context_index,
+    get_symbol_detail,
+    get_symbol_detail_recursive, impact_analysis, list_symbols, ListQuery,
 };
-use magellan::output::generate_execution_id;
+use magellan::output::{
+    generate_execution_id, ContextResponse, OutputFormat, ProjectCallerInfo, ProjectCalleeInfo,
+    ProjectSymbolMatch, Span,
+};
 use magellan::CodeGraph;
 use std::path::PathBuf;
 
@@ -55,47 +59,142 @@ pub fn run_context_summary(db_path: PathBuf) -> Result<()> {
     Ok(())
 }
 
-/// Run the context list command
+/// Run the context list command (multi-DB)
 pub fn run_context_list(
-    db_path: PathBuf,
+    db_paths: Vec<PathBuf>,
     kind: Option<String>,
     page: Option<usize>,
     page_size: Option<usize>,
     cursor: Option<String>,
+    project_filter: Option<String>,
+    output_format: OutputFormat,
 ) -> Result<()> {
-    let mut graph = CodeGraph::open(&db_path)?;
+    if db_paths.is_empty() {
+        anyhow::bail!("No database paths provided. Use --db <path> to specify.");
+    }
 
     let query = ListQuery {
         kind,
-        page,
-        page_size,
-        cursor,
+        page: None, // We paginate globally after union
+        page_size: None,
+        cursor: None,
         file_pattern: None,
     };
 
-    let result = list_symbols(&mut graph, &query)?;
+    // Collect symbols across all DBs
+    let mut all_items: Vec<(String, magellan::context::SymbolListItem)> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-    // Print results
-    println!(
-        "Page {} of {} ({} total symbols)",
-        result.page, result.total_pages, result.total_items
-    );
-    println!();
+    for db_path in &db_paths {
+        let project = db_path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "unknown".to_string());
 
-    for item in &result.items {
-        println!(
-            "  {}:{}  {}  ({})",
-            item.file, item.line, item.name, item.kind
-        );
+        let mut graph = match CodeGraph::open(db_path) {
+            Ok(g) => g,
+            Err(e) => {
+                eprintln!("Warning: skipping {}: {}", db_path.display(), e);
+                continue;
+            }
+        };
+
+        let result = match list_symbols(&mut graph, &query) {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+
+        for item in result.items {
+            let key = format!("{}:{}:{}:{}", project, item.name, item.file, item.line);
+            if seen.insert(key) {
+                all_items.push((project.clone(), item));
+            }
+        }
     }
 
-    // Print pagination info
-    if let Some(ref next) = result.next_cursor {
-        println!();
-        println!("Next page: --cursor {}", next);
+    // Post-filter by --project
+    if let Some(ref filter) = project_filter {
+        all_items.retain(|(proj, _)| proj == filter);
     }
-    if let Some(ref prev) = result.prev_cursor {
-        println!("Prev page: --cursor {}", prev);
+
+    let total_items = all_items.len();
+    let page_num = page.unwrap_or(1);
+    let size = page_size.unwrap_or(50);
+
+    // Sort by project then name for consistent output
+    all_items.sort_by(|a, b| {
+        a.0.cmp(&b.0).then_with(|| a.1.name.cmp(&b.1.name))
+    });
+
+    let total_pages = (total_items + size - 1) / size;
+    let start = ((page_num.saturating_sub(1)) * size).min(total_items);
+    let end = (start + size).min(total_items);
+    let page_items: Vec<_> = all_items[start..end].to_vec();
+
+    // Output
+    match output_format {
+        OutputFormat::Json | OutputFormat::Pretty => {
+            let items_json: Vec<serde_json::Value> = page_items
+                .iter()
+                .map(|(proj, item)| {
+                    serde_json::json!({
+                        "project": proj,
+                        "name": item.name,
+                        "kind": item.kind,
+                        "file": item.file,
+                        "line": item.line,
+                    })
+                })
+                .collect();
+            let data = serde_json::json!({
+                "page": page_num,
+                "total_pages": total_pages,
+                "total_items": total_items,
+                "matches": items_json,
+            });
+            let response = serde_json::json!({
+                "schema_version": "1.0",
+                "execution_id": generate_execution_id(),
+                "command": "context list",
+                "data": data,
+            });
+            let formatted = if matches!(output_format, OutputFormat::Pretty) {
+                serde_json::to_string_pretty(&response)?
+            } else {
+                serde_json::to_string(&response)?
+            };
+            println!("{}", formatted);
+        }
+        OutputFormat::Human => {
+            println!(
+                "Page {} of {} ({} total symbols across {} projects)",
+                page_num,
+                total_pages,
+                total_items,
+                db_paths.len()
+            );
+            println!();
+
+            let mut last_project = String::new();
+            for (proj, item) in &page_items {
+                if *proj != last_project {
+                    if !last_project.is_empty() {
+                        println!();
+                    }
+                    println!("Project: {}", proj);
+                    last_project = proj.clone();
+                }
+                println!(
+                    "  {}:{}  {}  ({})",
+                    item.file, item.line, item.name, item.kind
+                );
+            }
+
+            if page_num < total_pages {
+                println!();
+                println!("Next page: --page {}", page_num + 1);
+            }
+        }
     }
 
     Ok(())
@@ -103,83 +202,220 @@ pub fn run_context_list(
 
 /// Run the context symbol command
 pub fn run_context_symbol(
-    db_path: PathBuf,
+    db_paths: Vec<PathBuf>,
     name: String,
     file: Option<String>,
     include_callers: bool,
     include_callees: bool,
+    output_format: OutputFormat,
+    with_source: bool,
+    depth: Option<usize>,
+    project_filter: Option<String>,
 ) -> Result<()> {
-    let mut graph = CodeGraph::open(&db_path)?;
+    if db_paths.is_empty() {
+        anyhow::bail!("No database paths provided. Use --db <path> to specify.");
+    }
 
-    let detail = get_symbol_detail(&mut graph, &name, file.as_deref());
+    // Collect matches across all DBs
+    let mut all_matches: Vec<ProjectSymbolMatch> = Vec::new();
+    let mut project_names: Vec<String> = Vec::new();
+    let mut seen_symbols: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-    match detail {
-        Ok(detail) => {
-            // Print symbol info
-            println!("Symbol: {}", detail.name);
-            println!("Kind: {}", detail.kind);
-            println!("File: {}:{}", detail.file, detail.line);
+    for db_path in &db_paths {
+        let project = db_path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "unknown".to_string());
 
-            if let Some(ref sig) = detail.signature {
-                println!("Signature: {}", sig);
-            }
-
-            if let Some(ref doc) = detail.documentation {
-                println!("Documentation: {}", doc);
-            }
-
-            if include_callers && !detail.callers.is_empty() {
-                println!();
-                println!("Callers ({}):", detail.callers.len());
-                for caller in &detail.callers {
-                    println!("  - {}", caller);
-                }
-            }
-
-            if include_callees && !detail.callees.is_empty() {
-                println!();
-                println!("Callees ({}):", detail.callees.len());
-                for callee in &detail.callees {
-                    println!("  - {}", callee);
-                }
-            }
-
-            if !detail.related.is_empty() {
-                println!();
-                println!("Related symbols:");
-                for related in &detail.related {
-                    println!("  - {}", related);
-                }
+        // Skip if --project filter doesn't match
+        if let Some(ref filter) = project_filter {
+            if project != *filter {
+                continue;
             }
         }
-        Err(_) => {
-            // Symbol not found - provide suggestions
-            eprintln!("Error: Symbol '{}' not found", name);
 
-            // Try to find similar symbols
-            let all_symbols = graph.get_symbols_by_label(&name).unwrap_or_default();
-            if !all_symbols.is_empty() {
+        let mut graph = match CodeGraph::open(db_path) {
+            Ok(g) => g,
+            Err(e) => {
+                eprintln!("Warning: skipping {}: {}", db_path.display(), e);
+                continue;
+            }
+        };
+
+        // Depth 0 or None means single-hop (default behavior)
+        let detail = if depth.is_some() && depth.unwrap() > 1 {
+            get_symbol_detail_recursive(&mut graph, &name, file.as_deref(), depth.unwrap())
+        } else {
+            get_symbol_detail(&mut graph, &name, file.as_deref())
+        };
+
+        let detail = match detail {
+            Ok(d) => d,
+            Err(_) => continue, // Symbol not found in this DB, skip
+        };
+
+        // Dedup: skip if we already found this symbol in another DB
+        let symbol_key = format!("{}:{}:{}", project, detail.file, detail.line);
+        if !seen_symbols.insert(symbol_key) {
+            continue;
+        }
+
+        project_names.push(project.clone());
+
+        let span = Span {
+            span_id: magellan::output::Span::generate_id(
+                &detail.file,
+                detail.byte_start,
+                detail.byte_end,
+            ),
+            file_path: detail.file.clone(),
+            byte_start: detail.byte_start,
+            byte_end: detail.byte_end,
+            start_line: detail.line,
+            start_col: detail.start_col,
+            end_line: detail.end_line,
+            end_col: detail.end_col,
+            context: None,
+            semantics: None,
+            relationships: None,
+            checksums: None,
+        };
+
+        let callers: Option<Vec<ProjectCallerInfo>> = if include_callers {
+            Some(
+                detail
+                    .callers
+                    .iter()
+                    .map(|c| ProjectCallerInfo {
+                        project: project.clone(),
+                        name: c.name.clone(),
+                        file_path: c.file.clone(),
+                        line: c.line,
+                        column: 0,
+                        depth: c.depth,
+                    })
+                    .collect(),
+            )
+        } else {
+            None
+        };
+
+        let callees: Option<Vec<ProjectCalleeInfo>> = if include_callees {
+            Some(
+                detail
+                    .callees
+                    .iter()
+                    .map(|c| ProjectCalleeInfo {
+                        project: project.clone(),
+                        name: c.name.clone(),
+                        file_path: c.file.clone(),
+                        line: c.line as u32,
+                        depth: c.depth,
+                    })
+                    .collect(),
+            )
+        } else {
+            None
+        };
+
+        let source = if with_source {
+            read_source_lines(&detail.file, detail.line, detail.end_line)
+        } else {
+            None
+        };
+
+        all_matches.push(ProjectSymbolMatch {
+            project: project.clone(),
+            match_id: format!("{}::{}#{}", project, detail.name, detail.line),
+            span,
+            name: detail.name.clone(),
+            kind: detail.kind.clone(),
+            parent: None,
+            symbol_id: Some(format!(
+                "{}::{}#{}",
+                project, detail.name, detail.line
+            )),
+            callers,
+            callees,
+            source,
+        });
+    }
+
+    if all_matches.is_empty() {
+        match output_format {
+            OutputFormat::Json | OutputFormat::Pretty => {
+                let response = ContextResponse {
+                    query: name.clone(),
+                    projects: vec![],
+                    matches: vec![],
+                };
+                let exec_id = generate_execution_id();
+                let json_response = magellan::output::JsonResponse::new(response, &exec_id);
+                magellan::output::output_json(&json_response, output_format)?;
+            }
+            OutputFormat::Human => {
+                eprintln!("Error: Symbol '{}' not found", name);
                 eprintln!();
-                eprintln!(
-                    "Found {} similar symbol(s) in other files:",
-                    all_symbols.len()
-                );
-                for (i, sym) in all_symbols.iter().take(5).enumerate() {
-                    eprintln!("  {}. {} (in {})", i + 1, sym.name, sym.file_path);
+                eprintln!("No exact matches.");
+            }
+        }
+        return Ok(());
+    }
+    // Output results
+    match output_format {
+        OutputFormat::Json | OutputFormat::Pretty => {
+            let response = ContextResponse {
+                query: name.clone(),
+                projects: project_names,
+                matches: all_matches,
+            };
+            let exec_id = generate_execution_id();
+            let json_response = magellan::output::JsonResponse::new(response, &exec_id);
+            magellan::output::output_json(&json_response, output_format)?;
+        }
+        OutputFormat::Human => {
+            for (i, m) in all_matches.iter().enumerate() {
+                if i > 0 {
+                    println!();
+                    println!("---");
                 }
-                if all_symbols.len() > 5 {
-                    eprintln!("  ... and {} more", all_symbols.len() - 5);
+                println!("Project: {}", m.project);
+                println!("Symbol: {}", m.name);
+                println!("Kind: {}", m.kind);
+                println!("File: {}:{}", m.span.file_path, m.span.start_line);
+
+                if let Some(ref callers) = m.callers {
+                    if !callers.is_empty() {
+                        println!();
+                        println!("Callers ({}):", callers.len());
+                        for c in callers {
+                            let depth_str = c.depth.map_or(String::new(), |d| format!("[depth={}]", d));
+                            println!("  - {} ({}:{}) {}", c.name, c.file_path, c.line, depth_str);
+                        }
+                    }
                 }
-                eprintln!();
-                eprintln!(
-                    "Try: magellan context symbol --db code.db --name \"{}\" --file <path>",
-                    name
-                );
-            } else {
-                // Try fuzzy search - look for symbols containing the name
-                eprintln!();
-                eprintln!("No exact matches. Try searching with a different name.");
-                eprintln!("Hint: Use 'magellan context list --kind fn' to list all functions");
+
+                if let Some(ref callees) = m.callees {
+                    if !callees.is_empty() {
+                        println!();
+                        println!("Callees ({}):", callees.len());
+                        for c in callees {
+                            let depth_str = c.depth.map_or(String::new(), |d| format!("[depth={}]", d));
+                            println!("  - {} ({}:{}) {}", c.name, c.file_path, c.line, depth_str);
+                        }
+                    }
+                }
+
+                if let Some(ref source) = m.source {
+                    println!();
+                    println!(
+                        "Source ({}:{}-{}):",
+                        m.span.file_path, m.span.start_line, m.span.end_line
+                    );
+                    for line in source.lines() {
+                        println!("  {}", line);
+                    }
+                }
             }
         }
     }
@@ -217,6 +453,334 @@ pub fn run_context_file(db_path: PathBuf, path: String) -> Result<()> {
         println!("Imports:");
         for import in &context.imports {
             println!("  - {}", import);
+        }
+    }
+
+    Ok(())
+}
+
+/// Read source lines from a file, returning them as a single string.
+///
+/// Uses 1-indexed line numbers. If the file can't be read or lines are
+/// out of range, returns None.
+fn read_source_lines(file_path: &str, start_line: usize, end_line: usize) -> Option<String> {
+    use std::fs;
+    use std::io::BufRead;
+
+    let file = fs::File::open(file_path).ok()?;
+    let reader = std::io::BufReader::new(file);
+
+    let lines: Vec<String> = reader
+        .lines()
+        .skip(start_line.saturating_sub(1))
+        .take(end_line.saturating_sub(start_line) + 1)
+        .filter_map(|l| l.ok())
+        .collect();
+
+    if lines.is_empty() {
+        return None;
+    }
+
+    Some(lines.join("\n"))
+}
+
+/// Run the context impact command (multi-DB)
+pub fn run_context_impact(
+    db_paths: Vec<PathBuf>,
+    symbol_name: String,
+    file: Option<String>,
+    depth: usize,
+    project_filter: Option<String>,
+    output_format: OutputFormat,
+) -> Result<()> {
+    if db_paths.is_empty() {
+        anyhow::bail!("No database paths provided. Use --db <path> to specify.");
+    }
+
+    let mut all_impacted: Vec<(String, magellan::context::SymbolRelation)> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    for db_path in &db_paths {
+        let project = db_path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+
+        if let Some(ref filter) = project_filter {
+            if project != *filter {
+                continue;
+            }
+        }
+
+        let mut graph = match CodeGraph::open(db_path) {
+            Ok(g) => g,
+            Err(e) => {
+                eprintln!("Warning: skipping {}: {}", db_path.display(), e);
+                continue;
+            }
+        };
+
+        match impact_analysis(&mut graph, &symbol_name, file.as_deref(), depth) {
+            Ok(impacted) => {
+                for r in impacted {
+                    let key = format!("{}:{}:{}:{}", project, r.name, r.file, r.line);
+                    if seen.insert(key) {
+                        all_impacted.push((project.clone(), r));
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("Warning: could not analyze {}: {}", project, e);
+            }
+        }
+    }
+
+    if all_impacted.is_empty() {
+        match output_format {
+            OutputFormat::Json | OutputFormat::Pretty => {
+                let target = format!(
+                    "{}{}",
+                    symbol_name,
+                    file.as_ref()
+                        .map(|f| format!(" (in {})", f))
+                        .unwrap_or_default()
+                );
+                let response = serde_json::json!({
+                    "schema_version": "1.0",
+                    "execution_id": generate_execution_id(),
+                    "command": "context impact",
+                    "data": {
+                        "target": target,
+                        "depth_limit": depth,
+                        "total_affected": 0,
+                        "affected": [],
+                    },
+                });
+                let formatted = if matches!(output_format, OutputFormat::Pretty) {
+                    serde_json::to_string_pretty(&response)?
+                } else {
+                    serde_json::to_string(&response)?
+                };
+                println!("{}", formatted);
+            }
+            OutputFormat::Human => {
+                println!("No impact found for symbol '{}'.", symbol_name);
+                if file.is_some() {
+                    println!("(Try without --file, or check the symbol exists in the index.)");
+                }
+            }
+        }
+        return Ok(());
+    }
+
+    let target = format!(
+        "{}{}",
+        symbol_name,
+        file.as_ref()
+            .map(|f| format!(" (in {})", f))
+            .unwrap_or_default()
+    );
+
+    match output_format {
+        OutputFormat::Json | OutputFormat::Pretty => {
+            let impacted_json: Vec<serde_json::Value> = all_impacted
+                .iter()
+                .map(|(proj, r)| {
+                    serde_json::json!({
+                        "project": proj,
+                        "name": r.name,
+                        "file": r.file,
+                        "line": r.line,
+                        "depth": r.depth,
+                    })
+                })
+                .collect();
+            let response = serde_json::json!({
+                "schema_version": "1.0",
+                "execution_id": generate_execution_id(),
+                "command": "context impact",
+                "data": {
+                    "target": target,
+                    "depth_limit": depth,
+                    "total_affected": all_impacted.len(),
+                    "affected": impacted_json,
+                },
+            });
+            let formatted = if matches!(output_format, OutputFormat::Pretty) {
+                serde_json::to_string_pretty(&response)?
+            } else {
+                serde_json::to_string(&response)?
+            };
+            println!("{}", formatted);
+        }
+        OutputFormat::Human => {
+            println!(
+                "Impact analysis: {} (depth limit: {})",
+                target, depth
+            );
+            println!("{} symbol(s) affected across {} DB(s)\n", all_impacted.len(), db_paths.len());
+
+            let mut last_project = String::new();
+            for (proj, r) in &all_impacted {
+                if *proj != last_project {
+                    if !last_project.is_empty() {
+                        println!();
+                    }
+                    println!("Project: {}", proj);
+                    last_project = proj.clone();
+                }
+                let depth_str = r.depth.map_or(String::new(), |d| format!(" [depth={}]", d));
+                println!("  {} ({}:{}){}", r.name, r.file, r.line, depth_str);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Run the context affected command (multi-DB)
+/// Forward reachability: find all symbols the target transitively calls
+pub fn run_context_affected(
+    db_paths: Vec<PathBuf>,
+    symbol_name: String,
+    file: Option<String>,
+    depth: usize,
+    project_filter: Option<String>,
+    output_format: OutputFormat,
+) -> Result<()> {
+    if db_paths.is_empty() {
+        anyhow::bail!("No database paths provided. Use --db <path> to specify.");
+    }
+
+    let mut all_affected: Vec<(String, magellan::context::SymbolRelation)> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    for db_path in &db_paths {
+        let project = db_path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+
+        if let Some(ref filter) = project_filter {
+            if project != *filter {
+                continue;
+            }
+        }
+
+        let mut graph = match CodeGraph::open(db_path) {
+            Ok(g) => g,
+            Err(e) => {
+                eprintln!("Warning: skipping {}: {}", db_path.display(), e);
+                continue;
+            }
+        };
+
+        match affected_analysis(&mut graph, &symbol_name, file.as_deref(), depth) {
+            Ok(results) => {
+                for r in results {
+                    let key = format!("{}:{}:{}:{}", project, r.name, r.file, r.line);
+                    if seen.insert(key) {
+                        all_affected.push((project.clone(), r));
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("Warning: could not analyze {}: {}", project, e);
+            }
+        }
+    }
+
+    let target = format!(
+        "{}{}",
+        symbol_name,
+        file.as_ref()
+            .map(|f| format!(" (in {})", f))
+            .unwrap_or_default()
+    );
+
+    if all_affected.is_empty() {
+        match output_format {
+            OutputFormat::Json | OutputFormat::Pretty => {
+                let response = serde_json::json!({
+                    "schema_version": "1.0",
+                    "execution_id": generate_execution_id(),
+                    "command": "context affected",
+                    "data": {
+                        "target": target,
+                        "depth_limit": depth,
+                        "total_affected": 0,
+                        "affected": [],
+                    },
+                });
+                let formatted = if matches!(output_format, OutputFormat::Pretty) {
+                    serde_json::to_string_pretty(&response)?
+                } else {
+                    serde_json::to_string(&response)?
+                };
+                println!("{}", formatted);
+            }
+            OutputFormat::Human => {
+                println!("No dependencies found for symbol '{}'.", symbol_name);
+            }
+        }
+        return Ok(());
+    }
+
+    match output_format {
+        OutputFormat::Json | OutputFormat::Pretty => {
+            let affected_json: Vec<serde_json::Value> = all_affected
+                .iter()
+                .map(|(proj, r)| {
+                    serde_json::json!({
+                        "project": proj,
+                        "name": r.name,
+                        "file": r.file,
+                        "line": r.line,
+                        "depth": r.depth,
+                    })
+                })
+                .collect();
+            let response = serde_json::json!({
+                "schema_version": "1.0",
+                "execution_id": generate_execution_id(),
+                "command": "context affected",
+                "data": {
+                    "target": target,
+                    "depth_limit": depth,
+                    "total_affected": all_affected.len(),
+                    "affected": affected_json,
+                },
+            });
+            let formatted = if matches!(output_format, OutputFormat::Pretty) {
+                serde_json::to_string_pretty(&response)?
+            } else {
+                serde_json::to_string(&response)?
+            };
+            println!("{}", formatted);
+        }
+        OutputFormat::Human => {
+            println!(
+                "Affected analysis: {} (depth limit: {})",
+                target, depth
+            );
+            println!(
+                "{} symbol(s) reached across {} DB(s)\n",
+                all_affected.len(),
+                db_paths.len()
+            );
+
+            let mut last_project = String::new();
+            for (proj, r) in &all_affected {
+                if *proj != last_project {
+                    if !last_project.is_empty() {
+                        println!();
+                    }
+                    println!("Project: {}", proj);
+                    last_project = proj.clone();
+                }
+                let depth_str = r.depth.map_or(String::new(), |d| format!(" [depth={}]", d));
+                println!("  {} ({}:{}){}", r.name, r.file, r.line, depth_str);
+            }
         }
     }
 

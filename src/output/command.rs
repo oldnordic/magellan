@@ -838,6 +838,81 @@ pub struct RefsResponse {
     pub direction: String,
 }
 
+/// Caller information with project attribution for cross-project queries
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectCallerInfo {
+    /// Source project name (derived from DB filename)
+    pub project: String,
+    /// Name of the calling function
+    pub name: String,
+    /// File containing the call
+    pub file_path: String,
+    /// Line where call occurs
+    pub line: usize,
+    /// Column where call occurs
+    pub column: usize,
+    /// Hop depth for recursive traversal (None = direct)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub depth: Option<usize>,
+}
+
+/// Callee information with project attribution for cross-project queries
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectCalleeInfo {
+    /// Source project name (derived from DB filename)
+    pub project: String,
+    /// Name of the called function
+    pub name: String,
+    /// File containing the callee definition
+    pub file_path: String,
+    /// Line number where the call occurs
+    pub line: u32,
+    /// Hop depth for recursive traversal (None = direct)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub depth: Option<usize>,
+}
+
+/// Symbol match with project attribution for multi-DB context queries
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectSymbolMatch {
+    /// Source project name (derived from DB filename)
+    pub project: String,
+    /// Stable match ID
+    pub match_id: String,
+    /// Symbol span (location in source code)
+    pub span: Span,
+    /// Symbol name
+    pub name: String,
+    /// Symbol kind (normalized)
+    pub kind: String,
+    /// Containing symbol (if nested)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
+    /// Stable symbol ID
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub symbol_id: Option<String>,
+    /// Functions that call this symbol (cross-project)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub callers: Option<Vec<ProjectCallerInfo>>,
+    /// Functions that this symbol calls (cross-project)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub callees: Option<Vec<ProjectCalleeInfo>>,
+    /// Source code snippet (when --with-source is used)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+}
+
+/// Response for context command
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContextResponse {
+    /// Name that was queried
+    pub query: String,
+    /// Projects searched
+    pub projects: Vec<String>,
+    /// Matching symbols found across all projects
+    pub matches: Vec<ProjectSymbolMatch>,
+}
+
 /// Collision candidate details
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CollisionCandidate {

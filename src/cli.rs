@@ -333,6 +333,8 @@ pub enum ContextSubcommand {
         page: Option<usize>,
         page_size: Option<usize>,
         cursor: Option<String>,
+        project: Option<String>,
+        output_format: OutputFormat,
     },
     /// Show symbol detail
     Symbol {
@@ -340,9 +342,29 @@ pub enum ContextSubcommand {
         file: Option<String>,
         callers: bool,
         callees: bool,
+        output_format: OutputFormat,
+        with_source: bool,
+        depth: Option<usize>,
+        project: Option<String>,
     },
     /// Show file context
     File { path: String },
+    /// Impact analysis — blast radius of changing a symbol
+    Impact {
+        symbol: String,
+        file: Option<String>,
+        depth: usize,
+        project: Option<String>,
+        output_format: OutputFormat,
+    },
+    /// Affected analysis — what the symbol transitively calls
+    Affected {
+        symbol: String,
+        file: Option<String>,
+        depth: usize,
+        project: Option<String>,
+        output_format: OutputFormat,
+    },
 }
 
 #[derive(Debug)]
@@ -415,7 +437,7 @@ pub enum Command {
     },
     Context {
         subcommand: ContextSubcommand,
-        db_path: PathBuf,
+        db_paths: Vec<PathBuf>,
     },
     Doctor {
         db_path: PathBuf,
@@ -1269,7 +1291,7 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
         ));
     }
 
-    let mut db_path: Option<PathBuf> = None;
+    let mut db_paths: Vec<PathBuf> = Vec::new();
     let subcommand = match args[0].as_str() {
         "build" => ContextSubcommand::Build,
         "summary" => ContextSubcommand::Summary,
@@ -1278,6 +1300,8 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
             let mut page: Option<usize> = None;
             let mut page_size: Option<usize> = None;
             let mut cursor: Option<String> = None;
+            let mut project: Option<String> = None;
+            let mut output_format = OutputFormat::Human;
 
             let mut i = 1;
             while i < args.len() {
@@ -1286,7 +1310,7 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                         if i + 1 >= args.len() {
                             return Err(anyhow::anyhow!("--db requires an argument"));
                         }
-                        db_path = Some(PathBuf::from(&args[i + 1]));
+                        db_paths = parse_db_paths(&args[i + 1])?;
                         i += 2;
                     }
                     "--kind" => {
@@ -1325,6 +1349,20 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                         cursor = Some(args[i + 1].clone());
                         i += 2;
                     }
+                    "--project" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--project requires an argument"));
+                        }
+                        project = Some(args[i + 1].clone());
+                        i += 2;
+                    }
+                    "--output" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--output requires an argument"));
+                        }
+                        output_format = parse_output_format(&args[i + 1])?;
+                        i += 2;
+                    }
                     _ => {
                         return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
                     }
@@ -1336,6 +1374,8 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                 page,
                 page_size,
                 cursor,
+                project,
+                output_format,
             }
         }
         "symbol" => {
@@ -1343,6 +1383,10 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
             let mut file: Option<String> = None;
             let mut callers = false;
             let mut callees = false;
+            let mut output_format = OutputFormat::Human;
+            let mut with_source = false;
+            let mut depth: Option<usize> = None;
+            let mut project: Option<String> = None;
 
             let mut i = 1;
             while i < args.len() {
@@ -1351,7 +1395,7 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                         if i + 1 >= args.len() {
                             return Err(anyhow::anyhow!("--db requires an argument"));
                         }
-                        db_path = Some(PathBuf::from(&args[i + 1]));
+                        db_paths = parse_db_paths(&args[i + 1])?;
                         i += 2;
                     }
                     "--name" => {
@@ -1376,6 +1420,34 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                         callees = true;
                         i += 1;
                     }
+                    "--output" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--output requires an argument"));
+                        }
+                        output_format = parse_output_format(&args[i + 1])?;
+                        i += 2;
+                    }
+                    "--with-source" => {
+                        with_source = true;
+                        i += 1;
+                    }
+                    "--depth" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--depth requires an argument"));
+                        }
+                        let d: usize = args[i + 1]
+                            .parse()
+                            .map_err(|_| anyhow::anyhow!("--depth must be a positive integer"))?;
+                        depth = Some(d);
+                        i += 2;
+                    }
+                    "--project" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--project requires an argument"));
+                        }
+                        project = Some(args[i + 1].clone());
+                        i += 2;
+                    }
                     _ => {
                         return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
                     }
@@ -1389,6 +1461,10 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                 file,
                 callers,
                 callees,
+                output_format,
+                with_source,
+                depth,
+                project,
             }
         }
         "file" => {
@@ -1401,7 +1477,7 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                         if i + 1 >= args.len() {
                             return Err(anyhow::anyhow!("--db requires an argument"));
                         }
-                        db_path = Some(PathBuf::from(&args[i + 1]));
+                        db_paths = parse_db_paths(&args[i + 1])?;
                         i += 2;
                     }
                     "--path" => {
@@ -1421,32 +1497,196 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                 path.ok_or_else(|| anyhow::anyhow!("--path is required for file subcommand"))?;
             ContextSubcommand::File { path }
         }
+        "impact" => {
+            let mut symbol: Option<String> = None;
+            let mut file: Option<String> = None;
+            let mut depth: usize = 3;
+            let mut project: Option<String> = None;
+            let mut output_format = OutputFormat::Human;
+
+            let mut i = 1;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--db" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--db requires an argument"));
+                        }
+                        db_paths = parse_db_paths(&args[i + 1])?;
+                        i += 2;
+                    }
+                    "--symbol" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--symbol requires an argument"));
+                        }
+                        symbol = Some(args[i + 1].clone());
+                        i += 2;
+                    }
+                    "--file" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--file requires an argument"));
+                        }
+                        file = Some(args[i + 1].clone());
+                        i += 2;
+                    }
+                    "--depth" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--depth requires an argument"));
+                        }
+                        depth = args[i + 1]
+                            .parse()
+                            .map_err(|_| anyhow::anyhow!("--depth must be a positive integer"))?;
+                        i += 2;
+                    }
+                    "--project" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--project requires an argument"));
+                        }
+                        project = Some(args[i + 1].clone());
+                        i += 2;
+                    }
+                    "--output" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--output requires an argument"));
+                        }
+                        output_format = parse_output_format(&args[i + 1])?;
+                        i += 2;
+                    }
+                    _ => {
+                        return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
+                    }
+                }
+            }
+
+            let symbol =
+                symbol.ok_or_else(|| anyhow::anyhow!("--symbol is required for impact subcommand"))?;
+            ContextSubcommand::Impact {
+                symbol,
+                file,
+                depth,
+                project,
+                output_format,
+            }
+        }
+        "affected" => {
+            let mut symbol: Option<String> = None;
+            let mut file: Option<String> = None;
+            let mut depth: usize = 3;
+            let mut project: Option<String> = None;
+            let mut output_format = OutputFormat::Human;
+
+            let mut i = 1;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--db" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--db requires an argument"));
+                        }
+                        db_paths = parse_db_paths(&args[i + 1])?;
+                        i += 2;
+                    }
+                    "--symbol" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--symbol requires an argument"));
+                        }
+                        symbol = Some(args[i + 1].clone());
+                        i += 2;
+                    }
+                    "--file" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--file requires an argument"));
+                        }
+                        file = Some(args[i + 1].clone());
+                        i += 2;
+                    }
+                    "--depth" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--depth requires an argument"));
+                        }
+                        depth = args[i + 1]
+                            .parse()
+                            .map_err(|_| anyhow::anyhow!("--depth must be a positive integer"))?;
+                        i += 2;
+                    }
+                    "--project" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--project requires an argument"));
+                        }
+                        project = Some(args[i + 1].clone());
+                        i += 2;
+                    }
+                    "--output" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--output requires an argument"));
+                        }
+                        output_format = parse_output_format(&args[i + 1])?;
+                        i += 2;
+                    }
+                    _ => {
+                        return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
+                    }
+                }
+            }
+
+            let symbol =
+                symbol.ok_or_else(|| anyhow::anyhow!("--symbol is required for affected subcommand"))?;
+            ContextSubcommand::Affected {
+                symbol,
+                file,
+                depth,
+                project,
+                output_format,
+            }
+        }
         _ => {
             return Err(anyhow::anyhow!(
-                "Unknown context subcommand: {}. Use: build, summary, list, symbol, file",
+                "Unknown context subcommand: {}. Use: build, summary, list, symbol, file, impact, affected",
                 args[0]
             ));
         }
     };
 
     // Parse --db from remaining args if not already parsed
-    if db_path.is_none() {
+    if db_paths.is_empty() {
         let mut i = 1;
         while i < args.len() {
             if args[i] == "--db" && i + 1 < args.len() {
-                db_path = Some(PathBuf::from(&args[i + 1]));
+                db_paths = parse_db_paths(&args[i + 1])?;
                 break;
             }
             i += 1;
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    if db_paths.is_empty() {
+        return Err(anyhow::anyhow!("--db is required"));
+    }
 
     Ok(Command::Context {
         subcommand,
-        db_path,
+        db_paths,
     })
+}
+
+/// Parse comma-separated DB paths or discover .db files in a directory
+fn parse_db_paths(value: &str) -> Result<Vec<PathBuf>> {
+    let path = PathBuf::from(value);
+    if path.is_dir() {
+        // Discover all .db files in the directory
+        let mut paths = Vec::new();
+        for entry in std::fs::read_dir(&path)? {
+            let entry = entry?;
+            let p = entry.path();
+            if p.extension().map_or(false, |e| e == "db") {
+                paths.push(p);
+            }
+        }
+        paths.sort();
+        Ok(paths)
+    } else if value.contains(',') {
+        Ok(value.split(',').map(PathBuf::from).collect())
+    } else {
+        Ok(vec![path])
+    }
 }
 
 /// Parse the `doctor` command arguments

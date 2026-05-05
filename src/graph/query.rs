@@ -803,6 +803,70 @@ impl CodeGraph {
 
         Ok(results)
     }
+
+    /// Search for symbols by name across all files
+    ///
+    /// Uses the `graph_entities` table directly to find symbols matching
+    /// the given name. This is the correct way to find a symbol by its
+    /// actual name (as opposed to `get_symbols_by_label` which searches
+    /// by kind label like "fn" or "struct").
+    ///
+    /// # Arguments
+    /// * `name` - Symbol name to search for (exact match)
+    ///
+    /// # Returns
+    /// Vector of `SymbolQueryResult` for all matching symbols
+    pub fn search_symbols_by_name(&self, name: &str) -> Result<Vec<SymbolQueryResult>> {
+        let conn = self.chunks.connect()?;
+
+        let mut stmt = conn
+            .prepare_cached(
+                "SELECT id, name, file_path, data
+                 FROM graph_entities
+                 WHERE name = ?1",
+            )
+            .map_err(|e| anyhow::anyhow!("Failed to prepare name search: {}", e))?;
+
+        let results = stmt
+            .query_map(params![name], |row| {
+                let entity_id: i64 = row.get(0)?;
+                let sym_name: String = row.get(1)?;
+                let file_path: Option<String> = row.get(2)?;
+                let data: Option<String> = row.get(3)?;
+
+                let symbol_node: SymbolNode = data
+                    .and_then(|d| serde_json::from_value(serde_json::Value::String(d)).ok())
+                    .unwrap_or(SymbolNode {
+                        symbol_id: None,
+                        fqn: None,
+                        canonical_fqn: None,
+                        display_fqn: None,
+                        name: None,
+                        kind: "Unknown".to_string(),
+                        kind_normalized: None,
+                        byte_start: 0,
+                        byte_end: 0,
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    });
+
+                Ok(SymbolQueryResult {
+                    entity_id,
+                    name: sym_name,
+                    file_path: file_path.unwrap_or_else(|| "?".to_string()),
+                    kind: symbol_node.kind_normalized.unwrap_or(symbol_node.kind),
+                    byte_start: symbol_node.byte_start,
+                    byte_end: symbol_node.byte_end,
+                })
+            })
+            .map_err(|e| anyhow::anyhow!("Failed to execute name search: {}", e))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| anyhow::anyhow!("Failed to collect name search results: {}", e))?;
+
+        Ok(results)
+    }
 }
 
 /// Get all symbols matching a display FQN (ambiguity detection)

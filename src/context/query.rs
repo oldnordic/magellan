@@ -64,18 +64,47 @@ pub struct SymbolDetail {
     pub kind: String,
     /// File containing this symbol
     pub file: String,
-    /// Line number
+    /// Line number (1-indexed)
     pub line: usize,
+    /// Byte offset where symbol starts in file
+    #[serde(default)]
+    pub byte_start: usize,
+    /// Byte offset where symbol ends in file
+    #[serde(default)]
+    pub byte_end: usize,
+    /// Column where symbol starts (0-indexed, bytes)
+    #[serde(default)]
+    pub start_col: usize,
+    /// Line where symbol ends (1-indexed)
+    #[serde(default)]
+    pub end_line: usize,
+    /// Column where symbol ends (0-indexed, bytes)
+    #[serde(default)]
+    pub end_col: usize,
     /// Signature (if available)
     pub signature: Option<String>,
     /// Documentation (if available)
     pub documentation: Option<String>,
-    /// Caller symbols
-    pub callers: Vec<String>,
-    /// Callee symbols
-    pub callees: Vec<String>,
+    /// Caller symbols with metadata
+    pub callers: Vec<SymbolRelation>,
+    /// Callee symbols with metadata
+    pub callees: Vec<SymbolRelation>,
     /// Related symbols (same module, etc.)
     pub related: Vec<String>,
+}
+
+/// A caller or callee relation with file/line metadata
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SymbolRelation {
+    /// Symbol name
+    pub name: String,
+    /// File path containing the symbol
+    pub file: String,
+    /// Line number (1-indexed)
+    pub line: usize,
+    /// Hop depth for recursive traversal (None = direct, Some(N) = N hops away)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub depth: Option<usize>,
 }
 
 /// Paginated result
@@ -277,8 +306,8 @@ pub fn get_symbol_detail(
             .filter(|s| s.name.as_deref() == Some(symbol_name))
             .collect::<Vec<_>>()
     } else {
-        // Search across all files
-        let results = graph.get_symbols_by_label(symbol_name)?;
+        // Search across all files using FTS5 symbol name index
+        let results = graph.search_symbols_by_name(symbol_name)?;
         results
             .into_iter()
             .filter_map(|r| {
@@ -294,18 +323,28 @@ pub fn get_symbol_detail(
         .first()
         .ok_or_else(|| anyhow::anyhow!("Symbol '{}' not found", symbol_name))?;
 
-    // Get callers
+    // Get callers with file/line metadata
     let callers = graph
         .callers_of_symbol(&symbol.file_path.to_string_lossy(), symbol_name)?
-        .iter()
-        .map(|c| c.caller.clone())
+        .into_iter()
+        .map(|c| SymbolRelation {
+            name: c.caller,
+            file: c.file_path.to_string_lossy().to_string(),
+            line: c.start_line,
+            depth: None,
+        })
         .collect();
 
-    // Get callees
+    // Get callees with file/line metadata
     let callees = graph
         .calls_from_symbol(&symbol.file_path.to_string_lossy(), symbol_name)?
-        .iter()
-        .map(|c| c.callee.clone())
+        .into_iter()
+        .map(|c| SymbolRelation {
+            name: c.callee,
+            file: c.file_path.to_string_lossy().to_string(),
+            line: c.start_line,
+            depth: None,
+        })
         .collect();
 
     // Get related symbols (same module)
@@ -322,12 +361,113 @@ pub fn get_symbol_detail(
         kind: symbol.kind_normalized.clone(),
         file: symbol.file_path.to_string_lossy().to_string(),
         line: symbol.start_line,
+        byte_start: symbol.byte_start,
+        byte_end: symbol.byte_end,
+        start_col: symbol.start_col,
+        end_line: symbol.end_line,
+        end_col: symbol.end_col,
         signature: None,     // Would come from LSP enrichment
         documentation: None, // Would come from LSP enrichment
         callers,
         callees,
         related,
     })
+}
+
+/// Get symbol detail with recursive caller/callee traversal to a given depth.
+///
+/// At depth=1, behaves like `get_symbol_detail` (single hop).
+/// At depth=2, also includes callers-of-callers and callees-of-callees, etc.
+///
+/// The returned `SymbolDetail` has the same structure but callers/callees
+/// arrays are flattened from all hops. Each `SymbolRelation` carries the
+/// hop depth via its `line` field being 0 (meaning "indirect" — we repurpose
+/// it since the call graph doesn't store line for cross-file refs).
+///
+/// Actually, we add a new field `depth` to `SymbolRelation` for this.
+pub fn get_symbol_detail_recursive(
+    graph: &mut CodeGraph,
+    symbol_name: &str,
+    file_path: Option<&str>,
+    max_depth: usize,
+) -> Result<SymbolDetail> {
+    // First get the base symbol detail
+    let mut detail = get_symbol_detail(graph, symbol_name, file_path)?;
+
+    if max_depth <= 1 {
+        return Ok(detail);
+    }
+
+    // BFS: (symbol_name, file_path, current_depth)
+    let mut caller_queue: Vec<(String, String, usize)> = Vec::new();
+    let mut callee_queue: Vec<(String, String, usize)> = Vec::new();
+
+    // Seed queues with direct callers/callees
+    for c in &detail.callers {
+        caller_queue.push((c.name.clone(), c.file.clone(), 1));
+    }
+    for c in &detail.callees {
+        callee_queue.push((c.name.clone(), c.file.clone(), 1));
+    }
+
+    let mut visited_callers: std::collections::HashSet<(String, String)> = detail
+        .callers
+        .iter()
+        .map(|c| (c.name.clone(), c.file.clone()))
+        .collect();
+    let mut visited_callees: std::collections::HashSet<(String, String)> = detail
+        .callees
+        .iter()
+        .map(|c| (c.name.clone(), c.file.clone()))
+        .collect();
+
+    // BFS for callers
+    while let Some((name, file, depth)) = caller_queue.pop() {
+        if depth >= max_depth {
+            continue;
+        }
+        // Use None for file_path: c.file is the call-site, not the definition.
+        // Searching globally by name finds the actual definition.
+        if let Ok(caller_detail) = get_symbol_detail(graph, &name, None) {
+            for c in &caller_detail.callers {
+                let key = (c.name.clone(), c.file.clone());
+                if visited_callers.insert(key.clone()) {
+                    detail.callers.push(SymbolRelation {
+                        name: c.name.clone(),
+                        file: c.file.clone(),
+                        line: 0, // indirect — line not meaningful for BFS
+                        depth: Some(depth + 1),
+                    });
+                    caller_queue.push((c.name.clone(), c.file.clone(), depth + 1));
+                }
+            }
+        }
+    }
+
+    // BFS for callees
+    while let Some((name, file, depth)) = callee_queue.pop() {
+        if depth >= max_depth {
+            continue;
+        }
+        // Use None for file_path: c.file is the call-site, not the definition.
+        // Searching globally by name finds the actual definition.
+        if let Ok(callee_detail) = get_symbol_detail(graph, &name, None) {
+            for c in &callee_detail.callees {
+                let key = (c.name.clone(), c.file.clone());
+                if visited_callees.insert(key.clone()) {
+                    detail.callees.push(SymbolRelation {
+                        name: c.name.clone(),
+                        file: c.file.clone(),
+                        line: 0,
+                        depth: Some(depth + 1),
+                    });
+                    callee_queue.push((c.name.clone(), c.file.clone(), depth + 1));
+                }
+            }
+        }
+    }
+
+    Ok(detail)
 }
 
 /// Get symbols that call the given symbol
@@ -343,7 +483,7 @@ pub fn get_callers(
             .filter(|s| s.name.as_deref() == Some(symbol_name))
             .collect::<Vec<_>>()
     } else {
-        let results = graph.get_symbols_by_label(symbol_name)?;
+        let results = graph.search_symbols_by_name(symbol_name)?;
         results
             .into_iter()
             .filter_map(|r| {
@@ -386,7 +526,7 @@ pub fn get_callees(
             .filter(|s| s.name.as_deref() == Some(symbol_name))
             .collect::<Vec<_>>()
     } else {
-        let results = graph.get_symbols_by_label(symbol_name)?;
+        let results = graph.search_symbols_by_name(symbol_name)?;
         results
             .into_iter()
             .filter_map(|r| {
@@ -576,6 +716,132 @@ fn find_entry_points(graph: &mut CodeGraph) -> Result<Vec<String>> {
     Ok(entry_points)
 }
 
+/// Impact analysis: find all symbols that (transitively) call the given symbol
+/// Returns a list of (name, file, line, depth) tuples representing the blast radius
+pub fn impact_analysis(
+    graph: &mut CodeGraph,
+    symbol_name: &str,
+    file_path: Option<&str>,
+    max_depth: usize,
+) -> Result<Vec<SymbolRelation>> {
+    let detail = get_symbol_detail(graph, symbol_name, file_path)?;
+
+    let mut impacted: Vec<SymbolRelation> = Vec::new();
+    let mut visited: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
+
+    // BFS over callers
+    let mut queue: std::collections::VecDeque<(String, usize)> =
+        std::collections::VecDeque::new();
+    for c in &detail.callers {
+        let key = format!("{}:{}", c.name, c.file);
+        if visited.insert(key) {
+            impacted.push(SymbolRelation {
+                name: c.name.clone(),
+                file: c.file.clone(),
+                line: c.line,
+                depth: Some(1),
+            });
+            queue.push_back((c.name.clone(), 1));
+        }
+    }
+
+    while let Some((name, depth)) = queue.pop_front() {
+        if depth >= max_depth {
+            continue;
+        }
+        // Look up this caller's own callers
+        match get_symbol_detail(graph, &name, None) {
+            Ok(caller_detail) => {
+                for c in &caller_detail.callers {
+                    let key = format!("{}:{}", c.name, c.file);
+                    if visited.insert(key) {
+                        impacted.push(SymbolRelation {
+                            name: c.name.clone(),
+                            file: c.file.clone(),
+                            line: c.line,
+                            depth: Some(depth + 1),
+                        });
+                        queue.push_back((c.name.clone(), depth + 1));
+                    }
+                }
+            }
+            Err(_) => continue,
+        }
+    }
+
+    // Sort by depth then name for deterministic output
+    impacted.sort_by(|a, b| {
+        a.depth
+            .unwrap_or(0)
+            .cmp(&b.depth.unwrap_or(0))
+            .then_with(|| a.name.cmp(&b.name))
+    });
+
+    Ok(impacted)
+}
+
+/// Affected analysis: find all symbols that the given symbol (transitively) calls
+/// Returns a list of (name, file, line, depth) tuples representing the dependency reach
+pub fn affected_analysis(
+    graph: &mut CodeGraph,
+    symbol_name: &str,
+    file_path: Option<&str>,
+    max_depth: usize,
+) -> Result<Vec<SymbolRelation>> {
+    let detail = get_symbol_detail(graph, symbol_name, file_path)?;
+
+    let mut affected: Vec<SymbolRelation> = Vec::new();
+    let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    // BFS over callees
+    let mut queue: std::collections::VecDeque<(String, usize)> = std::collections::VecDeque::new();
+    for c in &detail.callees {
+        let key = format!("{}:{}", c.name, c.file);
+        if visited.insert(key) {
+            affected.push(SymbolRelation {
+                name: c.name.clone(),
+                file: c.file.clone(),
+                line: c.line,
+                depth: Some(1),
+            });
+            queue.push_back((c.name.clone(), 1));
+        }
+    }
+
+    while let Some((name, depth)) = queue.pop_front() {
+        if depth >= max_depth {
+            continue;
+        }
+        match get_symbol_detail(graph, &name, None) {
+            Ok(callee_detail) => {
+                for c in &callee_detail.callees {
+                    let key = format!("{}:{}", c.name, c.file);
+                    if visited.insert(key) {
+                        affected.push(SymbolRelation {
+                            name: c.name.clone(),
+                            file: c.file.clone(),
+                            line: c.line,
+                            depth: Some(depth + 1),
+                        });
+                        queue.push_back((c.name.clone(), depth + 1));
+                    }
+                }
+            }
+            Err(_) => continue,
+        }
+    }
+
+    affected.sort_by(|a, b| {
+        a.depth
+            .unwrap_or(0)
+            .cmp(&b.depth.unwrap_or(0))
+            .then_with(|| a.name.cmp(&b.name))
+    });
+
+    Ok(affected)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -594,8 +860,8 @@ mod tests {
         assert_eq!(result.items.len(), 50);
     }
 
-    #[test]
-    fn test_list_query_default() {
+#[test]
+fn test_list_query_default() {
         let query = ListQuery::default();
         assert_eq!(query.page, Some(1));
         assert_eq!(query.page_size, Some(50));
