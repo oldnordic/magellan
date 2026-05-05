@@ -62,6 +62,7 @@ mod freshness;
 mod imports; // Private module for import operations
 pub mod metrics;
 mod module_resolver; // Private module for module path resolution
+pub mod multi_db;
 mod ops;
 pub mod query;
 mod references;

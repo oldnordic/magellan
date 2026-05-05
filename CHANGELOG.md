@@ -3,9 +3,20 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.2.0] - 2026-05-06
 
 ### Added
+
+- **Context Analysis Commands** (Cross-Project Symbol Queries):
+  - `magellan context build` — Build context index
+  - `magellan context summary` — Show project summary
+  - `magellan context list` — Paginated symbol listing (multi-DB)
+  - `magellan context symbol` — Symbol detail with callers/callees/source
+  - `magellan context file` — File-level symbol context
+  - `magellan context impact` — Blast radius analysis (transitive callers)
+  - `magellan context affected` — Dependency reach analysis (transitive callees)
+  - Multi-DB support: pass a directory to `--db` to query all `.magellan/*.db` files
+  - JSON envelope output with `schema_version`, `execution_id`, `data`
 
 - **FTS5 Full-Text Search Integration** (Schema v12):
   - `symbol_fts` FTS5 virtual table for fast prefix searches

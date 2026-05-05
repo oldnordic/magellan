@@ -3,10 +3,29 @@
 //! Provides label querying functionality (--list, --count, --show-code).
 
 use anyhow::Result;
-use magellan::CodeGraph;
+use magellan::output::{output_json, JsonResponse};
+use magellan::{CodeGraph, OutputFormat};
+use serde::Serialize;
 use std::path::PathBuf;
 
 use crate::status_cmd::ExecutionTracker;
+
+#[derive(Debug, Clone, Serialize)]
+struct LabelInfo {
+    name: String,
+    count: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SymbolByLabel {
+    name: String,
+    kind: String,
+    file_path: String,
+    byte_start: usize,
+    byte_end: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    code: Option<String>,
+}
 
 /// Run label query command
 /// Usage: magellan label --db <FILE> --label <LABEL> [--list] [--count] [--show-code]
@@ -16,6 +35,7 @@ pub fn run_label(
     list: bool,
     count: bool,
     show_code: bool,
+    output_format: OutputFormat,
 ) -> Result<()> {
     let graph = CodeGraph::open(&db_path)?;
     let mut args = vec!["label".to_string()];
@@ -39,6 +59,24 @@ pub fn run_label(
     // List all labels mode
     if list {
         let all_labels = graph.get_all_labels()?;
+
+        if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
+            let labels_info: Vec<LabelInfo> = all_labels
+                .iter()
+                .map(|label| {
+                    let count = graph.count_entities_by_label(label).unwrap_or(0);
+                    LabelInfo {
+                        name: label.clone(),
+                        count,
+                    }
+                })
+                .collect();
+            let json_response = JsonResponse::new(labels_info, "");
+            output_json(&json_response, output_format)?;
+            tracker.finish(&graph)?;
+            return Ok(());
+        }
+
         println!("{} labels in use:", all_labels.len());
         for label in all_labels {
             let count = graph.count_entities_by_label(&label)?;
@@ -54,6 +92,24 @@ pub fn run_label(
             tracker.finish(&graph)?;
             return Err(anyhow::anyhow!("--count requires --label"));
         }
+
+        if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
+            let labels_info: Vec<LabelInfo> = labels
+                .iter()
+                .map(|label| {
+                    let count = graph.count_entities_by_label(label).unwrap_or(0);
+                    LabelInfo {
+                        name: label.clone(),
+                        count,
+                    }
+                })
+                .collect();
+            let json_response = JsonResponse::new(labels_info, "");
+            output_json(&json_response, output_format)?;
+            tracker.finish(&graph)?;
+            return Ok(());
+        }
+
         for label in &labels {
             let entity_count = graph.count_entities_by_label(label)?;
             println!("{}: {} entities", label, entity_count);
@@ -76,6 +132,39 @@ pub fn run_label(
     } else {
         graph.get_symbols_by_labels(&labels_ref)?
     };
+
+    if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
+        let symbols: Vec<SymbolByLabel> = results
+            .iter()
+            .map(|result| {
+                let code = if show_code {
+                    graph
+                        .get_code_chunk_by_span(
+                            &result.file_path,
+                            result.byte_start,
+                            result.byte_end,
+                        )
+                        .ok()
+                        .flatten()
+                        .map(|c| c.content)
+                } else {
+                    None
+                };
+                SymbolByLabel {
+                    name: result.name.clone(),
+                    kind: result.kind.clone(),
+                    file_path: result.file_path.clone(),
+                    byte_start: result.byte_start,
+                    byte_end: result.byte_end,
+                    code,
+                }
+            })
+            .collect();
+        let json_response = JsonResponse::new(symbols, "");
+        output_json(&json_response, output_format)?;
+        tracker.finish(&graph)?;
+        return Ok(());
+    }
 
     if results.is_empty() {
         if labels.len() == 1 {

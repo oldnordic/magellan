@@ -35,6 +35,7 @@ pub fn print_short_usage() {
     eprintln!(
         "  cross-file-refs  Cross-file refs: magellan cross-file-refs --db code.db --fqn foo::bar"
     );
+    eprintln!("  context     Symbol context: magellan context symbol --db code.db --name main");
     eprintln!();
     eprintln!("Global: --output <human|json|pretty>");
     eprintln!();
@@ -133,6 +134,13 @@ pub fn print_full_usage() {
     eprintln!("  magellan condense --db <FILE> [--members] [--output <FORMAT>]");
     eprintln!("  magellan paths --db <FILE> --start <SYMBOL_ID> [--end <SYMBOL_ID>] [--max-depth <N>] [--max-paths <N>] [--output <FORMAT>]");
     eprintln!("  magellan slice --db <FILE> --target <SYMBOL_ID> [--direction <backward|forward>] [--verbose] [--output <FORMAT>]");
+    eprintln!("  magellan context build --db <FILE>");
+    eprintln!("  magellan context summary --db <FILE>");
+    eprintln!("  magellan context list --db <FILE> [--kind <KIND>] [--page <N>] [--project <NAME>] [--output <FORMAT>]");
+    eprintln!("  magellan context symbol --db <FILE> --name <NAME> [--callers] [--callees] [--with-source] [--depth <N>] [--output <FORMAT>]");
+    eprintln!("  magellan context file --db <FILE> --path <PATH>");
+    eprintln!("  magellan context impact --db <FILE> --name <NAME> [--file <PATH>] [--depth <N>] [--output <FORMAT>]");
+    eprintln!("  magellan context affected --db <FILE> --name <NAME> [--file <PATH>] [--depth <N>] [--output <FORMAT>]");
     eprintln!();
     eprintln!("Commands:");
     eprintln!("  watch           Watch directory and index changes");
@@ -166,6 +174,7 @@ pub fn print_full_usage() {
     eprintln!("  condense        Show call graph condensation (SCCs collapsed into supernodes)");
     eprintln!("  paths           Enumerate execution paths between symbols");
     eprintln!("  slice           Program slicing (backward/forward) from a target symbol");
+    eprintln!("  context         Code context queries for LLM consumption (build, summary, list, symbol, file, impact, affected)");
     eprintln!();
     eprintln!("Global arguments:");
     eprintln!("  --output <FORMAT>   Output format: human (default), json (compact), or pretty (formatted)");
@@ -318,6 +327,53 @@ pub fn print_full_usage() {
     eprintln!("  --target <ID>       Target symbol ID to slice from");
     eprintln!("  --direction <DIR>   Slice direction: backward (default) or forward");
     eprintln!("  --verbose           Show detailed statistics");
+    eprintln!();
+    eprintln!("Context arguments:");
+    eprintln!("  --db <FILE>         Path to sqlitegraph database (or directory for multi-DB)");
+    eprintln!();
+    eprintln!("Context build arguments:");
+    eprintln!("  --db <FILE>         Path to sqlitegraph database");
+    eprintln!();
+    eprintln!("Context summary arguments:");
+    eprintln!("  --db <FILE>         Path to sqlitegraph database");
+    eprintln!();
+    eprintln!("Context list arguments:");
+    eprintln!("  --db <FILE>         Path to sqlitegraph database");
+    eprintln!("  --kind <KIND>       Filter by symbol kind (optional)");
+    eprintln!("  --page <N>          Page number (default: 1)");
+    eprintln!("  --project <NAME>    Filter to single project (optional)");
+    eprintln!("  --output <FORMAT>   Output format: human (default), json, or pretty");
+    eprintln!();
+    eprintln!("Context symbol arguments:");
+    eprintln!("  --db <FILE>         Path to sqlitegraph database");
+    eprintln!("  --name <NAME>       Symbol name to look up (required)");
+    eprintln!("  --file <PATH>       Limit to specific file (optional)");
+    eprintln!("  --callers           Include caller references");
+    eprintln!("  --callees           Include callee references");
+    eprintln!("  --with-source       Include source code snippet");
+    eprintln!("  --depth <N>         Recursive lookup depth (default: 1)");
+    eprintln!("  --project <NAME>    Filter to single project (optional)");
+    eprintln!("  --output <FORMAT>   Output format: human (default), json, or pretty");
+    eprintln!();
+    eprintln!("Context file arguments:");
+    eprintln!("  --db <FILE>         Path to sqlitegraph database");
+    eprintln!("  --path <PATH>       File path to analyze (required)");
+    eprintln!();
+    eprintln!("Context impact arguments:");
+    eprintln!("  --db <FILE>         Path to sqlitegraph database");
+    eprintln!("  --name <NAME>       Symbol name to analyze (required)");
+    eprintln!("  --file <PATH>       Limit to specific file (optional)");
+    eprintln!("  --depth <N>         Max traversal depth (default: 3)");
+    eprintln!("  --project <NAME>    Filter to single project (optional)");
+    eprintln!("  --output <FORMAT>   Output format: human (default), json, or pretty");
+    eprintln!();
+    eprintln!("Context affected arguments:");
+    eprintln!("  --db <FILE>         Path to sqlitegraph database");
+    eprintln!("  --name <NAME>       Symbol name to analyze (required)");
+    eprintln!("  --file <PATH>       Limit to specific file (optional)");
+    eprintln!("  --depth <N>         Max traversal depth (default: 3)");
+    eprintln!("  --project <NAME>    Filter to single project (optional)");
+    eprintln!("  --output <FORMAT>   Output format: human (default), json, or pretty");
 }
 
 /// Context subcommands
@@ -513,6 +569,7 @@ pub enum Command {
     GetFile {
         db_path: PathBuf,
         file_path: String,
+        output_format: OutputFormat,
     },
     Files {
         db_path: PathBuf,
@@ -541,6 +598,7 @@ pub enum Command {
         list: bool,
         count: bool,
         show_code: bool,
+        output_format: OutputFormat,
     },
     Collisions {
         db_path: PathBuf,
@@ -1302,15 +1360,13 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                 if i + 1 >= args.len() {
                     return Err(anyhow::anyhow!("--db requires an argument"));
                 }
-                db_paths = parse_db_paths(&args[i + 1])?;
+                db_paths.extend(parse_db_paths(&args[i + 1])?);
                 i += 2;
             }
             "--output" => {
                 if i + 1 >= args.len() {
                     return Err(anyhow::anyhow!("--output requires an argument"));
                 }
-                // Consume --output to allow it before subcommand;
-                // subcommand arms re-parse it for the actual value
                 let _ = parse_output_format(&args[i + 1])?;
                 i += 2;
             }
@@ -1339,7 +1395,7 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                         if i + 1 >= args.len() {
                             return Err(anyhow::anyhow!("--db requires an argument"));
                         }
-                        db_paths = parse_db_paths(&args[i + 1])?;
+                        db_paths.extend(parse_db_paths(&args[i + 1])?);
                         i += 2;
                     }
                     "--kind" => {
@@ -1424,7 +1480,7 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                         if i + 1 >= args.len() {
                             return Err(anyhow::anyhow!("--db requires an argument"));
                         }
-                        db_paths = parse_db_paths(&args[i + 1])?;
+                        db_paths.extend(parse_db_paths(&args[i + 1])?);
                         i += 2;
                     }
                     "--name" => {
@@ -1506,7 +1562,7 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                         if i + 1 >= args.len() {
                             return Err(anyhow::anyhow!("--db requires an argument"));
                         }
-                        db_paths = parse_db_paths(&args[i + 1])?;
+                        db_paths.extend(parse_db_paths(&args[i + 1])?);
                         i += 2;
                     }
                     "--path" => {
@@ -1540,12 +1596,12 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                         if i + 1 >= args.len() {
                             return Err(anyhow::anyhow!("--db requires an argument"));
                         }
-                        db_paths = parse_db_paths(&args[i + 1])?;
+                        db_paths.extend(parse_db_paths(&args[i + 1])?);
                         i += 2;
                     }
-                    "--symbol" => {
+                    "--name" => {
                         if i + 1 >= args.len() {
-                            return Err(anyhow::anyhow!("--symbol requires an argument"));
+                            return Err(anyhow::anyhow!("--name requires an argument"));
                         }
                         symbol = Some(args[i + 1].clone());
                         i += 2;
@@ -1587,7 +1643,7 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
             }
 
             let symbol = symbol
-                .ok_or_else(|| anyhow::anyhow!("--symbol is required for impact subcommand"))?;
+                .ok_or_else(|| anyhow::anyhow!("--name is required for impact subcommand"))?;
             ContextSubcommand::Impact {
                 symbol,
                 file,
@@ -1610,12 +1666,12 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                         if i + 1 >= args.len() {
                             return Err(anyhow::anyhow!("--db requires an argument"));
                         }
-                        db_paths = parse_db_paths(&args[i + 1])?;
+                        db_paths.extend(parse_db_paths(&args[i + 1])?);
                         i += 2;
                     }
-                    "--symbol" => {
+                    "--name" => {
                         if i + 1 >= args.len() {
-                            return Err(anyhow::anyhow!("--symbol requires an argument"));
+                            return Err(anyhow::anyhow!("--name requires an argument"));
                         }
                         symbol = Some(args[i + 1].clone());
                         i += 2;
@@ -1657,7 +1713,7 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
             }
 
             let symbol = symbol
-                .ok_or_else(|| anyhow::anyhow!("--symbol is required for affected subcommand"))?;
+                .ok_or_else(|| anyhow::anyhow!("--name is required for affected subcommand"))?;
             ContextSubcommand::Affected {
                 symbol,
                 file,
@@ -1679,7 +1735,7 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
         let mut i = 1;
         while i < args.len() {
             if args[i] == "--db" && i + 1 < args.len() {
-                db_paths = parse_db_paths(&args[i + 1])?;
+                db_paths.extend(parse_db_paths(&args[i + 1])?);
                 break;
             }
             i += 1;
@@ -2221,12 +2277,20 @@ fn parse_get_args(args: &[String]) -> Result<Command> {
 fn parse_get_file_args(args: &[String]) -> Result<Command> {
     let mut db_path: Option<PathBuf> = None;
     let mut file_path: Option<String> = None;
+    let mut output_format = OutputFormat::Human;
 
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
             "--db" => db_path = Some(parse_path_arg(args, &mut i, "--db")?),
             "--file" => file_path = Some(parse_required_arg(args, &mut i, "--file")?),
+            "--output" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--output requires an argument"));
+                }
+                output_format = parse_output_format(&args[i + 1])?;
+                i += 2;
+            }
             _ => return Err(anyhow::anyhow!("Unknown argument: {}", args[i])),
         }
     }
@@ -2234,7 +2298,11 @@ fn parse_get_file_args(args: &[String]) -> Result<Command> {
     let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
     let file_path = file_path.ok_or_else(|| anyhow::anyhow!("--file is required"))?;
 
-    Ok(Command::GetFile { db_path, file_path })
+    Ok(Command::GetFile {
+        db_path,
+        file_path,
+        output_format,
+    })
 }
 
 /// Parse the `refs` command arguments
@@ -2492,6 +2560,7 @@ fn parse_label_args(args: &[String]) -> Result<Command> {
     let mut list = false;
     let mut count = false;
     let mut show_code = false;
+    let mut output_format = OutputFormat::Human;
 
     let mut i = 0;
     while i < args.len() {
@@ -2522,6 +2591,13 @@ fn parse_label_args(args: &[String]) -> Result<Command> {
                 show_code = true;
                 i += 1;
             }
+            "--output" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--output requires an argument"));
+                }
+                output_format = parse_output_format(&args[i + 1])?;
+                i += 2;
+            }
             _ => return Err(anyhow::anyhow!("Unknown argument: {}", args[i])),
         }
     }
@@ -2534,6 +2610,7 @@ fn parse_label_args(args: &[String]) -> Result<Command> {
         list,
         count,
         show_code,
+        output_format,
     })
 }
 
@@ -3931,9 +4008,14 @@ mod tests {
 
         let result = parse_get_file_args(&args).unwrap();
         match result {
-            Command::GetFile { db_path, file_path } => {
+            Command::GetFile {
+                db_path,
+                file_path,
+                output_format,
+            } => {
                 assert_eq!(db_path, PathBuf::from("test.db"));
                 assert_eq!(file_path, "src/main.rs".to_string());
+                assert!(matches!(output_format, OutputFormat::Human));
             }
             _ => panic!("Expected GetFile command"),
         }
@@ -4006,11 +4088,13 @@ mod tests {
                 db_path,
                 label,
                 list,
+                output_format,
                 ..
             } => {
                 assert_eq!(db_path, PathBuf::from("test.db"));
                 assert_eq!(label, vec!["important", "refactored"]);
                 assert!(list);
+                assert!(matches!(output_format, OutputFormat::Human));
             }
             _ => panic!("Expected Label command"),
         }

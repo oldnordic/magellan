@@ -256,7 +256,11 @@ pub fn run_get(
     Ok(())
 }
 
-pub fn run_get_file(db_path: PathBuf, file_path: String) -> Result<()> {
+pub fn run_get_file(
+    db_path: PathBuf,
+    file_path: String,
+    output_format: OutputFormat,
+) -> Result<()> {
     // Build args for execution tracking
     let args = vec![
         "get-file".to_string(),
@@ -286,6 +290,15 @@ pub fn run_get_file(db_path: PathBuf, file_path: String) -> Result<()> {
         return Ok(());
     }
 
+    // Handle JSON output
+    if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
+        let json_response = JsonResponse::new(chunks, &exec_id);
+        output_json(&json_response, output_format)?;
+        backend.finish_execution(&exec_id, "success", None, 0, 0, 0)?;
+        return Ok(());
+    }
+
+    // Human output
     println!("// {} code chunks in {}", chunks.len(), file_path);
     println!();
 
