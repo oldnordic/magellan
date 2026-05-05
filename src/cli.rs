@@ -3975,9 +3975,14 @@ mod tests {
 
         let result = parse_verify_args(&args).unwrap();
         match result {
-            Command::Verify { root_path, db_path } => {
+            Command::Verify {
+                root_path,
+                db_path,
+                output_format,
+            } => {
                 assert_eq!(root_path, PathBuf::from("/home/test"));
                 assert_eq!(db_path, PathBuf::from("test.db"));
+                assert!(matches!(output_format, OutputFormat::Human));
             }
             _ => panic!("Expected Verify command"),
         }
