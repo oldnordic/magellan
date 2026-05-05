@@ -109,7 +109,10 @@ macro_rules! debug_print {
 }
 
 #[cfg(not(feature = "debug-prints"))]
-#[allow(unused_macros)]
+#[allow(
+    unused_macros,
+    reason = "noop stub: only used when feature debug-prints is enabled"
+)]
 macro_rules! debug_print {
     ($($arg:tt)*) => {
         // Optimized out when debug-prints feature is disabled

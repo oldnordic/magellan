@@ -785,12 +785,12 @@ impl GeometricBackend {
     }
 
     /// Get storage reference
-    fn storage(&self) -> RwLockReadGuard<SectionedStorage> {
+    fn storage(&self) -> RwLockReadGuard<'_, SectionedStorage> {
         self.storage.read().unwrap()
     }
 
     /// Get storage reference (mutable)
-    fn storage_mut(&self) -> RwLockWriteGuard<SectionedStorage> {
+    fn storage_mut(&self) -> RwLockWriteGuard<'_, SectionedStorage> {
         self.storage.write().unwrap()
     }
 
@@ -1521,8 +1521,8 @@ impl GeometricBackend {
     pub fn condense_call_graph(&self) -> crate::graph::geometric_calls::CondensationDag {
         let scc = self.get_strongly_connected_components();
 
-        let mut supernodes: Vec<Vec<u64>> = scc.components;
-        let mut node_to_supernode = scc.node_to_component;
+        let supernodes: Vec<Vec<u64>> = scc.components;
+        let node_to_supernode = scc.node_to_component;
         let mut edges = Vec::new();
 
         let cache = self.graph_cache.read().unwrap();

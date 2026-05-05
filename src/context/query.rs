@@ -422,7 +422,7 @@ pub fn get_symbol_detail_recursive(
         .collect();
 
     // BFS for callers
-    while let Some((name, file, depth)) = caller_queue.pop() {
+    while let Some((name, _file, depth)) = caller_queue.pop() {
         if depth >= max_depth {
             continue;
         }
@@ -445,7 +445,7 @@ pub fn get_symbol_detail_recursive(
     }
 
     // BFS for callees
-    while let Some((name, file, depth)) = callee_queue.pop() {
+    while let Some((name, _file, depth)) = callee_queue.pop() {
         if depth >= max_depth {
             continue;
         }

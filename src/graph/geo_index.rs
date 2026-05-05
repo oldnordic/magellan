@@ -177,20 +177,6 @@ impl IndexingStats {
     }
 }
 
-/// Macro to time a block if MAGELLAN_TIMING env var is set
-macro_rules! timed {
-    ($stats:expr, $field:ident, $block:expr) => {
-        if std::env::var("MAGELLAN_TIMING").is_ok() {
-            let start = std::time::Instant::now();
-            let result = $block;
-            $stats.$field += start.elapsed().as_micros() as u64;
-            result
-        } else {
-            $block
-        }
-    };
-}
-
 /// Compute SHA-256 hash of file contents
 pub fn compute_file_hash(content: &[u8]) -> String {
     use sha2::{Digest, Sha256};
@@ -314,8 +300,6 @@ pub fn scan_directory_with_progress(
                     stats.slowest_files.truncate(20); // Keep top 20
                 }
 
-                let sym_count = extracted.symbols.len();
-
                 // Store file hash
                 backend.set_file_hash(&path_str, &file_hash);
 
@@ -327,15 +311,7 @@ pub fn scan_directory_with_progress(
 
                 // Insert code chunks for each symbol
                 let chunk_start = std::time::Instant::now();
-                for (idx, symbol_id) in symbol_ids.iter().enumerate() {
-                    let byte_start = symbol_ids
-                        .get(idx)
-                        .map(|_| {
-                            // We need to get symbol info - use the backend to look it up
-                            *symbol_id
-                        })
-                        .unwrap_or(0);
-
+                for (_idx, symbol_id) in symbol_ids.iter().enumerate() {
                     // Get symbol info from backend to extract content
                     if let Some(info) = backend.find_symbol_by_id_info(*symbol_id) {
                         let byte_start = info.byte_start as usize;
