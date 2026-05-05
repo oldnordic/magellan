@@ -1287,12 +1287,40 @@ fn parse_enrich_args(args: &[String]) -> Result<Command> {
 fn parse_context_args(args: &[String]) -> Result<Command> {
     if args.is_empty() {
         return Err(anyhow::anyhow!(
-            "context subcommand required: build, summary, list, symbol, file, server"
+            "context subcommand required: build, summary, list, symbol, file, impact, affected"
         ));
     }
 
     let mut db_paths: Vec<PathBuf> = Vec::new();
-    let subcommand = match args[0].as_str() {
+
+    // Pre-scan for global flags (--db, --output) that may appear before subcommand
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--db" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--db requires an argument"));
+                }
+                db_paths = parse_db_paths(&args[i + 1])?;
+                i += 2;
+            }
+            "--output" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--output requires an argument"));
+                }
+                // Consume --output to allow it before subcommand;
+                // subcommand arms re-parse it for the actual value
+                let _ = parse_output_format(&args[i + 1])?;
+                i += 2;
+            }
+            _ => break,
+        }
+    }
+
+    // Slice args so subcommand is at index 0, flags start at index 1
+    let args = &args[i..];
+    let subcommand_name = args.get(0).map(|s| s.as_str()).unwrap_or("");
+    let subcommand = match subcommand_name {
         "build" => ContextSubcommand::Build,
         "summary" => ContextSubcommand::Summary,
         "list" => {
@@ -1640,7 +1668,7 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
         _ => {
             return Err(anyhow::anyhow!(
                 "Unknown context subcommand: {}. Use: build, summary, list, symbol, file, impact, affected",
-                args[0]
+                subcommand_name
             ));
         }
     };

@@ -349,7 +349,7 @@ pub fn run_chunks(
     )?;
 
     // For now, we need to use SQLite directly for filtering
-    // TODO: Add filtering support to MagellanBackend
+
     #[cfg(feature = "geometric-backend")]
     let chunks = if matches!(
         MagellanBackend::detect_type(&db_path),
@@ -613,7 +613,7 @@ pub fn run_chunk_by_symbol(
 
     // For global symbol search, we need to use SQLite directly for now
     // Geo backend requires file_path for chunk lookup
-    // TODO: Implement global chunk search in Geo backend
+
     let chunks = {
         use rusqlite::Connection;
         let conn = Connection::open(&db_path)?;

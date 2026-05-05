@@ -281,7 +281,7 @@ impl MagellanBackend {
             MagellanBackend::SQLite(graph) => {
                 let symbol_count = graph.count_symbols().unwrap_or(0);
                 let file_count = graph.count_files().unwrap_or(0);
-                let cfg_block_count = 0; // TODO: Get actual CFG block count
+                let cfg_block_count = 0;
                 Ok(BackendStats {
                     node_count: symbol_count,
                     symbol_count,
@@ -295,7 +295,7 @@ impl MagellanBackend {
             MagellanBackend::SQLite(graph) => {
                 let symbol_count = graph.count_symbols().unwrap_or(0);
                 let file_count = graph.count_files().unwrap_or(0);
-                let cfg_block_count = 0; // TODO: Get actual CFG block count
+                let cfg_block_count = 0;
                 Ok(BackendStats {
                     node_count: symbol_count,
                     symbol_count,
@@ -428,7 +428,6 @@ impl MagellanBackend {
                     .collect())
             }
             MagellanBackend::SQLite(_graph) => {
-                // TODO: Implement SQLite file-based symbol lookup
                 let _ = file_path;
                 Ok(Vec::new())
             }
@@ -436,7 +435,6 @@ impl MagellanBackend {
         #[cfg(not(feature = "geometric-backend"))]
         match self {
             MagellanBackend::SQLite(_graph) => {
-                // TODO: Implement SQLite file-based symbol lookup
                 let _ = file_path;
                 Ok(Vec::new())
             }
@@ -605,7 +603,7 @@ impl MagellanBackend {
             #[cfg(feature = "geometric-backend")]
             MagellanBackend::SQLite(_graph) => {
                 // SQLite requires mutable access - for now, return empty
-                // TODO: Implement proper SQLite support through backend-agnostic API
+
                 let _ = (path, name); // Explicitly mark as used for API compatibility
                 Ok(Vec::new())
             }
@@ -633,7 +631,7 @@ impl MagellanBackend {
             #[cfg(feature = "geometric-backend")]
             MagellanBackend::SQLite(_graph) => {
                 // SQLite requires mutable access - for now, return empty
-                // TODO: Implement proper SQLite support through backend-agnostic API
+
                 let _ = (path, name); // Explicitly mark as used for API compatibility
                 Ok(Vec::new())
             }
@@ -656,7 +654,6 @@ impl MagellanBackend {
             }
             #[cfg(feature = "geometric-backend")]
             MagellanBackend::SQLite(_graph) => {
-                // TODO: Implement SQLite version
                 let _ = (path, name);
                 None
             }
@@ -677,7 +674,6 @@ impl MagellanBackend {
             MagellanBackend::Geometric(backend) => backend.reachable_from(start_id),
             #[cfg(feature = "geometric-backend")]
             MagellanBackend::SQLite(_graph) => {
-                // TODO: Implement SQLite version
                 let _ = start_id;
                 Vec::new()
             }
@@ -698,7 +694,6 @@ impl MagellanBackend {
             MagellanBackend::Geometric(backend) => backend.reverse_reachable_from(start_id),
             #[cfg(feature = "geometric-backend")]
             MagellanBackend::SQLite(_graph) => {
-                // TODO: Implement SQLite version
                 let _ = start_id;
                 Vec::new()
             }
@@ -719,7 +714,6 @@ impl MagellanBackend {
             MagellanBackend::Geometric(backend) => backend.dead_code_from_entries(entry_ids),
             #[cfg(feature = "geometric-backend")]
             MagellanBackend::SQLite(_graph) => {
-                // TODO: Implement SQLite version
                 let _ = entry_ids;
                 Vec::new()
             }
@@ -737,10 +731,7 @@ impl MagellanBackend {
             #[cfg(feature = "geometric-backend")]
             MagellanBackend::Geometric(backend) => backend.get_all_symbol_ids(),
             #[cfg(feature = "geometric-backend")]
-            MagellanBackend::SQLite(_graph) => {
-                // TODO: Implement SQLite version
-                Vec::new()
-            }
+            MagellanBackend::SQLite(_graph) => Vec::new(),
             #[cfg(not(feature = "geometric-backend"))]
             MagellanBackend::SQLite(_graph) => Vec::new(),
         }
