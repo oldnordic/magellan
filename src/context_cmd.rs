@@ -15,7 +15,11 @@ pub fn run_context_build(db_paths: Vec<PathBuf>) -> Result<()> {
         match CodeGraph::open(db_path) {
             Ok(mut graph) => {
                 if let Err(e) = build_context_index(&mut graph, db_path) {
-                    eprintln!("Warning: failed to build index for {}: {}", db_path.display(), e);
+                    eprintln!(
+                        "Warning: failed to build index for {}: {}",
+                        db_path.display(),
+                        e
+                    );
                 }
             }
             Err(e) => {
