@@ -522,6 +522,7 @@ pub enum Command {
     Verify {
         root_path: PathBuf,
         db_path: PathBuf,
+        output_format: OutputFormat,
     },
     /// Refresh index based on git changes
     Refresh {
@@ -2368,6 +2369,7 @@ fn parse_refs_args(args: &[String]) -> Result<Command> {
 fn parse_verify_args(args: &[String]) -> Result<Command> {
     let mut root_path: Option<PathBuf> = None;
     let mut db_path: Option<PathBuf> = None;
+    let mut output_format = OutputFormat::Human;
 
     let mut i = 0;
     while i < args.len() {
@@ -2386,6 +2388,15 @@ fn parse_verify_args(args: &[String]) -> Result<Command> {
                 db_path = Some(PathBuf::from(&args[i + 1]));
                 i += 2;
             }
+            "--output" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!(
+                        "--output requires an argument (human|json|pretty)"
+                    ));
+                }
+                output_format = parse_output_format(&args[i + 1])?;
+                i += 2;
+            }
             _ => return Err(anyhow::anyhow!("Unknown argument: {}", args[i])),
         }
     }
@@ -2393,7 +2404,11 @@ fn parse_verify_args(args: &[String]) -> Result<Command> {
     let root_path = root_path.ok_or_else(|| anyhow::anyhow!("--root is required"))?;
     let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
 
-    Ok(Command::Verify { root_path, db_path })
+    Ok(Command::Verify {
+        root_path,
+        db_path,
+        output_format,
+    })
 }
 
 /// Parse the `refresh` command arguments
