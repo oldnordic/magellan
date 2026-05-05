@@ -73,10 +73,11 @@ where
             let mut parser = tree_sitter::Parser::new();
             parser.set_language(&tree_sitter_rust::language())?;
             *parser_ref = Some(parser);
-        }
-        Ok(f(parser_ref.as_mut().expect(
+        } // M-UNWRAP: initialized to Some() above
+        let parser = parser_ref.as_mut().expect(
             "Parser invariant violated: Option must be Some() after initialization (lines 49-52)",
-        )))
+        );
+        Ok(f(parser))
     })
 }
 
@@ -92,9 +93,10 @@ where
             parser.set_language(&tree_sitter_python::language())?;
             *parser_ref = Some(parser);
         }
-        Ok(f(parser_ref.as_mut().expect(
-            "Python parser invariant violated: Option must be Some() after initialization",
-        )))
+        let parser = parser_ref
+            .as_mut()
+            .expect("Python parser invariant violated: Option must be Some() after initialization"); // M-UNWRAP: initialized to Some() above
+        Ok(f(parser))
     })
 }
 
@@ -110,9 +112,10 @@ where
             parser.set_language(&tree_sitter_c::language())?;
             *parser_ref = Some(parser);
         }
-        Ok(f(parser_ref.as_mut().expect(
-            "C parser invariant violated: Option must be Some() after initialization",
-        )))
+        let parser = parser_ref
+            .as_mut()
+            .expect("C parser invariant violated: Option must be Some() after initialization"); // M-UNWRAP: initialized to Some() above
+        Ok(f(parser))
     })
 }
 
@@ -128,9 +131,10 @@ where
             parser.set_language(&tree_sitter_cpp::language())?;
             *parser_ref = Some(parser);
         }
-        Ok(f(parser_ref.as_mut().expect(
-            "C++ parser invariant violated: Option must be Some() after initialization",
-        )))
+        let parser = parser_ref
+            .as_mut()
+            .expect("C++ parser invariant violated: Option must be Some() after initialization"); // M-UNWRAP: initialized to Some() above
+        Ok(f(parser))
     })
 }
 
@@ -146,9 +150,10 @@ where
             parser.set_language(&tree_sitter_java::language())?;
             *parser_ref = Some(parser);
         }
-        Ok(f(parser_ref.as_mut().expect(
-            "Java parser invariant violated: Option must be Some() after initialization",
-        )))
+        let parser = parser_ref
+            .as_mut()
+            .expect("Java parser invariant violated: Option must be Some() after initialization"); // M-UNWRAP: initialized to Some() above
+        Ok(f(parser))
     })
 }
 
@@ -163,10 +168,11 @@ where
             let mut parser = tree_sitter::Parser::new();
             parser.set_language(&tree_sitter_javascript::language())?;
             *parser_ref = Some(parser);
-        }
-        Ok(f(parser_ref.as_mut().expect(
+        } // M-UNWRAP: initialized to Some() above
+        let parser = parser_ref.as_mut().expect(
             "JavaScript parser invariant violated: Option must be Some() after initialization",
-        )))
+        );
+        Ok(f(parser))
     })
 }
 
@@ -181,10 +187,11 @@ where
             let mut parser = tree_sitter::Parser::new();
             parser.set_language(&tree_sitter_typescript::language_typescript())?;
             *parser_ref = Some(parser);
-        }
-        Ok(f(parser_ref.as_mut().expect(
+        } // M-UNWRAP: initialized to Some() above
+        let parser = parser_ref.as_mut().expect(
             "TypeScript parser invariant violated: Option must be Some() after initialization",
-        )))
+        );
+        Ok(f(parser))
     })
 }
 

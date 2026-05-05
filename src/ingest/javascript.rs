@@ -674,7 +674,7 @@ impl JavaScriptParser {
 
 impl Default for JavaScriptParser {
     fn default() -> Self {
-        Self::new().expect("Failed to create JavaScript parser")
+        Self::new().expect("Failed to create JavaScript parser") // M-UNWRAP: tree-sitter language is a build-time invariant
     }
 }
 

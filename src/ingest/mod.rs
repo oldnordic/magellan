@@ -940,7 +940,7 @@ impl Parser {
 
 impl Default for Parser {
     fn default() -> Self {
-        Self::new().expect("Failed to create parser")
+        Self::new().expect("Failed to create parser") // M-UNWRAP: tree-sitter rust language is a build-time invariant
     }
 }
 

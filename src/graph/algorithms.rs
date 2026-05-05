@@ -429,7 +429,7 @@ fn strongly_connected_components(
         if lowlinks[&v] == indices[&v] {
             let mut component = Vec::new();
             loop {
-                let w = stack.pop().unwrap();
+                let w = stack.pop().unwrap(); // M-UNWRAP: Tarjan SCC invariant guarantees stack non-empty
                 on_stack.remove(&w);
                 node_to_component.insert(w, components.len());
                 component.push(w);

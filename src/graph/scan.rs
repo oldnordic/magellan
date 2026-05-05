@@ -318,7 +318,17 @@ pub fn scan_directory_with_filter(
 
         let path_str = &result.path_str;
         let rel_path = &result.rel_path;
-        let source = result.source.as_ref().unwrap();
+        let source = match result.source.as_ref() {
+            Some(s) => s,
+            None => {
+                diagnostics.push(WatchDiagnostic::error(
+                    rel_path.clone(),
+                    DiagnosticStage::Read,
+                    "Source is empty after successful read".to_string(),
+                ));
+                continue;
+            }
+        };
 
         // Delete old data (idempotent)
         let _ = graph.delete_file(path_str);

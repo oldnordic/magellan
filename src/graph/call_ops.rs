@@ -141,7 +141,7 @@ impl CallOps {
             Some(Language::Rust) => pool::with_parser_opt(Language::Rust, |opt_parser| {
                 let parser = opt_parser
                     .take()
-                    .expect("Parser pool corruption: parser was None");
+                    .expect("Parser pool corruption: parser was None"); // M-UNWRAP: thread-local parser pool guarantees initialized parser
                 let mut wrapper = Parser::from_parser(parser);
                 let result = wrapper.extract_calls(path_buf.clone(), source, &symbol_facts);
                 *opt_parser = Some(wrapper.parser);
@@ -150,7 +150,7 @@ impl CallOps {
             Some(Language::Python) => pool::with_parser_opt(Language::Python, |opt_parser| {
                 let parser = opt_parser
                     .take()
-                    .expect("Parser pool corruption: parser was None");
+                    .expect("Parser pool corruption: parser was None"); // M-UNWRAP: thread-local parser pool guarantees initialized parser
                 let mut wrapper = PythonParser::from_parser(parser);
                 let result = wrapper.extract_calls(path_buf.clone(), source, &symbol_facts);
                 *opt_parser = Some(wrapper.parser);
@@ -159,7 +159,7 @@ impl CallOps {
             Some(Language::C) => pool::with_parser_opt(Language::C, |opt_parser| {
                 let parser = opt_parser
                     .take()
-                    .expect("Parser pool corruption: parser was None");
+                    .expect("Parser pool corruption: parser was None"); // M-UNWRAP: thread-local parser pool guarantees initialized parser
                 let mut wrapper = CParser::from_parser(parser);
                 let result = wrapper.extract_calls(path_buf.clone(), source, &symbol_facts);
                 *opt_parser = Some(wrapper.parser);
@@ -168,7 +168,7 @@ impl CallOps {
             Some(Language::Cpp) => pool::with_parser_opt(Language::Cpp, |opt_parser| {
                 let parser = opt_parser
                     .take()
-                    .expect("Parser pool corruption: parser was None");
+                    .expect("Parser pool corruption: parser was None"); // M-UNWRAP: thread-local parser pool guarantees initialized parser
                 let mut wrapper = CppParser::from_parser(parser);
                 let result = wrapper.extract_calls(path_buf.clone(), source, &symbol_facts);
                 *opt_parser = Some(wrapper.parser);
@@ -177,7 +177,7 @@ impl CallOps {
             Some(Language::Java) => pool::with_parser_opt(Language::Java, |opt_parser| {
                 let parser = opt_parser
                     .take()
-                    .expect("Parser pool corruption: parser was None");
+                    .expect("Parser pool corruption: parser was None"); // M-UNWRAP: thread-local parser pool guarantees initialized parser
                 let mut wrapper = JavaParser::from_parser(parser);
                 let result = wrapper.extract_calls(path_buf.clone(), source, &symbol_facts);
                 *opt_parser = Some(wrapper.parser);
@@ -187,7 +187,7 @@ impl CallOps {
                 pool::with_parser_opt(Language::JavaScript, |opt_parser| {
                     let parser = opt_parser
                         .take()
-                        .expect("Parser pool corruption: parser was None");
+                        .expect("Parser pool corruption: parser was None"); // M-UNWRAP: thread-local parser pool guarantees initialized parser
                     let mut wrapper = JavaScriptParser::from_parser(parser);
                     let result = wrapper.extract_calls(path_buf.clone(), source, &symbol_facts);
                     *opt_parser = Some(wrapper.parser);
@@ -198,7 +198,7 @@ impl CallOps {
                 pool::with_parser_opt(Language::TypeScript, |opt_parser| {
                     let parser = opt_parser
                         .take()
-                        .expect("Parser pool corruption: parser was None");
+                        .expect("Parser pool corruption: parser was None"); // M-UNWRAP: thread-local parser pool guarantees initialized parser
                     let mut wrapper = TypeScriptParser::from_parser(parser);
                     let result = wrapper.extract_calls(path_buf.clone(), source, &symbol_facts);
                     *opt_parser = Some(wrapper.parser);

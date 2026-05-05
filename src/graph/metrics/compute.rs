@@ -133,11 +133,10 @@ impl MetricsOps {
             return Ok(());
         }
 
-        let symbol_id = Self::find_symbol_id_conn(conn, fqn)?;
-        if symbol_id.is_none() {
-            return Ok(());
-        }
-        let symbol_id = symbol_id.unwrap();
+        let symbol_id = match Self::find_symbol_id_conn(conn, fqn)? {
+            Some(id) => id,
+            None => return Ok(()),
+        };
 
         let loc = if symbol.end_line > 0 && symbol.end_line >= symbol.start_line {
             (symbol.end_line - symbol.start_line + 1) as i64

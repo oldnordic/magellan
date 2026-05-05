@@ -633,7 +633,7 @@ impl PythonParser {
 
 impl Default for PythonParser {
     fn default() -> Self {
-        Self::new().expect("Failed to create Python parser")
+        Self::new().expect("Failed to create Python parser") // M-UNWRAP: tree-sitter language is a build-time invariant
     }
 }
 

@@ -662,6 +662,22 @@ pub struct GeometricBackend {
     next_id: RwLock<u64>,
 }
 
+/// Recover from RwLock poison by returning the guarded data
+fn read_lock<T>(lock: &std::sync::RwLock<T>) -> std::sync::RwLockReadGuard<'_, T> {
+    match lock.read() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+/// Recover from RwLock write poison by returning the guarded data
+fn write_lock<T>(lock: &std::sync::RwLock<T>) -> std::sync::RwLockWriteGuard<'_, T> {
+    match lock.write() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
 impl GeometricBackend {
     /// Create a new geometric database
     pub fn create(db_path: &Path) -> Result<Self> {
@@ -786,12 +802,12 @@ impl GeometricBackend {
 
     /// Get storage reference
     fn _storage(&self) -> RwLockReadGuard<'_, SectionedStorage> {
-        self.storage.read().unwrap()
+        read_lock(&self.storage)
     }
 
     /// Get storage reference (mutable)
     fn storage_mut(&self) -> RwLockWriteGuard<'_, SectionedStorage> {
-        self.storage.write().unwrap()
+        write_lock(&self.storage)
     }
 
     /// Reload all data from disk to refresh in-memory caches
@@ -858,39 +874,39 @@ impl GeometricBackend {
 
         // Update all caches with fresh data
         {
-            let mut storage = self.storage.write().unwrap();
+            let mut storage = write_lock(&self.storage);
             *storage = new_storage;
         }
         {
-            let mut cache = self.graph_cache.write().unwrap();
+            let mut cache = write_lock(&self.graph_cache);
             *cache = graph_data;
         }
         {
-            let mut cache = self.cfg_cache.write().unwrap();
+            let mut cache = write_lock(&self.cfg_cache);
             *cache = cfg_data;
         }
         {
-            let mut cache = self.symbol_metadata.write().unwrap();
+            let mut cache = write_lock(&self.symbol_metadata);
             *cache = symbol_metadata;
         }
         {
-            let mut cache = self.call_edges.write().unwrap();
+            let mut cache = write_lock(&self.call_edges);
             *cache = call_edges;
         }
         {
-            let mut cache = self.label_data.write().unwrap();
+            let mut cache = write_lock(&self.label_data);
             *cache = label_data;
         }
         {
-            let mut cache = self.ast_data.write().unwrap();
+            let mut cache = write_lock(&self.ast_data);
             *cache = ast_data;
         }
         {
-            let mut cache = self.chunk_data.write().unwrap();
+            let mut cache = write_lock(&self.chunk_data);
             *cache = chunk_data;
         }
         {
-            let mut nid = self.next_id.write().unwrap();
+            let mut nid = write_lock(&self.next_id);
             *nid = next_id;
         }
 
@@ -899,9 +915,9 @@ impl GeometricBackend {
 
     /// Insert symbols into the database
     pub fn insert_symbols(&self, symbols: Vec<InsertSymbol>) -> Result<Vec<u64>> {
-        let mut cache = self.graph_cache.write().unwrap();
-        let mut symbol_metadata = self.symbol_metadata.write().unwrap();
-        let mut next_id = self.next_id.write().unwrap();
+        let mut cache = write_lock(&self.graph_cache);
+        let mut symbol_metadata = write_lock(&self.symbol_metadata);
+        let mut next_id = write_lock(&self.next_id);
 
         let mut ids = Vec::new();
 
@@ -994,7 +1010,7 @@ impl GeometricBackend {
 
         // 1. Find all symbol IDs belonging to this file using symbols_in_file
         let symbol_ids_to_remove: Vec<u64> = {
-            let metadata = self.symbol_metadata.read().unwrap();
+            let metadata = read_lock(&self.symbol_metadata);
             let ids = metadata.symbols_in_file(file_path);
             if ids.is_empty() {
                 // Also try with normalized path
@@ -1024,7 +1040,7 @@ impl GeometricBackend {
         // Note: String table and file table may have orphaned entries,
         // but this is acceptable for correctness
         {
-            let mut metadata = self.symbol_metadata.write().unwrap();
+            let mut metadata = write_lock(&self.symbol_metadata);
             for id in &symbol_ids_to_remove {
                 metadata.metadata.remove(id);
             }
@@ -1032,7 +1048,7 @@ impl GeometricBackend {
 
         // 3. Remove nodes and edges from graph cache
         {
-            let mut cache = self.graph_cache.write().unwrap();
+            let mut cache = write_lock(&self.graph_cache);
             cache.nodes.retain(|n| !symbol_id_set.contains(&n.id));
             cache
                 .edges
@@ -1043,7 +1059,7 @@ impl GeometricBackend {
         // 4. Remove call edges - need to filter by src_symbol/dst_symbol
         // CallEdgeData stores edges with symbol IDs
         {
-            let mut call_edges = self.call_edges.write().unwrap();
+            let mut call_edges = write_lock(&self.call_edges);
             // Retain only edges where neither src nor dst is in our removal set
             call_edges.edges.retain(|e| {
                 !symbol_id_set.contains(&e.src_symbol_id)
@@ -1053,7 +1069,7 @@ impl GeometricBackend {
 
         // 5. Remove CFG blocks belonging to removed symbols
         {
-            let mut cfg_cache = self.cfg_cache.write().unwrap();
+            let mut cfg_cache = write_lock(&self.cfg_cache);
             cfg_cache
                 .blocks
                 .retain(|b| !symbol_id_set.contains(&(b.function_id as u64)));
@@ -1061,7 +1077,7 @@ impl GeometricBackend {
 
         // 6. Remove AST nodes for this file
         {
-            let mut ast_data = self.ast_data.write().unwrap();
+            let mut ast_data = write_lock(&self.ast_data);
             ast_data
                 .nodes
                 .retain(|n| normalize_path_for_dedup(&n.file_path) != normalized_path);
@@ -1069,7 +1085,7 @@ impl GeometricBackend {
 
         // 7. Remove chunks for this file
         {
-            let mut chunk_data = self.chunk_data.write().unwrap();
+            let mut chunk_data = write_lock(&self.chunk_data);
             chunk_data
                 .chunks
                 .retain(|c| normalize_path_for_dedup(&c.file_path) != normalized_path);
@@ -1077,7 +1093,7 @@ impl GeometricBackend {
 
         // 8. Remove labels for removed symbols
         {
-            let mut label_data = self.label_data.write().unwrap();
+            let mut label_data = write_lock(&self.label_data);
             label_data
                 .associations
                 .retain(|a| !symbol_id_set.contains(&a.entity_id));
@@ -1088,7 +1104,7 @@ impl GeometricBackend {
 
     /// Insert a CFG block
     pub fn insert_cfg_block(&self, block: SerializableCfgBlock) -> Result<u64> {
-        let mut cache = self.cfg_cache.write().unwrap();
+        let mut cache = write_lock(&self.cfg_cache);
         let id = cache.blocks.len() as u64;
         cache.blocks.push(block);
         Ok(id)
@@ -1096,7 +1112,7 @@ impl GeometricBackend {
 
     /// Get all CFG blocks for a specific function
     pub fn get_cfg_blocks_for_function(&self, function_id: i64) -> Vec<SerializableCfgBlock> {
-        let cache = self.cfg_cache.read().unwrap();
+        let cache = read_lock(&self.cfg_cache);
         cache
             .blocks
             .iter()
@@ -1107,7 +1123,7 @@ impl GeometricBackend {
 
     /// Insert an edge between CFG blocks
     pub fn insert_edge(&self, src_id: u64, dst_id: u64, _edge_type: &str) -> Result<()> {
-        let mut cache = self.graph_cache.write().unwrap();
+        let mut cache = write_lock(&self.graph_cache);
 
         // Find source node and update edge info
         if let Some(_node) = cache.nodes.iter_mut().find(|n| n.id == src_id) {
@@ -1131,7 +1147,7 @@ impl GeometricBackend {
 
     /// Insert a CFG edge between blocks
     pub fn insert_cfg_edge(&self, src_id: u64, dst_id: u64, edge_type: u32) -> Result<()> {
-        let mut cache = self.cfg_cache.write().unwrap();
+        let mut cache = write_lock(&self.cfg_cache);
 
         let edge = geographdb_core::storage::CfgEdge {
             src_id,
@@ -1170,7 +1186,7 @@ impl GeometricBackend {
 
     /// Find a symbol by ID
     pub fn find_symbol_by_id_info(&self, id: u64) -> Option<SymbolInfo> {
-        let symbol_metadata = self.symbol_metadata.read().unwrap();
+        let symbol_metadata = read_lock(&self.symbol_metadata);
         let meta = symbol_metadata.get(id)?;
 
         Some(SymbolInfo {
@@ -1200,7 +1216,7 @@ impl GeometricBackend {
 
     /// Find a symbol by fully qualified name
     pub fn find_symbol_by_fqn_info(&self, fqn: &str) -> Option<SymbolInfo> {
-        let symbol_metadata = self.symbol_metadata.read().unwrap();
+        let symbol_metadata = read_lock(&self.symbol_metadata);
         let id = symbol_metadata.find_by_fqn(fqn)?;
         drop(symbol_metadata); // Release lock before calling find_symbol_by_id_info
         self.find_symbol_by_id_info(id)
@@ -1208,7 +1224,7 @@ impl GeometricBackend {
 
     /// Find symbols by name
     pub fn find_symbols_by_name_info(&self, name: &str) -> Vec<SymbolInfo> {
-        let symbol_metadata = self.symbol_metadata.read().unwrap();
+        let symbol_metadata = read_lock(&self.symbol_metadata);
         let ids = symbol_metadata.find_by_name(name);
         drop(symbol_metadata); // Release lock
 
@@ -1219,7 +1235,7 @@ impl GeometricBackend {
 
     /// Find symbol ID by name and path
     pub fn find_symbol_id_by_name_and_path(&self, name: &str, path: &str) -> Option<u64> {
-        let symbol_metadata = self.symbol_metadata.read().unwrap();
+        let symbol_metadata = read_lock(&self.symbol_metadata);
 
         // Find symbols with matching name in the given file
         let ids = symbol_metadata.find_by_name(name);
@@ -1233,7 +1249,7 @@ impl GeometricBackend {
 
     /// Get all symbols
     pub fn get_all_symbols(&self) -> Result<Vec<SymbolInfo>> {
-        let symbol_metadata = self.symbol_metadata.read().unwrap();
+        let symbol_metadata = read_lock(&self.symbol_metadata);
         let ids = symbol_metadata.all_symbol_ids();
         drop(symbol_metadata);
 
@@ -1245,13 +1261,13 @@ impl GeometricBackend {
 
     /// Get all symbol IDs
     pub fn get_all_symbol_ids(&self) -> Vec<u64> {
-        let cache = self.graph_cache.read().unwrap();
+        let cache = read_lock(&self.graph_cache);
         cache.nodes.iter().map(|n| n.id).collect()
     }
 
     /// Get symbols in a file
     pub fn symbols_in_file(&self, file_path: &str) -> Result<Vec<SymbolInfo>> {
-        let symbol_metadata = self.symbol_metadata.read().unwrap();
+        let symbol_metadata = read_lock(&self.symbol_metadata);
         let ids = symbol_metadata.symbols_in_file(file_path);
         drop(symbol_metadata);
 
@@ -1268,9 +1284,9 @@ impl GeometricBackend {
         // Reload to ensure we see the latest data written by other processes
         self.reload_from_disk()?;
 
-        let graph_cache = self.graph_cache.read().unwrap();
-        let cfg_cache = self.cfg_cache.read().unwrap();
-        let symbol_metadata = self.symbol_metadata.read().unwrap();
+        let graph_cache = read_lock(&self.graph_cache);
+        let cfg_cache = read_lock(&self.cfg_cache);
+        let symbol_metadata = read_lock(&self.symbol_metadata);
 
         Ok(GeometricBackendStats {
             node_count: graph_cache.nodes.len(),
@@ -1291,9 +1307,9 @@ impl GeometricBackend {
         // Ignore errors and use cached data if reload fails
         let _ = self.reload_from_disk();
 
-        let graph_cache = self.graph_cache.read().unwrap();
-        let cfg_cache = self.cfg_cache.read().unwrap();
-        let symbol_metadata = self.symbol_metadata.read().unwrap();
+        let graph_cache = read_lock(&self.graph_cache);
+        let cfg_cache = read_lock(&self.cfg_cache);
+        let symbol_metadata = read_lock(&self.symbol_metadata);
 
         GeometricBackendStats {
             node_count: graph_cache.nodes.len(),
@@ -1307,7 +1323,7 @@ impl GeometricBackend {
     ///
     /// Returns all CFG edges from the CFG section.
     pub fn get_all_cfg_edges(&self) -> Vec<geographdb_core::storage::CfgEdge> {
-        let cfg_cache = self.cfg_cache.read().unwrap();
+        let cfg_cache = read_lock(&self.cfg_cache);
         cfg_cache.edges.clone()
     }
 
@@ -1315,31 +1331,31 @@ impl GeometricBackend {
     ///
     /// Returns all edges from the GRAPH section (spatial index).
     pub fn get_all_edges(&self) -> Vec<geographdb_core::storage::EdgeRec> {
-        let graph_cache = self.graph_cache.read().unwrap();
+        let graph_cache = read_lock(&self.graph_cache);
         graph_cache.edges.clone()
     }
 
     /// Get all file paths from the file table
     pub fn get_all_file_paths(&self) -> Vec<String> {
-        let symbol_metadata = self.symbol_metadata.read().unwrap();
+        let symbol_metadata = read_lock(&self.symbol_metadata);
         symbol_metadata.all_file_paths()
     }
 
     /// Set file hash for a file path
     pub fn set_file_hash(&self, path: &str, hash: &str) {
-        let mut symbol_metadata = self.symbol_metadata.write().unwrap();
+        let mut symbol_metadata = write_lock(&self.symbol_metadata);
         symbol_metadata.set_file_hash(path, hash);
     }
 
     /// Get file hash for a file path
     pub fn get_file_hash(&self, path: &str) -> Option<String> {
-        let symbol_metadata = self.symbol_metadata.read().unwrap();
+        let symbol_metadata = read_lock(&self.symbol_metadata);
         symbol_metadata.get_file_hash(path).map(|s| s.to_string())
     }
 
     /// Get all files with their info (path, hash, last_indexed_at)
     pub fn get_all_files(&self) -> Vec<(String, Option<String>, i64)> {
-        let symbol_metadata = self.symbol_metadata.read().unwrap();
+        let symbol_metadata = read_lock(&self.symbol_metadata);
         symbol_metadata
             .all_files()
             .into_iter()
@@ -1349,7 +1365,7 @@ impl GeometricBackend {
 
     /// Get callers of a symbol (from call graph, not CFG)
     pub fn get_callers(&self, id: u64) -> Vec<u64> {
-        let call_edges = self.call_edges.read().unwrap();
+        let call_edges = read_lock(&self.call_edges);
         call_edges
             .edges
             .iter()
@@ -1360,7 +1376,7 @@ impl GeometricBackend {
 
     /// Get callees of a symbol (from call graph, not CFG)
     pub fn get_callees(&self, id: u64) -> Vec<u64> {
-        let call_edges = self.call_edges.read().unwrap();
+        let call_edges = read_lock(&self.call_edges);
         call_edges
             .edges
             .iter()
@@ -1378,7 +1394,7 @@ impl GeometricBackend {
 
     /// Complete FQN prefix for autocomplete functionality
     pub fn complete_fqn_prefix(&self, prefix: &str, limit: usize) -> Vec<String> {
-        let symbol_metadata = self.symbol_metadata.read().unwrap();
+        let symbol_metadata = read_lock(&self.symbol_metadata);
         let all_ids = symbol_metadata.all_symbol_ids();
 
         let mut matches: Vec<String> = all_ids
@@ -1405,7 +1421,7 @@ impl GeometricBackend {
         start_line: u64,
         start_col: u64,
     ) {
-        let mut call_edges = self.call_edges.write().unwrap();
+        let mut call_edges = write_lock(&self.call_edges);
         call_edges.edges.push(SymbolCallEdge {
             src_symbol_id,
             dst_symbol_id,
@@ -1419,13 +1435,13 @@ impl GeometricBackend {
 
     /// Insert multiple call edges
     pub fn insert_call_edges(&self, edges: Vec<SymbolCallEdge>) {
-        let mut call_edges = self.call_edges.write().unwrap();
+        let mut call_edges = write_lock(&self.call_edges);
         call_edges.edges.extend(edges);
     }
 
     /// Get all call edges
     pub fn get_call_edges(&self) -> Vec<SymbolCallEdge> {
-        let call_edges = self.call_edges.read().unwrap();
+        let call_edges = read_lock(&self.call_edges);
         call_edges.edges.clone()
     }
 
@@ -1496,7 +1512,7 @@ impl GeometricBackend {
         use geographdb_core::algorithms::astar::CfgGraphNode;
         use geographdb_core::algorithms::scc::tarjan_scc;
 
-        let cache = self.graph_cache.read().unwrap();
+        let cache = read_lock(&self.graph_cache);
         let nodes: Vec<CfgGraphNode> = cache
             .nodes
             .iter()
@@ -1525,7 +1541,7 @@ impl GeometricBackend {
         let node_to_supernode = scc.node_to_component;
         let mut edges = Vec::new();
 
-        let cache = self.graph_cache.read().unwrap();
+        let cache = read_lock(&self.graph_cache);
         for edge in &cache.edges {
             if let Some(&from_supernode) = node_to_supernode.get(&edge.src) {
                 if let Some(&to_supernode) = node_to_supernode.get(&edge.dst) {
@@ -1640,7 +1656,7 @@ impl GeometricBackend {
 
     /// Get all code chunks across all files
     pub fn get_all_chunks(&self) -> Result<Vec<crate::generation::schema::CodeChunk>> {
-        let chunk_data = self.chunk_data.read().unwrap();
+        let chunk_data = read_lock(&self.chunk_data);
 
         let result: Vec<crate::generation::schema::CodeChunk> = chunk_data
             .chunks
@@ -1669,7 +1685,7 @@ impl GeometricBackend {
         &self,
         file_path: &str,
     ) -> Result<Vec<crate::generation::schema::CodeChunk>> {
-        let chunk_data = self.chunk_data.read().unwrap();
+        let chunk_data = read_lock(&self.chunk_data);
         let chunks = chunk_data.get_chunks_by_file(file_path);
 
         let result: Vec<crate::generation::schema::CodeChunk> = chunks
@@ -1699,7 +1715,7 @@ impl GeometricBackend {
         file_path: &str,
         symbol_name: &str,
     ) -> Result<Vec<crate::generation::schema::CodeChunk>> {
-        let chunk_data = self.chunk_data.read().unwrap();
+        let chunk_data = read_lock(&self.chunk_data);
 
         // First try to get by exact symbol name
         let mut chunks: Vec<&CodeChunkRec> = chunk_data
@@ -1755,7 +1771,7 @@ impl GeometricBackend {
         byte_start: usize,
         byte_end: usize,
     ) -> Result<Option<crate::generation::schema::CodeChunk>> {
-        let chunk_data = self.chunk_data.read().unwrap();
+        let chunk_data = read_lock(&self.chunk_data);
 
         if let Some(c) = chunk_data.get_chunk_at_span(file_path, byte_start, byte_end) {
             Ok(Some(crate::generation::schema::CodeChunk {
@@ -1787,7 +1803,7 @@ impl GeometricBackend {
         symbol_name: Option<&str>,
         symbol_kind: Option<&str>,
     ) -> u64 {
-        let mut chunk_data = self.chunk_data.write().unwrap();
+        let mut chunk_data = write_lock(&self.chunk_data);
         chunk_data.add_chunk(
             file_path,
             byte_start,
@@ -1800,7 +1816,7 @@ impl GeometricBackend {
 
     /// Insert multiple code chunks
     pub fn insert_code_chunks(&self, chunks: &[crate::generation::schema::CodeChunk]) {
-        let mut chunk_data = self.chunk_data.write().unwrap();
+        let mut chunk_data = write_lock(&self.chunk_data);
         for c in chunks {
             chunk_data.add_chunk(
                 &c.file_path,
@@ -1908,25 +1924,25 @@ impl GeometricBackend {
 
         // Save graph data
         {
-            let cache = self.graph_cache.read().unwrap();
+            let cache = read_lock(&self.graph_cache);
             GraphSectionAdapter::save(&mut storage, &cache)?;
         }
 
         // Save CFG data
         {
-            let cache = self.cfg_cache.read().unwrap();
+            let cache = read_lock(&self.cfg_cache);
             CfgSectionAdapter::save(&mut storage, &cache)?;
         }
 
         // Save symbol metadata
         {
-            let cache = self.symbol_metadata.read().unwrap();
+            let cache = read_lock(&self.symbol_metadata);
             SymbolMetadataSectionAdapter::save(&mut storage, &cache)?;
         }
 
         // Save call edges
         {
-            let call_edges = self.call_edges.read().unwrap();
+            let call_edges = read_lock(&self.call_edges);
             let call_edges_bytes = call_edges.to_bytes();
             Self::write_section_with_growth(
                 &mut storage,
@@ -1938,14 +1954,14 @@ impl GeometricBackend {
 
         // Save label data
         {
-            let label_data = self.label_data.read().unwrap();
+            let label_data = read_lock(&self.label_data);
             let label_bytes = label_data.to_bytes();
             Self::write_section_with_growth(&mut storage, "LABEL", &label_bytes, 1024 * 1024)?;
         }
 
         // Save AST data
         {
-            let ast_data = self.ast_data.read().unwrap();
+            let ast_data = read_lock(&self.ast_data);
             let ast_bytes = ast_data.to_bytes();
             // AST can grow very large - use 10MB initial capacity
             Self::write_section_with_growth(&mut storage, "AST", &ast_bytes, 10 * 1024 * 1024)?;
@@ -1953,7 +1969,7 @@ impl GeometricBackend {
 
         // Save chunk data
         {
-            let chunk_data = self.chunk_data.read().unwrap();
+            let chunk_data = read_lock(&self.chunk_data);
             let chunk_bytes = chunk_data.to_bytes();
             // Chunks are typically the largest section
             Self::write_section_with_growth(&mut storage, "CHUNK", &chunk_bytes, 50 * 1024 * 1024)?;
@@ -1965,7 +1981,7 @@ impl GeometricBackend {
 
     /// Get all unique labels
     pub fn get_all_labels(&self) -> Vec<String> {
-        let label_data = self.label_data.read().unwrap();
+        let label_data = read_lock(&self.label_data);
         let mut labels: std::collections::HashSet<String> = std::collections::HashSet::new();
         for assoc in &label_data.associations {
             labels.insert(assoc.label.clone());
@@ -1977,7 +1993,7 @@ impl GeometricBackend {
 
     /// Count entities with a specific label
     pub fn count_entities_by_label(&self, label: &str) -> usize {
-        let label_data = self.label_data.read().unwrap();
+        let label_data = read_lock(&self.label_data);
         label_data
             .associations
             .iter()
@@ -1987,7 +2003,7 @@ impl GeometricBackend {
 
     /// Get symbol IDs with a specific label
     pub fn get_symbol_ids_by_label(&self, label: &str) -> Vec<u64> {
-        let label_data = self.label_data.read().unwrap();
+        let label_data = read_lock(&self.label_data);
         label_data
             .associations
             .iter()
@@ -1998,7 +2014,7 @@ impl GeometricBackend {
 
     /// Add a label to an entity
     pub fn add_label(&self, entity_id: u64, label: &str) {
-        let mut label_data = self.label_data.write().unwrap();
+        let mut label_data = write_lock(&self.label_data);
         // Check if already exists
         if !label_data
             .associations
@@ -2023,7 +2039,7 @@ impl GeometricBackend {
         byte_end: usize,
         parent_id: Option<u64>,
     ) -> u64 {
-        let mut ast_data = self.ast_data.write().unwrap();
+        let mut ast_data = write_lock(&self.ast_data);
         ast_data.add_node(file_path, kind, byte_start, byte_end, parent_id)
     }
 
@@ -2033,7 +2049,7 @@ impl GeometricBackend {
         nodes: Vec<ExtractedAstNode>,
         parent_map: &std::collections::HashMap<usize, u64>,
     ) {
-        let mut ast_data = self.ast_data.write().unwrap();
+        let mut ast_data = write_lock(&self.ast_data);
         // Pre-reserve capacity to avoid reallocations
         let additional = nodes.len();
         ast_data.nodes.reserve(additional);
@@ -2051,7 +2067,7 @@ impl GeometricBackend {
 
     /// Get AST nodes by file path
     pub fn get_ast_nodes_by_file(&self, file_path: &str) -> Vec<AstNodeRec> {
-        let ast_data = self.ast_data.read().unwrap();
+        let ast_data = read_lock(&self.ast_data);
         ast_data
             .get_nodes_by_file(file_path)
             .into_iter()
@@ -2061,7 +2077,7 @@ impl GeometricBackend {
 
     /// Get AST nodes by kind
     pub fn get_ast_nodes_by_kind(&self, kind: &str) -> Vec<AstNodeRec> {
-        let ast_data = self.ast_data.read().unwrap();
+        let ast_data = read_lock(&self.ast_data);
         ast_data
             .get_nodes_by_kind(kind)
             .into_iter()
@@ -2071,7 +2087,7 @@ impl GeometricBackend {
 
     /// Get AST children of a node
     pub fn get_ast_children(&self, parent_id: u64) -> Vec<AstNodeRec> {
-        let ast_data = self.ast_data.read().unwrap();
+        let ast_data = read_lock(&self.ast_data);
         ast_data
             .get_children(parent_id)
             .into_iter()
@@ -2081,7 +2097,7 @@ impl GeometricBackend {
 
     /// Get AST node at position
     pub fn get_ast_node_at_position(&self, file_path: &str, position: usize) -> Option<AstNodeRec> {
-        let ast_data = self.ast_data.read().unwrap();
+        let ast_data = read_lock(&self.ast_data);
         ast_data.get_node_at_position(file_path, position).cloned()
     }
 }

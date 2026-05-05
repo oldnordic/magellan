@@ -118,7 +118,10 @@ impl MetricsOps {
                     .map_err(|e| anyhow::anyhow!("Failed to ensure metrics schema: {}", e))
             }
             MetricsOpsBackend::Shared(conn_arc) => {
-                let conn = conn_arc.lock().unwrap();
+                let conn = match conn_arc.lock() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
                 crate::graph::db_compat::ensure_metrics_schema(&conn)
                     .map_err(|e| anyhow::anyhow!("Failed to ensure metrics schema: {}", e))
             }
@@ -150,7 +153,10 @@ impl MetricsOps {
                 f(&conn)
             }
             MetricsOpsBackend::Shared(conn_arc) => {
-                let conn = conn_arc.lock().unwrap();
+                let conn = match conn_arc.lock() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
                 f(&conn)
             }
             MetricsOpsBackend::SideTables(_) => {
@@ -167,7 +173,10 @@ impl MetricsOps {
                 Self::upsert_file_metrics_conn(&conn, metrics)
             }
             MetricsOpsBackend::Shared(conn_arc) => {
-                let conn = conn_arc.lock().unwrap();
+                let conn = match conn_arc.lock() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
                 Self::upsert_file_metrics_conn(&conn, metrics)
             }
             MetricsOpsBackend::SideTables(side_tables) => side_tables.store_file_metrics(metrics),
@@ -203,7 +212,10 @@ impl MetricsOps {
                 Self::upsert_symbol_metrics_conn(&conn, metrics)
             }
             MetricsOpsBackend::Shared(conn_arc) => {
-                let conn = conn_arc.lock().unwrap();
+                let conn = match conn_arc.lock() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
                 Self::upsert_symbol_metrics_conn(&conn, metrics)
             }
             MetricsOpsBackend::SideTables(side_tables) => side_tables.store_symbol_metrics(metrics),
@@ -245,7 +257,10 @@ impl MetricsOps {
                 Self::delete_file_metrics_conn(&conn, file_path)
             }
             MetricsOpsBackend::Shared(conn_arc) => {
-                let conn = conn_arc.lock().unwrap();
+                let conn = match conn_arc.lock() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
                 Self::delete_file_metrics_conn(&conn, file_path)
             }
             MetricsOpsBackend::SideTables(side_tables) => {
@@ -279,7 +294,10 @@ impl MetricsOps {
                 Self::get_file_metrics_conn(&conn, file_path)
             }
             MetricsOpsBackend::Shared(conn_arc) => {
-                let conn = conn_arc.lock().unwrap();
+                let conn = match conn_arc.lock() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
                 Self::get_file_metrics_conn(&conn, file_path)
             }
             MetricsOpsBackend::SideTables(side_tables) => side_tables.get_file_metrics(file_path),
@@ -324,7 +342,10 @@ impl MetricsOps {
                 Self::get_symbol_metrics_conn(&conn, symbol_id)
             }
             MetricsOpsBackend::Shared(conn_arc) => {
-                let conn = conn_arc.lock().unwrap();
+                let conn = match conn_arc.lock() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
                 Self::get_symbol_metrics_conn(&conn, symbol_id)
             }
             MetricsOpsBackend::SideTables(side_tables) => side_tables.get_symbol_metrics(symbol_id),
@@ -380,7 +401,10 @@ impl MetricsOps {
                 Self::get_hotspots_conn(&conn, limit, min_loc, min_fan_in, min_fan_out)
             }
             MetricsOpsBackend::Shared(conn_arc) => {
-                let conn = conn_arc.lock().unwrap();
+                let conn = match conn_arc.lock() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
                 Self::get_hotspots_conn(&conn, limit, min_loc, min_fan_in, min_fan_out)
             }
             MetricsOpsBackend::SideTables(side_tables) => {

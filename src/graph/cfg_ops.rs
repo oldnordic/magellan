@@ -490,7 +490,7 @@ pub fn compute_dominator_depth(cfg: &CfgWithEdges) -> HashMap<usize, i64> {
             }
 
             // Get intersection of predecessors' dominators
-            let preds = predecessors.get(&i).unwrap();
+            let preds = predecessors.get(&i).unwrap(); // M-UNWRAP: well-formed CFG guarantees every non-entry block has predecessors
             if preds.is_empty() {
                 continue;
             }

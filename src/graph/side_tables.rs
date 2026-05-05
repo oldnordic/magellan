@@ -275,6 +275,14 @@ pub mod sqlite_impl {
     }
 
     impl SqliteSideTables {
+        /// Lock the shared connection, recovering from poison if necessary.
+        fn lock_conn(&self) -> std::sync::MutexGuard<'_, Connection> {
+            match self.conn.lock() {
+                Ok(guard) => guard,
+                Err(poisoned) => poisoned.into_inner(),
+            }
+        }
+
         /// Open or create side tables in SQLite database
         pub fn open(db_path: &Path) -> Result<Self> {
             let conn = Connection::open(db_path)?;
@@ -292,7 +300,7 @@ pub mod sqlite_impl {
         }
 
         fn ensure_schema(&self) -> Result<()> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
 
             // File metrics table
             conn.execute(
@@ -404,11 +412,11 @@ pub mod sqlite_impl {
             root: Option<&str>,
             db_path: &str,
         ) -> Result<i64> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
             let args_json = serde_json::to_string(args)?;
             let started_at = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_default()
                 .as_secs() as i64;
 
             conn.execute(
@@ -437,10 +445,10 @@ pub mod sqlite_impl {
             symbols_indexed: usize,
             references_indexed: usize,
         ) -> Result<()> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
             let finished_at = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_default()
                 .as_secs() as i64;
 
             // Get started_at to compute duration
@@ -477,7 +485,7 @@ pub mod sqlite_impl {
         }
 
         fn get_execution(&self, execution_id: &str) -> Result<Option<ExecutionRecord>> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
 
             let result = conn
                 .query_row(
@@ -512,7 +520,7 @@ pub mod sqlite_impl {
         }
 
         fn list_executions(&self, limit: Option<usize>) -> Result<Vec<ExecutionRecord>> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
 
             let limit_clause = limit.map(|l| format!(" LIMIT {}", l)).unwrap_or_default();
             let sql = format!(
@@ -550,7 +558,7 @@ pub mod sqlite_impl {
         }
 
         fn store_file_metrics(&self, metrics: &FileMetrics) -> Result<()> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
             conn.execute(
                 "INSERT OR REPLACE INTO file_metrics (
                     file_path, symbol_count, loc, estimated_loc,
@@ -571,7 +579,7 @@ pub mod sqlite_impl {
         }
 
         fn get_file_metrics(&self, file_path: &str) -> Result<Option<FileMetrics>> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
             let result = conn
                 .query_row(
                     "SELECT file_path, symbol_count, loc, estimated_loc,
@@ -598,7 +606,7 @@ pub mod sqlite_impl {
         }
 
         fn store_symbol_metrics(&self, metrics: &SymbolMetrics) -> Result<()> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
             conn.execute(
                 "INSERT OR REPLACE INTO symbol_metrics (
                     symbol_id, symbol_name, kind, file_path,
@@ -622,7 +630,7 @@ pub mod sqlite_impl {
         }
 
         fn get_symbol_metrics(&self, symbol_id: i64) -> Result<Option<SymbolMetrics>> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
             let result = conn
                 .query_row(
                     "SELECT symbol_id, symbol_name, kind, file_path,
@@ -652,7 +660,7 @@ pub mod sqlite_impl {
         }
 
         fn delete_metrics_for_file(&self, file_path: &str) -> Result<usize> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
 
             // Delete symbol metrics for this file first
             let symbol_count = conn.execute(
@@ -676,7 +684,7 @@ pub mod sqlite_impl {
             min_fan_in: Option<i64>,
             min_fan_out: Option<i64>,
         ) -> Result<Vec<FileMetrics>> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
 
             // Build query with optional filters
             let mut query = String::from(
@@ -747,7 +755,7 @@ pub mod sqlite_impl {
         // ===== Code Chunk Methods =====
 
         fn store_chunk(&self, chunk: &CodeChunk) -> Result<i64> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
             conn.execute(
                 "INSERT OR REPLACE INTO code_chunks
                     (file_path, byte_start, byte_end, content, content_hash, symbol_name, symbol_kind, created_at)
@@ -767,7 +775,7 @@ pub mod sqlite_impl {
         }
 
         fn get_chunk(&self, chunk_id: i64) -> Result<Option<CodeChunk>> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
             let result = conn
                 .query_row(
                     "SELECT id, file_path, byte_start, byte_end, content, content_hash,
@@ -798,7 +806,7 @@ pub mod sqlite_impl {
             byte_start: usize,
             byte_end: usize,
         ) -> Result<Option<CodeChunk>> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
             let result = conn
                 .query_row(
                     "SELECT id, file_path, byte_start, byte_end, content, content_hash,
@@ -824,7 +832,7 @@ pub mod sqlite_impl {
         }
 
         fn get_chunks_for_file(&self, file_path: &str) -> Result<Vec<CodeChunk>> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
             let mut stmt = conn.prepare(
                 "SELECT id, file_path, byte_start, byte_end, content, content_hash,
                         symbol_name, symbol_kind, created_at
@@ -849,7 +857,7 @@ pub mod sqlite_impl {
         }
 
         fn count_chunks_for_file(&self, file_path: &str) -> Result<usize> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
             let count: i64 = conn.query_row(
                 "SELECT COUNT(*) FROM code_chunks WHERE file_path = ?1",
                 params![file_path],
@@ -859,7 +867,7 @@ pub mod sqlite_impl {
         }
 
         fn delete_chunks_for_file(&self, file_path: &str) -> Result<usize> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
             let affected = conn.execute(
                 "DELETE FROM code_chunks WHERE file_path = ?1",
                 params![file_path],
@@ -872,7 +880,7 @@ pub mod sqlite_impl {
             file_path: &str,
             symbol_name: &str,
         ) -> Result<Vec<CodeChunk>> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
             let mut stmt = conn.prepare(
                 "SELECT id, file_path, byte_start, byte_end, content, content_hash,
                         symbol_name, symbol_kind, created_at
@@ -899,7 +907,7 @@ pub mod sqlite_impl {
         }
 
         fn get_all_chunks(&self) -> Result<Vec<CodeChunk>> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
             let mut stmt = conn.prepare(
                 "SELECT id, file_path, byte_start, byte_end, content, content_hash,
                         symbol_name, symbol_kind, created_at
@@ -924,7 +932,7 @@ pub mod sqlite_impl {
         }
 
         fn count_chunks(&self) -> Result<usize> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
             let count: i64 =
                 conn.query_row("SELECT COUNT(*) FROM code_chunks", [], |row| row.get(0))?;
             Ok(count as usize)
@@ -933,7 +941,7 @@ pub mod sqlite_impl {
         // ===== AST Node Methods =====
 
         fn store_ast_node(&self, node: &crate::graph::AstNode, file_id: i64) -> Result<i64> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
             conn.execute(
                 "INSERT INTO ast_nodes (parent_id, kind, byte_start, byte_end, file_id)
                  VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -956,7 +964,7 @@ pub mod sqlite_impl {
                 return Ok(Vec::new());
             }
 
-            let mut conn = self.conn.lock().unwrap();
+            let mut conn = self.lock_conn();
 
             // Use transaction for better performance
             let tx = conn.transaction()?;
@@ -982,7 +990,7 @@ pub mod sqlite_impl {
         }
 
         fn get_ast_node(&self, node_id: i64) -> Result<Option<crate::graph::AstNode>> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
             let result = conn
                 .query_row(
                     "SELECT id, parent_id, kind, byte_start, byte_end
@@ -1003,7 +1011,7 @@ pub mod sqlite_impl {
         }
 
         fn update_ast_node_parent(&self, node_id: i64, new_parent_id: i64) -> Result<()> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
             conn.execute(
                 "UPDATE ast_nodes SET parent_id = ?1 WHERE id = ?2",
                 params![new_parent_id, node_id],
@@ -1012,7 +1020,7 @@ pub mod sqlite_impl {
         }
 
         fn get_ast_nodes_by_file(&self, file_id: i64) -> Result<Vec<crate::graph::AstNode>> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
             let mut stmt = conn.prepare(
                 "SELECT id, parent_id, kind, byte_start, byte_end
                  FROM ast_nodes WHERE file_id = ?1 ORDER BY byte_start",
@@ -1032,7 +1040,7 @@ pub mod sqlite_impl {
         }
 
         fn get_all_ast_nodes(&self) -> Result<Vec<crate::graph::AstNode>> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
             let mut stmt = conn.prepare(
                 "SELECT id, parent_id, kind, byte_start, byte_end
                  FROM ast_nodes ORDER BY byte_start",
@@ -1052,7 +1060,7 @@ pub mod sqlite_impl {
         }
 
         fn get_ast_nodes_by_kind(&self, kind: &str) -> Result<Vec<crate::graph::AstNode>> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
             let mut stmt = conn.prepare(
                 "SELECT id, parent_id, kind, byte_start, byte_end
                  FROM ast_nodes WHERE kind = ?1 ORDER BY byte_start",
@@ -1072,7 +1080,7 @@ pub mod sqlite_impl {
         }
 
         fn get_ast_children(&self, parent_id: i64) -> Result<Vec<crate::graph::AstNode>> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
             let mut stmt = conn.prepare(
                 "SELECT id, parent_id, kind, byte_start, byte_end
                  FROM ast_nodes WHERE parent_id = ?1 ORDER BY byte_start",
@@ -1092,14 +1100,14 @@ pub mod sqlite_impl {
         }
 
         fn count_ast_nodes(&self) -> Result<usize> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
             let count: i64 =
                 conn.query_row("SELECT COUNT(*) FROM ast_nodes", [], |row| row.get(0))?;
             Ok(count as usize)
         }
 
         fn count_ast_nodes_for_file(&self, file_id: i64) -> Result<usize> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
             let count: i64 = conn.query_row(
                 "SELECT COUNT(*) FROM ast_nodes WHERE file_id = ?1",
                 params![file_id],
@@ -1109,7 +1117,7 @@ pub mod sqlite_impl {
         }
 
         fn delete_ast_nodes_for_file(&self, file_id: i64) -> Result<usize> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
             let affected =
                 conn.execute("DELETE FROM ast_nodes WHERE file_id = ?1", params![file_id])?;
             Ok(affected)
@@ -1118,7 +1126,7 @@ pub mod sqlite_impl {
         // ===== Cross-File Reference Methods =====
 
         fn store_cross_file_ref(&self, cref: &crate::graph::schema::CrossFileRef) -> Result<()> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
             conn.execute(
                 "INSERT INTO cross_file_refs
                     (from_symbol_id, to_symbol_id, file_path, line_number, byte_start, byte_end)
@@ -1139,7 +1147,7 @@ pub mod sqlite_impl {
             &self,
             to_symbol_id: &str,
         ) -> Result<Vec<crate::graph::schema::CrossFileRef>> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
             let mut stmt = conn.prepare(
                 "SELECT from_symbol_id, to_symbol_id, file_path, line_number, byte_start, byte_end
                  FROM cross_file_refs WHERE to_symbol_id = ?1",
@@ -1165,7 +1173,7 @@ pub mod sqlite_impl {
             &self,
             from_symbol_id: &str,
         ) -> Result<Vec<crate::graph::schema::CrossFileRef>> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
             let mut stmt = conn.prepare(
                 "SELECT from_symbol_id, to_symbol_id, file_path, line_number, byte_start, byte_end
                  FROM cross_file_refs WHERE from_symbol_id = ?1",
@@ -1188,7 +1196,7 @@ pub mod sqlite_impl {
         }
 
         fn delete_cross_file_refs_for_file(&self, file_path: &str) -> Result<usize> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
             let affected = conn.execute(
                 "DELETE FROM cross_file_refs WHERE file_path = ?1",
                 params![file_path],
@@ -1197,7 +1205,7 @@ pub mod sqlite_impl {
         }
 
         fn count_cross_file_refs(&self) -> Result<usize> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
             let count: i64 =
                 conn.query_row("SELECT COUNT(*) FROM cross_file_refs", [], |row| row.get(0))?;
             Ok(count as usize)
@@ -1206,7 +1214,7 @@ pub mod sqlite_impl {
         // ===== Label Methods =====
 
         fn add_label(&self, entity_id: i64, label: &str) -> Result<()> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
             conn.execute(
                 "INSERT OR IGNORE INTO graph_labels(entity_id, label) VALUES(?1, ?2)",
                 params![entity_id, label],
@@ -1215,7 +1223,7 @@ pub mod sqlite_impl {
         }
 
         fn get_labels_for_entity(&self, entity_id: i64) -> Result<Vec<String>> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
             let mut stmt =
                 conn.prepare("SELECT label FROM graph_labels WHERE entity_id = ?1 ORDER BY label")?;
             let labels = stmt
@@ -1225,7 +1233,7 @@ pub mod sqlite_impl {
         }
 
         fn get_entities_by_label(&self, label: &str) -> Result<Vec<i64>> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
             let mut stmt = conn.prepare(
                 "SELECT entity_id FROM graph_labels WHERE label = ?1 ORDER BY entity_id",
             )?;
@@ -1236,7 +1244,7 @@ pub mod sqlite_impl {
         }
 
         fn get_all_labels(&self) -> Result<Vec<String>> {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.lock_conn();
             let mut stmt =
                 conn.prepare("SELECT DISTINCT label FROM graph_labels ORDER BY label")?;
             let labels = stmt

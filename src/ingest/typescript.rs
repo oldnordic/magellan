@@ -720,7 +720,7 @@ impl TypeScriptParser {
 
 impl Default for TypeScriptParser {
     fn default() -> Self {
-        Self::new().expect("Failed to create TypeScript parser")
+        Self::new().expect("Failed to create TypeScript parser") // M-UNWRAP: tree-sitter language is a build-time invariant
     }
 }
 
