@@ -3,53 +3,58 @@
 //! Provides summarized, paginated context queries for LLMs.
 
 use anyhow::Result;
-use magellan::context::{
-    build_context_index, get_file_context, get_or_build_context_index, ListQuery,
-};
+use magellan::context::{build_context_index, ListQuery};
 use magellan::graph::multi_db::MultiDbContext;
 use magellan::output::{generate_execution_id, ContextResponse, OutputFormat};
 use magellan::CodeGraph;
 use std::path::PathBuf;
 
-/// Run the context build command
-pub fn run_context_build(db_path: PathBuf) -> Result<()> {
-    let mut graph = CodeGraph::open(&db_path)?;
-    let _exec_id = generate_execution_id();
-
-    build_context_index(&mut graph, &db_path)?;
-
+/// Run the context build command (multi-DB)
+pub fn run_context_build(db_paths: Vec<PathBuf>) -> Result<()> {
+    for db_path in &db_paths {
+        match CodeGraph::open(db_path) {
+            Ok(mut graph) => {
+                if let Err(e) = build_context_index(&mut graph, db_path) {
+                    eprintln!("Warning: failed to build index for {}: {}", db_path.display(), e);
+                }
+            }
+            Err(e) => {
+                eprintln!("Warning: skipping {}: {}", db_path.display(), e);
+            }
+        }
+    }
     Ok(())
 }
 
-/// Run the context summary command
-pub fn run_context_summary(db_path: PathBuf) -> Result<()> {
-    let mut graph = CodeGraph::open(&db_path)?;
+/// Run the context summary command (multi-DB)
+pub fn run_context_summary(db_paths: Vec<PathBuf>) -> Result<()> {
+    let mut mdb = MultiDbContext::from_paths(&db_paths)?;
+    let summaries = mdb.summaries();
 
-    // Get or build index
-    let index = get_or_build_context_index(&mut graph, &db_path)?;
-
-    // Print summary
-    println!("{}", index.summary.description);
-    println!();
-    println!("Project: {} {}", index.summary.name, index.summary.version);
-    println!("Language: {}", index.summary.language);
-    println!("Files: {}", index.summary.total_files);
-    println!("Symbols: {}", index.summary.total_symbols);
-    println!();
-    println!("Symbol Breakdown:");
-    println!("  Functions: {}", index.summary.symbol_counts.functions);
-    println!("  Methods: {}", index.summary.symbol_counts.methods);
-    println!("  Structs: {}", index.summary.symbol_counts.structs);
-    println!("  Traits: {}", index.summary.symbol_counts.traits);
-    println!("  Enums: {}", index.summary.symbol_counts.enums);
-    println!("  Modules: {}", index.summary.symbol_counts.modules);
-
-    if !index.summary.entry_points.is_empty() {
+    for (project, summary) in &summaries {
+        println!("Project: {} {}", summary.name, summary.version);
+        println!("Language: {}", summary.language);
+        println!("Files: {}", summary.total_files);
+        println!("Symbols: {}", summary.total_symbols);
         println!();
-        println!("Entry Points:");
-        for entry in &index.summary.entry_points {
-            println!("  - {}", entry);
+        println!("Symbol Breakdown:");
+        println!("  Functions: {}", summary.symbol_counts.functions);
+        println!("  Methods: {}", summary.symbol_counts.methods);
+        println!("  Structs: {}", summary.symbol_counts.structs);
+        println!("  Traits: {}", summary.symbol_counts.traits);
+        println!("  Enums: {}", summary.symbol_counts.enums);
+        println!("  Modules: {}", summary.symbol_counts.modules);
+
+        if !summary.entry_points.is_empty() {
+            println!();
+            println!("Entry Points:");
+            for entry in &summary.entry_points {
+                println!("  - {}", entry);
+            }
         }
+
+        println!("Project ID: {}", project);
+        println!("---");
     }
 
     Ok(())
@@ -290,36 +295,41 @@ pub fn run_context_symbol(
 }
 
 /// Run the context file command
-pub fn run_context_file(db_path: PathBuf, path: String) -> Result<()> {
-    let mut graph = CodeGraph::open(&db_path)?;
+pub fn run_context_file(db_paths: Vec<PathBuf>, path: String) -> Result<()> {
+    let mut mdb = MultiDbContext::from_paths(&db_paths)?;
+    let results = mdb.file_context(&path);
 
-    let context = get_file_context(&mut graph, &path)?;
-
-    // Print file info
-    println!("File: {}", context.path);
-    println!("Language: {}", context.language);
-    println!("Symbols: {}", context.symbol_count);
-    println!();
-
-    println!("Symbol Breakdown:");
-    println!("  Functions: {}", context.symbol_counts.functions);
-    println!("  Methods: {}", context.symbol_counts.methods);
-    println!("  Structs: {}", context.symbol_counts.structs);
-    println!("  Traits: {}", context.symbol_counts.traits);
-    println!("  Enums: {}", context.symbol_counts.enums);
-    println!();
-
-    println!("Public Symbols:");
-    for symbol in &context.public_symbols {
-        println!("  - {}", symbol);
+    if results.is_empty() {
+        println!("File '{}' not found in any project.", path);
+        return Ok(());
     }
 
-    if !context.imports.is_empty() {
+    for (project, context) in &results {
+        println!("Project: {}", project);
+        println!("File: {}", context.path);
+        println!("Language: {}", context.language);
+        println!("Symbols: {}", context.symbol_count);
         println!();
-        println!("Imports:");
-        for import in &context.imports {
-            println!("  - {}", import);
+        println!("Symbol Breakdown:");
+        println!("  Functions: {}", context.symbol_counts.functions);
+        println!("  Methods: {}", context.symbol_counts.methods);
+        println!("  Structs: {}", context.symbol_counts.structs);
+        println!("  Traits: {}", context.symbol_counts.traits);
+        println!("  Enums: {}", context.symbol_counts.enums);
+        println!();
+        println!("Public Symbols:");
+        for symbol in &context.public_symbols {
+            println!("  - {}", symbol);
         }
+
+        if !context.imports.is_empty() {
+            println!();
+            println!("Imports:");
+            for import in &context.imports {
+                println!("  - {}", import);
+            }
+        }
+        println!("---");
     }
 
     Ok(())

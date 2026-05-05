@@ -232,12 +232,8 @@ fn main() -> ExitCode {
         }) => {
             use cli::ContextSubcommand;
             let result = match subcommand {
-                ContextSubcommand::Build => {
-                    context_cmd::run_context_build(db_paths.into_iter().next().unwrap_or_default())
-                }
-                ContextSubcommand::Summary => context_cmd::run_context_summary(
-                    db_paths.into_iter().next().unwrap_or_default(),
-                ),
+                ContextSubcommand::Build => context_cmd::run_context_build(db_paths),
+                ContextSubcommand::Summary => context_cmd::run_context_summary(db_paths),
                 ContextSubcommand::List {
                     kind,
                     page,
@@ -274,10 +270,7 @@ fn main() -> ExitCode {
                     depth,
                     project,
                 ),
-                ContextSubcommand::File { path } => context_cmd::run_context_file(
-                    db_paths.into_iter().next().unwrap_or_default(),
-                    path,
-                ),
+                ContextSubcommand::File { path } => context_cmd::run_context_file(db_paths, path),
                 ContextSubcommand::Impact {
                     symbol,
                     file,
