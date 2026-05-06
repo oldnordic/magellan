@@ -11,6 +11,12 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Watch-mode database corruption** — Fixed intermittent database corruption during `magellan watch --scan-initial` caused by uncoordinated SQLite connections writing to the same WAL:
+  - Reduced sqlitegraph connection pool from 2 → 1 (eliminates inter-pool WAL races)
+  - `rebuild_fts5()` now uses the shared `side_conn` instead of opening a new connection during flush
+  - `delete_file_facts` now cleans up `file_metrics` rows (both normal delete path and orphan cleanup)
+  - Added `PRAGMA integrity_check` verification after initial scan flush
+  - Added stress tests (5 sequential watch cycles, `#[ignore]`'d for CI speed)
 - **FTS5 index rebuild on `magellan refresh`** — The `refresh` command now automatically rebuilds the `symbol_fts` virtual table after applying changes. Previously, `llmgrep` queries returned stale or empty results until a manual `INSERT INTO symbol_fts(symbol_fts) VALUES('rebuild')`.
 - **`context` command `--path` alias** — `context symbol`, `context impact`, and `context affected` now accept `--path` as an alias for `--file`, consistent with `find` and `context file` commands.
 
