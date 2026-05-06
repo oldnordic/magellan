@@ -282,6 +282,22 @@ impl SymbolOps {
         Ok(())
     }
 
+    /// Insert IMPLEMENTS edge from type symbol to trait symbol
+    ///
+    /// Direction: type → trait (follows "type implements trait" semantics)
+    /// Only created for trait impls, not inherent impls.
+    pub fn insert_implements_edge(&self, type_id: NodeId, trait_id: NodeId) -> Result<()> {
+        let edge_spec = EdgeSpec {
+            from: type_id.as_i64(),
+            to: trait_id.as_i64(),
+            edge_type: "IMPLEMENTS".to_string(),
+            data: serde_json::json!({}),
+        };
+
+        self.backend.insert_edge(edge_spec)?;
+        Ok(())
+    }
+
     /// Delete all symbols and DEFINES edges for a file
     ///
     /// Also updates the in-memory lookup index to remove deleted symbols.

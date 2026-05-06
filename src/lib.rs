@@ -97,7 +97,7 @@ pub use graph::{
 };
 pub use indexer::{run_indexer, run_indexer_n, run_watch_pipeline, WatchPipelineConfig};
 pub use ingest::detect::{detect_language, Language};
-pub use ingest::{Parser, SymbolFact, SymbolKind};
+pub use ingest::{ImplRelation, Parser, SymbolFact, SymbolKind};
 pub use output::command::{MigrateResponse, ReferenceMatch, Span, SymbolMatch};
 pub use output::{generate_execution_id, output_json, JsonResponse, OutputFormat};
 pub use references::{CallFact, ReferenceFact};

@@ -2196,6 +2196,7 @@ pub struct ExtractedFileData {
     pub cfg_edges: Vec<CfgEdge>,
     pub call_edges: Vec<SymbolCallEdge>,
     pub ast_nodes: Vec<ExtractedAstNode>,
+    pub impl_relations: Vec<crate::ingest::ImplRelation>,
 }
 
 /// Timing breakdown for extraction phases
@@ -2206,6 +2207,7 @@ pub struct ExtractionTiming {
     pub cfg_extraction_us: u64,
     pub call_extraction_us: u64,
     pub ast_extraction_us: u64,
+    pub impl_extraction_us: u64,
 }
 
 pub fn extract_symbols_cfg_and_calls_from_file(
@@ -2341,6 +2343,7 @@ pub fn extract_all_from_file_timed(
             cfg_edges,
             call_edges,
             ast_nodes,
+            impl_relations: Vec::new(), // No impl relations for non-Rust
         },
         timing,
     ))
@@ -2492,6 +2495,14 @@ pub fn extract_rust_single_parse_timed(
         timing.ast_extraction_us = ast_start.elapsed().as_micros() as u64;
     }
 
+    // Extract impl relations from the SAME pre-parsed tree - NO additional parse!
+    let impl_start = std::time::Instant::now();
+    let impl_relations =
+        RustParser::extract_impl_relations_static(&tree, content.as_bytes(), &path.to_path_buf());
+    if timing_enabled {
+        timing.impl_extraction_us = impl_start.elapsed().as_micros() as u64;
+    }
+
     Ok((
         ExtractedFileData {
             symbols,
@@ -2499,6 +2510,7 @@ pub fn extract_rust_single_parse_timed(
             cfg_edges,
             call_edges,
             ast_nodes,
+            impl_relations,
         },
         timing,
     ))
