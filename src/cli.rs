@@ -1490,9 +1490,9 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                         name = Some(args[i + 1].clone());
                         i += 2;
                     }
-                    "--file" => {
+                    "--file" | "--path" => {
                         if i + 1 >= args.len() {
-                            return Err(anyhow::anyhow!("--file requires an argument"));
+                            return Err(anyhow::anyhow!("{} requires an argument", args[i]));
                         }
                         file = Some(args[i + 1].clone());
                         i += 2;
@@ -1606,9 +1606,9 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                         symbol = Some(args[i + 1].clone());
                         i += 2;
                     }
-                    "--file" => {
+                    "--file" | "--path" => {
                         if i + 1 >= args.len() {
-                            return Err(anyhow::anyhow!("--file requires an argument"));
+                            return Err(anyhow::anyhow!("{} requires an argument", args[i]));
                         }
                         file = Some(args[i + 1].clone());
                         i += 2;
@@ -1676,9 +1676,9 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                         symbol = Some(args[i + 1].clone());
                         i += 2;
                     }
-                    "--file" => {
+                    "--file" | "--path" => {
                         if i + 1 >= args.len() {
-                            return Err(anyhow::anyhow!("--file requires an argument"));
+                            return Err(anyhow::anyhow!("{} requires an argument", args[i]));
                         }
                         file = Some(args[i + 1].clone());
                         i += 2;

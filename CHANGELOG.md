@@ -18,6 +18,20 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - Multi-DB support: pass a directory to `--db` to query all `.magellan/*.db` files
   - JSON envelope output with `schema_version`, `execution_id`, `data`
 
+### Fixed
+
+- **Watch Mode Performance** — Eliminated O(N²) pathological slowdown during batch indexing:
+  - `index_references` and `populate_cross_file_refs` were rebuilding symbol lookup maps by iterating all database entities for every file indexed
+  - Replaced 4× O(N) DB scans per file with reads from the existing in-memory `SymbolLookup` cache
+  - `magellan watch --root ./src` now completes in ~25s instead of stalling at ~74 files after 90s+
+  - 69 test files are now indexed (were previously skipped due to pathological slowdown)
+- **FTS5 Index Stale After Refresh** — `magellan refresh` now automatically rebuilds the `symbol_fts` index after applying changes. Previously, `llmgrep` queries returned 0 results until a manual rebuild.
+
+### Changed
+
+- `--db` flag now appends instead of overwriting when specified multiple times
+- **`context symbol` / `context impact` / `context affected`** now accept `--path` as an alias for `--file`, consistent with `find` and `context file` commands
+
 - **FTS5 Full-Text Search Integration** (Schema v12):
   - `symbol_fts` FTS5 virtual table for fast prefix searches
   - 2.5× speedup on prefix queries (0.005s → 0.002s)
