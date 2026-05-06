@@ -3,6 +3,17 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.0] - 2026-05-06
+
+### Added
+
+- **`SymbolLookup` cache** — `graph/symbol_lookup.rs` provides an in-memory name→ID lookup table, eliminating repeated O(N) DB scans during reference resolution and query operations.
+
+### Fixed
+
+- **FTS5 index rebuild on `magellan refresh`** — The `refresh` command now automatically rebuilds the `symbol_fts` virtual table after applying changes. Previously, `llmgrep` queries returned stale or empty results until a manual `INSERT INTO symbol_fts(symbol_fts) VALUES('rebuild')`.
+- **`context` command `--path` alias** — `context symbol`, `context impact`, and `context affected` now accept `--path` as an alias for `--file`, consistent with `find` and `context file` commands.
+
 ## [3.2.0] - 2026-05-06
 
 ### Added
@@ -20,17 +31,9 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- **Watch Mode Performance** — Eliminated O(N²) pathological slowdown during batch indexing:
-  - `index_references` and `populate_cross_file_refs` were rebuilding symbol lookup maps by iterating all database entities for every file indexed
-  - Replaced 4× O(N) DB scans per file with reads from the existing in-memory `SymbolLookup` cache
-  - `magellan watch --root ./src` now completes in ~25s instead of stalling at ~74 files after 90s+
-  - 69 test files are now indexed (were previously skipped due to pathological slowdown)
-- **FTS5 Index Stale After Refresh** — `magellan refresh` now automatically rebuilds the `symbol_fts` index after applying changes. Previously, `llmgrep` queries returned 0 results until a manual rebuild.
+- `--db` flag now appends instead of overwriting when specified multiple times
 
 ### Changed
-
-- `--db` flag now appends instead of overwriting when specified multiple times
-- **`context symbol` / `context impact` / `context affected`** now accept `--path` as an alias for `--file`, consistent with `find` and `context file` commands
 
 - **FTS5 Full-Text Search Integration** (Schema v12):
   - `symbol_fts` FTS5 virtual table for fast prefix searches
