@@ -116,6 +116,25 @@ impl SymbolEntry {
         entry.stable_symbol_id = Some(stable_symbol_id);
         entry
     }
+
+    /// Convert this entry back to a SymbolFact
+    pub fn to_symbol_fact(&self) -> SymbolFact {
+        SymbolFact {
+            file_path: std::path::PathBuf::from(&self.file_path),
+            kind: self.kind.clone(),
+            kind_normalized: self.kind_normalized.clone(),
+            name: self.name.clone(),
+            fqn: self.fqn.clone(),
+            canonical_fqn: self.canonical_fqn.clone(),
+            display_fqn: self.display_fqn.clone(),
+            byte_start: self.byte_start as usize,
+            byte_end: self.byte_end as usize,
+            start_line: self.start_line,
+            start_col: self.start_col,
+            end_line: self.end_line,
+            end_col: self.end_col,
+        }
+    }
 }
 
 /// In-memory symbol lookup index
@@ -338,6 +357,62 @@ impl SymbolLookup {
         }
 
         result
+    }
+
+    /// Return all symbol facts from the in-memory index.
+    ///
+    /// This is O(N) where N = number of symbols (not all entities).
+    /// Use this instead of scanning the database to build symbol facts for reference extraction.
+    pub fn all_symbol_facts(&self) -> Vec<SymbolFact> {
+        self.fqn_index
+            .values()
+            .map(|e| e.to_symbol_fact())
+            .collect()
+    }
+
+    /// Build symbol_id -> entity_id map from the in-memory index.
+    ///
+    /// This replaces the O(N) database scan in index_references.
+    pub fn symbol_id_to_id(&self) -> HashMap<String, i64> {
+        let mut result = HashMap::with_capacity(self.id_to_symbol_id.len());
+        for (entity_id, symbol_id) in &self.id_to_symbol_id {
+            result.insert(symbol_id.clone(), *entity_id);
+        }
+        result
+    }
+
+    /// Build display_fqn -> [entity_id] groups from the in-memory index.
+    ///
+    /// This replaces the O(N) database scan for ambiguity grouping.
+    pub fn display_fqn_groups(&self) -> HashMap<String, Vec<i64>> {
+        let mut result: HashMap<String, Vec<i64>> = HashMap::new();
+        for entry in self.fqn_index.values() {
+            if let Some(ref display_fqn) = entry.display_fqn {
+                if !display_fqn.is_empty() {
+                    result
+                        .entry(display_fqn.clone())
+                        .or_default()
+                        .push(entry.entity_id);
+                }
+            }
+        }
+        result
+    }
+
+    /// Build FQN -> entity_id map from the in-memory index.
+    ///
+    /// This replaces the O(N) database scan for FQN-based symbol resolution.
+    pub fn fqn_to_id(&self) -> HashMap<String, i64> {
+        let mut result = HashMap::with_capacity(self.fqn_index.len());
+        for (fqn, entry) in &self.fqn_index {
+            result.insert(fqn.clone(), entry.entity_id);
+        }
+        result
+    }
+
+    /// Return the entity_id -> stable_symbol_id map.
+    pub fn entity_to_symbol_id(&self) -> &HashMap<i64, String> {
+        &self.id_to_symbol_id
     }
 
     /// Rebuild index from backend database

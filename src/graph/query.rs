@@ -332,52 +332,13 @@ pub fn index_references(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Res
         None => return Ok(0), // No file, no references
     };
 
-    // Build map: SymbolId -> node ID from ALL symbols in database
-    // SymbolId is the primary lookup key for disambiguation
-    let mut symbol_id_to_id: HashMap<String, i64> = HashMap::new();
-
-    // Build map: display_fqn -> [symbol_ids] for ambiguity tracking
-    // This identifies all symbols sharing the same human-readable name
-    let mut display_fqn_groups: HashMap<String, Vec<i64>> = HashMap::new();
-
-    // Build map: FQN -> node ID from ALL symbols in database
-    // This enables cross-file reference indexing with FQN-based fallback
-    let mut symbol_fqn_to_id: HashMap<String, i64> = HashMap::new();
-
-    // Get all entity IDs from the graph
-    let entity_ids = graph.files.backend.entity_ids()?;
-    let snapshot = SnapshotId::current();
-
-    // Iterate through all entities and find Symbol nodes
-    for entity_id in entity_ids {
-        if let Ok(node) = graph.files.backend.get_node(snapshot, entity_id) {
-            // Check if this is a Symbol node by looking at the kind field
-            if node.kind == "Symbol" {
-                if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data) {
-                    if let Some(symbol_id) = symbol_node.symbol_id {
-                        symbol_id_to_id.insert(symbol_id, entity_id);
-                    }
-
-                    // Track display_fqn for ambiguity grouping
-                    if let Some(ref display_fqn) = symbol_node.display_fqn {
-                        if !display_fqn.is_empty() {
-                            display_fqn_groups
-                                .entry(display_fqn.clone())
-                                .or_default()
-                                .push(entity_id);
-                        }
-                    }
-
-                    // Use FQN as key, fall back to name for backward compatibility
-                    let fqn = symbol_node.fqn.or(symbol_node.name).unwrap_or_default();
-
-                    if !fqn.is_empty() {
-                        symbol_fqn_to_id.insert(fqn, entity_id);
-                    }
-                }
-            }
-        }
-    }
+    // Build maps from the in-memory SymbolLookup instead of scanning the database.
+    // This eliminates the O(N) database scan per file that caused pathological
+    // slowdown during batch indexing (e.g. magellan watch over large codebases).
+    let symbol_id_to_id = graph.symbols.lookup.symbol_id_to_id();
+    let display_fqn_groups = graph.symbols.lookup.display_fqn_groups();
+    let symbol_fqn_to_id = graph.symbols.lookup.fqn_to_id();
+    let all_symbol_facts = graph.symbols.lookup.all_symbol_facts();
 
     // Create ambiguity groups for display_fqns with multiple symbols
     // This establishes alias_of edges for persistent ambiguity tracking
@@ -393,11 +354,19 @@ pub fn index_references(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Res
         source,
         &symbol_id_to_id,
         &symbol_fqn_to_id,
+        &all_symbol_facts,
     )?;
 
     // Populate cross-file references in side tables for efficient lookup
     // This enables queries like "find all references to this symbol across all files"
-    populate_cross_file_refs(graph, path, source, &symbol_id_to_id, &symbol_fqn_to_id)?;
+    populate_cross_file_refs(
+        graph,
+        path,
+        source,
+        &symbol_id_to_id,
+        &symbol_fqn_to_id,
+        &all_symbol_facts,
+    )?;
 
     Ok(count)
 }
@@ -412,6 +381,7 @@ fn populate_cross_file_refs(
     source: &[u8],
     symbol_id_to_id: &HashMap<String, i64>,
     symbol_fqn_to_id: &HashMap<String, i64>,
+    all_symbol_facts: &[crate::ingest::SymbolFact],
 ) -> Result<()> {
     use crate::ingest::{detect_language, Parser};
     use std::path::PathBuf;
@@ -424,65 +394,8 @@ fn populate_cross_file_refs(
     // Get symbols in this file to determine which symbol contains each reference
     let _file_symbols = symbols_in_file(graph, path)?;
 
-    // Build map: entity_id -> symbol_id
-    let mut entity_to_symbol_id: HashMap<i64, String> = HashMap::new();
-    for entity_id in graph.files.backend.entity_ids()? {
-        if let Ok(node) = graph
-            .files
-            .backend
-            .get_node(SnapshotId::current(), entity_id)
-        {
-            if node.kind == "Symbol" {
-                if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data) {
-                    if let Some(sid) = symbol_node.symbol_id {
-                        entity_to_symbol_id.insert(entity_id, sid);
-                    }
-                }
-            }
-        }
-    }
-
-    // Build all_symbol_facts from database for finding containing symbols
-    // AND for passing to the reference extractor (needed for cross-file reference matching)
-    let mut all_symbol_facts: Vec<crate::ingest::SymbolFact> = Vec::new();
-    for entity_id in graph.files.backend.entity_ids()? {
-        if let Ok(node) = graph
-            .files
-            .backend
-            .get_node(SnapshotId::current(), entity_id)
-        {
-            if node.kind == "Symbol" {
-                if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data.clone()) {
-                    if let Some(name) = &symbol_node.name {
-                        let file_path_str = node.file_path.as_deref().unwrap_or("");
-                        let fqn = symbol_node
-                            .fqn
-                            .clone()
-                            .or(symbol_node.name.clone())
-                            .unwrap_or_default();
-                        all_symbol_facts.push(crate::ingest::SymbolFact {
-                            file_path: PathBuf::from(file_path_str),
-                            kind: crate::ingest::SymbolKind::Unknown,
-                            kind_normalized: symbol_node
-                                .kind_normalized
-                                .clone()
-                                .unwrap_or(symbol_node.kind.clone()),
-                            name: Some(name.clone()),
-                            fqn: if fqn.is_empty() { None } else { Some(fqn) },
-                            canonical_fqn: symbol_node.canonical_fqn.clone(),
-                            display_fqn: symbol_node.display_fqn.clone(),
-                            byte_start: symbol_node.byte_start,
-                            byte_end: symbol_node.byte_end,
-                            start_line: symbol_node.start_line,
-                            start_col: symbol_node.start_col,
-                            end_line: symbol_node.end_line,
-                            end_col: symbol_node.end_col,
-                        });
-                    }
-                }
-            }
-        }
-    }
+    // Build map: entity_id -> symbol_id from the in-memory lookup
+    let entity_to_symbol_id = graph.symbols.lookup.entity_to_symbol_id().clone();
 
     // Extract references using language-specific parser
     // Pass all symbols from the database to enable cross-file reference matching

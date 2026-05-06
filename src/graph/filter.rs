@@ -543,3 +543,16 @@ mod tests {
         assert_eq!(diagnostic.path(), "target/lib.rs");
     }
 }
+
+#[test]
+fn test_tests_dir_not_skipped_by_default() {
+    let filter = FileFilter::new(std::path::Path::new("."), &[], &[]).unwrap();
+    let tests_file = std::path::Path::new("tests/algorithm_tests.rs");
+    let result = filter.should_skip(tests_file);
+    println!("tests/algorithm_tests.rs: {:?}", result);
+    assert!(
+        result.is_none(),
+        "Expected tests/algorithm_tests.rs NOT to be skipped, got: {:?}",
+        result
+    );
+}
