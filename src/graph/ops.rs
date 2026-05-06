@@ -5,7 +5,7 @@
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 
-use sqlitegraph::{GraphBackend, SnapshotId};
+use sqlitegraph::{GraphBackend, NodeId, SnapshotId};
 
 use super::query;
 use super::CodeGraph;
@@ -235,6 +235,42 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
         let ast_nodes = crate::graph::extract_ast_nodes(tree, source);
         if !ast_nodes.is_empty() {
             insert_ast_nodes(graph, file_id.as_i64(), ast_nodes)?;
+        }
+    }
+
+    // Step 5.6: Extract impl relations and create IMPLEMENTS edges (Rust only)
+    // After symbol insertion, the lookup index has all type/trait entity IDs.
+    // Use fqn_to_id_with_current_file for best resolution (current file preferred).
+    if let (Some(Language::Rust), Some(ref tree)) = (language, &parsed_tree) {
+        let impl_relations =
+            crate::ingest::Parser::extract_impl_relations_static(tree, source, &path_buf);
+
+        let fqn_map = graph.symbols.lookup.fqn_to_id_with_current_file(path);
+
+        for rel in &impl_relations {
+            // Only create edges for trait impls, not inherent impls
+            let Some(ref trait_name) = rel.trait_name else {
+                continue;
+            };
+
+            // FQN-only lookup — no get_ids_by_name fallback.
+            // False IMPLEMENTS edges are worse than missing edges.
+            let type_id = fqn_map.get(&rel.type_name).map(|(id, _)| *id);
+            let trait_id = fqn_map.get(trait_name).map(|(id, _)| *id);
+
+            if let (Some(type_id), Some(trait_id)) = (type_id, trait_id) {
+                let type_node_id = NodeId::from(type_id);
+                let trait_node_id = NodeId::from(trait_id);
+                if let Err(e) = graph
+                    .symbols
+                    .insert_implements_edge(type_node_id, trait_node_id)
+                {
+                    eprintln!(
+                        "Warning: Failed to insert IMPLEMENTS edge {} -> {}: {}",
+                        rel.type_name, trait_name, e
+                    );
+                }
+            }
         }
     }
 

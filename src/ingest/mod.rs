@@ -17,6 +17,23 @@ use crate::common::safe_slice;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+/// Represents a trait implementation relationship extracted from source.
+///
+/// For `impl Display for MyStruct`, this captures:
+/// - `type_name`: "MyStruct"
+/// - `trait_name`: "Display"
+/// - Inherent impls (no trait) have `trait_name: None`
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImplRelation {
+    pub type_name: String,
+    pub trait_name: Option<String>,
+    pub file_path: String,
+    pub byte_start: usize,
+    pub byte_end: usize,
+    pub start_line: usize,
+    pub end_line: usize,
+}
+
 // Imports for FQN computation
 use crate::graph::canonical_fqn::FqnBuilder;
 use crate::graph::crate_name::detect_crate_name;
@@ -681,6 +698,70 @@ impl Parser {
 
         let name_bytes = safe_slice(source, type_node.start_byte(), type_node.end_byte())?;
         std::str::from_utf8(name_bytes).ok().map(|s| s.to_string())
+    }
+
+    /// Extract all impl relationships from a parsed tree.
+    ///
+    /// Walks the tree for `impl_item` nodes and extracts:
+    /// - Trait impls: `impl Trait for Type` → `ImplRelation { type_name, trait_name: Some("Trait") }`
+    /// - Inherent impls: `impl Type` → `ImplRelation { type_name, trait_name: None }`
+    ///
+    /// This is a separate pass from symbol extraction to keep concerns clean.
+    /// Inherent impls are included for use by downstream consumers (e.g., llmgrep
+    /// impl block indexing).
+    pub fn extract_impl_relations_static(
+        tree: &tree_sitter::Tree,
+        source: &[u8],
+        file_path: &PathBuf,
+    ) -> Vec<ImplRelation> {
+        let mut relations = Vec::new();
+
+        fn walk(
+            node: tree_sitter::Node,
+            source: &[u8],
+            file_path: &str,
+            relations: &mut Vec<ImplRelation>,
+        ) {
+            if node.kind() == "impl_item" {
+                // Extract the implementing type
+                let type_name = node
+                    .child_by_field_name("type")
+                    .and_then(|n| safe_slice(source, n.start_byte(), n.end_byte()))
+                    .and_then(|b| std::str::from_utf8(b).ok())
+                    .map(|s| s.to_string());
+
+                if let Some(type_name) = type_name {
+                    // Extract the trait (if present) — None for inherent impls
+                    let trait_name = node
+                        .child_by_field_name("trait")
+                        .and_then(|n| safe_slice(source, n.start_byte(), n.end_byte()))
+                        .and_then(|b| std::str::from_utf8(b).ok())
+                        .map(|s| s.to_string());
+
+                    relations.push(ImplRelation {
+                        type_name,
+                        trait_name,
+                        file_path: file_path.to_string(),
+                        byte_start: node.start_byte(),
+                        byte_end: node.end_byte(),
+                        start_line: node.start_position().row + 1,
+                        end_line: node.end_position().row + 1,
+                    });
+                }
+            }
+
+            for child in node.children(&mut node.walk()) {
+                walk(child, source, file_path, relations);
+            }
+        }
+
+        walk(
+            tree.root_node(),
+            source,
+            &file_path.to_string_lossy(),
+            &mut relations,
+        );
+        relations
     }
 
     /// Walk tree-sitter tree recursively with scope tracking
