@@ -238,7 +238,7 @@ impl CodeGraph {
         #[cfg(feature = "sqlite-backend")]
         let backend: Arc<dyn GraphBackend> = {
             use sqlitegraph::{SqliteGraph, SqliteGraphBackend};
-            let cfg = sqlitegraph::SqliteConfig::new().with_pool_size(2);
+            let cfg = sqlitegraph::SqliteConfig::new().with_pool_size(1);
             let sqlite_graph = SqliteGraph::open_with_config(&db_path_buf, &cfg)?;
             eprintln!("Using SQLite backend: {:?}", db_path_buf);
             Arc::new(SqliteGraphBackend::from_graph(sqlite_graph))
@@ -473,6 +473,22 @@ impl CodeGraph {
             .lock()
             .map_err(|e| anyhow::anyhow!("Mutex poisoned: {}", e))?;
         wal::checkpoint_conn(&conn).map_err(|e| anyhow::anyhow!("WAL checkpoint failed: {}", e))
+    }
+
+    /// Rebuild the FTS5 search index using the existing side connection.
+    ///
+    /// This is the preferred method for rebuilding FTS5 during watch/indexing
+    /// because it reuses the secondary connection instead of opening a new one,
+    /// preventing uncoordinated WAL access that can corrupt the database on
+    /// process termination.
+    pub fn rebuild_fts5(&self) -> Result<()> {
+        let conn = self
+            .side_conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Mutex poisoned: {}", e))?;
+        conn.execute("INSERT INTO symbol_fts(symbol_fts) VALUES('rebuild')", [])
+            .map_err(|e| anyhow::anyhow!("FTS5 rebuild failed: {}", e))?;
+        Ok(())
     }
 
     /// Index a file into the graph (idempotent)
@@ -995,6 +1011,7 @@ impl CodeGraph {
 
         // Open direct SQLite connection for FTS5 rebuild
         let conn = Connection::open(db_path)?;
+        conn.pragma_update(None, "busy_timeout", 5000)?;
 
         // Rebuild FTS5 index - this scans all rows in graph_entities and rebuilds
         conn.execute("INSERT INTO symbol_fts(symbol_fts) VALUES('rebuild')", [])?;
