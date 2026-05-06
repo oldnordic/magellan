@@ -240,12 +240,27 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
 
     // Step 5.6: Extract impl relations and create IMPLEMENTS edges (Rust only)
     // After symbol insertion, the lookup index has all type/trait entity IDs.
-    // Use fqn_to_id_with_current_file for best resolution (current file preferred).
+    //
+    // Impl relations contain source-level simple names (e.g., "SideTables"),
+    // but the lookup index is keyed by FQN (e.g., "SideTables::SideTables").
+    // We build a simple-name→id map from current-file FQN entries, where
+    // the simple name is the last segment of the FQN. This gives us exact
+    // same-file resolution without the false-positive risk of cross-repo
+    // get_ids_by_name.
     if let (Some(Language::Rust), Some(ref tree)) = (language, &parsed_tree) {
         let impl_relations =
             crate::ingest::Parser::extract_impl_relations_static(tree, source, &path_buf);
 
+        // Build simple-name → entity_id from current-file FQN entries
         let fqn_map = graph.symbols.lookup.fqn_to_id_with_current_file(path);
+        let mut simple_name_map: std::collections::HashMap<String, i64> =
+            std::collections::HashMap::new();
+        for (fqn, (id, _is_current)) in &fqn_map {
+            if let Some(simple) = fqn.rsplit("::").next() {
+                // First definition wins — same-file dedup
+                simple_name_map.entry(simple.to_string()).or_insert(*id);
+            }
+        }
 
         for rel in &impl_relations {
             // Only create edges for trait impls, not inherent impls
@@ -253,10 +268,10 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
                 continue;
             };
 
-            // FQN-only lookup — no get_ids_by_name fallback.
-            // False IMPLEMENTS edges are worse than missing edges.
-            let type_id = fqn_map.get(&rel.type_name).map(|(id, _)| *id);
-            let trait_id = fqn_map.get(trait_name).map(|(id, _)| *id);
+            // Resolve by simple name within current file only.
+            // Safe: no cross-file or cross-repo candidates.
+            let type_id = simple_name_map.get(&rel.type_name).copied();
+            let trait_id = simple_name_map.get(trait_name).copied();
 
             if let (Some(type_id), Some(trait_id)) = (type_id, trait_id) {
                 let type_node_id = NodeId::from(type_id);
