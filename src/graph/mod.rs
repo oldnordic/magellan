@@ -1004,6 +1004,11 @@ impl CodeGraph {
     /// # Performance
     /// Typically ~500ms for 1,000 files. Call after batch completion, not per-file.
     ///
+    /// # Safety
+    /// This function opens its own SQLite connection. Do not call during watch mode
+    /// where other connections may be writing to the WAL. Use `CodeGraph::rebuild_fts5()`
+    /// for watch-mode safe FTS5 rebuild via the shared side_conn.
+    ///
     /// # Arguments
     /// * `db_path` - Path to the database file (needed for direct SQLite connection)
     pub fn rebuild_fts5_index(db_path: &Path) -> Result<()> {
