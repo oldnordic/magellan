@@ -1144,6 +1144,7 @@ mod tests {
     /// This tests the race between baseline scan and watcher startup,
     /// and the buffered-path drain that follows.
     #[test]
+    #[ignore = "slow integration test: run with --ignored or --include-ignored"]
     fn test_watch_scan_initial_db_integrity() {
         use tempfile::tempdir;
 
@@ -1235,6 +1236,7 @@ mod tests {
     /// Stress test: run watch+scan-initial 5 times in sequence on fresh DBs.
     /// Catches intermittent corruption that a single run might miss.
     #[test]
+    #[ignore = "slow integration test: run with --ignored or --include-ignored"]
     fn test_watch_scan_initial_stress() {
         use tempfile::tempdir;
 
