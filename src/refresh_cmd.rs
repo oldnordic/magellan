@@ -155,6 +155,11 @@ pub fn run_refresh(args: &RefreshArgs) -> Result<RefreshReport> {
     // Apply changes if not dry-run (before moving fields from delta)
     if !args.dry_run {
         apply_changes(&mut graph, &delta)?;
+
+        // Rebuild FTS5 index so symbol search stays synchronized
+        if let Err(e) = CodeGraph::rebuild_fts5_index(&args.db_path) {
+            eprintln!("  Warning: FTS5 rebuild failed: {}", e);
+        }
     }
 
     // Build report (after apply_changes, moving fields from delta)
