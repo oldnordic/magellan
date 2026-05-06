@@ -666,6 +666,9 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
             path, expected_ast_nodes, ast_nodes_deleted
         );
 
+        // Delete metrics for this file
+        let _ = graph.metrics.delete_file_metrics(path);
+
         // Remove from in-memory index AFTER successful deletions.
         // Normalize path to match how it was stored in the index
         let normalized_path = crate::graph::files::normalize_path_for_index(path);
@@ -726,6 +729,9 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         } else {
             0
         };
+
+        // Delete metrics for this file (orphan cleanup)
+        let _ = graph.metrics.delete_file_metrics(path);
 
         // Delete CFG blocks and edges for this file (orphan cleanup)
         // Note: No file node means no symbols to query for function IDs

@@ -510,6 +510,13 @@ pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>
         if let Err(e) = graph.checkpoint_wal() {
             eprintln!("Warning: WAL checkpoint failed after scan flush: {}", e);
         }
+        // Verify database integrity after initial scan + flush
+        if let Err(e) = verify_db_integrity(&config.db_path) {
+            eprintln!(
+                "Warning: Database integrity check failed after scan flush: {}",
+                e
+            );
+        }
     }
 
     // Main watch loop
@@ -758,13 +765,31 @@ fn process_dirty_paths_batched(graph: &mut CodeGraph, dirty_paths: &[PathBuf]) -
         );
 
         // Rebuild FTS5 index after batch processing to keep search index synchronized
-        // This is efficient when called per-batch (~500ms per 1,000 files)
-        if let Err(e) = crate::graph::CodeGraph::rebuild_fts5_index(graph.db_path()) {
+        // Uses the graph's side connection to avoid uncoordinated WAL access
+        if let Err(e) = graph.rebuild_fts5() {
             eprintln!("Warning: FTS5 rebuild failed: {}", e);
         }
     }
 
     Ok(total_processed)
+}
+
+/// Verify SQLite database integrity.
+///
+/// Runs PRAGMA integrity_check and returns an error if any issues are found.
+fn verify_db_integrity(db_path: &std::path::Path) -> Result<()> {
+    let conn = rusqlite::Connection::open(db_path)
+        .map_err(|e| anyhow::anyhow!("Failed to open DB for integrity check: {}", e))?;
+    let result: String = conn
+        .query_row("PRAGMA integrity_check", [], |row| row.get(0))
+        .map_err(|e| anyhow::anyhow!("Integrity check query failed: {}", e))?;
+    if result != "ok" {
+        return Err(anyhow::anyhow!(
+            "Database integrity check failed: {}",
+            result
+        ));
+    }
+    Ok(())
 }
 
 /// Run the watch pipeline for geometric backend databases
@@ -1104,6 +1129,163 @@ mod tests {
                 assert!(symbols > 0, "Should index symbols from provided source");
             }
             other => panic!("Expected Reindexed, got {:?}", other),
+        }
+    }
+
+    /// Repro harness for the watch+scan-initial DB corruption bug.
+    ///
+    /// Runs the full watch pipeline (scan_initial=true) against the magellan
+    /// source tree itself, then shuts down cleanly and verifies:
+    /// 1. SQLite integrity_check passes
+    /// 2. File entities exist in the DB
+    /// 3. IMPLEMENTS edges are present (from impl indexing)
+    /// 4. No duplicate file entries
+    ///
+    /// This tests the race between baseline scan and watcher startup,
+    /// and the buffered-path drain that follows.
+    #[test]
+    fn test_watch_scan_initial_db_integrity() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("watch-repro.db");
+
+        // Use the magellan src/ as the source tree (real workload)
+        let magellan_src = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
+        if !magellan_src.exists() {
+            eprintln!("Skipping: magellan src/ not found");
+            return;
+        }
+
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let shutdown_signal = shutdown.clone();
+
+        let config = WatchPipelineConfig::new(
+            magellan_src.clone(),
+            db_path.clone(),
+            crate::watcher::WatcherConfig {
+                root_path: magellan_src.clone(),
+                debounce_ms: 50, // Short debounce for faster test
+                gitignore_aware: true,
+            },
+            true, // scan_initial = true
+        );
+
+        // Run pipeline — this does baseline scan + drain + enters watch loop
+        let handle = std::thread::spawn(move || run_watch_pipeline(config, shutdown));
+
+        // Give baseline scan + drain time to complete, then signal shutdown
+        std::thread::sleep(std::time::Duration::from_secs(4));
+        shutdown_signal.store(true, std::sync::atomic::Ordering::SeqCst);
+
+        // Wait for clean exit (up to 30s — pipeline has its own cleanup timeout)
+        let result = handle.join().expect("watch pipeline thread panicked");
+        assert!(result.is_ok(), "watch pipeline failed: {:?}", result.err());
+
+        // Verify DB integrity
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        let integrity: String = conn
+            .query_row("PRAGMA integrity_check", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(integrity, "ok", "DB integrity check failed: {}", integrity);
+
+        // Verify file entities exist
+        let file_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM graph_entities WHERE kind = 'File'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(
+            file_count > 50,
+            "Expected >50 file entities after scanning magellan src/, got {}",
+            file_count
+        );
+
+        // Verify IMPLEMENTS edges exist (at least 1 from impl indexing)
+        let impl_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM graph_edges WHERE edge_type = 'IMPLEMENTS'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(
+            impl_count >= 1,
+            "Expected >=1 IMPLEMENTS edges, got {}",
+            impl_count
+        );
+
+        // Verify no duplicate file paths in graph_entities
+        let distinct_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(DISTINCT file_path) FROM graph_entities WHERE kind = 'File'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            file_count, distinct_count,
+            "Duplicate file paths detected: {} total vs {} distinct",
+            file_count, distinct_count
+        );
+    }
+
+    /// Stress test: run watch+scan-initial 5 times in sequence on fresh DBs.
+    /// Catches intermittent corruption that a single run might miss.
+    #[test]
+    fn test_watch_scan_initial_stress() {
+        use tempfile::tempdir;
+
+        let magellan_src = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
+        if !magellan_src.exists() {
+            eprintln!("Skipping: magellan src/ not found");
+            return;
+        }
+
+        for i in 0..5 {
+            let dir = tempdir().unwrap();
+            let db_path = dir.path().join(format!("watch-stress-{}.db", i));
+
+            let shutdown = Arc::new(AtomicBool::new(false));
+            let shutdown_signal = shutdown.clone();
+            let src_clone = magellan_src.clone();
+
+            let config = WatchPipelineConfig::new(
+                src_clone,
+                db_path.clone(),
+                crate::watcher::WatcherConfig {
+                    root_path: magellan_src.clone(),
+                    debounce_ms: 50,
+                    gitignore_aware: true,
+                },
+                true,
+            );
+
+            let handle = std::thread::spawn(move || run_watch_pipeline(config, shutdown));
+
+            std::thread::sleep(std::time::Duration::from_secs(4));
+            shutdown_signal.store(true, std::sync::atomic::Ordering::SeqCst);
+
+            let result = handle.join().expect("watch pipeline thread panicked");
+            assert!(
+                result.is_ok(),
+                "Stress run {} failed: {:?}",
+                i,
+                result.err()
+            );
+
+            // Verify integrity
+            let conn = rusqlite::Connection::open(&db_path).unwrap();
+            let integrity: String = conn
+                .query_row("PRAGMA integrity_check", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(
+                integrity, "ok",
+                "Stress run {} DB integrity failed: {}",
+                i, integrity
+            );
         }
     }
 }
