@@ -1517,6 +1517,7 @@ dependencies = [
  "lcov",
  "llvm-sys",
  "lsp-types 0.95.1",
+ "memchr",
  "notify",
  "notify-debouncer-mini",
  "protobuf",
