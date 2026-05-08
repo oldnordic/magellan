@@ -75,7 +75,7 @@ fn collect_magellan_dbs(dir: &Path, databases: &mut Vec<DiscoveredDb>) -> Result
         if let Ok(entries) = std::fs::read_dir(&magellan_dir) {
             for entry in entries.filter_map(|e| e.ok()) {
                 let path = entry.path();
-                if path.extension().map_or(false, |ext| ext == "db") {
+                if path.extension().is_some_and(|ext| ext == "db") {
                     if let Some(db_info) = discover_database(&path)? {
                         databases.push(db_info);
                     }

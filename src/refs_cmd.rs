@@ -10,7 +10,7 @@ use magellan::output::{
     output_json, JsonResponse, OutputFormat, ReferenceMatch, RefsResponse, Span,
 };
 use magellan::{CallFact, CodeGraph};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Represents a found symbol with its file path for refs lookup
 struct RefsSymbol {
@@ -61,6 +61,10 @@ fn find_symbol_all_files(graph: &mut CodeGraph, name: &str) -> Result<Vec<RefsSy
 ///
 /// # Displays
 /// Human-readable list of calls or JSON output
+#[allow(
+    clippy::too_many_arguments,
+    reason = "CLI command surface: each arg maps to a flag"
+)]
 pub fn run_refs(
     db_path: PathBuf,
     name: String,
@@ -382,8 +386,12 @@ pub fn run_refs(
 }
 
 /// Output refs results in JSON format
+#[allow(
+    clippy::too_many_arguments,
+    reason = "JSON output needs all query parameters"
+)]
 fn output_json_mode(
-    _db_path: &PathBuf,
+    _db_path: &Path,
     symbol_name: &str,
     file_path: &str,
     direction: &str,

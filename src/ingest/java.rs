@@ -8,7 +8,7 @@ use crate::ingest::{ScopeSeparator, ScopeStack, SymbolFact, SymbolKind};
 use crate::references::{CallFact, ReferenceFact};
 use anyhow::Result;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Parser that extracts symbol facts from Java source code.
 ///
@@ -103,7 +103,7 @@ impl JavaParser {
         &self,
         node: &tree_sitter::Node,
         source: &[u8],
-        file_path: &PathBuf,
+        file_path: &Path,
         facts: &mut Vec<SymbolFact>,
         scope_stack: &mut ScopeStack,
         package_name: &str,
@@ -169,7 +169,7 @@ impl JavaParser {
         &self,
         node: &tree_sitter::Node,
         source: &[u8],
-        file_path: &PathBuf,
+        file_path: &Path,
         scope_stack: &ScopeStack,
         _package_name: &str, // Not used - package is in ScopeStack
     ) -> Option<SymbolFact> {
@@ -201,7 +201,7 @@ impl JavaParser {
         let display_fqn = builder.display(scope_stack, symbol_kind.clone(), &name);
 
         Some(SymbolFact {
-            file_path: file_path.clone(),
+            file_path: file_path.to_path_buf(),
             kind: symbol_kind,
             kind_normalized: normalized_kind,
             name: Some(name),
@@ -311,11 +311,56 @@ impl JavaParser {
         facts
     }
 
+    /// Extract symbol facts from a pre-parsed tree.
+    ///
+    /// Avoids re-parsing when the tree is already available.
+    pub fn extract_symbols_from_tree(
+        tree: &tree_sitter::Tree,
+        file_path: PathBuf,
+        source: &[u8],
+    ) -> Vec<SymbolFact> {
+        let root_node = tree.root_node();
+        let mut facts = Vec::new();
+        let mut scope_stack = ScopeStack::new(ScopeSeparator::Dot);
+        let mut pkg_name = String::new();
+        let mut cursor = root_node.walk();
+        for child in root_node.children(&mut cursor) {
+            if child.kind() == "package_declaration" {
+                if let Some(name) = Self::extract_name_static(&child, source, "package_declaration")
+                {
+                    pkg_name = name.clone();
+                    if let Some(fact) = Self::extract_symbol_with_fqn_static(
+                        &child,
+                        source,
+                        &file_path,
+                        &scope_stack,
+                        &pkg_name,
+                    ) {
+                        facts.push(fact);
+                    }
+                    for part in pkg_name.split('.') {
+                        scope_stack.push(part);
+                    }
+                }
+                break;
+            }
+        }
+        Self::walk_tree_with_scope_static(
+            &root_node,
+            source,
+            &file_path,
+            &mut facts,
+            &mut scope_stack,
+            &pkg_name,
+        );
+        facts
+    }
+
     /// Static version of walk_tree_with_scope for external parser usage.
     fn walk_tree_with_scope_static(
         node: &tree_sitter::Node,
         source: &[u8],
-        file_path: &PathBuf,
+        file_path: &Path,
         facts: &mut Vec<SymbolFact>,
         scope_stack: &mut ScopeStack,
         package_name: &str,
@@ -388,7 +433,7 @@ impl JavaParser {
     fn extract_symbol_with_fqn_static(
         node: &tree_sitter::Node,
         source: &[u8],
-        file_path: &PathBuf,
+        file_path: &Path,
         scope_stack: &ScopeStack,
         _package_name: &str, // Not used - package is in ScopeStack
     ) -> Option<SymbolFact> {
@@ -420,7 +465,7 @@ impl JavaParser {
         let display_fqn = builder.display(scope_stack, symbol_kind.clone(), &name);
 
         Some(SymbolFact {
-            file_path: file_path.clone(),
+            file_path: file_path.to_path_buf(),
             kind: symbol_kind,
             kind_normalized: normalized_kind,
             name: Some(name),
@@ -488,7 +533,7 @@ impl JavaParser {
         &self,
         node: &tree_sitter::Node,
         source: &[u8],
-        file_path: &PathBuf,
+        file_path: &Path,
         symbols: &[SymbolFact],
         references: &mut Vec<ReferenceFact>,
     ) {
@@ -505,7 +550,7 @@ impl JavaParser {
         &self,
         node: &tree_sitter::Node,
         source: &[u8],
-        file_path: &PathBuf,
+        file_path: &Path,
         symbols: &[SymbolFact],
     ) -> Option<ReferenceFact> {
         if node.kind() != "identifier" {
@@ -525,7 +570,7 @@ impl JavaParser {
         }
 
         Some(ReferenceFact {
-            file_path: file_path.clone(),
+            file_path: file_path.to_path_buf(),
             referenced_symbol: text.to_string(),
             byte_start: ref_start,
             byte_end: node.end_byte(),
@@ -576,7 +621,7 @@ impl JavaParser {
         &self,
         node: &tree_sitter::Node,
         source: &[u8],
-        file_path: &PathBuf,
+        file_path: &Path,
         symbol_map: &HashMap<String, &SymbolFact>,
         _functions: &[&SymbolFact],
         calls: &mut Vec<CallFact>,
@@ -588,7 +633,7 @@ impl JavaParser {
         &self,
         node: &tree_sitter::Node,
         source: &[u8],
-        file_path: &PathBuf,
+        file_path: &Path,
         symbol_map: &HashMap<String, &SymbolFact>,
         current_caller: Option<&SymbolFact>,
         calls: &mut Vec<CallFact>,
@@ -631,7 +676,7 @@ impl JavaParser {
         &self,
         node: &tree_sitter::Node,
         source: &[u8],
-        file_path: &PathBuf,
+        file_path: &Path,
         caller: &SymbolFact,
         symbol_map: &HashMap<String, &SymbolFact>,
         calls: &mut Vec<CallFact>,
@@ -642,7 +687,7 @@ impl JavaParser {
                     let node_start = node.start_byte();
                     let node_end = node.end_byte();
                     let call_fact = CallFact {
-                        file_path: file_path.clone(),
+                        file_path: file_path.to_path_buf(),
                         caller: caller.name.clone().unwrap_or_default(),
                         callee: callee_name,
                         caller_symbol_id: None,
@@ -700,7 +745,7 @@ mod tests {
         let facts = parser.extract_symbols(PathBuf::from("test.java"), source);
 
         // Should extract interface and method (flat structure)
-        assert!(facts.len() >= 1);
+        assert!(!facts.is_empty());
 
         let interfaces: Vec<_> = facts
             .iter()
@@ -745,7 +790,7 @@ mod tests {
         let facts = parser.extract_symbols(PathBuf::from("test.java"), source);
 
         // Should extract package and class
-        assert!(facts.len() >= 1);
+        assert!(!facts.is_empty());
 
         let modules: Vec<_> = facts
             .iter()

@@ -78,7 +78,6 @@ fn test_version_shows_compiled_backends() {
 /// Test status shows backend type for SQLite database (using library directly)
 #[test]
 fn test_status_shows_backend_type_sqlite() {
-    use magellan::graph::backend::Backend;
     use magellan::CodeGraph;
 
     let temp_dir = TempDir::new().expect("Failed to create temp dir");

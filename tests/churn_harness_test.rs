@@ -290,8 +290,6 @@ fn index_and_measure_sqlite(
     file_path_str: &str,
     cycle: usize,
 ) -> ChurnMeasurement {
-    use magellan::graph::backend::Backend;
-
     let start = Instant::now();
 
     // Open or create database
@@ -319,8 +317,6 @@ fn index_and_measure_sqlite(
 
 /// Get database stats for SQLite
 fn get_sqlite_stats(db_path: &Path) -> (usize, usize) {
-    use magellan::graph::backend::Backend;
-
     let graph = magellan::CodeGraph::open(db_path).expect("Failed to open database");
     let stats = graph.get_stats().expect("Failed to get stats");
     (stats.symbol_count, stats.file_count)

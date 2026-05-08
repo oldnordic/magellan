@@ -56,8 +56,8 @@ pub fn print_backend_info() {
 
     // Print table header
     eprintln!(
-        "{:<15} {:<10} {:<10} {:<20} {}",
-        "Backend", "Enabled", "Extension", "Feature", "Capabilities"
+        "{:<15} {:<10} {:<10} {:<20} Capabilities",
+        "Backend", "Enabled", "Extension", "Feature"
     );
     eprintln!("{}", "-".repeat(120));
 
@@ -134,6 +134,15 @@ pub fn print_full_usage() {
     eprintln!("  magellan condense --db <FILE> [--members] [--output <FORMAT>]");
     eprintln!("  magellan paths --db <FILE> --start <SYMBOL_ID> [--end <SYMBOL_ID>] [--max-depth <N>] [--max-paths <N>] [--output <FORMAT>]");
     eprintln!("  magellan slice --db <FILE> --target <SYMBOL_ID> [--direction <backward|forward>] [--verbose] [--output <FORMAT>]");
+    eprintln!("  magellan source-inventory --db <FILE> [--scan <DIR> <KIND>] [--kind <KIND>] [--list] [--stale] [--output <FORMAT>]");
+    eprintln!("  magellan candidate-fact submit --db <FILE> --from-source <ID> --subject-type <TYPE> --subject-key <KEY> --predicate <PRED> [--object-type <TYPE>] [--object-key <KEY>] [--properties <JSON>] [--output <FORMAT>]");
+    eprintln!(
+        "  magellan candidate-fact validate --db <FILE> --candidate-id <ID> [--output <FORMAT>]"
+    );
+    eprintln!("  magellan candidate-fact list --db <FILE> [--status <STATUS>] [--limit <N>] [--output <FORMAT>]");
+    eprintln!(
+        "  magellan candidate-fact review-queue --db <FILE> [--limit <N>] [--output <FORMAT>]"
+    );
     eprintln!("  magellan context build --db <FILE>");
     eprintln!("  magellan context summary --db <FILE>");
     eprintln!("  magellan context list --db <FILE> [--kind <KIND>] [--page <N>] [--project <NAME>] [--output <FORMAT>]");
@@ -174,6 +183,8 @@ pub fn print_full_usage() {
     eprintln!("  condense        Show call graph condensation (SCCs collapsed into supernodes)");
     eprintln!("  paths           Enumerate execution paths between symbols");
     eprintln!("  slice           Program slicing (backward/forward) from a target symbol");
+    eprintln!("  source-inventory Scan wiki/message files for graph memory source inventory");
+    eprintln!("  candidate-fact  Submit, validate, and manage candidate facts for graph memory");
     eprintln!("  context         Code context queries for LLM consumption (build, summary, list, symbol, file, impact, affected)");
     eprintln!();
     eprintln!("Global arguments:");
@@ -424,6 +435,7 @@ pub enum ContextSubcommand {
 }
 
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant, reason = "CLI command enum: size differences expected")]
 pub enum Command {
     Watch {
         root_path: PathBuf,
@@ -693,6 +705,20 @@ pub enum Command {
         verbose: bool,
         output_format: OutputFormat,
     },
+    /// Source inventory for graph memory (Phase 1)
+    SourceInventory {
+        db_path: PathBuf,
+        scan_dirs: Vec<(PathBuf, String)>,
+        list_kind: Option<String>,
+        show_stale: bool,
+        output_format: OutputFormat,
+    },
+    /// Candidate fact staging for graph memory (Phase 2)
+    CandidateFact {
+        db_path: PathBuf,
+        action: crate::candidate_fact_cmd::CandidateFactAction,
+        output_format: OutputFormat,
+    },
 }
 
 // ============================================================================
@@ -711,11 +737,6 @@ fn parse_required_arg(args: &[String], i: &mut usize, flag: &str) -> Result<Stri
     *i += 2;
     Ok(value)
 }
-
-/// Helper to parse an optional string argument
-///
-/// Returns Some(value) and increments index by 2 if next arg exists,
-/// otherwise returns None and increments by 1.
 
 /// Helper to parse output format from string
 ///
@@ -737,8 +758,6 @@ fn parse_path_arg(args: &[String], i: &mut usize, flag: &str) -> Result<PathBuf>
     let value = parse_required_arg(args, i, flag)?;
     Ok(PathBuf::from(value))
 }
-
-/// Helper to parse an integer argument
 
 /// Parse the `watch` command arguments
 ///
@@ -1376,7 +1395,7 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
 
     // Slice args so subcommand is at index 0, flags start at index 1
     let args = &args[i..];
-    let subcommand_name = args.get(0).map(|s| s.as_str()).unwrap_or("");
+    let subcommand_name = args.first().map(|s| s.as_str()).unwrap_or("");
     let subcommand = match subcommand_name {
         "build" => ContextSubcommand::Build,
         "summary" => ContextSubcommand::Summary,
@@ -1761,7 +1780,7 @@ fn parse_db_paths(value: &str) -> Result<Vec<PathBuf>> {
         for entry in std::fs::read_dir(&path)? {
             let entry = entry?;
             let p = entry.path();
-            if p.extension().map_or(false, |e| e == "db") {
+            if p.extension().is_some_and(|e| e == "db") {
                 paths.push(p);
             }
         }
@@ -2147,6 +2166,8 @@ where
         "condense" => parse_condense_args(&args[2..]),
         "paths" => parse_paths_args(&args[2..]),
         "slice" => parse_slice_args(&args[2..]),
+        "source-inventory" => parse_source_inventory_args(&args[2..]),
+        "candidate-fact" => parse_candidate_fact_args(&args[2..]),
         _ => Err(anyhow::anyhow!("Unknown command: {}", command)),
     }
 }
@@ -3655,6 +3676,269 @@ fn parse_slice_args(args: &[String]) -> Result<Command> {
         target,
         direction,
         verbose,
+        output_format,
+    })
+}
+
+fn parse_source_inventory_args(args: &[String]) -> Result<Command> {
+    let mut db_path: Option<PathBuf> = None;
+    let mut scan_dirs: Vec<(PathBuf, String)> = Vec::new();
+    let mut list_kind: Option<String> = None;
+    let mut show_stale = false;
+    let mut output_format = OutputFormat::Human;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--db" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--db requires an argument"));
+                }
+                db_path = Some(PathBuf::from(&args[i + 1]));
+                i += 2;
+            }
+            "--scan" => {
+                if i + 2 >= args.len() {
+                    return Err(anyhow::anyhow!("--scan requires <dir> <kind> arguments"));
+                }
+                scan_dirs.push((PathBuf::from(&args[i + 1]), args[i + 2].clone()));
+                i += 3;
+            }
+            "--kind" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--kind requires an argument"));
+                }
+                list_kind = Some(args[i + 1].clone());
+                i += 2;
+            }
+            "--list" => {
+                i += 1;
+            }
+            "--stale" => {
+                show_stale = true;
+                i += 1;
+            }
+            "--output" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--output requires an argument"));
+                }
+                output_format = match args[i + 1].as_str() {
+                    "human" => OutputFormat::Human,
+                    "json" => OutputFormat::Json,
+                    "pretty" => OutputFormat::Pretty,
+                    _ => {
+                        return Err(anyhow::anyhow!(
+                            "Invalid output format: {}. Must be human, json, or pretty",
+                            args[i + 1]
+                        ))
+                    }
+                };
+                i += 2;
+            }
+            _ => return Err(anyhow::anyhow!("Unknown argument: {}", args[i])),
+        }
+    }
+
+    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+
+    Ok(Command::SourceInventory {
+        db_path,
+        scan_dirs,
+        list_kind,
+        show_stale,
+        output_format,
+    })
+}
+
+fn parse_candidate_fact_args(args: &[String]) -> Result<Command> {
+    let mut db_path: Option<PathBuf> = None;
+    let mut output_format = OutputFormat::Human;
+    let mut subcommand = String::new();
+
+    // Submit/validate fields
+    let mut candidate_id = String::new();
+    let mut from_source: Option<i64> = None;
+    let mut subject_type = String::new();
+    let mut subject_key = String::new();
+    let mut predicate = String::new();
+    let mut object_type: Option<String> = None;
+    let mut object_key: Option<String> = None;
+    let mut properties_json: Option<String> = None;
+
+    // List fields
+    let mut status: Option<String> = None;
+    let mut limit: Option<usize> = None;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "submit" | "validate" | "list" | "review-queue" => {
+                subcommand = args[i].clone();
+                i += 1;
+            }
+            "--db" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--db requires an argument"));
+                }
+                db_path = Some(PathBuf::from(&args[i + 1]));
+                i += 2;
+            }
+            "--candidate-id" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--candidate-id requires an argument"));
+                }
+                candidate_id = args[i + 1].clone();
+                i += 2;
+            }
+            "--from-source" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--from-source requires an argument"));
+                }
+                from_source = Some(
+                    args[i + 1]
+                        .parse()
+                        .map_err(|_| anyhow::anyhow!("--from-source must be an integer"))?,
+                );
+                i += 2;
+            }
+            "--subject-type" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--subject-type requires an argument"));
+                }
+                subject_type = args[i + 1].clone();
+                i += 2;
+            }
+            "--subject-key" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--subject-key requires an argument"));
+                }
+                subject_key = args[i + 1].clone();
+                i += 2;
+            }
+            "--predicate" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--predicate requires an argument"));
+                }
+                predicate = args[i + 1].clone();
+                i += 2;
+            }
+            "--object-type" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--object-type requires an argument"));
+                }
+                object_type = Some(args[i + 1].clone());
+                i += 2;
+            }
+            "--object-key" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--object-key requires an argument"));
+                }
+                object_key = Some(args[i + 1].clone());
+                i += 2;
+            }
+            "--properties" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--properties requires an argument"));
+                }
+                properties_json = Some(args[i + 1].clone());
+                i += 2;
+            }
+            "--status" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--status requires an argument"));
+                }
+                status = Some(args[i + 1].clone());
+                i += 2;
+            }
+            "--limit" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--limit requires an argument"));
+                }
+                limit = Some(
+                    args[i + 1]
+                        .parse()
+                        .map_err(|_| anyhow::anyhow!("--limit must be a positive integer"))?,
+                );
+                i += 2;
+            }
+            "--output" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--output requires an argument"));
+                }
+                output_format = match args[i + 1].as_str() {
+                    "human" => OutputFormat::Human,
+                    "json" => OutputFormat::Json,
+                    "pretty" => OutputFormat::Pretty,
+                    _ => {
+                        return Err(anyhow::anyhow!(
+                            "Invalid output format: {}. Must be human, json, or pretty",
+                            args[i + 1]
+                        ))
+                    }
+                };
+                i += 2;
+            }
+            _ => return Err(anyhow::anyhow!("Unknown argument: {}", args[i])),
+        }
+    }
+
+    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+
+    let action = match subcommand.as_str() {
+        "submit" => {
+            let source_doc_id = from_source
+                .ok_or_else(|| anyhow::anyhow!("--from-source is required for submit"))?;
+            let mut props = match properties_json {
+                Some(json) => serde_json::from_str(&json)
+                    .map_err(|e| anyhow::anyhow!("Invalid properties JSON: {}", e))?,
+                None => magellan::graph::candidate_fact::CandidateProperties::default(),
+            };
+            // Override source if provided
+            if props.source.is_empty() {
+                props.source = format!("source_doc:{}", source_doc_id);
+            }
+
+            let mut fact = magellan::graph::candidate_fact::CandidateFact::new(
+                candidate_id.clone(),
+                source_doc_id,
+                subject_type.clone(),
+                subject_key.clone(),
+                predicate.clone(),
+                props,
+            );
+            if let (Some(ot), Some(ok)) = (object_type, object_key) {
+                fact.object_type = Some(ot);
+                fact.object_key = Some(ok);
+            }
+
+            crate::candidate_fact_cmd::CandidateFactAction::Submit { fact }
+        }
+        "validate" => {
+            if candidate_id.is_empty() {
+                return Err(anyhow::anyhow!("--candidate-id is required for validate"));
+            }
+            crate::candidate_fact_cmd::CandidateFactAction::Validate { candidate_id }
+        }
+        "list" => {
+            let status_enum =
+                status.and_then(|s| magellan::graph::candidate_fact::CandidateStatus::parse(&s));
+            crate::candidate_fact_cmd::CandidateFactAction::List {
+                status: status_enum,
+                limit,
+            }
+        }
+        "review-queue" => crate::candidate_fact_cmd::CandidateFactAction::ReviewQueue { limit },
+        _ => {
+            return Err(anyhow::anyhow!(
+            "Unknown candidate-fact subcommand: {}. Use submit, validate, list, or review-queue",
+            subcommand
+        ))
+        }
+    };
+
+    Ok(Command::CandidateFact {
+        db_path,
+        action,
         output_format,
     })
 }

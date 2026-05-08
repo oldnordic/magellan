@@ -3,7 +3,7 @@
 //! Provides language-specific import extraction using tree-sitter.
 
 use crate::common::safe_slice;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Kind of import statement
 ///
@@ -41,7 +41,7 @@ impl ImportKind {
     }
 
     /// Parse a string key back to ImportKind
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s {
             "use_crate" => Some(ImportKind::UseCrate),
             "use_super" => Some(ImportKind::UseSuper),
@@ -125,7 +125,7 @@ impl ImportExtractor {
         &self,
         root_node: &tree_sitter::Node,
         source: &[u8],
-        file_path: &PathBuf,
+        file_path: &Path,
     ) -> Vec<ImportFact> {
         let mut facts = Vec::new();
 
@@ -156,7 +156,7 @@ impl ImportExtractor {
         &self,
         node: &tree_sitter::Node,
         source: &[u8],
-        file_path: &PathBuf,
+        file_path: &Path,
     ) -> Option<ImportFact> {
         let start = node.start_byte();
         let end = node.end_byte();
@@ -175,7 +175,7 @@ impl ImportExtractor {
             self.parse_rust_import_path(import_str);
 
         Some(ImportFact {
-            file_path: file_path.clone(),
+            file_path: file_path.to_path_buf(),
             import_kind,
             import_path,
             imported_names,
@@ -194,7 +194,7 @@ impl ImportExtractor {
         &self,
         node: &tree_sitter::Node,
         source: &[u8],
-        file_path: &PathBuf,
+        file_path: &Path,
     ) -> Option<ImportFact> {
         // Only extract mod items that refer to external files (not inline mod { ... } blocks)
         // Check if there's a semicolon (external file reference) vs a block (inline module)
@@ -217,7 +217,7 @@ impl ImportExtractor {
         let name = std::str::from_utf8(name_bytes).ok()?;
 
         Some(ImportFact {
-            file_path: file_path.clone(),
+            file_path: file_path.to_path_buf(),
             import_kind: ImportKind::PlainUse,
             import_path: vec![name.to_string()],
             imported_names: vec![name.to_string()],
@@ -473,31 +473,22 @@ use std::collections::{HashMap, HashSet};
 
     #[test]
     fn test_import_kind_from_str() {
+        assert_eq!(ImportKind::parse("use_crate"), Some(ImportKind::UseCrate));
+        assert_eq!(ImportKind::parse("use_super"), Some(ImportKind::UseSuper));
+        assert_eq!(ImportKind::parse("use_self"), Some(ImportKind::UseSelf));
         assert_eq!(
-            ImportKind::from_str("use_crate"),
-            Some(ImportKind::UseCrate)
-        );
-        assert_eq!(
-            ImportKind::from_str("use_super"),
-            Some(ImportKind::UseSuper)
-        );
-        assert_eq!(ImportKind::from_str("use_self"), Some(ImportKind::UseSelf));
-        assert_eq!(
-            ImportKind::from_str("extern_crate"),
+            ImportKind::parse("extern_crate"),
             Some(ImportKind::ExternCrate)
         );
+        assert_eq!(ImportKind::parse("plain_use"), Some(ImportKind::PlainUse));
         assert_eq!(
-            ImportKind::from_str("plain_use"),
-            Some(ImportKind::PlainUse)
-        );
-        assert_eq!(
-            ImportKind::from_str("from_import"),
+            ImportKind::parse("from_import"),
             Some(ImportKind::FromImport)
         );
         assert_eq!(
-            ImportKind::from_str("import_statement"),
+            ImportKind::parse("import_statement"),
             Some(ImportKind::ImportStatement)
         );
-        assert_eq!(ImportKind::from_str("invalid"), None);
+        assert_eq!(ImportKind::parse("invalid"), None);
     }
 }

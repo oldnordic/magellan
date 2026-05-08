@@ -273,7 +273,7 @@ fn test_concurrent_legacy_event_access() {
 }
 
 /// Helper: poll for batch with timeout
-fn poll_for_batch(watcher: &FileSystemWatcher, timeout_ms: u64) -> Option<magellan::WatcherBatch> {
+fn _poll_for_batch(watcher: &FileSystemWatcher, timeout_ms: u64) -> Option<magellan::WatcherBatch> {
     let start = std::time::Instant::now();
     let timeout = Duration::from_millis(timeout_ms);
 

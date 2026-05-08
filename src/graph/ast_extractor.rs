@@ -143,11 +143,9 @@ impl<'a> AstExtractor<'a> {
             self.nodes.push(ast_node);
 
             // Update parent reference using index
-            if let Some(last_index) = self.parent_stack.last() {
-                if let &Some(parent_idx) = last_index {
-                    // Store as negative to indicate "needs resolution"
-                    self.nodes[node_index].parent_id = Some(-(parent_idx as i64) - 1);
-                }
+            if let Some(&Some(parent_idx)) = self.parent_stack.last() {
+                // Store as negative to indicate "needs resolution"
+                self.nodes[node_index].parent_id = Some(-(parent_idx as i64) - 1);
             }
 
             // Push this node as parent for children

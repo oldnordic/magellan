@@ -129,7 +129,9 @@ scip = "0.6.1"
 protobuf = "3.7"
 base64 = "0.22"
 blake3 = "1.5"
-xxhash-rust = { version = "0.8", features = ["xxh64"] }
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+memchr = "2"
+fixedbitset = "0.4"
 camino = "1.2"
 rayon = "1.11"
 tempfile = "3.10"

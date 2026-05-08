@@ -7,7 +7,7 @@
 //!
 //! Each backend is **fully self-contained**:
 //! - SQLite backend: Everything in `.db` file
-//! No mixing between backends for optimal performance.
+//!   No mixing between backends for optimal performance.
 
 use anyhow::Result;
 use std::path::Path;

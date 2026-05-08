@@ -320,6 +320,10 @@ pub fn run_migrate_backend(
                 e
             )
         })?;
+        #[allow(
+            clippy::arc_with_non_send_sync,
+            reason = "backend is used single-threaded in migration"
+        )]
         Arc::new(SqliteGraphBackend::from_graph(sqlite_graph))
     };
 
@@ -374,7 +378,13 @@ pub fn run_migrate_backend(
                 e
             )
         })?;
-        Arc::new(SqliteGraphBackend::from_graph(sqlite_graph))
+        #[allow(
+            clippy::arc_with_non_send_sync,
+            reason = "backend is used single-threaded in migration"
+        )]
+        {
+            Arc::new(SqliteGraphBackend::from_graph(sqlite_graph))
+        }
     };
 
     // Import snapshot into target backend

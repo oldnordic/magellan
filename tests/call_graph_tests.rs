@@ -5,6 +5,7 @@
 use std::path::PathBuf;
 
 #[test]
+#[allow(deprecated)]
 fn test_extract_calls_detects_function_calls() {
     // Verify that we can extract function call relationships
     // Source: caller() calls helper()
@@ -37,6 +38,7 @@ fn helper() {}
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_extract_calls_ignores_type_references() {
     // Verify that type references (scoped_identifier) are NOT treated as calls
     let source = r#"
@@ -71,6 +73,7 @@ impl Data {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_code_graph_stores_and_queries_calls_edges() {
     // Test the full CodeGraph API for CALLS edges
     use magellan::CodeGraph;
@@ -125,6 +128,7 @@ fn execute() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_cross_file_method_calls_are_indexed() {
     use magellan::CodeGraph;
     use tempfile::TempDir;
@@ -166,6 +170,7 @@ fn invoke(widget: &Widget) {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_extract_calls_handles_nested_calls() {
     // Verify nested function calls are detected
     let source = r#"
@@ -201,6 +206,7 @@ fn inner2() {}
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_cross_file_call_resolution() {
     // Test that calls across file boundaries are correctly indexed and queried
     use magellan::CodeGraph;

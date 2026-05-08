@@ -24,7 +24,7 @@ impl MetricsOps {
     ) -> Result<()> {
         self.with_conn(|conn| {
             let symbol_count = symbol_facts.len() as i64;
-            let loc = source.iter().filter(|&&b| b == b'\n').count() as i64 + 1;
+            let loc = memchr::memchr_iter(b'\n', source).count() as i64 + 1;
             let estimated_loc = source.len() as f64 / 40.0;
 
             let fan_in = Self::compute_file_fan_in_conn(conn, file_path)?;

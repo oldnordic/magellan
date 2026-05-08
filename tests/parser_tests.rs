@@ -2,6 +2,7 @@ use magellan::{Parser, SymbolKind};
 use std::path::PathBuf;
 
 #[test]
+#[allow(deprecated)]
 fn test_empty_file() {
     let mut parser = Parser::new().unwrap();
     let source = b"";
@@ -11,6 +12,7 @@ fn test_empty_file() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_syntax_error_file() {
     let mut parser = Parser::new().unwrap();
     let source = b"fn broken { this is not valid rust }}}";
@@ -25,6 +27,7 @@ fn test_syntax_error_file() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_single_function() {
     let mut parser = Parser::new().unwrap();
     let source = b"fn hello() {}";
@@ -39,6 +42,7 @@ fn test_single_function() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_struct_definition() {
     let mut parser = Parser::new().unwrap();
     let source = b"struct MyStruct { field: i32 }";
@@ -52,6 +56,7 @@ fn test_struct_definition() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_enum_definition() {
     let mut parser = Parser::new().unwrap();
     let source = b"enum MyEnum { A, B }";
@@ -65,13 +70,14 @@ fn test_enum_definition() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_trait_definition() {
     let mut parser = Parser::new().unwrap();
     let source = b"trait MyTrait { fn method(&self); }";
     let facts = parser.extract_symbols(PathBuf::from("test.rs"), source);
 
     // Should extract trait + method inside it
-    assert!(facts.len() >= 1, "Should extract at least the trait");
+    assert!(!facts.is_empty(), "Should extract at least the trait");
 
     // Find the trait
     let traits: Vec<_> = facts
@@ -83,6 +89,7 @@ fn test_trait_definition() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_module_declaration() {
     let mut parser = Parser::new().unwrap();
     let source = b"mod my_module;";
@@ -96,6 +103,7 @@ fn test_module_declaration() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_impl_block() {
     let mut parser = Parser::new().unwrap();
     let source = b"impl MyStruct { fn method(&self) {} }";
@@ -103,7 +111,7 @@ fn test_impl_block() {
 
     // Should extract method inside impl block (impl block itself is not a symbol)
     assert!(
-        facts.len() >= 1,
+        !facts.is_empty(),
         "Should extract at least the method inside impl"
     );
 
@@ -118,6 +126,7 @@ fn test_impl_block() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_multiple_symbols() {
     let mut parser = Parser::new().unwrap();
     let source = b"
@@ -160,6 +169,7 @@ fn test_multiple_symbols() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_nested_modules() {
     let mut parser = Parser::new().unwrap();
     let source = b"
@@ -185,6 +195,7 @@ fn test_nested_modules() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_byte_spans() {
     let mut parser = Parser::new().unwrap();
     let source = b"fn test() {}";
@@ -199,6 +210,7 @@ fn test_byte_spans() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_pure_function_same_input() {
     let mut parser = Parser::new().unwrap();
     let source = b"fn reproducible() {}";

@@ -4,7 +4,6 @@
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use magellan::CodeGraph;
-use std::path::PathBuf;
 use tempfile::TempDir;
 
 /// Benchmark context summary query
@@ -122,7 +121,7 @@ fn setup_test_graph() -> (CodeGraph, TempDir) {
         let _ = graph.delete_file(&file_path);
 
         for j in 0..10 {
-            let symbol_name = format!("function_{}_{}", i, j);
+            let _symbol_name = format!("function_{}_{}", i, j);
             // Index symbol (simplified - in reality would use index_file)
         }
     }
@@ -143,7 +142,7 @@ fn setup_large_test_graph() -> (CodeGraph, TempDir) {
         let _ = graph.delete_file(&file_path);
 
         for j in 0..100 {
-            let symbol_name = format!("fn_{}_{}", i, j);
+            let _symbol_name = format!("fn_{}_{}", i, j);
             // Index symbol
         }
     }

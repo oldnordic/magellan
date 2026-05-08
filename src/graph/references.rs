@@ -233,8 +233,7 @@ impl ReferenceOps {
                     .take()
                     .expect("Parser pool corruption: parser was None"); // M-UNWRAP: thread-local parser pool guarantees initialized parser
                 let mut wrapper = Parser::from_parser(parser);
-                let result =
-                    wrapper.extract_references(path_buf.clone(), source, &all_symbol_facts);
+                let result = wrapper.extract_references(path_buf.clone(), source, all_symbol_facts);
                 *opt_parser = Some(wrapper.parser);
                 result
             })?,
@@ -243,8 +242,7 @@ impl ReferenceOps {
                     .take()
                     .expect("Parser pool corruption: parser was None"); // M-UNWRAP: thread-local parser pool guarantees initialized parser
                 let mut wrapper = PythonParser::from_parser(parser);
-                let result =
-                    wrapper.extract_references(path_buf.clone(), source, &all_symbol_facts);
+                let result = wrapper.extract_references(path_buf.clone(), source, all_symbol_facts);
                 *opt_parser = Some(wrapper.parser);
                 result
             })?,
@@ -253,8 +251,7 @@ impl ReferenceOps {
                     .take()
                     .expect("Parser pool corruption: parser was None"); // M-UNWRAP: thread-local parser pool guarantees initialized parser
                 let mut wrapper = CParser::from_parser(parser);
-                let result =
-                    wrapper.extract_references(path_buf.clone(), source, &all_symbol_facts);
+                let result = wrapper.extract_references(path_buf.clone(), source, all_symbol_facts);
                 *opt_parser = Some(wrapper.parser);
                 result
             })?,
@@ -263,8 +260,7 @@ impl ReferenceOps {
                     .take()
                     .expect("Parser pool corruption: parser was None"); // M-UNWRAP: thread-local parser pool guarantees initialized parser
                 let mut wrapper = CppParser::from_parser(parser);
-                let result =
-                    wrapper.extract_references(path_buf.clone(), source, &all_symbol_facts);
+                let result = wrapper.extract_references(path_buf.clone(), source, all_symbol_facts);
                 *opt_parser = Some(wrapper.parser);
                 result
             })?,
@@ -273,8 +269,7 @@ impl ReferenceOps {
                     .take()
                     .expect("Parser pool corruption: parser was None"); // M-UNWRAP: thread-local parser pool guarantees initialized parser
                 let mut wrapper = JavaParser::from_parser(parser);
-                let result =
-                    wrapper.extract_references(path_buf.clone(), source, &all_symbol_facts);
+                let result = wrapper.extract_references(path_buf.clone(), source, all_symbol_facts);
                 *opt_parser = Some(wrapper.parser);
                 result
             })?,
@@ -285,7 +280,7 @@ impl ReferenceOps {
                         .expect("Parser pool corruption: parser was None"); // M-UNWRAP: thread-local parser pool guarantees initialized parser
                     let mut wrapper = JavaScriptParser::from_parser(parser);
                     let result =
-                        wrapper.extract_references(path_buf.clone(), source, &all_symbol_facts);
+                        wrapper.extract_references(path_buf.clone(), source, all_symbol_facts);
                     *opt_parser = Some(wrapper.parser);
                     result
                 })?
@@ -297,7 +292,7 @@ impl ReferenceOps {
                         .expect("Parser pool corruption: parser was None"); // M-UNWRAP: thread-local parser pool guarantees initialized parser
                     let mut wrapper = TypeScriptParser::from_parser(parser);
                     let result =
-                        wrapper.extract_references(path_buf.clone(), source, &all_symbol_facts);
+                        wrapper.extract_references(path_buf.clone(), source, all_symbol_facts);
                     *opt_parser = Some(wrapper.parser);
                     result
                 })?

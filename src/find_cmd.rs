@@ -193,6 +193,10 @@ fn find_all_files(graph: &mut CodeGraph, name: &str) -> Result<Vec<FoundSymbol>>
 ///
 /// # Displays
 /// Human-readable symbol details or JSON output
+#[allow(
+    clippy::too_many_arguments,
+    reason = "CLI command surface: each arg maps to a flag"
+)]
 pub fn run_find(
     db_path: PathBuf,
     name: Option<String>,
@@ -396,7 +400,7 @@ pub fn run_find(
                 0,
                 0,
             );
-            return result;
+            result
         }
         BackendType::SQLite => {
             let results = match path.as_ref() {
@@ -608,6 +612,10 @@ fn run_find_geometric(
 }
 
 /// Output find results in JSON format
+#[allow(
+    clippy::too_many_arguments,
+    reason = "JSON output needs all query parameters"
+)]
 fn output_json_mode(
     graph: &mut CodeGraph,
     query_name: &str,

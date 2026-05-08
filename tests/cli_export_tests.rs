@@ -413,9 +413,8 @@ fn helper() {}
 
     // Verify calls array is empty or not present
     let calls = json.get("calls").and_then(|v| v.as_array());
-    match calls {
-        Some(arr) => assert_eq!(arr.len(), 0, "Calls should be empty with --no-calls"),
-        None => {} // Also acceptable if field not included
+    if let Some(arr) = calls {
+        assert_eq!(arr.len(), 0, "Calls should be empty with --no-calls");
     }
 
     // Verify symbols are still included

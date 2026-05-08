@@ -18,7 +18,7 @@ use tempfile::TempDir;
 /// Tuple of (PathBuf, TempDir) where:
 /// - PathBuf: Path to the temporary file
 /// - TempDir: Temporary directory (keeps file alive)
-pub fn make_test_file(content: &str) -> (PathBuf, TempDir) {
+pub fn _make_test_file(content: &str) -> (PathBuf, TempDir) {
     let temp_dir = TempDir::new().unwrap();
     let test_file = temp_dir.path().join("test.rs");
     fs::write(&test_file, content).unwrap();
@@ -249,6 +249,7 @@ fn generate_fanout_graph(num_nodes: usize, fanout: usize) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[allow(unused_imports)]
     use super::*;
 
     #[test]
@@ -279,7 +280,7 @@ mod tests {
     #[test]
     fn test_make_test_file() {
         let content = "fn test() {}";
-        let (path, _temp_dir) = make_test_file(content);
+        let (path, _temp_dir) = _make_test_file(content);
         assert!(path.exists(), "Test file should exist");
         let read_content = fs::read_to_string(&path).unwrap();
         assert_eq!(read_content, content, "Content should match");

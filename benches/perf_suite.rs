@@ -47,7 +47,8 @@ fn benchmark_b1_neighbor_expansion(c: &mut Criterion) {
     });
 
     // Perf: clustered neighbors (if feature available)
-    #[cfg(feature = "v2_experimental")]
+    #[allow(unexpected_cfgs)]
+    #[cfg(any())]
     group.bench_function("clustered", |b| {
         let backend: &std::sync::Arc<dyn sqlitegraph::GraphBackend> =
             graph.__backend_for_benchmarks();
@@ -132,7 +133,8 @@ fn benchmark_b2_reachability(c: &mut Criterion) {
     println!("B2 Traversal: {} nodes, {} edges", total_nodes, total_edges);
 
     // Perf: clustered traversal (if feature available)
-    #[cfg(feature = "v2_experimental")]
+    #[allow(unexpected_cfgs)]
+    #[cfg(any())]
     group.bench_function("clustered", |b| {
         let backend: &std::sync::Arc<dyn sqlitegraph::GraphBackend> =
             graph.__backend_for_benchmarks();

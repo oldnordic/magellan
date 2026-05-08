@@ -119,50 +119,30 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
         None => None,
     };
 
-    let symbol_facts = match language {
-        Some(Language::Rust) => {
-            // Use parser pool for Rust
-            pool::with_parser(Language::Rust, |parser| {
-                Parser::extract_symbols_with_parser(parser, path_buf.clone(), source)
-            })?
+    // Extract symbols from the pre-parsed tree, avoiding redundant parsing.
+    let symbol_facts = match (language, &parsed_tree) {
+        (Some(Language::Rust), Some(tree)) => {
+            Parser::extract_symbols_from_tree(tree, path_buf.clone(), source)
         }
-        Some(Language::C) => {
-            // Use parser pool for C
-            pool::with_parser(Language::C, |parser| {
-                CParser::extract_symbols_with_parser(parser, path_buf.clone(), source)
-            })?
+        (Some(Language::C), Some(tree)) => {
+            CParser::extract_symbols_from_tree(tree, path_buf.clone(), source)
         }
-        Some(Language::Cpp) => {
-            // Use parser pool for C++
-            pool::with_parser(Language::Cpp, |parser| {
-                CppParser::extract_symbols_with_parser(parser, path_buf.clone(), source)
-            })?
+        (Some(Language::Cpp), Some(tree)) => {
+            CppParser::extract_symbols_from_tree(tree, path_buf.clone(), source)
         }
-        Some(Language::Java) => {
-            // Use parser pool for Java
-            pool::with_parser(Language::Java, |parser| {
-                JavaParser::extract_symbols_with_parser(parser, path_buf.clone(), source)
-            })?
+        (Some(Language::Java), Some(tree)) => {
+            JavaParser::extract_symbols_from_tree(tree, path_buf.clone(), source)
         }
-        Some(Language::Python) => {
-            // Use parser pool for Python
-            pool::with_parser(Language::Python, |parser| {
-                PythonParser::extract_symbols_with_parser(parser, path_buf.clone(), source)
-            })?
+        (Some(Language::Python), Some(tree)) => {
+            PythonParser::extract_symbols_from_tree(tree, path_buf.clone(), source)
         }
-        Some(Language::JavaScript) => {
-            // Use parser pool for JavaScript
-            pool::with_parser(Language::JavaScript, |parser| {
-                JavaScriptParser::extract_symbols_with_parser(parser, path_buf.clone(), source)
-            })?
+        (Some(Language::JavaScript), Some(tree)) => {
+            JavaScriptParser::extract_symbols_from_tree(tree, path_buf.clone(), source)
         }
-        Some(Language::TypeScript) => {
-            // Use parser pool for TypeScript
-            pool::with_parser(Language::TypeScript, |parser| {
-                TypeScriptParser::extract_symbols_with_parser(parser, path_buf.clone(), source)
-            })?
+        (Some(Language::TypeScript), Some(tree)) => {
+            TypeScriptParser::extract_symbols_from_tree(tree, path_buf.clone(), source)
         }
-        // Unknown language — return empty
+        // Unknown language or parse failure — return empty
         _ => Vec::new(),
     };
 
@@ -1103,40 +1083,6 @@ pub fn insert_ast_nodes(
     Ok(nodes_with_ids.len())
 }
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn test_ast_nodes_indexed_with_file() {
-        use tempfile::tempdir;
-
-        let dir = tempdir().unwrap();
-        let db_path = dir.path().join("test.db");
-
-        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
-
-        let source = b"fn main() { if true { println!(\"hello\"); } }";
-        graph.index_file("test.rs", source).unwrap();
-
-        // Verify AST nodes were created
-        let conn = graph.chunks.connect().unwrap();
-        let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM ast_nodes", [], |row| row.get(0))
-            .unwrap();
-
-        assert!(count > 0, "AST nodes should be created during indexing");
-
-        // Verify specific nodes exist
-        let if_count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM ast_nodes WHERE kind = 'if_expression'",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert!(if_count > 0, "if_expression should be indexed");
-    }
-}
-
 /// Count AST nodes for a file path.
 ///
 /// Used to verify deletion completeness.
@@ -1385,4 +1331,37 @@ pub fn reconcile_file_path_with_source(
         references,
         calls,
     })
+}
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_ast_nodes_indexed_with_file() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test.db");
+
+        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
+
+        let source = b"fn main() { if true { println!(\"hello\"); } }";
+        graph.index_file("test.rs", source).unwrap();
+
+        // Verify AST nodes were created
+        let conn = graph.chunks.connect().unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM ast_nodes", [], |row| row.get(0))
+            .unwrap();
+
+        assert!(count > 0, "AST nodes should be created during indexing");
+
+        // Verify specific nodes exist
+        let if_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM ast_nodes WHERE kind = 'if_expression'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(if_count > 0, "if_expression should be indexed");
+    }
 }

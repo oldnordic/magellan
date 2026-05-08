@@ -1411,6 +1411,8 @@ impl GeometricBackend {
     }
 
     /// Insert a call edge between two symbols
+    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     pub fn insert_call_edge(
         &self,
         src_symbol_id: u64,
@@ -1620,7 +1622,7 @@ impl GeometricBackend {
                 new_path.push(callee_id);
 
                 // Check if we hit the target
-                let is_target = end_id.map_or(false, |target| callee_id == target);
+                let is_target = end_id == Some(callee_id);
 
                 if is_target {
                     // Found target - save this path
@@ -2138,15 +2140,13 @@ pub fn extract_ast_nodes_from_file(
 
     // Set language based on file type
     let language_set = match language {
-        Language::Rust => parser.set_language(&tree_sitter_rust::language().into()),
-        Language::Python => parser.set_language(&tree_sitter_python::language().into()),
-        Language::C => parser.set_language(&tree_sitter_c::language().into()),
-        Language::Cpp => parser.set_language(&tree_sitter_cpp::language().into()),
-        Language::Java => parser.set_language(&tree_sitter_java::language().into()),
-        Language::JavaScript => parser.set_language(&tree_sitter_javascript::language().into()),
-        Language::TypeScript => {
-            parser.set_language(&tree_sitter_typescript::language_typescript().into())
-        }
+        Language::Rust => parser.set_language(&tree_sitter_rust::language()),
+        Language::Python => parser.set_language(&tree_sitter_python::language()),
+        Language::C => parser.set_language(&tree_sitter_c::language()),
+        Language::Cpp => parser.set_language(&tree_sitter_cpp::language()),
+        Language::Java => parser.set_language(&tree_sitter_java::language()),
+        Language::JavaScript => parser.set_language(&tree_sitter_javascript::language()),
+        Language::TypeScript => parser.set_language(&tree_sitter_typescript::language_typescript()),
     };
 
     if language_set.is_err() {
@@ -2210,16 +2210,19 @@ pub struct ExtractionTiming {
     pub impl_extraction_us: u64,
 }
 
-pub fn extract_symbols_cfg_and_calls_from_file(
-    path: &Path,
-    content: &str,
-    language: Language,
-) -> Result<(
+/// Type alias for the complex return type of `extract_symbols_cfg_and_calls_from_file`.
+pub type ExtractSymbolsCfgCallsResult = Result<(
     Vec<InsertSymbol>,
     Vec<SerializableCfgBlock>,
     Vec<CfgEdge>,
     Vec<SymbolCallEdge>,
-)> {
+)>;
+
+pub fn extract_symbols_cfg_and_calls_from_file(
+    path: &Path,
+    content: &str,
+    language: Language,
+) -> ExtractSymbolsCfgCallsResult {
     extract_all_from_file(path, content, language).map(|data| {
         (
             data.symbols,
@@ -2399,14 +2402,12 @@ fn extract_ast_nodes_non_rust(
 
     // Set language based on file type
     let language_set = match language {
-        Language::Python => parser.set_language(&tree_sitter_python::language().into()),
-        Language::C => parser.set_language(&tree_sitter_c::language().into()),
-        Language::Cpp => parser.set_language(&tree_sitter_cpp::language().into()),
-        Language::Java => parser.set_language(&tree_sitter_java::language().into()),
-        Language::JavaScript => parser.set_language(&tree_sitter_javascript::language().into()),
-        Language::TypeScript => {
-            parser.set_language(&tree_sitter_typescript::language_typescript().into())
-        }
+        Language::Python => parser.set_language(&tree_sitter_python::language()),
+        Language::C => parser.set_language(&tree_sitter_c::language()),
+        Language::Cpp => parser.set_language(&tree_sitter_cpp::language()),
+        Language::Java => parser.set_language(&tree_sitter_java::language()),
+        Language::JavaScript => parser.set_language(&tree_sitter_javascript::language()),
+        Language::TypeScript => parser.set_language(&tree_sitter_typescript::language_typescript()),
         Language::Rust => {
             // Should not happen - Rust uses single-parse path
             return Ok(Vec::new());
@@ -2497,8 +2498,7 @@ pub fn extract_rust_single_parse_timed(
 
     // Extract impl relations from the SAME pre-parsed tree - NO additional parse!
     let impl_start = std::time::Instant::now();
-    let impl_relations =
-        RustParser::extract_impl_relations_static(&tree, content.as_bytes(), &path.to_path_buf());
+    let impl_relations = RustParser::extract_impl_relations_static(&tree, content.as_bytes(), path);
     if timing_enabled {
         timing.impl_extraction_us = impl_start.elapsed().as_micros() as u64;
     }
@@ -2517,7 +2517,7 @@ pub fn extract_rust_single_parse_timed(
 }
 
 /// Single-parse extraction for Rust files (backward compatible, no timing)
-
+///
 /// Extract CFG from a pre-parsed tree
 ///
 /// This function takes a pre-parsed tree instead of creating a new parser,

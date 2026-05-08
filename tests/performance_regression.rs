@@ -49,7 +49,7 @@ const BASELINE_PATH: &str = ".planning/phases/33-verification/PERFORMANCE_BASELI
 const MAX_REGRESSION: f64 = 0.05;
 
 /// Minimum speedup required for parser pool (10%)
-const MIN_POOL_SPEEDUP: f64 = 1.10;
+const _MIN_POOL_SPEEDUP: f64 = 1.10;
 
 /// Performance baseline structure
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -61,7 +61,7 @@ struct PerformanceBaseline {
 }
 
 /// Create a temporary directory with test Rust source files
-fn create_rust_files(dir: &Path, count: usize) -> Vec<PathBuf> {
+fn _create_rust_files(dir: &Path, count: usize) -> Vec<PathBuf> {
     let mut files = Vec::new();
 
     for i in 0..count {

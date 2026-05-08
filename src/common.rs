@@ -320,6 +320,10 @@ fn find_char_boundary_after(s: &str, offset: usize) -> usize {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::items_after_test_module,
+    reason = "test module in middle of file is intentional"
+)]
 mod tests {
     use super::*;
 
@@ -545,7 +549,7 @@ mod tests {
         // Should contain valid UTF-8 (String is always valid UTF-8)
         assert!(!context.is_empty());
         // Verify the emoji is present or at least some valid content
-        assert!(context.len() > 0);
+        assert!(!context.is_empty());
     }
 
     #[test]

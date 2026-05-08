@@ -169,6 +169,10 @@ impl FileSystemWatcher {
     /// - `Ok(Some(batch))` if a batch is available
     /// - `Ok(None)` if the watcher thread has terminated
     /// - `Err` if timeout elapsed
+    #[allow(
+        clippy::result_unit_err,
+        reason = "simple timeout/empty signaling; no error details needed"
+    )]
     pub fn recv_batch_timeout(&self, timeout: Duration) -> Result<Option<WatcherBatch>, ()> {
         match self.batch_receiver.recv_timeout(timeout) {
             Ok(batch) => Ok(Some(batch)),

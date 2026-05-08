@@ -86,7 +86,7 @@ impl IndexingStats {
                 self.total_ast_nodes
             );
         }
-        eprintln!("");
+        eprintln!();
         eprintln!("Phase timings (microseconds):");
         eprintln!(
             "  File discovery:     {:>12} us ({:.2}s)",
@@ -167,7 +167,7 @@ impl IndexingStats {
         );
 
         if !self.slowest_files.is_empty() {
-            eprintln!("");
+            eprintln!();
             eprintln!("Top 10 slowest files:");
             for (i, (path, us)) in self.slowest_files.iter().take(10).enumerate() {
                 eprintln!("  {}. {}: {:.2} ms", i + 1, path, *us as f64 / 1000.0);
@@ -296,7 +296,7 @@ pub fn scan_directory_with_progress(
                     // Track per-file total time
                     let file_total = file_start.elapsed().as_micros() as u64;
                     stats.slowest_files.push((path_str.clone(), file_total));
-                    stats.slowest_files.sort_by(|a, b| b.1.cmp(&a.1));
+                    stats.slowest_files.sort_by_key(|a| std::cmp::Reverse(a.1));
                     stats.slowest_files.truncate(20); // Keep top 20
                 }
 
@@ -311,7 +311,7 @@ pub fn scan_directory_with_progress(
 
                 // Insert code chunks for each symbol
                 let chunk_start = std::time::Instant::now();
-                for (_idx, symbol_id) in symbol_ids.iter().enumerate() {
+                for symbol_id in symbol_ids.iter() {
                     // Get symbol info from backend to extract content
                     if let Some(info) = backend.find_symbol_by_id_info(*symbol_id) {
                         let byte_start = info.byte_start as usize;

@@ -61,7 +61,8 @@ impl MagellanBackend {
                 // Fallback to SQLite if geometric backend is not available
                 BackendType::SQLite
             }
-            Some("db") | Some("sqlite") | Some("v3") | _ => BackendType::SQLite,
+            Some("db") | Some("sqlite") | Some("v3") => BackendType::SQLite,
+            _ => BackendType::SQLite,
         }
     }
 
@@ -319,10 +320,10 @@ impl MagellanBackend {
             file_path: info.file_path.clone(),
             byte_start: info.byte_start,
             byte_end: info.byte_end,
-            start_line: info.start_line as u64,
-            start_col: info.start_col as u64,
-            end_line: info.end_line as u64,
-            end_col: info.end_col as u64,
+            start_line: info.start_line,
+            start_col: info.start_col,
+            end_line: info.end_line,
+            end_col: info.end_col,
             language: language_str,
         }
     }
@@ -333,7 +334,7 @@ impl MagellanBackend {
             id: entity_id as u64,
             name: node.name.clone().unwrap_or_default(),
             fqn: node.fqn.clone().unwrap_or_default(),
-            kind: SymbolKind::from_str(&node.kind).unwrap_or(SymbolKind::Unknown),
+            kind: SymbolKind::parse(&node.kind).unwrap_or(SymbolKind::Unknown),
             file_path: String::new(), // Will be populated from node data if available
             byte_start: node.byte_start as u64,
             byte_end: node.byte_end as u64,
@@ -754,13 +755,10 @@ impl MagellanBackend {
     pub fn get_sccs(&self) -> crate::graph::geometric_calls::SccResult {
         match self {
             MagellanBackend::Geometric(backend) => backend.get_strongly_connected_components(),
-            MagellanBackend::SQLite(_graph) => {
-                let scc = crate::graph::geometric_calls::SccResult {
-                    components: Vec::new(),
-                    node_to_component: std::collections::HashMap::new(),
-                };
-                scc
-            }
+            MagellanBackend::SQLite(_graph) => crate::graph::geometric_calls::SccResult {
+                components: Vec::new(),
+                node_to_component: std::collections::HashMap::new(),
+            },
         }
     }
 
@@ -769,14 +767,11 @@ impl MagellanBackend {
     pub fn condense_graph(&self) -> crate::graph::geometric_calls::CondensationDag {
         match self {
             MagellanBackend::Geometric(backend) => backend.condense_call_graph(),
-            MagellanBackend::SQLite(_graph) => {
-                let dag = crate::graph::geometric_calls::CondensationDag {
-                    supernodes: Vec::new(),
-                    node_to_supernode: std::collections::HashMap::new(),
-                    edges: Vec::new(),
-                };
-                dag
-            }
+            MagellanBackend::SQLite(_graph) => crate::graph::geometric_calls::CondensationDag {
+                supernodes: Vec::new(),
+                node_to_supernode: std::collections::HashMap::new(),
+                edges: Vec::new(),
+            },
         }
     }
 

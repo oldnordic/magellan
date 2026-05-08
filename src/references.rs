@@ -6,7 +6,7 @@ use crate::common::safe_slice;
 use crate::ingest::{SymbolFact, SymbolKind};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// A fact about a reference to a symbol
 ///
@@ -372,7 +372,7 @@ impl CallExtractor {
         &self,
         node: &tree_sitter::Node,
         source: &[u8],
-        file_path: &PathBuf,
+        file_path: &Path,
         caller: &SymbolFact,
         symbol_map: &HashMap<String, &SymbolFact>,
         calls: &mut Vec<CallFact>,
@@ -388,7 +388,7 @@ impl CallExtractor {
                     let node_start = node.start_byte();
                     let node_end = node.end_byte();
                     let call_fact = CallFact {
-                        file_path: file_path.clone(),
+                        file_path: file_path.to_path_buf(),
                         caller: caller.name.clone().unwrap_or_default(),
                         callee: callee_name,
                         caller_symbol_id: None,

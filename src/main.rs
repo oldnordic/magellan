@@ -4,6 +4,7 @@
 
 mod ast_cmd;
 mod backfill_cmd;
+mod candidate_fact_cmd;
 mod cli;
 mod collisions_cmd;
 mod condense_cmd;
@@ -31,6 +32,7 @@ mod refresh_cmd;
 mod refs_cmd;
 mod registry_cmd;
 mod slice_cmd;
+mod source_inventory_cmd;
 mod status_cmd;
 mod verify_cmd;
 mod version;
@@ -855,6 +857,36 @@ fn main() -> ExitCode {
                     ExitCode::from(1)
                 }
             }
+        }
+        Ok(Command::SourceInventory {
+            db_path,
+            scan_dirs,
+            list_kind,
+            show_stale,
+            output_format,
+        }) => {
+            if let Err(e) = source_inventory_cmd::run_source_inventory(
+                db_path,
+                scan_dirs,
+                list_kind,
+                show_stale,
+                output_format,
+            ) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::CandidateFact {
+            db_path,
+            action,
+            output_format,
+        }) => {
+            if let Err(e) = candidate_fact_cmd::run_candidate_fact(db_path, action, output_format) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
         }
         Err(e) => {
             eprintln!("Error: {}", e);

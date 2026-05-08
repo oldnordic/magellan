@@ -21,19 +21,14 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// LLM provider type
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum LlmProvider {
+    #[default]
     Ollama,
     OpenAi,
     Anthropic,
     Custom,
-}
-
-impl Default for LlmProvider {
-    fn default() -> Self {
-        LlmProvider::Ollama
-    }
 }
 
 /// LLM configuration
@@ -80,21 +75,12 @@ impl Default for RegistryConfig {
 }
 
 /// Root Magellan configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
     #[serde(default)]
     pub llm: LlmConfig,
     #[serde(default)]
     pub registry: RegistryConfig,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Config {
-            llm: LlmConfig::default(),
-            registry: RegistryConfig::default(),
-        }
-    }
 }
 
 /// Get the default config path: ~/.config/magellan/config.toml
