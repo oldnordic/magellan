@@ -357,7 +357,7 @@ mod tests {
 
     #[test]
     fn test_watch_diagnostic_sorting_vec() {
-        let mut diagnostics = vec![
+        let mut diagnostics = [
             WatchDiagnostic::skipped("src/c.rs".to_string(), SkipReason::ExcludedByGlob),
             WatchDiagnostic::error(
                 "src/a.rs".to_string(),

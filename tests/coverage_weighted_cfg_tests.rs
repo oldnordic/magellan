@@ -50,7 +50,7 @@ edition = "2021"
 }
 
 /// Create a synthetic LCOV file.
-fn create_lcov_file(dir: &TempDir, file_path: &str) -> PathBuf {
+fn _create_lcov_file(dir: &TempDir, file_path: &str) -> PathBuf {
     let lcov_path = dir.path().join("coverage.lcov");
     let content = format!(
         concat!(

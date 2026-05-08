@@ -335,7 +335,7 @@ mod tests {
         };
 
         // Test passes - verifies types are compatible
-        assert!(true);
+        // Test passes - verifies types are compatible
     }
 
     /// Test: magellan find-ast command structure test
@@ -345,7 +345,7 @@ mod tests {
     fn test_magellan_find_ast_command_structure() {
         // Verify function signatures are compatible
         // This is a compile-time test ensuring the API exists
-        assert!(true);
+        // Test passes - verifies types are compatible
     }
 
     // NOTE: test_magellan_ast_with_position is SKIPPED because

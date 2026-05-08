@@ -77,8 +77,8 @@ pub fn normalize_path(path: &Path) -> Result<String> {
     // Fallback for non-existent paths: strip ./ prefix manually
     // This is important for watcher delete events where the file is already gone
     let path_str = path.to_string_lossy().to_string();
-    let normalized = if path_str.starts_with("./") {
-        path_str[2..].to_string()
+    let normalized = if let Some(stripped) = path_str.strip_prefix("./") {
+        stripped.to_string()
     } else {
         path_str
     };

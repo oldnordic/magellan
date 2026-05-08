@@ -3,6 +3,12 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Deliverable verification hook** — `.claude/hooks/deliverable-verify.fish` validates that claimed deliverables exist and meet quality criteria when an agent completes a task. 12 check types: `exists`, `non_empty`, `min_size`, `no_stubs`, `required_patterns`, `git_changed`, `git_added`, `parseable`, `symbols_exist`, `compiles`, `tests_pass`, `lint_pass`. Configured via `.envoy/deliverables.json`. Advisory mode (warnings only, never blocks).
+
 ## [3.3.0] - 2026-05-06
 
 ### Added

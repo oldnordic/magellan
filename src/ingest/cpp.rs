@@ -7,7 +7,7 @@ use crate::graph::canonical_fqn::FqnBuilder;
 use crate::ingest::{ScopeSeparator, ScopeStack, SymbolFact, SymbolKind};
 use crate::references::{CallFact, ReferenceFact};
 use anyhow::Result;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Parser that extracts symbol facts from C++ source code.
 ///
@@ -159,7 +159,7 @@ impl CppParser {
     fn walk_tree_with_scope_static(
         node: &tree_sitter::Node,
         source: &[u8],
-        file_path: &PathBuf,
+        file_path: &Path,
         facts: &mut Vec<SymbolFact>,
         scope_stack: &mut ScopeStack,
         package_name: &str,
@@ -242,7 +242,7 @@ impl CppParser {
     fn extract_symbol_with_fqn_static(
         node: &tree_sitter::Node,
         source: &[u8],
-        file_path: &PathBuf,
+        file_path: &Path,
         scope_stack: &ScopeStack,
         package_name: &str,
     ) -> Option<SymbolFact> {
@@ -272,7 +272,7 @@ impl CppParser {
         let display_fqn = builder.display(scope_stack, symbol_kind.clone(), &name);
 
         Some(SymbolFact {
-            file_path: file_path.clone(),
+            file_path: file_path.to_path_buf(),
             kind: symbol_kind,
             kind_normalized: normalized_kind,
             name: Some(name.clone()),
@@ -340,7 +340,7 @@ impl CppParser {
         &self,
         node: &tree_sitter::Node,
         source: &[u8],
-        file_path: &PathBuf,
+        file_path: &Path,
         facts: &mut Vec<SymbolFact>,
         scope_stack: &mut ScopeStack,
         package_name: &str,
@@ -417,7 +417,7 @@ impl CppParser {
         &self,
         node: &tree_sitter::Node,
         source: &[u8],
-        file_path: &PathBuf,
+        file_path: &Path,
         scope_stack: &ScopeStack,
         package_name: &str,
     ) -> Option<SymbolFact> {
@@ -447,7 +447,7 @@ impl CppParser {
         let display_fqn = builder.display(scope_stack, symbol_kind.clone(), &name);
 
         Some(SymbolFact {
-            file_path: file_path.clone(),
+            file_path: file_path.to_path_buf(),
             kind: symbol_kind,
             kind_normalized: normalized_kind,
             name: Some(name.clone()),
@@ -485,7 +485,7 @@ impl CppParser {
         &self,
         node: &tree_sitter::Node,
         source: &[u8],
-        file_path: &PathBuf,
+        file_path: &Path,
         symbols: &[SymbolFact],
         references: &mut Vec<ReferenceFact>,
     ) {
@@ -502,7 +502,7 @@ impl CppParser {
         &self,
         node: &tree_sitter::Node,
         source: &[u8],
-        file_path: &PathBuf,
+        file_path: &Path,
         symbols: &[SymbolFact],
     ) -> Option<ReferenceFact> {
         if node.kind() != "identifier" && node.kind() != "type_identifier" {
@@ -522,7 +522,7 @@ impl CppParser {
         }
 
         Some(ReferenceFact {
-            file_path: file_path.clone(),
+            file_path: file_path.to_path_buf(),
             referenced_symbol: text.to_string(),
             byte_start: ref_start,
             byte_end: node.end_byte(),
@@ -573,7 +573,7 @@ impl CppParser {
         &self,
         node: &tree_sitter::Node,
         source: &[u8],
-        file_path: &PathBuf,
+        file_path: &Path,
         symbol_map: &std::collections::HashMap<String, &SymbolFact>,
         _functions: &[&SymbolFact],
         calls: &mut Vec<CallFact>,
@@ -585,7 +585,7 @@ impl CppParser {
         &self,
         node: &tree_sitter::Node,
         source: &[u8],
-        file_path: &PathBuf,
+        file_path: &Path,
         symbol_map: &std::collections::HashMap<String, &SymbolFact>,
         current_caller: Option<&SymbolFact>,
         calls: &mut Vec<CallFact>,
@@ -621,7 +621,7 @@ impl CppParser {
         &self,
         node: &tree_sitter::Node,
         source: &[u8],
-        file_path: &PathBuf,
+        file_path: &Path,
         caller: &SymbolFact,
         symbol_map: &std::collections::HashMap<String, &SymbolFact>,
         calls: &mut Vec<CallFact>,
@@ -632,7 +632,7 @@ impl CppParser {
                     let node_start = node.start_byte();
                     let node_end = node.end_byte();
                     let call_fact = CallFact {
-                        file_path: file_path.clone(),
+                        file_path: file_path.to_path_buf(),
                         caller: caller.name.clone().unwrap_or_default(),
                         callee: callee_name,
                         caller_symbol_id: None,
@@ -712,7 +712,7 @@ mod tests {
         let facts = parser.extract_symbols(PathBuf::from("test.cpp"), source);
 
         // Should extract namespace and nested class (flat structure)
-        assert!(facts.len() >= 1);
+        assert!(!facts.is_empty());
 
         let namespaces: Vec<_> = facts
             .iter()

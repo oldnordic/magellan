@@ -31,6 +31,7 @@ mod refresh_cmd;
 mod refs_cmd;
 mod registry_cmd;
 mod slice_cmd;
+mod source_inventory_cmd;
 mod status_cmd;
 mod verify_cmd;
 mod version;
@@ -855,6 +856,25 @@ fn main() -> ExitCode {
                     ExitCode::from(1)
                 }
             }
+        }
+        Ok(Command::SourceInventory {
+            db_path,
+            scan_dirs,
+            list_kind,
+            show_stale,
+            output_format,
+        }) => {
+            if let Err(e) = source_inventory_cmd::run_source_inventory(
+                db_path,
+                scan_dirs,
+                list_kind,
+                show_stale,
+                output_format,
+            ) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
         }
         Err(e) => {
             eprintln!("Error: {}", e);

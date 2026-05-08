@@ -28,7 +28,7 @@ fn test_execution_log_uses_shared_connection() {
     let tmp = tempfile::tempdir().unwrap();
     let db = tmp.path().join("test.db");
 
-    let mut graph = CodeGraph::open(&db).expect("open should succeed");
+    let graph = CodeGraph::open(&db).expect("open should succeed");
 
     let execution_id = "test-exec-1";
     graph

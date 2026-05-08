@@ -3,11 +3,11 @@
 use tempfile::TempDir;
 
 #[test]
-fn test_new_database_has_v12_schema() {
+fn test_new_database_has_v13_schema() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
 
-    // Open a new database (should create with v12)
+    // Open a new database (should create with v13)
     let _graph = magellan::CodeGraph::open(&db_path).unwrap();
 
     // Verify schema version
@@ -20,7 +20,7 @@ fn test_new_database_has_v12_schema() {
         )
         .unwrap();
 
-    assert_eq!(version, 12, "New databases should have schema version 12");
+    assert_eq!(version, 13, "New databases should have schema version 13");
 
     // Verify ast_nodes table exists
     let has_ast_table: bool = conn
@@ -119,10 +119,23 @@ fn test_new_database_has_v12_schema() {
         has_symbol_fts,
         "symbol_fts table should exist in new databases (v12)"
     );
+
+    // Verify source_documents table exists (v13 addition)
+    let has_source_inventory: bool = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='source_documents'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+    assert!(
+        has_source_inventory,
+        "source_documents table should exist in new databases (v13)"
+    );
 }
 
 #[test]
-fn test_fresh_database_creation_v12() {
+fn test_fresh_database_creation_v13() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("fresh.db");
 
@@ -142,7 +155,7 @@ fn test_fresh_database_creation_v12() {
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(version, 12);
+    assert_eq!(version, 13);
 
     // Check ast_nodes table
     let count: i64 = conn
@@ -168,6 +181,18 @@ fn test_fresh_database_creation_v12() {
         .unwrap();
     assert_eq!(count, 0); // Empty but exists
 
+    // Check source_documents table (v13)
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM source_documents", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(count, 0); // Empty but exists
+
+    // Check source_documents table (v13)
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM source_documents", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(count, 0); // Empty but exists
+
     // Check indexes
     let indexes: Vec<String> = conn
         .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_ast_%'")
@@ -181,11 +206,11 @@ fn test_fresh_database_creation_v12() {
     assert!(indexes.contains(&"idx_ast_nodes_span".to_string()));
 }
 
-/// Test that v4->v12 migration creates the required tables
+/// Test that v4->v13 migration creates the required tables
 #[test]
-fn test_migration_v4_to_v12_creates_required_tables() {
+fn test_migration_v4_to_v13_creates_required_tables() {
     let temp_dir = TempDir::new().unwrap();
-    let db_path = temp_dir.path().join("test_v4_to_v12.db");
+    let db_path = temp_dir.path().join("test_v4_to_v13.db");
 
     // Create a v4 database (without ast_nodes table)
     let conn = rusqlite::Connection::open(&db_path).unwrap();
@@ -211,7 +236,7 @@ fn test_migration_v4_to_v12_creates_required_tables() {
     let result = magellan::migrate_cmd::run_migrate(db_path.clone(), false, true).unwrap();
     assert!(result.success);
     assert_eq!(result.old_version, 4);
-    assert_eq!(result.new_version, 12);
+    assert_eq!(result.new_version, 13);
 
     // Verify ast_nodes table exists
     let conn = rusqlite::Connection::open(&db_path).unwrap();
@@ -301,12 +326,12 @@ fn test_migration_v4_to_v12_creates_required_tables() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(version, 12, "schema version should be 12 after migration");
+    assert_eq!(version, 13, "schema version should be 13 after migration");
 }
 
-/// Test that opening a v4 database auto-upgrades to v12
+/// Test that opening a v4 database auto-upgrades to v13
 #[test]
-fn test_opening_v4_database_auto_upgrades_to_v12() {
+fn test_opening_v4_database_auto_upgrades_to_v13() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test_v4_auto.db");
 
@@ -333,10 +358,10 @@ fn test_opening_v4_database_auto_upgrades_to_v12() {
     .unwrap();
     drop(conn);
 
-    // Open the database with CodeGraph (should auto-upgrade to v12)
+    // Open the database with CodeGraph (should auto-upgrade to v13)
     let _graph = magellan::CodeGraph::open(&db_path).unwrap();
 
-    // Verify schema version is now 12
+    // Verify schema version is now 13
     let conn = rusqlite::Connection::open(&db_path).unwrap();
     let version: i64 = conn
         .query_row(
@@ -347,8 +372,8 @@ fn test_opening_v4_database_auto_upgrades_to_v12() {
         .unwrap();
 
     assert_eq!(
-        version, 12,
-        "Opening v4 database should auto-upgrade to v12"
+        version, 13,
+        "Opening v4 database should auto-upgrade to v13"
     );
 
     // Verify ast_nodes table exists
@@ -419,5 +444,19 @@ fn test_opening_v4_database_auto_upgrades_to_v12() {
     assert!(
         has_geo_meta,
         "geo_index_meta table should be created during auto-upgrade (v11)"
+    );
+
+    // Verify source_documents table exists (v13)
+    let has_source_inventory: bool = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='source_documents'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+
+    assert!(
+        has_source_inventory,
+        "source_documents table should be created during auto-upgrade (v13)"
     );
 }

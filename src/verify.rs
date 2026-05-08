@@ -157,10 +157,10 @@ fn get_all_fs_files(root: &Path) -> Result<HashMap<PathBuf, String>> {
 
 /// Compute xxHash64 of file contents (must match `files::FileOps::compute_hash`)
 fn compute_hash(content: &[u8]) -> String {
-    use xxhash_rust::xxh64::Xxh64;
-    let mut hasher = Xxh64::new(0);
+    use xxhash_rust::xxh3::Xxh3;
+    let mut hasher = Xxh3::new();
     hasher.update(content);
-    format!("{:016x}", hasher.finish())
+    format!("{:032x}", hasher.digest())
 }
 
 /// Get current Unix timestamp in seconds

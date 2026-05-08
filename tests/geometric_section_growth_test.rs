@@ -101,7 +101,7 @@ fn watch_no_debug_output_in_normal_mode() {
 
     // Spawn magellan watch (daemon process - must kill it)
     let mut child = Command::new(env!("CARGO_BIN_EXE_magellan"))
-        .args(&[
+        .args([
             "watch",
             "--root",
             fixture_dir.to_str().unwrap(),
@@ -156,7 +156,7 @@ fn watch_returns_error_when_save_fails() {
 
     // Restore permissions for cleanup
     let mut perms = fs::metadata(&db_path).unwrap().permissions();
-    perms.set_readonly(false);
+    perms.set_readonly(true);
     let _ = fs::set_permissions(&db_path, perms);
 
     // Should have failed

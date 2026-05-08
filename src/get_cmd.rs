@@ -24,6 +24,10 @@ pub struct GetResponse {
     pub content: String,
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "CLI command surface: each arg maps to a flag"
+)]
 pub fn run_get(
     db_path: PathBuf,
     file_path: String,

@@ -402,19 +402,19 @@ fn populate_cross_file_refs(
     let references = match language {
         Some(crate::ingest::Language::Rust) => {
             let mut parser = Parser::new()?;
-            parser.extract_references(path_buf.clone(), source, &all_symbol_facts)
+            parser.extract_references(path_buf.clone(), source, all_symbol_facts)
         }
         Some(crate::ingest::Language::C) => {
             let mut parser = CParser::new()?;
-            parser.extract_references(path_buf.clone(), source, &all_symbol_facts)
+            parser.extract_references(path_buf.clone(), source, all_symbol_facts)
         }
         Some(crate::ingest::Language::Cpp) => {
             let mut parser = CppParser::new()?;
-            parser.extract_references(path_buf.clone(), source, &all_symbol_facts)
+            parser.extract_references(path_buf.clone(), source, all_symbol_facts)
         }
         Some(crate::ingest::Language::Java) => {
             let mut parser = JavaParser::new()?;
-            parser.extract_references(path_buf.clone(), source, &all_symbol_facts)
+            parser.extract_references(path_buf.clone(), source, all_symbol_facts)
         }
 
         // - Python: PythonParser::extract_references
@@ -831,7 +831,7 @@ pub enum CollisionField {
 }
 
 impl CollisionField {
-    pub fn from_str(value: &str) -> Option<Self> {
+    pub fn parse_field(value: &str) -> Option<Self> {
         match value {
             "fqn" => Some(CollisionField::Fqn),
             "display_fqn" => Some(CollisionField::DisplayFqn),
@@ -913,8 +913,10 @@ pub fn collision_groups(
         }
     }
 
+    type CandidateGroup = Vec<(i64, SymbolNode, Option<String>)>;
+
     // Filter to only groups with count > 1, sort by count desc, then value asc
-    let mut collision_groups: Vec<(String, Vec<(i64, SymbolNode, Option<String>)>)> = groups
+    let mut collision_groups: Vec<(String, CandidateGroup)> = groups
         .into_iter()
         .filter(|(_, candidates)| candidates.len() > 1)
         .collect();

@@ -208,6 +208,10 @@ impl BackendCapabilities {
     }
 
     /// Get all backends that are enabled in this build
+    #[allow(
+        clippy::vec_init_then_push,
+        reason = "conditional compilation makes vec![] macro awkward"
+    )]
     pub fn enabled_backends() -> Vec<BackendType> {
         let mut backends = Vec::new();
 
@@ -621,7 +625,7 @@ pub fn format_command_availability(backend_caps: &BackendCapabilities) -> String
         return output;
     }
 
-    output.push_str(&"Status: Enabled\n\n".to_string());
+    output.push_str("Status: Enabled\n\n");
 
     output.push_str(&format!("Available commands ({}):\n", available.len()));
     for cmd in &available {

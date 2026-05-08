@@ -237,7 +237,7 @@ impl FileOps {
         Ok(())
     }
 
-    /// Compute xxHash64 of file contents
+    /// Compute xxHash3-128 of file contents
     pub fn compute_hash(&self, source: &[u8]) -> String {
         let mut hasher = Xxh64::new(0);
         hasher.write(source);

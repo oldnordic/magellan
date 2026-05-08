@@ -54,7 +54,7 @@ fn test_scan_initial_flag_indexes_all_files_on_startup() {
 
     // Kill the process
     let _ = child.kill();
-    let output = child
+    let _output = child
         .wait_with_output()
         .expect("Failed to wait for process");
 

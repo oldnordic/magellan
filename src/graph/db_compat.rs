@@ -84,6 +84,7 @@ pub fn ensure_magellan_meta(
             ).map_err(|e| map_sqlite_query_err(db_path, e))?;
             ensure_geo_index_meta_schema(conn)?;
             ensure_symbol_fts_schema(conn)?;
+            ensure_source_inventory_schema(conn)?;
             Ok(())
         }
         Some((found_magellan, found_sqlitegraph)) => {
@@ -120,8 +121,12 @@ pub fn ensure_magellan_meta(
                             current_version = 11;
                         }
                         11 => {
-                            ensure_symbol_fts_schema(&conn)?;
+                            ensure_symbol_fts_schema(conn)?;
                             current_version = 12;
+                        }
+                        12 => {
+                            ensure_source_inventory_schema(conn)?;
+                            current_version = 13;
                         }
                         _ => {
                             return Err(DbCompatError::MagellanSchemaMismatch {
@@ -245,6 +250,46 @@ pub fn ensure_cfg_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatErro
         [],
     )
     .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    Ok(())
+}
+
+pub fn ensure_source_inventory_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS source_documents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            path_or_uri TEXT NOT NULL UNIQUE,
+            source_kind TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            observed_at INTEGER NOT NULL,
+            source_timestamp INTEGER,
+            title TEXT,
+            author TEXT,
+            tags TEXT,
+            wikilinks TEXT,
+            frontmatter TEXT
+        )",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_source_docs_path ON source_documents(path_or_uri)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_source_docs_hash ON source_documents(content_hash)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_source_docs_kind ON source_documents(source_kind)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
     Ok(())
 }
 
@@ -658,5 +703,30 @@ mod tests {
             )
             .unwrap();
         assert_eq!(edge_count, 1);
+    }
+
+    #[test]
+    fn test_source_inventory_schema_created() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        ensure_source_inventory_schema(&conn).unwrap();
+
+        let table_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='source_documents'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(table_count, 1);
+
+        // Verify indexes
+        let idx_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name LIKE 'idx_source_docs_%'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(idx_count, 3);
     }
 }

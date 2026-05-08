@@ -8,6 +8,9 @@ use rusqlite::params;
 
 use super::MetricsOps;
 
+/// Type alias for the progress callback used during backfill operations.
+pub type ProgressCallback = dyn Fn(usize, usize, &str) + Send + Sync;
+
 /// Result of a backfill operation
 #[derive(Debug, Clone)]
 pub struct BackfillResult {
@@ -32,7 +35,7 @@ impl MetricsOps {
     /// BackfillResult with total files processed and any errors
     pub fn backfill_all_metrics(
         &self,
-        progress: Option<&(dyn Fn(usize, usize, &str) + Send + Sync)>,
+        progress: Option<&ProgressCallback>,
     ) -> Result<BackfillResult> {
         // Collect file paths using with_conn to support Shared backend
         let files: Vec<String> = self.with_conn(|conn| {

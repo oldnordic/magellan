@@ -5,6 +5,7 @@
 use std::path::PathBuf;
 
 #[test]
+#[allow(deprecated)]
 fn test_symbol_fact_contains_line_column_spans() {
     // Verify that SymbolFact now includes line/column information
     let source = b"fn test_function() {}\n\nstruct TestStruct {}";
@@ -33,6 +34,7 @@ fn test_symbol_fact_contains_line_column_spans() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_reference_fact_contains_line_column_spans() {
     // Verify that ReferenceFact includes line/column information
     let source = b"fn foo() {}\nfn bar() { foo(); }";

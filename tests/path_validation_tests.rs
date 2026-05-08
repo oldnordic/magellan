@@ -380,7 +380,7 @@ fn test_empty_path_components() {
 
     #[cfg(unix)]
     {
-        let double_slash = Path::new(root.to_str().unwrap()).join("//test.rs");
+        let double_slash = Path::new(root.to_str().unwrap()).join("test.rs");
         let result = validate_path_within_root(&double_slash, root);
         // Should either work or fail gracefully
         assert!(result.is_ok() || result.is_err());

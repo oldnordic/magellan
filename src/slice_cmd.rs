@@ -7,7 +7,7 @@ use magellan::backend_router::{BackendType, MagellanBackend};
 use magellan::output::command::{SliceResponse, SliceStats, Span, SymbolMatch};
 use magellan::output::{output_json, JsonResponse, OutputFormat};
 use magellan::CodeGraph;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Resolved target information
 struct ResolvedTarget {
@@ -54,7 +54,7 @@ impl CliSliceDirection {
 fn resolve_target(
     backend: &MagellanBackend,
     graph: &mut CodeGraph,
-    db_path: &PathBuf,
+    db_path: &Path,
     target: &str,
 ) -> Result<ResolvedTarget> {
     let backend_type = MagellanBackend::detect_type(db_path);

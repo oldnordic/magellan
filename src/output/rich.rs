@@ -290,9 +290,9 @@ mod tests {
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
 
         // Empty arrays should be skipped (or empty when present)
-        assert!(value["before"].as_array().map_or(true, |a| a.is_empty()));
-        assert!(!value["selected"].as_array().map_or(true, |a| a.is_empty()));
-        assert!(value["after"].as_array().map_or(true, |a| a.is_empty()));
+        assert!(value["before"].as_array().is_none_or(|a| a.is_empty()));
+        assert!(!value["selected"].as_array().is_none_or(|a| a.is_empty()));
+        assert!(value["after"].as_array().is_none_or(|a| a.is_empty()));
     }
 
     #[test]

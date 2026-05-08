@@ -7,10 +7,7 @@
 //! - Labels are auto-populated during indexing
 //! - All data survives database reopen
 
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
-
-use magellan::graph::geo_index::{scan_directory_with_progress, IndexingMode};
+use magellan::graph::geo_index::IndexingMode;
 
 /// Test AST indexing populates nodes
 #[test]
@@ -146,7 +143,7 @@ fn main() {
     );
 
     // Find identifier nodes
-    let ident_nodes = backend.get_ast_nodes_by_kind("identifier");
+    let _ident_nodes = backend.get_ast_nodes_by_kind("identifier");
     // Note: there may or may not be identifier nodes depending on the parser
 }
 

@@ -248,7 +248,7 @@ fn test_get_candidates_multiple() {
 
     // Should find candidates (exact count depends on FQN computation)
     // Just verify the query doesn't error - empty result is valid for non-existent display_fqn
-    assert!(true, "Query should succeed without error");
+    // Query succeeded if we got here
 }
 
 #[test]

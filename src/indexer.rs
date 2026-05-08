@@ -118,6 +118,7 @@ macro_rules! debug_print {
         // Optimized out when debug-prints feature is disabled
         // Always return () to work in expression context
         {
+            #[allow(clippy::unused_unit)]
             ()
         }
     };

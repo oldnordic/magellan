@@ -386,6 +386,7 @@ fn strongly_connected_components(
     let mut components: Vec<Vec<i64>> = Vec::new();
     let mut node_to_component: AHashMap<i64, usize> = AHashMap::new();
 
+    #[allow(clippy::too_many_arguments)]
     fn strongconnect(
         v: i64,
         backend: &dyn GraphBackend,
@@ -1517,10 +1518,10 @@ mod tests {
 
     use std::sync::atomic::{AtomicU64, Ordering};
 
-    static TEST_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
+    static _TEST_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-    fn next_test_dir() -> std::path::PathBuf {
-        let n = TEST_DIR_COUNTER.fetch_add(1, Ordering::SeqCst);
+    fn _next_test_dir() -> std::path::PathBuf {
+        let n = _TEST_DIR_COUNTER.fetch_add(1, Ordering::SeqCst);
         std::env::temp_dir().join(format!("magellan_test_{}_{}", std::process::id(), n))
     }
 
@@ -1699,7 +1700,7 @@ fn unused_function() {
         let entity_ids = graph.calls.backend.entity_ids().unwrap();
 
         // We should have some entities in the call graph
-        assert!(entity_ids.len() > 0, "Should have call graph entities");
+        assert!(!entity_ids.is_empty(), "Should have call graph entities");
     }
 
     #[test]
@@ -1710,6 +1711,6 @@ fn unused_function() {
         let entity_ids = graph.calls.backend.entity_ids().unwrap();
 
         // We should have some entities in the call graph
-        assert!(entity_ids.len() > 0, "Should have call graph entities");
+        assert!(!entity_ids.is_empty(), "Should have call graph entities");
     }
 }

@@ -153,7 +153,7 @@ fn count_control_flow_nodes(function_node: tree_sitter::Node) -> usize {
 }
 
 /// Measure database query time for pre-stored CFG
-fn measure_db_query_time(db_path: &PathBuf, _symbol_name: &str) -> f64 {
+fn _measure_db_query_time(db_path: &PathBuf, _symbol_name: &str) -> f64 {
     use magellan::CodeGraph;
 
     let start = Instant::now();
@@ -332,6 +332,7 @@ fn test_function() {
 
 /// Simplified CFG block for testing
 #[derive(Debug)]
+#[allow(dead_code)]
 struct TestCfgBlock {
     id: usize,
     kind: String,

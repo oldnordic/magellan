@@ -21,7 +21,8 @@ use std::path::{Path, PathBuf};
 /// v10: cfg_blocks 4D spatial-temporal coordinate columns
 /// v11: geo_index_meta table for lazy geometric index tracking
 /// v12: symbol_fts FTS5 virtual table for fast symbol search
-pub const MAGELLAN_SCHEMA_VERSION: i64 = 12;
+/// v13: source_documents table for graph memory source inventory
+pub const MAGELLAN_SCHEMA_VERSION: i64 = 13;
 
 /// Migration result summary
 #[derive(Debug, Clone)]

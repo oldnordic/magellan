@@ -8,8 +8,6 @@
 mod harness {
     use std::path::Path;
     use std::process::Command;
-    use std::thread;
-    use std::time::Duration;
 
     /// Paths to installed binaries
     fn magellan_bin() -> &'static str {
@@ -263,7 +261,7 @@ fn main() {
         println!("   ✓ llmgrep found 'factorial'");
 
         // llmgrep with path filter
-        let llmgrep_path = Command::new(llmgrep_bin())
+        let _llmgrep_path = Command::new(llmgrep_bin())
             .arg("--db")
             .arg(&db_path)
             .arg("search")
@@ -309,7 +307,7 @@ fn main() {
         println!("   ✓ Mirage cfg completed");
 
         // Mirage loops
-        let mirage_loops = Command::new(mirage_bin())
+        let _mirage_loops = Command::new(mirage_bin())
             .arg("loops")
             .arg("--db")
             .arg(&db_path)
@@ -386,7 +384,7 @@ fn geo_database_is_shareable_between_tools() {
         .output()
         .expect("Magellan status failed");
 
-    let llmgrep = Command::new("/home/feanor/.local/bin/llmgrep")
+    let _llmgrep = Command::new("/home/feanor/.local/bin/llmgrep")
         .arg("--db")
         .arg(&db_path)
         .arg("search")
@@ -412,6 +410,9 @@ fn geo_database_is_shareable_between_tools() {
 /// Empty test suite when geometric-backend is disabled
 #[cfg(not(feature = "geometric-backend"))]
 mod tests {
+    #[allow(unused_imports)]
+    use super::*;
+
     #[test]
     fn geometric_backend_disabled() {
         // Placeholder

@@ -1137,7 +1137,7 @@ pub struct SliceStats {
 
 impl OutputFormat {
     /// Parse from string
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "human" | "text" => Some(OutputFormat::Human),
             "json" => Some(OutputFormat::Json),
@@ -1267,13 +1267,13 @@ mod tests {
 
     #[test]
     fn test_output_format_from_str() {
-        assert_eq!(OutputFormat::from_str("json"), Some(OutputFormat::Json));
-        assert_eq!(OutputFormat::from_str("JSON"), Some(OutputFormat::Json));
-        assert_eq!(OutputFormat::from_str("pretty"), Some(OutputFormat::Pretty));
-        assert_eq!(OutputFormat::from_str("PRETTY"), Some(OutputFormat::Pretty));
-        assert_eq!(OutputFormat::from_str("human"), Some(OutputFormat::Human));
-        assert_eq!(OutputFormat::from_str("text"), Some(OutputFormat::Human));
-        assert_eq!(OutputFormat::from_str("invalid"), None);
+        assert_eq!(OutputFormat::parse("json"), Some(OutputFormat::Json));
+        assert_eq!(OutputFormat::parse("JSON"), Some(OutputFormat::Json));
+        assert_eq!(OutputFormat::parse("pretty"), Some(OutputFormat::Pretty));
+        assert_eq!(OutputFormat::parse("PRETTY"), Some(OutputFormat::Pretty));
+        assert_eq!(OutputFormat::parse("human"), Some(OutputFormat::Human));
+        assert_eq!(OutputFormat::parse("text"), Some(OutputFormat::Human));
+        assert_eq!(OutputFormat::parse("invalid"), None);
     }
 
     #[test]
@@ -1936,8 +1936,8 @@ mod tests {
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
 
         // Rich fields should appear when set
-        assert!(!value.get("context").is_none() && !value["context"].is_null());
-        assert!(!value.get("semantics").is_none() && !value["semantics"].is_null());
+        assert!(value.get("context").is_some() && !value["context"].is_null());
+        assert!(value.get("semantics").is_some() && !value["semantics"].is_null());
         assert_eq!(value["semantics"]["kind"], "function");
         assert_eq!(value["semantics"]["language"], "rust");
     }

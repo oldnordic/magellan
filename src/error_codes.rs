@@ -143,7 +143,7 @@ mod tests {
 
             // Verify category is 1-3 uppercase letters
             assert!(
-                parts[1].len() >= 1 && parts[1].len() <= 3,
+                !parts[1].is_empty() && parts[1].len() <= 3,
                 "Category must be 1-3 chars: {}",
                 code
             );

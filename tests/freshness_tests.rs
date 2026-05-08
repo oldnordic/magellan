@@ -10,11 +10,11 @@
 
 use magellan::CodeGraph;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
 /// Helper to create a test file with content
-fn create_test_file(dir: &PathBuf, name: &str, content: &str) -> PathBuf {
+fn create_test_file(dir: &Path, name: &str, content: &str) -> PathBuf {
     let path = dir.join(name);
     fs::write(&path, content).unwrap();
     path

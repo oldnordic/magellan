@@ -76,6 +76,10 @@ fn print_export_summary(
 ///
 /// # Returns
 /// Result indicating success or failure
+#[allow(
+    clippy::too_many_arguments,
+    reason = "CLI command surface: each arg maps to a flag"
+)]
 pub fn run_export(
     db_path: PathBuf,
     format: ExportFormat,

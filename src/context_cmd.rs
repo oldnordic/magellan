@@ -101,7 +101,7 @@ pub fn run_context_list(
     // Sort by project then name for consistent output
     all_items.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.name.cmp(&b.1.name)));
 
-    let total_pages = (total_items + size - 1) / size;
+    let total_pages = total_items.div_ceil(size);
     let start = ((page_num.saturating_sub(1)) * size).min(total_items);
     let end = (start + size).min(total_items);
     let page_items: Vec<_> = all_items[start..end].to_vec();
@@ -176,6 +176,10 @@ pub fn run_context_list(
 }
 
 /// Run the context symbol command
+#[allow(
+    clippy::too_many_arguments,
+    reason = "CLI command surface: each arg maps to a flag"
+)]
 pub fn run_context_symbol(
     db_paths: Vec<PathBuf>,
     name: String,

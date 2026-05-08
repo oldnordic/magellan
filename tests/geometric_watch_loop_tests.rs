@@ -8,7 +8,7 @@ mod tests {
     use std::path::Path;
 
     /// Helper: Create a temporary test directory with some Rust files
-    fn create_test_project(dir: &Path) -> std::io::Result<()> {
+    fn _create_test_project(dir: &Path) -> std::io::Result<()> {
         std::fs::create_dir_all(dir.join("src"))?;
         std::fs::write(
             dir.join("src/lib.rs"),

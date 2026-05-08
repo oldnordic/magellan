@@ -1,7 +1,7 @@
 //! Tests for graph module
 
 #[cfg(test)]
-mod tests {
+mod graph_tests {
 
     #[test]
     fn test_hash_computation() {
@@ -161,7 +161,7 @@ mod pragma_tests {
         // Default is 0 (DEFAULT), we set 2 (MEMORY)
         // Since it's not persistent, we just verify it's in valid range
         assert!(
-            temp_store >= 0 && temp_store <= 2,
+            (0..=2).contains(&temp_store),
             "temp_store should be 0-2, got {}",
             temp_store
         );

@@ -6,7 +6,7 @@ use crate::graph::canonical_fqn::FqnBuilder;
 use crate::ingest::{ScopeSeparator, ScopeStack, SymbolFact, SymbolKind};
 use crate::references::{CallFact, ReferenceFact};
 use anyhow::Result;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Parser that extracts symbol facts from C source code.
 ///
@@ -85,7 +85,7 @@ impl CParser {
         &self,
         node: &tree_sitter::Node,
         source: &[u8],
-        file_path: &PathBuf,
+        file_path: &Path,
         package_name: &str,
     ) -> Option<SymbolFact> {
         let kind = node.kind();
@@ -121,7 +121,7 @@ impl CParser {
         // C has no namespaces/packages, FQN is just the symbol name
         let fqn = name.clone();
         Some(SymbolFact {
-            file_path: file_path.clone(),
+            file_path: file_path.to_path_buf(),
             kind: symbol_kind,
             kind_normalized: normalized_kind,
             name,
@@ -219,7 +219,7 @@ impl CParser {
     fn extract_symbol_static(
         node: &tree_sitter::Node,
         source: &[u8],
-        file_path: &PathBuf,
+        file_path: &Path,
         package_name: &str,
     ) -> Option<SymbolFact> {
         let kind = node.kind();
@@ -255,7 +255,7 @@ impl CParser {
         // C has no namespaces/packages, FQN is just the symbol name
         let fqn = name.clone();
         Some(SymbolFact {
-            file_path: file_path.clone(),
+            file_path: file_path.to_path_buf(),
             kind: symbol_kind,
             kind_normalized: normalized_kind,
             name,
@@ -335,7 +335,7 @@ impl CParser {
         &self,
         node: &tree_sitter::Node,
         source: &[u8],
-        file_path: &PathBuf,
+        file_path: &Path,
         symbols: &[SymbolFact],
     ) -> Option<ReferenceFact> {
         if node.kind() != "identifier" && node.kind() != "type_identifier" {
@@ -355,7 +355,7 @@ impl CParser {
         }
 
         Some(ReferenceFact {
-            file_path: file_path.clone(),
+            file_path: file_path.to_path_buf(),
             referenced_symbol: text.to_string(),
             byte_start: ref_start,
             byte_end: node.end_byte(),
@@ -454,7 +454,7 @@ impl CParser {
         &self,
         node: &tree_sitter::Node,
         source: &[u8],
-        file_path: &PathBuf,
+        file_path: &Path,
         caller: &SymbolFact,
         symbol_map: &std::collections::HashMap<String, &SymbolFact>,
         calls: &mut Vec<CallFact>,
@@ -465,7 +465,7 @@ impl CParser {
                     let node_start = node.start_byte();
                     let node_end = node.end_byte();
                     let call_fact = CallFact {
-                        file_path: file_path.clone(),
+                        file_path: file_path.to_path_buf(),
                         caller: caller.name.clone().unwrap_or_default(),
                         callee: callee_name,
                         caller_symbol_id: None,

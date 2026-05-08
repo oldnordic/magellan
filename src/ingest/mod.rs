@@ -15,7 +15,7 @@ pub use imports::{ImportFact, ImportKind};
 
 use crate::common::safe_slice;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Represents a trait implementation relationship extracted from source.
 ///
@@ -93,7 +93,7 @@ impl SymbolKind {
     ///
     /// Accepts both the enum variant names (e.g., "Function", "Method")
     /// and normalized keys (e.g., "fn", "method").
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s {
             // Enum variant names (from Debug format)
             "Function" => Some(SymbolKind::Function),
@@ -617,7 +617,7 @@ impl Parser {
     fn extract_symbol_with_fqn_static(
         node: &tree_sitter::Node,
         source: &[u8],
-        file_path: &PathBuf,
+        file_path: &Path,
         scope_stack: &ScopeStack,
         crate_name: &str,
     ) -> Option<SymbolFact> {
@@ -651,7 +651,7 @@ impl Parser {
         let display_fqn = builder.display(scope_stack, symbol_kind.clone(), &name);
 
         Some(SymbolFact {
-            file_path: file_path.clone(),
+            file_path: file_path.to_path_buf(),
             kind: symbol_kind,
             kind_normalized: normalized_kind,
             name: Some(name),
@@ -712,7 +712,7 @@ impl Parser {
     pub fn extract_impl_relations_static(
         tree: &tree_sitter::Tree,
         source: &[u8],
-        file_path: &PathBuf,
+        file_path: &Path,
     ) -> Vec<ImplRelation> {
         let mut relations = Vec::new();
 
@@ -926,7 +926,7 @@ impl Parser {
         &self,
         node: &tree_sitter::Node,
         source: &[u8],
-        file_path: &PathBuf,
+        file_path: &Path,
         scope_stack: &ScopeStack,
         crate_name: &str,
     ) -> Option<SymbolFact> {
@@ -960,7 +960,7 @@ impl Parser {
         let display_fqn = builder.display(scope_stack, symbol_kind.clone(), &name);
 
         Some(SymbolFact {
-            file_path: file_path.clone(),
+            file_path: file_path.to_path_buf(),
             kind: symbol_kind,
             kind_normalized: normalized_kind,
             name: Some(name),
@@ -1009,7 +1009,7 @@ impl Parser {
     /// In tree-sitter Rust grammar:
     /// - Inherent impl: `impl StructName` -> has `type:` field pointing to StructName
     /// - Trait impl: `impl Trait for StructName` -> has `trait:` field (Trait) and `type:` field (StructName)
-    /// The `type:` field ALWAYS contains the struct name being implemented.
+    ///   The `type:` field ALWAYS contains the struct name being implemented.
     fn extract_impl_name(&self, node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
         // Access the 'type' field which always contains the struct name
         let type_node = node.child_by_field_name("type")?;

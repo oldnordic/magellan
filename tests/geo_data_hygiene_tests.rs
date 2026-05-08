@@ -101,7 +101,7 @@ mod tests {
         let (_dir, db_path) = temp_db_path();
         let backend = GeometricBackend::create(&db_path).expect("Should create DB");
 
-        let files = vec!["/test/src/a.rs", "/test/src/b.rs", "/test/src/c.rs"];
+        let files = ["/test/src/a.rs", "/test/src/b.rs", "/test/src/c.rs"];
 
         // First index pass - 1 symbol per file
         for (idx, file) in files.iter().enumerate() {
@@ -119,7 +119,7 @@ mod tests {
 
         // Simulate re-index of same tree
         for (idx, file) in files.iter().enumerate() {
-            backend.clear_file_data(*file).expect("Should clear");
+            backend.clear_file_data(file).expect("Should clear");
             let symbols = vec![make_symbol(
                 &format!("func_{}", idx),
                 &format!("test::func_{}", idx),
@@ -279,7 +279,7 @@ mod tests {
         let (_dir, db_path) = temp_db_path();
         let backend = GeometricBackend::create(&db_path).expect("Should create DB");
 
-        let files = vec!["/test/src/a.rs", "/test/src/b.rs", "/test/src/c.rs"];
+        let files = ["/test/src/a.rs", "/test/src/b.rs", "/test/src/c.rs"];
 
         // Insert symbols in all files
         for (idx, file) in files.iter().enumerate() {

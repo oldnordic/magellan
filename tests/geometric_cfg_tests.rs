@@ -7,8 +7,8 @@
 use std::path::PathBuf;
 use tempfile::tempdir;
 
-use magellan::graph::geometric_backend::{GeometricBackend, InsertSymbol};
-use magellan::ingest::{Language, SymbolKind};
+use magellan::graph::geometric_backend::GeometricBackend;
+use magellan::ingest::Language;
 
 /// Test helper: create a temp .geo database path
 fn temp_geo_path() -> (tempfile::TempDir, PathBuf) {

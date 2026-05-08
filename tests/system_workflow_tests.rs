@@ -287,7 +287,7 @@ impl DataProcessor {
 
         // Should be able to analyze without panic
         if !entry_ids.is_empty() {
-            let dead_code = backend.dead_code_from_entries(&entry_ids);
+            let _dead_code = backend.dead_code_from_entries(&entry_ids);
             // Just verify it returns something (could be empty if everything is reachable)
             // The important thing is it doesn't panic
         }
@@ -312,7 +312,7 @@ impl DataProcessor {
 
         // Reopen and verify CFG data exists
         let backend = GeometricBackend::open(&db_path).expect("Failed to reopen");
-        let stats = backend.get_geometric_stats();
+        let _stats = backend.get_geometric_stats();
 
         // CFG data should exist in CfgFirst mode
         // Note: CFG count may vary based on parsing, but should generally have data

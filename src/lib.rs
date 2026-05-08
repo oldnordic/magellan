@@ -69,6 +69,11 @@ pub use generation::{ChunkStore, CodeChunk};
 pub use graph::filter::FileFilter;
 pub use graph::query::{cross_file_references_to, SymbolQueryResult};
 pub use graph::scan::ScanResult;
+pub use graph::source_inventory::{
+    compute_hash, ensure_schema, extract_frontmatter, extract_metadata, extract_tags,
+    extract_title, extract_wikilinks, find_stale, insert_or_update, list_by_kind,
+    parse_frontmatter, scan_directory, scan_file, ExtractedMetadata, SourceDocument,
+};
 pub use graph::test_helpers::{delete_file_facts_with_injection, FailPoint};
 pub use graph::CrossFileRef;
 pub use graph::{

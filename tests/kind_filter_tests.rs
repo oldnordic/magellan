@@ -5,6 +5,7 @@
 use std::path::PathBuf;
 
 #[test]
+#[allow(deprecated)]
 fn test_symbols_in_file_filters_by_kind() {
     // Verify that symbols_in_file can filter by symbol kind
     let source = b"fn test_function() {}\nstruct TestStruct {}\nenum TestEnum {}";
@@ -33,6 +34,7 @@ fn test_symbols_in_file_filters_by_kind() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_symbols_in_file_with_none_returns_all() {
     // Verify that passing None as kind returns all symbols
     let source = b"fn foo() {}\nstruct Bar {}";

@@ -36,6 +36,10 @@ Examples:
   magellan query --db mag.db --file src/lib.rs --symbol main --show-extent
   magellan find  --db mag.db --list-glob \"handler_*\""#;
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "CLI command surface: each arg maps to a flag"
+)]
 pub fn run_query(
     db_path: PathBuf,
     file_path: Option<PathBuf>,
@@ -288,6 +292,10 @@ pub fn run_query(
 }
 
 /// Output query results in JSON format
+#[allow(
+    clippy::too_many_arguments,
+    reason = "JSON output needs all query parameters"
+)]
 fn output_json_mode(
     path_str: &str,
     mut symbols_with_ids: Vec<(SymbolFact, Option<String>)>,
