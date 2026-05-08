@@ -195,6 +195,21 @@ impl CParser {
         facts
     }
 
+    /// Extract symbol facts from a pre-parsed tree.
+    ///
+    /// Avoids re-parsing when the tree is already available.
+    pub fn extract_symbols_from_tree(
+        tree: &tree_sitter::Tree,
+        file_path: PathBuf,
+        source: &[u8],
+    ) -> Vec<SymbolFact> {
+        let root_node = tree.root_node();
+        let mut facts = Vec::new();
+        let package_name = ".";
+        Self::walk_tree_static(&root_node, source, &file_path, package_name, &mut facts);
+        facts
+    }
+
     /// Static version of walk_tree for external parser usage.
     fn walk_tree_static(
         node: &tree_sitter::Node,

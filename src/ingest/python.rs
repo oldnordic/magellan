@@ -225,6 +225,29 @@ impl PythonParser {
         facts
     }
 
+    /// Extract symbol facts from a pre-parsed tree.
+    ///
+    /// Avoids re-parsing when the tree is already available.
+    pub fn extract_symbols_from_tree(
+        tree: &tree_sitter::Tree,
+        file_path: PathBuf,
+        source: &[u8],
+    ) -> Vec<SymbolFact> {
+        let root_node = tree.root_node();
+        let mut facts = Vec::new();
+        let mut scope_stack = ScopeStack::new(ScopeSeparator::Dot);
+        let package_name = ".";
+        Self::walk_tree_with_scope_static(
+            &root_node,
+            source,
+            &file_path,
+            &mut facts,
+            &mut scope_stack,
+            package_name,
+        );
+        facts
+    }
+
     /// Static version of walk_tree_with_scope for external parser usage.
     fn walk_tree_with_scope_static(
         node: &tree_sitter::Node,

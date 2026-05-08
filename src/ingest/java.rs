@@ -311,6 +311,51 @@ impl JavaParser {
         facts
     }
 
+    /// Extract symbol facts from a pre-parsed tree.
+    ///
+    /// Avoids re-parsing when the tree is already available.
+    pub fn extract_symbols_from_tree(
+        tree: &tree_sitter::Tree,
+        file_path: PathBuf,
+        source: &[u8],
+    ) -> Vec<SymbolFact> {
+        let root_node = tree.root_node();
+        let mut facts = Vec::new();
+        let mut scope_stack = ScopeStack::new(ScopeSeparator::Dot);
+        let mut pkg_name = String::new();
+        let mut cursor = root_node.walk();
+        for child in root_node.children(&mut cursor) {
+            if child.kind() == "package_declaration" {
+                if let Some(name) = Self::extract_name_static(&child, source, "package_declaration")
+                {
+                    pkg_name = name.clone();
+                    if let Some(fact) = Self::extract_symbol_with_fqn_static(
+                        &child,
+                        source,
+                        &file_path,
+                        &scope_stack,
+                        &pkg_name,
+                    ) {
+                        facts.push(fact);
+                    }
+                    for part in pkg_name.split('.') {
+                        scope_stack.push(part);
+                    }
+                }
+                break;
+            }
+        }
+        Self::walk_tree_with_scope_static(
+            &root_node,
+            source,
+            &file_path,
+            &mut facts,
+            &mut scope_stack,
+            &pkg_name,
+        );
+        facts
+    }
+
     /// Static version of walk_tree_with_scope for external parser usage.
     fn walk_tree_with_scope_static(
         node: &tree_sitter::Node,
