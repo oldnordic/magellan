@@ -23,11 +23,10 @@
 use anyhow::Result;
 use sqlitegraph::{GraphBackend, NodeId, NodeSpec, SnapshotId};
 use std::collections::HashMap;
-use std::hash::Hasher;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use xxhash_rust::xxh64::Xxh64;
+use xxhash_rust::xxh3::Xxh3;
 
 use crate::graph::schema::FileNode;
 use crate::ingest::{SymbolFact, SymbolKind};
@@ -239,9 +238,9 @@ impl FileOps {
 
     /// Compute xxHash3-128 of file contents
     pub fn compute_hash(&self, source: &[u8]) -> String {
-        let mut hasher = Xxh64::new(0);
-        hasher.write(source);
-        format!("{:016x}", hasher.finish())
+        let mut hasher = Xxh3::new();
+        hasher.update(source);
+        format!("{:032x}", hasher.digest())
     }
 
     /// Convert a symbol node to SymbolFact
@@ -361,7 +360,7 @@ mod tests {
         let hash2 = ops.compute_hash(data);
 
         assert_eq!(hash1, hash2, "Hash should be deterministic");
-        assert_eq!(hash1.len(), 16, "xxHash64 produces 16 hex chars");
+        assert_eq!(hash1.len(), 32, "xxHash3-128 produces 32 hex chars");
     }
 
     #[test]

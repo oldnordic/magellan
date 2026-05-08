@@ -5,17 +5,16 @@
 //! - title (first `# ` heading or frontmatter `title` field)
 //! - wikilinks (`[[...]]` pattern)
 //! - tags (frontmatter `tags` or `#tag` inline patterns)
-//! - content hash (xxHash64 for change detection)
+//! - content hash (xxHash3-128 for change detection)
 //!
 //! No LLM extraction. No candidate facts. Just source inventory.
 
 use anyhow::{Context, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashSet;
-use std::hash::Hasher;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
-use xxhash_rust::xxh64::Xxh64;
+use xxhash_rust::xxh3::Xxh3;
 
 /// A source document tracked for graph memory extraction.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
@@ -67,11 +66,11 @@ pub struct ScanResult {
     pub errors: Vec<String>,
 }
 
-/// Compute xxHash64 of content.
+/// Compute xxHash3-128 of content.
 pub fn compute_hash(content: &[u8]) -> String {
-    let mut hasher = Xxh64::new(0);
-    hasher.write(content);
-    format!("{:016x}", hasher.finish())
+    let mut hasher = Xxh3::new();
+    hasher.update(content);
+    format!("{:032x}", hasher.digest())
 }
 
 /// Extract YAML frontmatter from markdown content.
@@ -572,7 +571,7 @@ mod tests {
         let h1 = compute_hash(data);
         let h2 = compute_hash(data);
         assert_eq!(h1, h2);
-        assert_eq!(h1.len(), 16); // xxHash64 = 16 hex chars
+        assert_eq!(h1.len(), 32); // xxHash3-128 = 32 hex chars
     }
 
     #[test]

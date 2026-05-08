@@ -9,8 +9,8 @@ mod graph_tests {
         let source = b"fn test() {}";
         let hash = graph.files.compute_hash(source);
 
-        // xxHash64 hash should be 16 hex characters
-        assert_eq!(hash.len(), 16);
+        // xxHash3-128 hash should be 32 hex characters
+        assert_eq!(hash.len(), 32);
 
         // Same input should produce same hash
         let hash2 = graph.files.compute_hash(source);
