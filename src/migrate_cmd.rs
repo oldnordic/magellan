@@ -22,7 +22,8 @@ use std::path::{Path, PathBuf};
 /// v11: geo_index_meta table for lazy geometric index tracking
 /// v12: symbol_fts FTS5 virtual table for fast symbol search
 /// v13: source_documents table for graph memory source inventory
-pub const MAGELLAN_SCHEMA_VERSION: i64 = 13;
+/// v14: candidate_facts table for graph memory candidate staging
+pub const MAGELLAN_SCHEMA_VERSION: i64 = 14;
 
 /// Migration result summary
 #[derive(Debug, Clone)]
@@ -315,6 +316,57 @@ fn migrate_from_version(tx: &Transaction, old_version: i64) -> Result<()> {
         // FTS5 indexes the 'name' column from graph_entities for prefix/full-text search
         tx.execute(
             "CREATE VIRTUAL TABLE IF NOT EXISTS symbol_fts USING fts5(\n                name,\n                content='graph_entities',\n                content_rowid='id'\n            )",
+            [],
+        )?;
+    }
+
+    if old_version < 13 {
+        // v12 -> v13: Add source_documents table for graph memory source inventory
+        tx.execute(
+            "CREATE TABLE IF NOT EXISTS source_documents (\n                id INTEGER PRIMARY KEY AUTOINCREMENT,\n                path_or_uri TEXT NOT NULL UNIQUE,\n                source_kind TEXT NOT NULL,\n                content_hash TEXT NOT NULL,\n                observed_at INTEGER NOT NULL,\n                source_timestamp INTEGER,\n                title TEXT,\n                author TEXT,\n                tags TEXT,\n                wikilinks TEXT,\n                frontmatter TEXT\n            )",
+            [],
+        )?;
+
+        tx.execute(
+            "CREATE INDEX IF NOT EXISTS idx_source_docs_path ON source_documents(path_or_uri)",
+            [],
+        )?;
+
+        tx.execute(
+            "CREATE INDEX IF NOT EXISTS idx_source_docs_hash ON source_documents(content_hash)",
+            [],
+        )?;
+
+        tx.execute(
+            "CREATE INDEX IF NOT EXISTS idx_source_docs_kind ON source_documents(source_kind)",
+            [],
+        )?;
+    }
+
+    if old_version < 14 {
+        // v13 -> v14: Add candidate_facts table for graph memory candidate staging
+        tx.execute(
+            "CREATE TABLE IF NOT EXISTS candidate_facts (\n                id INTEGER PRIMARY KEY AUTOINCREMENT,\n                candidate_id TEXT NOT NULL UNIQUE,\n                source_document_id INTEGER NOT NULL,\n                subject_type TEXT NOT NULL,\n                subject_key TEXT NOT NULL,\n                predicate TEXT NOT NULL,\n                object_type TEXT,\n                object_key TEXT,\n                properties_json TEXT NOT NULL,\n                status TEXT NOT NULL DEFAULT 'pending',\n                rejection_reason TEXT,\n                created_at INTEGER NOT NULL,\n                reviewed_at INTEGER,\n                FOREIGN KEY (source_document_id) REFERENCES source_documents(id)\n            )",
+            [],
+        )?;
+
+        tx.execute(
+            "CREATE INDEX IF NOT EXISTS idx_candidate_facts_status ON candidate_facts(status)",
+            [],
+        )?;
+
+        tx.execute(
+            "CREATE INDEX IF NOT EXISTS idx_candidate_facts_source ON candidate_facts(source_document_id)",
+            [],
+        )?;
+
+        tx.execute(
+            "CREATE INDEX IF NOT EXISTS idx_candidate_facts_predicate ON candidate_facts(predicate)",
+            [],
+        )?;
+
+        tx.execute(
+            "CREATE INDEX IF NOT EXISTS idx_candidate_facts_status_created ON candidate_facts(status, created_at)",
             [],
         )?;
     }

@@ -21,6 +21,8 @@
 pub mod algorithms;
 pub mod ambiguity;
 pub mod backend;
+pub mod candidate_fact;
+pub mod ontology;
 pub mod source_inventory;
 // pub mod memory_graph;
 
@@ -120,8 +122,8 @@ pub use bytecode_cfg::JavaBytecodeCfgExtractor;
 pub use cache::CacheStats;
 pub use db_compat::MAGELLAN_SCHEMA_VERSION;
 pub use db_compat::{
-    ensure_ast_schema, ensure_cfg_schema, ensure_coverage_schema, ensure_source_inventory_schema,
-    CFG_EDGE,
+    ensure_ast_schema, ensure_candidate_fact_schema, ensure_cfg_schema, ensure_coverage_schema,
+    ensure_source_inventory_schema, CFG_EDGE,
 };
 pub use execution_log::ExecutionLog;
 pub use export::{ExportConfig, ExportFormat};
@@ -376,6 +378,10 @@ impl CodeGraph {
                 )
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 db_compat::ensure_source_inventory_schema(
+                    &side_conn_arc.lock().unwrap_or_else(|e| e.into_inner()),
+                )
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                db_compat::ensure_candidate_fact_schema(
                     &side_conn_arc.lock().unwrap_or_else(|e| e.into_inner()),
                 )
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?;

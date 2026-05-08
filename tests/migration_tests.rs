@@ -20,7 +20,7 @@ fn test_new_database_has_v13_schema() {
         )
         .unwrap();
 
-    assert_eq!(version, 13, "New databases should have schema version 13");
+    assert_eq!(version, 14, "New databases should have schema version 14");
 
     // Verify ast_nodes table exists
     let has_ast_table: bool = conn
@@ -132,10 +132,23 @@ fn test_new_database_has_v13_schema() {
         has_source_inventory,
         "source_documents table should exist in new databases (v13)"
     );
+
+    // Verify candidate_facts table exists (v14 addition)
+    let has_candidate_facts: bool = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='candidate_facts'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+    assert!(
+        has_candidate_facts,
+        "candidate_facts table should exist in new databases (v14)"
+    );
 }
 
 #[test]
-fn test_fresh_database_creation_v13() {
+fn test_fresh_database_creation_v14() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("fresh.db");
 
@@ -155,7 +168,7 @@ fn test_fresh_database_creation_v13() {
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(version, 13);
+    assert_eq!(version, 14);
 
     // Check ast_nodes table
     let count: i64 = conn
@@ -187,9 +200,9 @@ fn test_fresh_database_creation_v13() {
         .unwrap();
     assert_eq!(count, 0); // Empty but exists
 
-    // Check source_documents table (v13)
+    // Check candidate_facts table (v14)
     let count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM source_documents", [], |r| r.get(0))
+        .query_row("SELECT COUNT(*) FROM candidate_facts", [], |r| r.get(0))
         .unwrap();
     assert_eq!(count, 0); // Empty but exists
 
@@ -206,11 +219,11 @@ fn test_fresh_database_creation_v13() {
     assert!(indexes.contains(&"idx_ast_nodes_span".to_string()));
 }
 
-/// Test that v4->v13 migration creates the required tables
+/// Test that v4->v14 migration creates the required tables
 #[test]
-fn test_migration_v4_to_v13_creates_required_tables() {
+fn test_migration_v4_to_v14_creates_required_tables() {
     let temp_dir = TempDir::new().unwrap();
-    let db_path = temp_dir.path().join("test_v4_to_v13.db");
+    let db_path = temp_dir.path().join("test_v4_to_v14.db");
 
     // Create a v4 database (without ast_nodes table)
     let conn = rusqlite::Connection::open(&db_path).unwrap();
@@ -236,7 +249,7 @@ fn test_migration_v4_to_v13_creates_required_tables() {
     let result = magellan::migrate_cmd::run_migrate(db_path.clone(), false, true).unwrap();
     assert!(result.success);
     assert_eq!(result.old_version, 4);
-    assert_eq!(result.new_version, 13);
+    assert_eq!(result.new_version, 14);
 
     // Verify ast_nodes table exists
     let conn = rusqlite::Connection::open(&db_path).unwrap();
@@ -318,6 +331,32 @@ fn test_migration_v4_to_v13_creates_required_tables() {
         .unwrap_or(false);
     assert!(has_span_index, "idx_ast_nodes_span should be created");
 
+    // Verify source_documents table exists (v13)
+    let has_source_inventory: bool = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='source_documents'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+    assert!(
+        has_source_inventory,
+        "source_documents table should be created (v13)"
+    );
+
+    // Verify candidate_facts table exists (v14)
+    let has_candidate_facts: bool = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='candidate_facts'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+    assert!(
+        has_candidate_facts,
+        "candidate_facts table should be created (v14)"
+    );
+
     // Verify schema version was updated
     let version: i64 = conn
         .query_row(
@@ -326,12 +365,12 @@ fn test_migration_v4_to_v13_creates_required_tables() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(version, 13, "schema version should be 13 after migration");
+    assert_eq!(version, 14, "schema version should be 14 after migration");
 }
 
-/// Test that opening a v4 database auto-upgrades to v13
+/// Test that opening a v4 database auto-upgrades to v14
 #[test]
-fn test_opening_v4_database_auto_upgrades_to_v13() {
+fn test_opening_v4_database_auto_upgrades_to_v14() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test_v4_auto.db");
 
@@ -372,8 +411,8 @@ fn test_opening_v4_database_auto_upgrades_to_v13() {
         .unwrap();
 
     assert_eq!(
-        version, 13,
-        "Opening v4 database should auto-upgrade to v13"
+        version, 14,
+        "Opening v4 database should auto-upgrade to v14"
     );
 
     // Verify ast_nodes table exists
@@ -458,5 +497,19 @@ fn test_opening_v4_database_auto_upgrades_to_v13() {
     assert!(
         has_source_inventory,
         "source_documents table should be created during auto-upgrade (v13)"
+    );
+
+    // Verify candidate_facts table exists (v14)
+    let has_candidate_facts: bool = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='candidate_facts'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+
+    assert!(
+        has_candidate_facts,
+        "candidate_facts table should be created during auto-upgrade (v14)"
     );
 }

@@ -4,6 +4,7 @@
 
 mod ast_cmd;
 mod backfill_cmd;
+mod candidate_fact_cmd;
 mod cli;
 mod collisions_cmd;
 mod condense_cmd;
@@ -871,6 +872,17 @@ fn main() -> ExitCode {
                 show_stale,
                 output_format,
             ) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::CandidateFact {
+            db_path,
+            action,
+            output_format,
+        }) => {
+            if let Err(e) = candidate_fact_cmd::run_candidate_fact(db_path, action, output_format) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }

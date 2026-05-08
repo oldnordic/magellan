@@ -128,6 +128,10 @@ pub fn ensure_magellan_meta(
                             ensure_source_inventory_schema(conn)?;
                             current_version = 13;
                         }
+                        13 => {
+                            ensure_candidate_fact_schema(conn)?;
+                            current_version = 14;
+                        }
                         _ => {
                             return Err(DbCompatError::MagellanSchemaMismatch {
                                 path: db_path.to_path_buf(),
@@ -286,6 +290,55 @@ pub fn ensure_source_inventory_schema(conn: &rusqlite::Connection) -> Result<(),
 
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_source_docs_kind ON source_documents(source_kind)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    Ok(())
+}
+
+pub fn ensure_candidate_fact_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS candidate_facts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            candidate_id TEXT NOT NULL UNIQUE,
+            source_document_id INTEGER NOT NULL,
+            subject_type TEXT NOT NULL,
+            subject_key TEXT NOT NULL,
+            predicate TEXT NOT NULL,
+            object_type TEXT,
+            object_key TEXT,
+            properties_json TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            rejection_reason TEXT,
+            created_at INTEGER NOT NULL,
+            reviewed_at INTEGER,
+            FOREIGN KEY (source_document_id) REFERENCES source_documents(id)
+        )",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_candidate_facts_status ON candidate_facts(status)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_candidate_facts_source ON candidate_facts(source_document_id)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_candidate_facts_predicate ON candidate_facts(predicate)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_candidate_facts_status_created ON candidate_facts(status, created_at)",
         [],
     )
     .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
