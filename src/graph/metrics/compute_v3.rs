@@ -46,7 +46,7 @@ impl V3MetricsCompute {
         let symbol_count = symbol_facts.len() as i64;
 
         // Compute actual LOC (newline count + 1)
-        let loc = source.iter().filter(|&&b| b == b'\n').count() as i64 + 1;
+        let loc = memchr::memchr_iter(b'\n', source).count() as i64 + 1;
 
         // Compute estimated LOC (bytes / 40 heuristic)
         let estimated_loc = source.len() as f64 / 40.0;

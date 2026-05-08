@@ -4,6 +4,7 @@
 //! extracted from AST nodes or MIR, plus 4D spatial-temporal analysis.
 
 use anyhow::Result;
+use fixedbitset::FixedBitSet;
 use rusqlite::params;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
@@ -439,122 +440,93 @@ impl CfgOps {
 /// Dominator depth represents structural hierarchy depth in the control flow.
 /// Entry block has depth 0, its immediate children have depth 1, etc.
 ///
-/// Algorithm: Cooper-Harvey-Kennedy for dominator tree construction
+/// Algorithm: Cooper-Harvey-Kennedy with bitset dominators for O(N²/W)
+/// where W is the machine word size (64 bits).
 pub fn compute_dominator_depth(cfg: &CfgWithEdges) -> HashMap<usize, i64> {
     let mut depth = HashMap::new();
-
-    if cfg.blocks.is_empty() {
+    let n = cfg.blocks.len();
+    if n == 0 {
         return depth;
     }
 
-    // Build adjacency list for reverse CFG (predecessors)
-    let mut predecessors: HashMap<usize, Vec<usize>> = HashMap::new();
+    // Build predecessor list
+    let mut predecessors: Vec<Vec<usize>> = vec![Vec::new(); n];
     for edge in &cfg.edges {
-        predecessors
-            .entry(edge.target_idx)
-            .or_default()
-            .push(edge.source_idx);
+        predecessors[edge.target_idx].push(edge.source_idx);
     }
 
-    // Ensure all blocks have entries in predecessors
-    for i in 0..cfg.blocks.len() {
-        predecessors.entry(i).or_default();
+    let entry_idx = 0;
+
+    // Bitset dominators: dominators[i] is a bitset of all nodes that dominate i
+    let mut dominators: Vec<FixedBitSet> = Vec::with_capacity(n);
+    for i in 0..n {
+        let mut set = FixedBitSet::with_capacity(n);
+        set.set_range(.., true);
+        set.set(i, true);
+        dominators.push(set);
     }
+    dominators[entry_idx].clear();
+    dominators[entry_idx].set(entry_idx, true);
 
-    // Find entry block (first block or block with no predecessors)
-    let entry_idx = 0; // CFG extraction puts entry block first
-
-    // Initialize dominators: each node dominates itself
-    let mut dominators: HashMap<usize, HashSet<usize>> = HashMap::new();
-    for i in 0..cfg.blocks.len() {
-        let mut set = HashSet::new();
-        set.insert(i);
-        dominators.insert(i, set);
-    }
-
-    // Entry block only dominates itself
-    dominators.insert(entry_idx, {
-        let mut set = HashSet::new();
-        set.insert(entry_idx);
-        set
-    });
-
-    // Iterative dataflow analysis for dominators
+    // Iterative dataflow with bitset AND
     let mut changed = true;
     while changed {
         changed = false;
-
-        for i in 0..cfg.blocks.len() {
+        for i in 0..n {
             if i == entry_idx {
                 continue;
             }
-
-            // Get intersection of predecessors' dominators
-            let preds = predecessors.get(&i).unwrap(); // M-UNWRAP: well-formed CFG guarantees every non-entry block has predecessors
+            let preds = &predecessors[i];
             if preds.is_empty() {
                 continue;
             }
 
-            let mut new_doms: HashSet<usize> = (0..cfg.blocks.len()).collect();
+            let mut new_doms = FixedBitSet::with_capacity(n);
+            new_doms.set_range(.., true);
             for pred in preds {
-                if let Some(pred_doms) = dominators.get(pred) {
-                    new_doms = new_doms.intersection(pred_doms).cloned().collect();
-                }
+                new_doms.intersect_with(&dominators[*pred]);
             }
+            new_doms.set(i, true);
 
-            // Add self to dominators
-            new_doms.insert(i);
-
-            if let Some(current_doms) = dominators.get(&i) {
-                if new_doms != *current_doms {
-                    dominators.insert(i, new_doms);
-                    changed = true;
-                }
-            } else {
-                dominators.insert(i, new_doms);
+            if new_doms != dominators[i] {
+                dominators[i] = new_doms;
                 changed = true;
             }
         }
     }
 
-    // Build dominator tree and compute depths
+    // Compute immediate dominators from bitset dominators
     let mut immediate_dominator: HashMap<usize, Option<usize>> = HashMap::new();
-    for i in 0..cfg.blocks.len() {
-        if i == entry_idx {
-            immediate_dominator.insert(i, None);
-            continue;
-        }
+    immediate_dominator.insert(entry_idx, None);
 
-        let doms = dominators.get(&i).cloned().unwrap_or_default();
-
+    for i in 1..n {
+        let doms = &dominators[i];
         let mut idom = None;
-
-        for d in &doms {
-            if *d == i {
+        for d in doms.ones() {
+            if d == i {
                 continue;
             }
-
-            // idom(i) is the unique strict dominator of i that does NOT
+            // idom(i) is the strict dominator d of i such that d does NOT
             // strictly dominate any other strict dominator of i.
-            let dominates_another = doms.iter().any(|&s| {
-                s != i
-                    && s != *d
-                    && dominators
-                        .get(&s)
-                        .map(|set| set.contains(d))
-                        .unwrap_or(false)
-            });
-
+            let mut dominates_another = false;
+            for s in doms.ones() {
+                if s == i || s == d {
+                    continue;
+                }
+                if dominators[s].contains(d) {
+                    dominates_another = true;
+                    break;
+                }
+            }
             if !dominates_another {
-                idom = Some(*d);
+                idom = Some(d);
                 break;
             }
         }
-
         immediate_dominator.insert(i, idom);
     }
 
-    // Compute depths by traversing dominator tree
+    // Compute depths
     fn compute_depth(
         node: usize,
         imm_dom: &HashMap<usize, Option<usize>>,
@@ -563,17 +535,15 @@ pub fn compute_dominator_depth(cfg: &CfgWithEdges) -> HashMap<usize, i64> {
         if let Some(&depth) = cache.get(&node) {
             return depth;
         }
-
         let depth = match imm_dom.get(&node) {
             None | Some(None) => 0,
             Some(Some(parent)) => 1 + compute_depth(*parent, imm_dom, cache),
         };
-
         cache.insert(node, depth);
         depth
     }
 
-    for i in 0..cfg.blocks.len() {
+    for i in 0..n {
         let d = compute_depth(i, &immediate_dominator, &mut HashMap::new());
         depth.insert(i, d);
     }
