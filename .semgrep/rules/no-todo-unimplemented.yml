@@ -1,0 +1,38 @@
+rules:
+  - id: rust-todo-macro
+    patterns:
+      - pattern-either:
+          - pattern: todo!()
+          - pattern: todo!($MSG)
+    message: "todo!() panics at runtime. Implement or remove."
+    severity: ERROR
+    languages: [rust]
+    paths:
+      include:
+        - src/
+
+  - id: rust-unimplemented-macro
+    pattern: unimplemented!($MSG)
+    message: "unimplemented!() panics at runtime. Track with a TODO comment and issue."
+    severity: WARNING
+    languages: [rust]
+    paths:
+      include:
+        - src/
+
+  - id: rust-panic-in-prod
+    patterns:
+      - pattern-either:
+          - pattern: panic!($MSG)
+          - pattern: panic!()
+      - pattern-not-inside: |
+          #[cfg(test)]
+          ...
+      - pattern-not-inside: |
+          mod tests { ... }
+    message: "panic!() in production code. Use proper error propagation."
+    severity: ERROR
+    languages: [rust]
+    paths:
+      include:
+        - src/

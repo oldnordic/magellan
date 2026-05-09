@@ -1,0 +1,15 @@
+rules:
+  - id: rust-unwrap-in-production
+    patterns:
+      - pattern: $EXPR.unwrap()
+      - pattern-not-inside: |
+          #[cfg(test)]
+          ...
+      - pattern-not-inside: |
+          mod tests { ... }
+    message: "unwrap() can panic. Use expect() with a message or proper error handling in production code."
+    severity: WARNING
+    languages: [rust]
+    paths:
+      include:
+        - src/

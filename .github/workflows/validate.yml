@@ -51,3 +51,14 @@ jobs:
 
       - name: cargo test
         run: cargo test
+
+  semgrep:
+    name: Semgrep Security Scan
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Semgrep OSS scan
+        run: semgrep ci --oss-only --config p/rust --config .semgrep/rules/
