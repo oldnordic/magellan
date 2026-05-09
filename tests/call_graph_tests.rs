@@ -336,3 +336,40 @@ pub fn callee() {
         );
     }
 }
+
+#[test]
+#[allow(deprecated)]
+fn test_extract_calls_from_tree_matches_extract_calls() {
+    // Verify that tree-based call extraction produces identical results to parse-based.
+    let source = r#"
+fn caller() {
+    helper();
+}
+
+fn helper() {}
+"#;
+
+    let mut parser = magellan::Parser::new().unwrap();
+    let symbols = parser.extract_symbols(PathBuf::from("test.rs"), source.as_bytes());
+
+    let mut ts_parser = tree_sitter::Parser::new();
+    ts_parser
+        .set_language(&tree_sitter_rust::language())
+        .unwrap();
+    let tree = ts_parser.parse(source.as_bytes(), None).unwrap();
+
+    let calls_parse = parser.extract_calls(PathBuf::from("test.rs"), source.as_bytes(), &symbols);
+    let calls_tree = magellan::Parser::extract_calls_from_tree(
+        &tree,
+        PathBuf::from("test.rs"),
+        source.as_bytes(),
+        &symbols,
+    );
+
+    assert_eq!(
+        calls_parse.len(),
+        calls_tree.len(),
+        "Tree-based extraction should produce same number of calls"
+    );
+    assert_eq!(calls_parse, calls_tree, "Call facts should be identical");
+}

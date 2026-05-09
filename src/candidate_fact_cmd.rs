@@ -189,7 +189,10 @@ pub fn run_candidate_fact(
 
 /// Actions for the candidate-fact command
 #[derive(Debug)]
-#[allow(clippy::large_enum_variant, reason = "CLI action enum: size differences expected")]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "CLI action enum: size differences expected"
+)]
 pub enum CandidateFactAction {
     Submit {
         fact: CandidateFact,

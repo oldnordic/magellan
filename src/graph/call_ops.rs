@@ -277,6 +277,126 @@ impl CallOps {
         Ok(call_count)
     }
 
+    /// Index calls using a pre-parsed tree (eliminates redundant parsing).
+    pub fn index_calls_with_tree(
+        &self,
+        path: &str,
+        source: &[u8],
+        symbol_ids: &HashMap<String, i64>,
+        tree: &tree_sitter::Tree,
+        language: Language,
+    ) -> Result<usize> {
+        let path_buf = PathBuf::from(path);
+
+        let mut symbol_facts = Vec::new();
+        let mut current_file_facts = Vec::new();
+        let mut stable_symbol_ids: HashMap<(String, String), Option<String>> = HashMap::new();
+
+        for symbol_id in symbol_ids.values() {
+            let snapshot = SnapshotId::current();
+            let node = match self.backend.get_node(snapshot, *symbol_id) {
+                Ok(value) => value,
+                Err(_) => continue,
+            };
+
+            if node.kind != "Symbol" {
+                continue;
+            }
+
+            let symbol_node: Option<crate::graph::schema::SymbolNode> =
+                serde_json::from_value(node.data.clone()).ok();
+            let stable_id = symbol_node.as_ref().and_then(|n| n.symbol_id.clone());
+
+            let symbol_fact = match self.symbol_fact_from_node(&node) {
+                Some(value) => value,
+                None => continue,
+            };
+
+            if let Some(ref name) = symbol_fact.name {
+                let key = (
+                    symbol_fact.file_path.to_string_lossy().to_string(),
+                    name.clone(),
+                );
+                stable_symbol_ids.insert(key, stable_id);
+            }
+
+            if node.file_path.as_deref() == Some(path) {
+                current_file_facts.push(symbol_fact);
+            } else {
+                symbol_facts.push(symbol_fact);
+            }
+        }
+
+        symbol_facts.extend(current_file_facts);
+
+        let calls = match language {
+            Language::Rust => crate::ingest::Parser::extract_calls_from_tree(
+                tree,
+                path_buf,
+                source,
+                &symbol_facts,
+            ),
+            Language::Python => {
+                PythonParser::extract_calls_from_tree(tree, path_buf, source, &symbol_facts)
+            }
+            Language::C => CParser::extract_calls_from_tree(tree, path_buf, source, &symbol_facts),
+            Language::Cpp => {
+                CppParser::extract_calls_from_tree(tree, path_buf, source, &symbol_facts)
+            }
+            Language::Java => {
+                JavaParser::extract_calls_from_tree(tree, path_buf, source, &symbol_facts)
+            }
+            Language::JavaScript => {
+                JavaScriptParser::extract_calls_from_tree(tree, path_buf, source, &symbol_facts)
+            }
+            Language::TypeScript => {
+                TypeScriptParser::extract_calls_from_tree(tree, path_buf, source, &symbol_facts)
+            }
+        };
+
+        let call_count = calls.len();
+
+        let mut name_to_ids: HashMap<String, Vec<i64>> = HashMap::new();
+        for (fqn, &id) in symbol_ids.iter() {
+            let simple_name = fqn.split("::").last().unwrap_or(fqn.as_str());
+            let simple_name = simple_name.split('.').next_back().unwrap_or(simple_name);
+            name_to_ids
+                .entry(simple_name.to_string())
+                .or_default()
+                .push(id);
+        }
+
+        for mut call in calls {
+            let caller_key = (
+                call.file_path.to_string_lossy().to_string(),
+                call.caller.clone(),
+            );
+            let callee_key = (
+                call.file_path.to_string_lossy().to_string(),
+                call.callee.clone(),
+            );
+
+            call.caller_symbol_id = stable_symbol_ids.get(&caller_key).and_then(|id| id.clone());
+            call.callee_symbol_id = stable_symbol_ids.get(&callee_key).and_then(|id| id.clone());
+
+            let callee_symbol_id = symbol_ids
+                .get(&call.callee)
+                .or_else(|| name_to_ids.get(&call.callee).and_then(|ids| ids.first()));
+            let caller_symbol_id = symbol_ids.get(&call.caller);
+
+            let call_id = self.insert_call_node(&call)?;
+
+            if let Some(&caller_id) = caller_symbol_id {
+                self.insert_caller_edge(NodeId::from(caller_id), call_id)?;
+            }
+            if let Some(&callee_id) = callee_symbol_id {
+                self.insert_calls_edge(call_id, NodeId::from(callee_id))?;
+            }
+        }
+
+        Ok(call_count)
+    }
+
     /// Query all calls FROM a specific symbol (forward call graph)
     ///
     /// # Arguments

@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "fish $(dirname $(git rev-parse --git-common-dir))/.claude/hooks/read-gate.fish \"$FILE_PATH\"",
+            "command": "fish /home/feanor/Projects/magellan/.claude/hooks/read-gate.fish \"$FILE_PATH\"",
             "matcher": "Read",
             "statusMessage": "\ud83d\udca1 Checking if graph query can replace file read..."
           }
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$(dirname $(git rev-parse --git-common-dir))/.claude/hooks/query-schema-check.fish",
+            "command": "/home/feanor/Projects/magellan/.claude/hooks/query-schema-check.fish",
             "statusMessage": "\ud83d\udd0d Verifying database health before subagent starts..."
           }
         ]
@@ -28,57 +28,57 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$(dirname $(git rev-parse --git-common-dir))/.claude/hooks/ci-check.fish",
+            "command": "/home/feanor/Projects/magellan/.claude/hooks/ci-check.fish",
             "statusMessage": "\ud83d\udd01 Checking GitHub CI status after push..."
           },
           {
             "type": "command",
-            "command": "$(dirname $(git rev-parse --git-common-dir))/.claude/hooks/query-symbol-check.fish",
+            "command": "/home/feanor/Projects/magellan/.claude/hooks/query-symbol-check.fish",
             "statusMessage": "\ud83d\udd0d Verifying ground truth was queried before coding..."
           },
           {
             "type": "command",
-            "command": "$(dirname $(git rev-parse --git-common-dir))/.claude/hooks/verify-rust.fish",
+            "command": "/home/feanor/Projects/magellan/.claude/hooks/verify-rust.fish",
             "statusMessage": "\ud83e\udd80 Verifying Rust code compiles and graph is updated..."
           },
           {
             "type": "command",
-            "command": "$(dirname $(git rev-parse --git-common-dir))/.claude/hooks/splice-cycles-check.fish",
+            "command": "/home/feanor/Projects/magellan/.claude/hooks/splice-cycles-check.fish",
             "statusMessage": "\ud83d\udd04 Checking for call graph cycles after refactoring..."
           },
           {
             "type": "command",
-            "command": "$(dirname $(git rev-parse --git-common-dir))/.claude/hooks/stub-check.fish",
+            "command": "/home/feanor/Projects/magellan/.claude/hooks/stub-check.fish",
             "statusMessage": "\ud83d\udeab Checking for stub code (panic! in non-test)..."
           },
           {
             "type": "command",
-            "command": "$(dirname $(git rev-parse --git-common-dir))/.claude/hooks/wiring-check.fish",
+            "command": "/home/feanor/Projects/magellan/.claude/hooks/wiring-check.fish",
             "statusMessage": "\ud83d\udd0c Verifying wiring (dead modules, parse-once, debug cleanup)..."
           },
           {
             "type": "command",
-            "command": "$(dirname $(git rev-parse --git-common-dir))/.claude/hooks/security-check.fish",
+            "command": "/home/feanor/Projects/magellan/.claude/hooks/security-check.fish",
             "statusMessage": "\ud83d\udee1\ufe0f Checking for security issues in new code..."
           },
           {
             "type": "command",
-            "command": "$(dirname $(git rev-parse --git-common-dir))/.claude/hooks/deadlock-check.fish",
+            "command": "/home/feanor/Projects/magellan/.claude/hooks/deadlock-check.fish",
             "statusMessage": "\ud83d\udd12 Checking for potential deadlocks in call graph cycles..."
           },
           {
             "type": "command",
-            "command": "$(dirname $(git rev-parse --git-common-dir))/.claude/hooks/ack-contract-check.fish",
+            "command": "/home/feanor/Projects/magellan/.claude/hooks/ack-contract-check.fish",
             "statusMessage": "\ud83d\udcdd Checking ACK contracts in peer messages..."
           },
           {
             "type": "command",
-            "command": "$(dirname $(git rev-parse --git-common-dir))/.claude/hooks/deliverable-verify.fish",
+            "command": "/home/feanor/Projects/magellan/.claude/hooks/deliverable-verify.fish",
             "statusMessage": "\ud83d\udce6 Verifying deliverables exist before claiming done..."
           },
           {
             "type": "command",
-            "command": "fish $(dirname $(git rev-parse --git-common-dir))/.claude/hooks/no-curl-envoy.fish",
+            "command": "fish /home/feanor/Projects/magellan/.claude/hooks/no-curl-envoy.fish",
             "statusMessage": "Checking for curl fallback to envoy server..."
           }
         ]
@@ -89,7 +89,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$(dirname $(git rev-parse --git-common-dir))/.claude/hooks/logseq-session-hook.fish",
+            "command": "/home/feanor/Projects/magellan/.claude/hooks/logseq-session-hook.fish",
             "statusMessage": "\ud83d\udcd3 Logging session to Logseq..."
           }
         ]

@@ -435,7 +435,10 @@ pub enum ContextSubcommand {
 }
 
 #[derive(Debug)]
-#[allow(clippy::large_enum_variant, reason = "CLI command enum: size differences expected")]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "CLI command enum: size differences expected"
+)]
 pub enum Command {
     Watch {
         root_path: PathBuf,

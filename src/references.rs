@@ -240,6 +240,19 @@ impl crate::ingest::Parser {
         let mut extractor = CallExtractor::new().expect("Failed to create call extractor"); // M-UNWRAP: tree-sitter language is a build-time invariant
         extractor.extract_calls(file_path, source, symbols)
     }
+
+    /// Extract function call facts from a pre-parsed tree.
+    ///
+    /// Avoids redundant parsing when the tree is already available.
+    pub fn extract_calls_from_tree(
+        tree: &tree_sitter::Tree,
+        file_path: PathBuf,
+        source: &[u8],
+        symbols: &[SymbolFact],
+    ) -> Vec<CallFact> {
+        let mut extractor = CallExtractor::new().expect("Failed to create call extractor"); // M-UNWRAP: tree-sitter language is a build-time invariant
+        extractor.extract_calls_from_tree(tree, file_path, source, symbols)
+    }
 }
 
 /// Call extractor for forward call graph
@@ -293,7 +306,40 @@ impl CallExtractor {
             .collect();
 
         // Walk tree and find calls within function bodies
-        self.walk_tree_for_calls(
+        Self::walk_tree_for_calls(
+            &root_node,
+            source,
+            &file_path,
+            &symbol_map,
+            &functions,
+            &mut calls,
+        );
+
+        calls
+    }
+
+    /// Extract function call facts from a pre-parsed tree.
+    pub fn extract_calls_from_tree(
+        &mut self,
+        tree: &tree_sitter::Tree,
+        file_path: PathBuf,
+        source: &[u8],
+        symbols: &[SymbolFact],
+    ) -> Vec<CallFact> {
+        let root_node = tree.root_node();
+        let mut calls = Vec::new();
+
+        let symbol_map: HashMap<String, &SymbolFact> = symbols
+            .iter()
+            .filter_map(|s| s.name.as_ref().map(|name| (name.clone(), s)))
+            .collect();
+
+        let functions: Vec<&SymbolFact> = symbols
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Function)
+            .collect();
+
+        Self::walk_tree_for_calls(
             &root_node,
             source,
             &file_path,
@@ -307,7 +353,6 @@ impl CallExtractor {
 
     /// Walk tree-sitter tree and extract function calls
     fn walk_tree_for_calls(
-        &self,
         node: &tree_sitter::Node,
         source: &[u8],
         file_path: &PathBuf,
@@ -315,12 +360,11 @@ impl CallExtractor {
         _functions: &[&SymbolFact],
         calls: &mut Vec<CallFact>,
     ) {
-        self.walk_tree_for_calls_with_caller(node, source, file_path, symbol_map, None, calls);
+        Self::walk_tree_for_calls_with_caller(node, source, file_path, symbol_map, None, calls);
     }
 
     /// Walk tree-sitter tree and extract function calls, tracking current function
     fn walk_tree_for_calls_with_caller(
-        &self,
         node: &tree_sitter::Node,
         source: &[u8],
         file_path: &PathBuf,
@@ -333,7 +377,7 @@ impl CallExtractor {
         // Track which function we're inside (if any)
         let caller: Option<&SymbolFact> = if kind == "function_item" {
             // Extract function name - this becomes the new caller for children
-            self.extract_function_name(node, source)
+            Self::extract_function_name(node, source)
                 .and_then(|name| symbol_map.get(&name).copied())
         } else {
             current_caller
@@ -342,21 +386,28 @@ impl CallExtractor {
         // If we have a caller and this is a call_expression, extract the call
         if kind == "call_expression" {
             if let Some(caller_fact) = caller {
-                self.extract_calls_in_node(node, source, file_path, caller_fact, symbol_map, calls);
+                Self::extract_calls_in_node(
+                    node,
+                    source,
+                    file_path,
+                    caller_fact,
+                    symbol_map,
+                    calls,
+                );
             }
         }
 
         // Recurse into children
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            self.walk_tree_for_calls_with_caller(
+            Self::walk_tree_for_calls_with_caller(
                 &child, source, file_path, symbol_map, caller, calls,
             );
         }
     }
 
     /// Extract function name from a function_item node
-    fn extract_function_name(&self, node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
+    fn extract_function_name(node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "identifier" || child.kind() == "type_identifier" {
@@ -369,7 +420,6 @@ impl CallExtractor {
 
     /// Extract calls within a node (function body)
     fn extract_calls_in_node(
-        &self,
         node: &tree_sitter::Node,
         source: &[u8],
         file_path: &Path,
@@ -382,7 +432,7 @@ impl CallExtractor {
 
         if kind == "call_expression" {
             // Extract the function being called
-            if let Some(callee_name) = self.extract_callee_from_call(node, source) {
+            if let Some(callee_name) = Self::extract_callee_from_call(node, source) {
                 // Only create call if callee is a known function symbol
                 if symbol_map.contains_key(&callee_name) {
                     let node_start = node.start_byte();
@@ -407,7 +457,7 @@ impl CallExtractor {
     }
 
     /// Extract callee name from a call_expression node
-    fn extract_callee_from_call(&self, node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
+    fn extract_callee_from_call(node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
         // The callee is typically the first child (identifier) or a scoped_identifier
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -419,14 +469,14 @@ impl CallExtractor {
             // Handle method calls like obj.method() - we want the method name
             if kind == "field_expression" || kind == "method_expression" {
                 // For a.b(), extract "b"
-                return self.extract_method_name(&child, source);
+                return Self::extract_method_name(&child, source);
             }
         }
         None
     }
 
     /// Extract method name from a field_expression or method_expression
-    fn extract_method_name(&self, node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
+    fn extract_method_name(node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             // Look for the field_identifier (method name in a.b())

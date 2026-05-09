@@ -78,7 +78,7 @@
       "Bash(/home/feanor/.local/bin/magellan doctor *)",
       "Bash(git -C /home/feanor/Projects/llmgrep status --short)",
       "Bash(chmod +x /home/feanor/Projects/magellan/scripts/validate-completion.sh)",
-      "Bash(chmod +x /home/feanor/Projects/magellan/$(dirname $(git rev-parse --git-common-dir))/.claude/hooks/stub-check.fish /home/feanor/Projects/magellan/$(dirname $(git rev-parse --git-common-dir))/.claude/hooks/build-check.fish)",
+      "Bash(chmod +x /home/feanor/Projects/magellan/.claude/hooks/stub-check.fish /home/feanor/Projects/magellan/.claude/hooks/build-check.fish)",
       "Bash(~/.local/bin/magellan --version)",
       "Bash(~/.local/bin/magellan backfill *)",
       "Read(//home/feanor/.local/bin/**)",
@@ -103,7 +103,6 @@
       "Bash(~/.local/bin/llmgrep --db .magellan/magellan.db search --query \"fn \" --output human)",
       "Bash(~/.local/bin/llmgrep --db .magellan/magellan.db search --query \"CodeGraph\" --output human)",
       "Bash(~/.local/bin/llmgrep --db .magellan/magellan.db search --query \"test\" --output human)",
-      "Bash(~/.local/bin/llmgrep --db .magellan/magellan.db search --kind \"Function\" --output human)",
       "Bash(~/.local/bin/llmgrep --db .magellan/magellan.db search --query \"test\" --kind \"Function\" --output human)",
       "Bash(~/.local/bin/llmgrep --db .magellan/magellan.db search --query \"fn\" --kind Function --output human)",
       "Bash(~/.local/bin/llmgrep --db .magellan/magellan.db search --help)",
@@ -144,7 +143,6 @@
       "Bash(cargo install *)",
       "Bash(/home/feanor/.local/bin/mirage --version)",
       "Bash(/home/feanor/.local/bin/mirage --db /home/feanor/Projects/mirage/.magellan/mirage.db hotspots)",
-      "Read(//home/feanor/.cargo/bin/**)",
       "Bash(/home/feanor/.cargo/bin/mirage --db /home/feanor/Projects/mirage/.magellan/mirage.db hotspots)",
       "Bash(/home/feanor/.cargo/bin/mirage --db .magellan/mirage.db hotspots)",
       "Bash(/home/feanor/.cargo/bin/mirage --db .magellan/mirage.db hotspots --inter-procedural)",
@@ -159,7 +157,19 @@
       "Bash(sed -i 's/hasher.write\\(content\\)/hasher.update\\(content\\)/g' src/graph/files.rs src/graph/source_inventory.rs)",
       "Bash(sed -i 's/hasher.finish\\(\\)/hasher.digest\\(\\)/g' src/graph/files.rs src/graph/source_inventory.rs)",
       "Bash(sed -i 's/{:016x}/{:032x}/g' src/graph/files.rs src/graph/source_inventory.rs)",
-      "Bash(git config *)"
+      "Bash(git config *)",
+      "Bash(git *)",
+      "Bash(fish --version)",
+      "Bash(/bin/sh -c 'fish $\\(dirname $\\(git rev-parse --git-common-dir\\)\\)/.claude/hooks/read-gate.fish \"/home/feanor/Projects/magellan/.claude/settings.local.json\"')",
+      "Bash(echo \"exit: $?\")",
+      "Bash(mv /home/feanor/Projects/magellan/.claude/hooks/read-gate.fish /home/feanor/Projects/magellan/.claude/hooks/read-gate.fish.bak)",
+      "Bash(fish /home/feanor/Projects/magellan/.claude/hooks/read-gate.fish)",
+      "Bash(mv /home/feanor/Projects/magellan/.claude/hooks/read-gate.fish.bak /home/feanor/Projects/magellan/.claude/hooks/read-gate.fish)",
+      "Read(//usr/bin/**)",
+      "Bash(/bin/sh --version)",
+      "Bash(/bin/sh -c \".claude/hooks/read-gate.fish\")",
+      "Bash(/bin/sh -c \"/home/feanor/Projects/magellan/.claude/hooks/read-gate.fish\")",
+      "Bash(awk '{s+=$2} END {print \"Total tests passed: \" s}')"
     ]
   },
   "enableAllProjectMcpServers": true,
@@ -178,8 +188,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$(dirname $(git rev-parse --git-common-dir))/.claude/hooks/query-schema-check.fish",
-            "statusMessage": "🔍 Verifying database health before subagent starts..."
+            "command": "fish /home/feanor/Projects/magellan/.claude/hooks/query-schema-check.fish",
+            "statusMessage": "Verifying database health before subagent starts..."
           }
         ]
       }
@@ -189,48 +199,48 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$(dirname $(git rev-parse --git-common-dir))/.claude/hooks/envoy-wrapper.fish $(dirname $(git rev-parse --git-common-dir))/.claude/hooks/ci-check.fish",
-            "statusMessage": "🔁 Checking GitHub CI status after push..."
+            "command": "fish /home/feanor/Projects/magellan/.claude/hooks/envoy-wrapper.fish /home/feanor/Projects/magellan/.claude/hooks/ci-check.fish",
+            "statusMessage": "Checking GitHub CI status after push..."
           },
           {
             "type": "command",
-            "command": "$(dirname $(git rev-parse --git-common-dir))/.claude/hooks/envoy-wrapper.fish $(dirname $(git rev-parse --git-common-dir))/.claude/hooks/query-symbol-check.fish",
-            "statusMessage": "🔍 Verifying ground truth was queried before coding..."
+            "command": "fish /home/feanor/Projects/magellan/.claude/hooks/envoy-wrapper.fish /home/feanor/Projects/magellan/.claude/hooks/query-symbol-check.fish",
+            "statusMessage": "Verifying ground truth was queried before coding..."
           },
           {
             "type": "command",
-            "command": "$(dirname $(git rev-parse --git-common-dir))/.claude/hooks/envoy-wrapper.fish $(dirname $(git rev-parse --git-common-dir))/.claude/hooks/verify-rust.fish",
-            "statusMessage": "🦀 Verifying Rust code compiles and graph is updated..."
+            "command": "fish /home/feanor/Projects/magellan/.claude/hooks/envoy-wrapper.fish /home/feanor/Projects/magellan/.claude/hooks/verify-rust.fish",
+            "statusMessage": "Verifying Rust code compiles and graph is updated..."
           },
           {
             "type": "command",
-            "command": "$(dirname $(git rev-parse --git-common-dir))/.claude/hooks/envoy-wrapper.fish $(dirname $(git rev-parse --git-common-dir))/.claude/hooks/splice-cycles-check.fish",
-            "statusMessage": "🔄 Checking for call graph cycles after refactoring..."
+            "command": "fish /home/feanor/Projects/magellan/.claude/hooks/envoy-wrapper.fish /home/feanor/Projects/magellan/.claude/hooks/splice-cycles-check.fish",
+            "statusMessage": "Checking for call graph cycles after refactoring..."
           },
           {
             "type": "command",
-            "command": "$(dirname $(git rev-parse --git-common-dir))/.claude/hooks/stub-check.fish",
-            "statusMessage": "🚫 Checking for stub code (panic! in non-test)..."
+            "command": "fish /home/feanor/Projects/magellan/.claude/hooks/stub-check.fish",
+            "statusMessage": "Checking for stub code (panic! in non-test)..."
           },
           {
             "type": "command",
-            "command": "$(dirname $(git rev-parse --git-common-dir))/.claude/hooks/envoy-wrapper.fish $(dirname $(git rev-parse --git-common-dir))/.claude/hooks/wiring-check.fish",
-            "statusMessage": "🔌 Verifying wiring (dead modules, parse-once, debug cleanup)..."
+            "command": "fish /home/feanor/Projects/magellan/.claude/hooks/envoy-wrapper.fish /home/feanor/Projects/magellan/.claude/hooks/wiring-check.fish",
+            "statusMessage": "Verifying wiring (dead modules, parse-once, debug cleanup)..."
           },
           {
             "type": "command",
-            "command": "$(dirname $(git rev-parse --git-common-dir))/.claude/hooks/envoy-wrapper.fish $(dirname $(git rev-parse --git-common-dir))/.claude/hooks/security-check.fish",
-            "statusMessage": "🛡️ Checking for security issues in new code..."
+            "command": "fish /home/feanor/Projects/magellan/.claude/hooks/envoy-wrapper.fish /home/feanor/Projects/magellan/.claude/hooks/security-check.fish",
+            "statusMessage": "Checking for security issues in new code..."
           },
           {
             "type": "command",
-            "command": "$(dirname $(git rev-parse --git-common-dir))/.claude/hooks/envoy-wrapper.fish $(dirname $(git rev-parse --git-common-dir))/.claude/hooks/deadlock-check.fish",
-            "statusMessage": "🔒 Checking for potential deadlocks in call graph cycles..."
+            "command": "fish /home/feanor/Projects/magellan/.claude/hooks/envoy-wrapper.fish /home/feanor/Projects/magellan/.claude/hooks/deadlock-check.fish",
+            "statusMessage": "Checking for potential deadlocks in call graph cycles..."
           },
           {
             "type": "command",
-            "command": "$(dirname $(git rev-parse --git-common-dir))/.claude/hooks/envoy-wrapper.fish $(dirname $(git rev-parse --git-common-dir))/.claude/hooks/ack-contract-check.fish",
-            "statusMessage": "📝 Checking ACK contracts in peer messages..."
+            "command": "fish /home/feanor/Projects/magellan/.claude/hooks/envoy-wrapper.fish /home/feanor/Projects/magellan/.claude/hooks/ack-contract-check.fish",
+            "statusMessage": "Checking ACK contracts in peer messages..."
           }
         ]
       }
@@ -241,12 +251,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$(dirname $(git rev-parse --git-common-dir))/.claude/hooks/read-gate.fish",
+            "command": "fish /home/feanor/Projects/magellan/.claude/hooks/read-gate.fish",
             "statusMessage": "Checking if graph query would be better than file read..."
           },
           {
             "type": "command",
-            "command": "$(dirname $(git rev-parse --git-common-dir))/.claude/hooks/token-counter-hook.fish",
+            "command": "fish /home/feanor/Projects/magellan/.claude/hooks/token-counter-hook.fish",
             "statusMessage": "Tracking token usage for file read..."
           }
         ]
@@ -257,8 +267,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$(dirname $(git rev-parse --git-common-dir))/.claude/hooks/logseq-session-hook.fish",
-            "statusMessage": "📓 Logging session to Logseq..."
+            "command": "fish /home/feanor/Projects/magellan/.claude/hooks/logseq-session-hook.fish",
+            "statusMessage": "Logging session to Logseq..."
           }
         ]
       }

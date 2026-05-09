@@ -392,21 +392,26 @@ impl CParser {
             Some(t) => t,
             None => return Vec::new(),
         };
+        Self::extract_calls_from_tree(&tree, file_path, source, symbols)
+    }
 
+    pub fn extract_calls_from_tree(
+        tree: &tree_sitter::Tree,
+        file_path: PathBuf,
+        source: &[u8],
+        symbols: &[SymbolFact],
+    ) -> Vec<CallFact> {
         let root_node = tree.root_node();
         let mut calls = Vec::new();
-
         let symbol_map: std::collections::HashMap<String, &SymbolFact> = symbols
             .iter()
             .filter_map(|s| s.name.as_ref().map(|name| (name.clone(), s)))
             .collect();
-
         let functions: Vec<&SymbolFact> = symbols
             .iter()
             .filter(|s| s.kind == SymbolKind::Function)
             .collect();
-
-        self.walk_tree_for_calls(
+        Self::walk_tree_for_calls(
             &root_node,
             source,
             &file_path,
@@ -418,7 +423,6 @@ impl CParser {
     }
 
     fn walk_tree_for_calls(
-        &self,
         node: &tree_sitter::Node,
         source: &[u8],
         file_path: &PathBuf,
@@ -426,11 +430,10 @@ impl CParser {
         _functions: &[&SymbolFact],
         calls: &mut Vec<CallFact>,
     ) {
-        self.walk_tree_for_calls_with_caller(node, source, file_path, symbol_map, None, calls);
+        Self::walk_tree_for_calls_with_caller(node, source, file_path, symbol_map, None, calls);
     }
 
     fn walk_tree_for_calls_with_caller(
-        &self,
         node: &tree_sitter::Node,
         source: &[u8],
         file_path: &PathBuf,
@@ -441,7 +444,7 @@ impl CParser {
         let kind = node.kind();
 
         let caller: Option<&SymbolFact> = if kind == "function_definition" {
-            self.extract_function_name(node, source)
+            Self::extract_function_name(node, source)
                 .and_then(|name| symbol_map.get(&name).copied())
         } else {
             current_caller
@@ -449,24 +452,30 @@ impl CParser {
 
         if kind == "call_expression" {
             if let Some(caller_fact) = caller {
-                self.extract_calls_in_node(node, source, file_path, caller_fact, symbol_map, calls);
+                Self::extract_calls_in_node(
+                    node,
+                    source,
+                    file_path,
+                    caller_fact,
+                    symbol_map,
+                    calls,
+                );
             }
         }
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            self.walk_tree_for_calls_with_caller(
+            Self::walk_tree_for_calls_with_caller(
                 &child, source, file_path, symbol_map, caller, calls,
             );
         }
     }
 
-    fn extract_function_name(&self, node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
-        self.find_name_recursive(node, source)
+    fn extract_function_name(node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
+        Self::find_name_recursive_static(node, source)
     }
 
     fn extract_calls_in_node(
-        &self,
         node: &tree_sitter::Node,
         source: &[u8],
         file_path: &Path,
@@ -475,7 +484,7 @@ impl CParser {
         calls: &mut Vec<CallFact>,
     ) {
         if node.kind() == "call_expression" {
-            if let Some(callee_name) = self.extract_callee_from_call(node, source) {
+            if let Some(callee_name) = Self::extract_callee_from_call(node, source) {
                 if symbol_map.contains_key(&callee_name) {
                     let node_start = node.start_byte();
                     let node_end = node.end_byte();
@@ -498,7 +507,7 @@ impl CParser {
         }
     }
 
-    fn extract_callee_from_call(&self, node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
+    fn extract_callee_from_call(node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "identifier" {

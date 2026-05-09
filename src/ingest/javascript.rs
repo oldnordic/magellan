@@ -527,24 +527,26 @@ impl JavaScriptParser {
             Some(t) => t,
             None => return Vec::new(),
         };
+        Self::extract_calls_from_tree(&tree, file_path, source, symbols)
+    }
 
+    pub fn extract_calls_from_tree(
+        tree: &tree_sitter::Tree,
+        file_path: PathBuf,
+        source: &[u8],
+        symbols: &[SymbolFact],
+    ) -> Vec<CallFact> {
         let root_node = tree.root_node();
         let mut calls = Vec::new();
-
-        // Build map: symbol name → symbol fact
         let symbol_map: std::collections::HashMap<String, &SymbolFact> = symbols
             .iter()
             .filter_map(|s| s.name.as_ref().map(|name| (name.clone(), s)))
             .collect();
-
-        // Filter to only functions (potential callers)
         let functions: Vec<&SymbolFact> = symbols
             .iter()
             .filter(|s| s.kind == SymbolKind::Function)
             .collect();
-
-        // Walk tree and find calls
-        self.walk_tree_for_calls(
+        Self::walk_tree_for_calls(
             &root_node,
             source,
             &file_path,
@@ -552,13 +554,11 @@ impl JavaScriptParser {
             &functions,
             &mut calls,
         );
-
         calls
     }
 
     /// Walk tree-sitter tree and extract function calls
     fn walk_tree_for_calls(
-        &self,
         node: &tree_sitter::Node,
         source: &[u8],
         file_path: &Path,
@@ -566,12 +566,11 @@ impl JavaScriptParser {
         _functions: &[&SymbolFact],
         calls: &mut Vec<CallFact>,
     ) {
-        self.walk_tree_for_calls_with_caller(node, source, file_path, symbol_map, None, calls);
+        Self::walk_tree_for_calls_with_caller(node, source, file_path, symbol_map, None, calls);
     }
 
     /// Walk tree-sitter tree and extract function calls, tracking current function
     fn walk_tree_for_calls_with_caller(
-        &self,
         node: &tree_sitter::Node,
         source: &[u8],
         file_path: &Path,
@@ -584,7 +583,7 @@ impl JavaScriptParser {
         // Track which function we're inside (if any)
         let caller: Option<&SymbolFact> =
             if kind == "function_declaration" || kind == "function_definition" {
-                self.extract_function_name(node, source)
+                Self::extract_function_name(node, source)
                     .and_then(|name| symbol_map.get(&name).copied())
             } else {
                 current_caller
@@ -593,21 +592,28 @@ impl JavaScriptParser {
         // If we have a caller and this is a call, extract the call
         if kind == "call_expression" {
             if let Some(caller_fact) = caller {
-                self.extract_calls_in_node(node, source, file_path, caller_fact, symbol_map, calls);
+                Self::extract_calls_in_node(
+                    node,
+                    source,
+                    file_path,
+                    caller_fact,
+                    symbol_map,
+                    calls,
+                );
             }
         }
 
         // Recurse into children
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            self.walk_tree_for_calls_with_caller(
+            Self::walk_tree_for_calls_with_caller(
                 &child, source, file_path, symbol_map, caller, calls,
             );
         }
     }
 
     /// Extract function name from a function_declaration or function_definition node
-    fn extract_function_name(&self, node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
+    fn extract_function_name(node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "identifier" {
@@ -620,7 +626,6 @@ impl JavaScriptParser {
 
     /// Extract calls within a node (function body)
     fn extract_calls_in_node(
-        &self,
         node: &tree_sitter::Node,
         source: &[u8],
         file_path: &Path,
@@ -633,7 +638,7 @@ impl JavaScriptParser {
 
         if kind == "call_expression" {
             // Extract the function being called
-            if let Some(callee_name) = self.extract_callee_from_call(node, source) {
+            if let Some(callee_name) = Self::extract_callee_from_call(node, source) {
                 // Only create call if callee is a known function symbol
                 if symbol_map.contains_key(&callee_name) {
                     let node_start = node.start_byte();
@@ -658,7 +663,7 @@ impl JavaScriptParser {
     }
 
     /// Extract callee name from a call_expression node
-    fn extract_callee_from_call(&self, node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
+    fn extract_callee_from_call(node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
         // The callee is typically an identifier child
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -668,18 +673,14 @@ impl JavaScriptParser {
             }
             // Handle member_expression calls like obj.method() - we want the method name
             if child.kind() == "member_expression" {
-                return self.extract_member_expression_name(&child, source);
+                return Self::extract_member_expression_name(&child, source);
             }
         }
         None
     }
 
     /// Extract member expression property name (for obj.method() calls)
-    fn extract_member_expression_name(
-        &self,
-        node: &tree_sitter::Node,
-        source: &[u8],
-    ) -> Option<String> {
+    fn extract_member_expression_name(node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
         // For member_expression obj.prop, we want 'prop'
         let mut cursor = node.walk();
         let children: Vec<_> = node.children(&mut cursor).collect();

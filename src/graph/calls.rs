@@ -35,6 +35,26 @@ pub fn index_calls(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<u
     graph.calls.index_calls(path, source, &symbol_fqn_to_id)
 }
 
+/// Index calls using a pre-parsed tree (eliminates redundant parsing).
+pub fn index_calls_with_tree(
+    graph: &mut CodeGraph,
+    path: &str,
+    source: &[u8],
+    tree: &tree_sitter::Tree,
+    language: crate::ingest::detect::Language,
+) -> Result<usize> {
+    let symbol_fqn_to_id_with_file = graph.symbols.lookup.fqn_to_id_with_current_file(path);
+
+    let symbol_fqn_to_id: HashMap<String, i64> = symbol_fqn_to_id_with_file
+        .into_iter()
+        .map(|(fqn, (id, _))| (fqn, id))
+        .collect();
+
+    graph
+        .calls
+        .index_calls_with_tree(path, source, &symbol_fqn_to_id, tree, language)
+}
+
 /// Query all calls FROM a specific symbol (forward call graph)
 ///
 /// # Arguments

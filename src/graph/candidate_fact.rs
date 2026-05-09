@@ -736,8 +736,7 @@ pub fn detect_conflicts(conn: &Connection, candidate_ids: &[&str]) -> Result<Vec
         })
         .context("execute conflict detection")?;
 
-    let mut by_key: std::collections::HashMap<String, EntryVec> =
-        std::collections::HashMap::new();
+    let mut by_key: std::collections::HashMap<String, EntryVec> = std::collections::HashMap::new();
 
     for row in rows {
         let (cid, stype, skey, pred, otype, okey) = row?;

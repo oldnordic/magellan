@@ -358,8 +358,9 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
     }
 
     // Step 6: Index calls (all supported languages)
-    if language.is_some() {
-        let _ = super::calls::index_calls(graph, path, source);
+    // Use pre-parsed tree to avoid redundant parsing
+    if let (Some(ref tree), Some(lang)) = (parsed_tree, language) {
+        let _ = super::calls::index_calls_with_tree(graph, path, source, tree, lang);
     }
 
     // Step 7: Compute and store metrics (fan-in, fan-out, LOC, complexity)
