@@ -500,6 +500,12 @@ pub fn compute_dominator_depth(cfg: &CfgWithEdges) -> HashMap<usize, i64> {
     immediate_dominator.insert(entry_idx, None);
 
     for i in 1..n {
+        // Unreachable blocks (no predecessors) have no immediate dominator
+        if predecessors[i].is_empty() {
+            immediate_dominator.insert(i, None);
+            continue;
+        }
+
         let doms = &dominators[i];
         let mut idom = None;
         for d in doms.ones() {
@@ -529,6 +535,7 @@ pub fn compute_dominator_depth(cfg: &CfgWithEdges) -> HashMap<usize, i64> {
     // Compute depths
     fn compute_depth(
         node: usize,
+        entry_idx: usize,
         imm_dom: &HashMap<usize, Option<usize>>,
         cache: &mut HashMap<usize, i64>,
     ) -> i64 {
@@ -536,15 +543,23 @@ pub fn compute_dominator_depth(cfg: &CfgWithEdges) -> HashMap<usize, i64> {
             return depth;
         }
         let depth = match imm_dom.get(&node) {
-            None | Some(None) => 0,
-            Some(Some(parent)) => 1 + compute_depth(*parent, imm_dom, cache),
+            None | Some(None) => {
+                // Entry block (index == entry_idx) gets depth 0
+                // Unreachable blocks (index > entry_idx with no idom) get depth -1
+                if node == entry_idx {
+                    0
+                } else {
+                    -1
+                }
+            }
+            Some(Some(parent)) => 1 + compute_depth(*parent, entry_idx, imm_dom, cache),
         };
         cache.insert(node, depth);
         depth
     }
 
     for i in 0..n {
-        let d = compute_depth(i, &immediate_dominator, &mut HashMap::new());
+        let d = compute_depth(i, entry_idx, &immediate_dominator, &mut HashMap::new());
         depth.insert(i, d);
     }
 
@@ -960,7 +975,9 @@ mod spatial_tests {
         // All blocks should have coordinates set
         for block in &cfg.blocks {
             // X, Y, Z should be set (coord_t may be None if not in git repo)
-            assert!(block.coord_x >= 0);
+            // coord_x can be -1 for unreachable blocks (no predecessors)
+            // coord_y and coord_z should always be non-negative
+            assert!(block.coord_x >= -1);
             assert!(block.coord_y >= 0);
             assert!(block.coord_z >= 0);
         }
@@ -1081,5 +1098,97 @@ mod spatial_tests {
         // Verify edges are also deleted
         let after_delete = ops.get_cfg_edges_for_function(42).unwrap();
         assert!(after_delete.is_empty());
+    }
+
+    #[test]
+    fn test_compute_dominator_depth_unreachable_block() {
+        // Construct a CFG with an unreachable block (no predecessors)
+        // Block 0 (entry) -> Block 1
+        // Block 2 is unreachable (no incoming edges)
+        let cfg = CfgWithEdges {
+            function_id: 1,
+            blocks: vec![
+                CfgBlock {
+                    function_id: 1,
+                    kind: "ENTRY".to_string(),
+                    terminator: "FALLTHROUGH".to_string(),
+                    byte_start: 0,
+                    byte_end: 10,
+                    start_line: 1,
+                    start_col: 0,
+                    end_line: 1,
+                    end_col: 10,
+                    cfg_hash: None,
+                    statements: None,
+                    coord_x: 0,
+                    coord_y: 0,
+                    coord_z: 0,
+                    coord_t: None,
+                },
+                CfgBlock {
+                    function_id: 1,
+                    kind: "EXIT".to_string(),
+                    terminator: "RETURN".to_string(),
+                    byte_start: 10,
+                    byte_end: 20,
+                    start_line: 2,
+                    start_col: 0,
+                    end_line: 2,
+                    end_col: 10,
+                    cfg_hash: None,
+                    statements: None,
+                    coord_x: 0,
+                    coord_y: 0,
+                    coord_z: 0,
+                    coord_t: None,
+                },
+                CfgBlock {
+                    function_id: 1,
+                    kind: "DEAD".to_string(),
+                    terminator: "UNREACHABLE".to_string(),
+                    byte_start: 20,
+                    byte_end: 30,
+                    start_line: 3,
+                    start_col: 0,
+                    end_line: 3,
+                    end_col: 10,
+                    cfg_hash: None,
+                    statements: None,
+                    coord_x: 0,
+                    coord_y: 0,
+                    coord_z: 0,
+                    coord_t: None,
+                },
+            ],
+            edges: vec![
+                // Only edge: entry (0) -> exit (1)
+                // Block 2 has no incoming edges - unreachable!
+                CfgEdge {
+                    source_idx: 0,
+                    target_idx: 1,
+                    edge_type: CfgEdgeType::Fallthrough,
+                },
+            ],
+        };
+
+        let depths = compute_dominator_depth(&cfg);
+
+        // Entry block must have depth 0
+        assert_eq!(depths.get(&0), Some(&0), "entry block should have depth 0");
+
+        // Reachable block (exit) should have depth >= 1
+        assert_eq!(
+            depths.get(&1),
+            Some(&1),
+            "reachable exit block should have depth 1"
+        );
+
+        // Unreachable block (no predecessors) should have depth -1, NOT 0
+        // This is the bug we're fixing: unreachable blocks were incorrectly getting depth 0
+        assert_eq!(
+            depths.get(&2),
+            Some(&-1),
+            "unreachable block (no predecessors) should have depth -1"
+        );
     }
 }
