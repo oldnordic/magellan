@@ -61,4 +61,6 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Semgrep OSS scan
-        run: semgrep ci --oss-only --config p/rust --config .semgrep/rules/
+        # Using only custom rules — p/rust community rules produce too many
+        # false positives for CLI tools (args, temp_dir, unsafe in watchers).
+        run: semgrep ci --oss-only --config .semgrep/rules/
