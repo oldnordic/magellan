@@ -224,12 +224,12 @@ pub fn print_full_usage() {
     eprintln!();
     eprintln!("Index arguments:");
     eprintln!("  --db <FILE>         Path to sqlitegraph database");
-    eprintln!("  --file <PATH>       File path to index");
+    eprintln!("  --file <PATH>       File path to index (alias: --path)");
     eprintln!("  --root <DIR>        Project root directory (optional)");
     eprintln!();
     eprintln!("Delete arguments:");
     eprintln!("  --db <FILE>         Path to sqlitegraph database");
-    eprintln!("  --file <PATH>       File path to delete from index");
+    eprintln!("  --file <PATH>       File path to delete from index (alias: --path)");
     eprintln!("  --root <DIR>        Project root directory (optional)");
     eprintln!();
     eprintln!("Cross-file-refs arguments:");
@@ -239,7 +239,7 @@ pub fn print_full_usage() {
     eprintln!();
     eprintln!("Query arguments:");
     eprintln!("  --db <FILE>         Path to sqlitegraph database");
-    eprintln!("  --file <PATH>       File path to query");
+    eprintln!("  --file <PATH>       File path to query (alias: --path)");
     eprintln!("  --kind <KIND>       Filter by symbol kind (optional)");
     eprintln!("  --with-context      Include source code context lines");
     eprintln!("  --with-callers      Include caller references");
@@ -269,7 +269,7 @@ pub fn print_full_usage() {
     eprintln!();
     eprintln!("Get arguments:");
     eprintln!("  --db <FILE>         Path to sqlitegraph database");
-    eprintln!("  --file <PATH>       File path containing the symbol");
+    eprintln!("  --file <PATH>       File path containing the symbol (alias: --path)");
     eprintln!("  --symbol <NAME>     Symbol name to retrieve");
     eprintln!("  --with-context      Include source code context lines");
     eprintln!("  --with-semantics    Include symbol kind and language");
@@ -278,24 +278,24 @@ pub fn print_full_usage() {
     eprintln!();
     eprintln!("Get-file arguments:");
     eprintln!("  --db <FILE>         Path to sqlitegraph database");
-    eprintln!("  --file <PATH>       File path to retrieve code for");
+    eprintln!("  --file <PATH>       File path to retrieve code for (alias: --path)");
     eprintln!();
     eprintln!("Chunks arguments:");
     eprintln!("  --db <FILE>         Path to sqlitegraph database");
     eprintln!("  --limit N           Limit number of chunks returned");
-    eprintln!("  --file PATTERN      Filter by file path pattern (substring match)");
+    eprintln!("  --file PATTERN      Filter by file path pattern (substring match, alias: --path)");
     eprintln!("  --kind KIND         Filter by symbol kind (fn, struct, method, class, etc.)");
     eprintln!();
     eprintln!("Chunk-by-span arguments:");
     eprintln!("  --db <FILE>         Path to sqlitegraph database");
-    eprintln!("  --file <PATH>       File path containing the chunk (required)");
+    eprintln!("  --file <PATH>       File path containing the chunk (required, alias: --path)");
     eprintln!("  --start N           Byte offset where chunk starts (required)");
     eprintln!("  --end N             Byte offset where chunk ends (required)");
     eprintln!();
     eprintln!("Chunk-by-symbol arguments:");
     eprintln!("  --db <FILE>         Path to sqlitegraph database");
     eprintln!("  --symbol <NAME>     Symbol name to find (required)");
-    eprintln!("  --file PATTERN      Filter by file path pattern (optional)");
+    eprintln!("  --file PATTERN      Filter by file path pattern (optional, alias: --path)");
     eprintln!();
     eprintln!("Files arguments:");
     eprintln!("  --db <FILE>         Path to sqlitegraph database");
@@ -940,7 +940,7 @@ fn parse_delete_args(args: &[String]) -> Result<Command> {
                 db_path = Some(PathBuf::from(&args[i + 1]));
                 i += 2;
             }
-            "--file" => {
+            "--file" | "--path" => {
                 if i + 1 >= args.len() {
                     return Err(anyhow::anyhow!("--file requires an argument"));
                 }
@@ -983,7 +983,7 @@ fn parse_index_args(args: &[String]) -> Result<Command> {
                 db_path = Some(PathBuf::from(&args[i + 1]));
                 i += 2;
             }
-            "--file" => {
+            "--file" | "--path" => {
                 if i + 1 >= args.len() {
                     return Err(anyhow::anyhow!("--file requires an argument"));
                 }
@@ -1332,7 +1332,7 @@ fn parse_enrich_args(args: &[String]) -> Result<Command> {
                 db_path = Some(PathBuf::from(&args[i + 1]));
                 i += 2;
             }
-            "--file" => {
+            "--file" | "--path" => {
                 if i + 1 >= args.len() {
                     return Err(anyhow::anyhow!("--file requires an argument"));
                 }
@@ -2227,7 +2227,7 @@ fn parse_get_args(args: &[String]) -> Result<Command> {
                 db_path = Some(PathBuf::from(&args[i + 1]));
                 i += 2;
             }
-            "--file" => {
+            "--file" | "--path" => {
                 if i + 1 >= args.len() {
                     return Err(anyhow::anyhow!("--file requires an argument"));
                 }
@@ -2863,7 +2863,7 @@ fn parse_query_args(args: &[String]) -> Result<Command> {
                 db_path = Some(PathBuf::from(&args[i + 1]));
                 i += 2;
             }
-            "--file" => {
+            "--file" | "--path" => {
                 if i + 1 >= args.len() {
                     return Err(anyhow::anyhow!("--file requires an argument"));
                 }
@@ -3019,7 +3019,7 @@ fn parse_chunks_args(args: &[String]) -> Result<Command> {
                 limit = Some(args[i + 1].parse()?);
                 i += 2;
             }
-            "--file" => {
+            "--file" | "--path" => {
                 if i + 1 >= args.len() {
                     return Err(anyhow::anyhow!("--file requires an argument"));
                 }
@@ -3066,7 +3066,7 @@ fn parse_chunk_by_span_args(args: &[String]) -> Result<Command> {
                 db_path = Some(PathBuf::from(&args[i + 1]));
                 i += 2;
             }
-            "--file" => {
+            "--file" | "--path" => {
                 if i + 1 >= args.len() {
                     return Err(anyhow::anyhow!("--file requires an argument"));
                 }
@@ -3146,7 +3146,7 @@ fn parse_chunk_by_symbol_args(args: &[String]) -> Result<Command> {
                 symbol_name = Some(args[i + 1].clone());
                 i += 2;
             }
-            "--file" => {
+            "--file" | "--path" => {
                 if i + 1 >= args.len() {
                     return Err(anyhow::anyhow!("--file requires an argument"));
                 }
@@ -3202,7 +3202,7 @@ fn parse_ast_args(args: &[String]) -> Result<Command> {
                 db_path = Some(PathBuf::from(&args[i + 1]));
                 i += 2;
             }
-            "--file" => {
+            "--file" | "--path" => {
                 if i + 1 >= args.len() {
                     return Err(anyhow::anyhow!("--file requires an argument"));
                 }
