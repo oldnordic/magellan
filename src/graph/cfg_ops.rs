@@ -532,34 +532,30 @@ pub fn compute_dominator_depth(cfg: &CfgWithEdges) -> HashMap<usize, i64> {
         immediate_dominator.insert(i, idom);
     }
 
-    // Compute depths
-    fn compute_depth(
-        node: usize,
-        entry_idx: usize,
-        imm_dom: &HashMap<usize, Option<usize>>,
-        cache: &mut HashMap<usize, i64>,
-    ) -> i64 {
-        if let Some(&depth) = cache.get(&node) {
-            return depth;
-        }
-        let depth = match imm_dom.get(&node) {
-            None | Some(None) => {
-                // Entry block (index == entry_idx) gets depth 0
-                // Unreachable blocks (index > entry_idx with no idom) get depth -1
-                if node == entry_idx {
-                    0
-                } else {
-                    -1
+    // Compute depths iteratively to avoid stack overflow on deep or cyclic idom graphs
+    for i in 0..n {
+        let mut current = i;
+        let mut steps = 0i64;
+        let mut visited = HashSet::new();
+        let d = loop {
+            if current == entry_idx {
+                break steps;
+            }
+            match immediate_dominator.get(&current) {
+                Some(Some(parent)) => {
+                    if !visited.insert(*parent) {
+                        // Cycle detected in idom graph
+                        break -1;
+                    }
+                    steps += 1;
+                    current = *parent;
+                }
+                _ => {
+                    // No idom: unreachable block
+                    break -1;
                 }
             }
-            Some(Some(parent)) => 1 + compute_depth(*parent, entry_idx, imm_dom, cache),
         };
-        cache.insert(node, depth);
-        depth
-    }
-
-    for i in 0..n {
-        let d = compute_depth(i, entry_idx, &immediate_dominator, &mut HashMap::new());
         depth.insert(i, d);
     }
 
@@ -1190,5 +1186,69 @@ mod spatial_tests {
             Some(&-1),
             "unreachable block (no predecessors) should have depth -1"
         );
+    }
+
+    #[test]
+    fn test_cfg_extract_ops_functions_no_stack_overflow() {
+        let source = std::fs::read_to_string("src/graph/ops.rs").unwrap();
+        let mut parser = tree_sitter::Parser::new();
+        parser.set_language(&tree_sitter_rust::language()).unwrap();
+        let tree = parser.parse(source.as_bytes(), None).unwrap();
+
+        let root = tree.root_node();
+
+        fn find_functions<'a>(
+            node: tree_sitter::Node<'a>,
+            result: &mut Vec<tree_sitter::Node<'a>>,
+        ) {
+            if node.kind() == "function_item" {
+                result.push(node);
+            }
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                find_functions(child, result);
+            }
+        }
+
+        let mut functions = Vec::new();
+        find_functions(root, &mut functions);
+
+        println!("Found {} functions", functions.len());
+
+        for (i, func) in functions.iter().enumerate() {
+            let name = func
+                .child_by_field_name("name")
+                .map(|n| {
+                    let bytes = &source.as_bytes()[n.start_byte()..n.end_byte()];
+                    String::from_utf8_lossy(bytes).to_string()
+                })
+                .unwrap_or_else(|| format!("func_{}", i));
+
+            println!("Testing {} ...", name);
+            let cfg = crate::graph::cfg_edges_extract::extract_cfg_from_function_node(
+                func,
+                i as i64 + 1,
+                &source,
+            );
+            println!(
+                "  Extracted {} blocks, {} edges",
+                cfg.blocks.len(),
+                cfg.edges.len()
+            );
+
+            println!("  Testing dominator depth ...");
+            let dom_depth = compute_dominator_depth(&cfg);
+            println!("    OK - {} entries", dom_depth.len());
+
+            println!("  Testing loop nesting ...");
+            let loop_nest = compute_loop_nesting(&cfg);
+            println!("    OK - {} entries", loop_nest.len());
+
+            println!("  Testing branch distance ...");
+            let branch_dist = compute_branch_distance(&cfg);
+            println!("    OK - {} entries", branch_dist.len());
+
+            println!("  PASSED");
+        }
     }
 }
