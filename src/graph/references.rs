@@ -24,6 +24,8 @@ use crate::references::ReferenceFact;
 /// Reference operations for CodeGraph
 pub struct ReferenceOps {
     pub backend: Arc<dyn GraphBackend>,
+    /// SQLite backend for batch insert operations (optional, requires sqlite-backend feature)
+    pub sqlite_backend: Option<Arc<sqlitegraph::SqliteGraphBackend>>,
 }
 
 impl ReferenceOps {
@@ -190,17 +192,24 @@ impl ReferenceOps {
             None => Vec::new(),
         };
 
-        // Insert reference nodes and REFERENCES edges
+        // Batch insert reference nodes and REFERENCES edges for performance.
+        let mut resolved_refs: Vec<&ReferenceFact> = Vec::new();
+        let mut resolved_targets: Vec<i64> = Vec::new();
         for reference in &references {
             if let Some(&target_symbol_id) = symbol_fqn_to_id.get(&reference.referenced_symbol) {
-                let reference_id = self.insert_reference_node(reference)?;
-                self.insert_references_edge(
-                    reference_id,
-                    NodeId::from(target_symbol_id),
-                    reference,
-                )?;
+                resolved_refs.push(reference);
+                resolved_targets.push(target_symbol_id);
             }
         }
+
+        let reference_ids = self.insert_reference_nodes_batch(&resolved_refs)?;
+        let edge_pairs: Vec<(NodeId, NodeId, &ReferenceFact)> = reference_ids
+            .iter()
+            .zip(resolved_targets.iter())
+            .zip(resolved_refs.iter())
+            .map(|((ref_id, target_id), reference)| (*ref_id, NodeId::from(*target_id), *reference))
+            .collect();
+        self.insert_references_edges_batch(&edge_pairs)?;
 
         Ok(references.len())
     }
@@ -300,21 +309,28 @@ impl ReferenceOps {
             None => Vec::new(),
         };
 
-        // Insert reference nodes and REFERENCES edges
+        // Batch insert reference nodes and REFERENCES edges for performance.
+        // Filter references that have a resolved target symbol first.
+        let mut resolved_refs: Vec<&ReferenceFact> = Vec::new();
+        let mut resolved_targets: Vec<i64> = Vec::new();
         for reference in &references {
-            let target_symbol_id = symbol_id_to_id
+            if let Some(&target_symbol_id) = symbol_id_to_id
                 .get(&reference.referenced_symbol)
-                .or_else(|| fqn_to_id.get(&reference.referenced_symbol));
-
-            if let Some(&target_symbol_id) = target_symbol_id {
-                let reference_id = self.insert_reference_node(reference)?;
-                self.insert_references_edge(
-                    reference_id,
-                    NodeId::from(target_symbol_id),
-                    reference,
-                )?;
+                .or_else(|| fqn_to_id.get(&reference.referenced_symbol))
+            {
+                resolved_refs.push(reference);
+                resolved_targets.push(target_symbol_id);
             }
         }
+
+        let reference_ids = self.insert_reference_nodes_batch(&resolved_refs)?;
+        let edge_pairs: Vec<(NodeId, NodeId, &ReferenceFact)> = reference_ids
+            .iter()
+            .zip(resolved_targets.iter())
+            .zip(resolved_refs.iter())
+            .map(|((ref_id, target_id), reference)| (*ref_id, NodeId::from(*target_id), *reference))
+            .collect();
+        self.insert_references_edges_batch(&edge_pairs)?;
 
         Ok(references.len())
     }
@@ -393,6 +409,83 @@ impl ReferenceOps {
         };
 
         self.backend.insert_edge(edge_spec)?;
+        Ok(())
+    }
+
+    /// Batch insert reference nodes using sqlitegraph bulk_insert_entities with TransactionGuard.
+    ///
+    /// This wraps all reference node inserts in a single BEGIN IMMEDIATE...COMMIT transaction.
+    pub fn insert_reference_nodes_batch(
+        &self,
+        references: &[&ReferenceFact],
+    ) -> Result<Vec<NodeId>> {
+        let Some(ref sqlite_backend) = self.sqlite_backend else {
+            let mut ids = Vec::with_capacity(references.len());
+            for reference in references {
+                ids.push(self.insert_reference_node(reference)?);
+            }
+            return Ok(ids);
+        };
+
+        let graph = sqlite_backend.graph();
+        let entries: Vec<sqlitegraph::GraphEntityCreate> = references
+            .iter()
+            .map(|reference| {
+                let reference_node = ReferenceNode {
+                    file: reference.file_path.to_string_lossy().to_string(),
+                    byte_start: reference.byte_start as u64,
+                    byte_end: reference.byte_end as u64,
+                    start_line: reference.start_line as u64,
+                    start_col: reference.start_col as u64,
+                    end_line: reference.end_line as u64,
+                    end_col: reference.end_col as u64,
+                };
+                sqlitegraph::GraphEntityCreate {
+                    kind: "Reference".to_string(),
+                    name: format!("ref to {}", reference.referenced_symbol),
+                    file_path: Some(reference.file_path.to_string_lossy().to_string()),
+                    data: serde_json::to_value(reference_node).unwrap_or(serde_json::json!({})),
+                }
+            })
+            .collect();
+
+        let ids = sqlitegraph::bulk_insert_entities(graph, &entries)?;
+        Ok(ids.into_iter().map(NodeId::from).collect())
+    }
+
+    /// Batch insert REFERENCES edges using sqlitegraph bulk_insert_edges with TransactionGuard.
+    pub fn insert_references_edges_batch(
+        &self,
+        pairs: &[(NodeId, NodeId, &ReferenceFact)],
+    ) -> Result<()> {
+        let Some(ref sqlite_backend) = self.sqlite_backend else {
+            for (reference_id, symbol_id, reference) in pairs {
+                self.insert_references_edge(*reference_id, *symbol_id, reference)?;
+            }
+            return Ok(());
+        };
+
+        let graph = sqlite_backend.graph();
+        let entries: Vec<sqlitegraph::GraphEdgeCreate> = pairs
+            .iter()
+            .map(
+                |(reference_id, symbol_id, reference)| sqlitegraph::GraphEdgeCreate {
+                    from_id: reference_id.as_i64(),
+                    to_id: symbol_id.as_i64(),
+                    edge_type: "REFERENCES".to_string(),
+                    data: serde_json::json!({
+                        "byte_start": reference.byte_start,
+                        "byte_end": reference.byte_end,
+                        "start_line": reference.start_line,
+                        "start_col": reference.start_col,
+                        "end_line": reference.end_line,
+                        "end_col": reference.end_col,
+                    }),
+                },
+            )
+            .collect();
+
+        sqlitegraph::bulk_insert_edges(graph, &entries)?;
         Ok(())
     }
 

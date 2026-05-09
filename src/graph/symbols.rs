@@ -201,6 +201,8 @@ pub struct SymbolOps {
     /// In-memory lookup index for O(1) symbol resolution
     /// Built on startup and maintained incrementally
     pub lookup: super::symbol_lookup::SymbolLookup,
+    /// SQLite backend for batch insert operations (optional, requires sqlite-backend feature)
+    pub sqlite_backend: Option<Arc<sqlitegraph::SqliteGraphBackend>>,
 }
 
 impl SymbolOps {
@@ -267,6 +269,108 @@ impl SymbolOps {
         // This keeps symbol insertion separate from labeling concerns.
 
         Ok(node_id)
+    }
+
+    /// Batch insert symbol nodes using sqlitegraph bulk_insert_entities with TransactionGuard.
+    ///
+    /// This wraps all symbol inserts in a single BEGIN IMMEDIATE...COMMIT transaction,
+    /// dramatically reducing WAL frame overhead compared to per-insert auto-commit.
+    pub fn insert_symbol_nodes_batch(
+        &mut self,
+        facts: &[crate::ingest::SymbolFact],
+    ) -> Result<Vec<NodeId>> {
+        let Some(ref sqlite_backend) = self.sqlite_backend else {
+            // Fallback to individual inserts if sqlite backend is not available
+            let mut ids = Vec::with_capacity(facts.len());
+            for fact in facts {
+                ids.push(self.insert_symbol_node(fact)?);
+            }
+            return Ok(ids);
+        };
+
+        let graph = sqlite_backend.graph();
+
+        // Build GraphEntityCreate specs for all symbols
+        let mut entries = Vec::with_capacity(facts.len());
+        let mut stable_ids = Vec::with_capacity(facts.len());
+        for fact in facts {
+            let language = crate::ingest::detect_language(&fact.file_path)
+                .map(|l| l.as_str().to_string())
+                .unwrap_or_else(|| "unknown".to_string());
+            let file_path_str = fact.file_path.to_string_lossy();
+            let span_id = generate_span_id(&file_path_str, fact.byte_start, fact.byte_end);
+            let fqn_for_id = fact.fqn.as_deref().unwrap_or("");
+            let symbol_id = generate_symbol_id(&language, fqn_for_id, &span_id);
+            let stable_symbol_id = symbol_id.clone();
+
+            let symbol_node = SymbolNode {
+                symbol_id: Some(symbol_id),
+                fqn: fact.fqn.clone(),
+                canonical_fqn: fact.canonical_fqn.clone(),
+                display_fqn: fact.display_fqn.clone(),
+                name: fact.name.clone(),
+                kind: format!("{:?}", fact.kind),
+                kind_normalized: Some(fact.kind_normalized.clone()),
+                byte_start: fact.byte_start,
+                byte_end: fact.byte_end,
+                start_line: fact.start_line,
+                start_col: fact.start_col,
+                end_line: fact.end_line,
+                end_col: fact.end_col,
+            };
+
+            let name = fact
+                .name
+                .clone()
+                .unwrap_or_else(|| format!("<{:?} at {}>", fact.kind, fact.byte_start));
+
+            let data = serde_json::to_value(symbol_node)?;
+            entries.push(sqlitegraph::GraphEntityCreate {
+                kind: "Symbol".to_string(),
+                name,
+                file_path: Some(file_path_str.to_string()),
+                data,
+            });
+            stable_ids.push((file_path_str.to_string(), stable_symbol_id));
+        }
+
+        // Batch insert with transaction
+        let ids = sqlitegraph::bulk_insert_entities(graph, &entries)?;
+
+        // Update lookup index
+        for (i, id) in ids.iter().enumerate() {
+            let _node_id = NodeId::from(*id);
+            let (ref file_path, ref stable_symbol_id) = stable_ids[i];
+            self.lookup
+                .insert_with_symbol_id(*id, file_path, &facts[i], stable_symbol_id.clone());
+        }
+
+        Ok(ids.into_iter().map(NodeId::from).collect())
+    }
+
+    /// Batch insert DEFINES edges using sqlitegraph bulk_insert_edges with TransactionGuard.
+    pub fn insert_defines_edges_batch(&self, file_id: NodeId, symbol_ids: &[NodeId]) -> Result<()> {
+        let Some(ref sqlite_backend) = self.sqlite_backend else {
+            // Fallback to individual inserts
+            for symbol_id in symbol_ids {
+                self.insert_defines_edge(file_id, *symbol_id)?;
+            }
+            return Ok(());
+        };
+
+        let graph = sqlite_backend.graph();
+        let entries: Vec<sqlitegraph::GraphEdgeCreate> = symbol_ids
+            .iter()
+            .map(|symbol_id| sqlitegraph::GraphEdgeCreate {
+                from_id: file_id.as_i64(),
+                to_id: symbol_id.as_i64(),
+                edge_type: "DEFINES".to_string(),
+                data: serde_json::json!({}),
+            })
+            .collect();
+
+        sqlitegraph::bulk_insert_edges(graph, &entries)?;
+        Ok(())
     }
 
     /// Insert DEFINES edge from file to symbol

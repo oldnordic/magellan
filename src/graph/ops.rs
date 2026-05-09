@@ -154,20 +154,25 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
     // Detect language once for label assignment
     let language_label = language.map(|l| l.as_str().to_string());
 
-    for fact in &symbol_facts {
-        let symbol_id = graph.symbols.insert_symbol_node(fact)?;
-        graph.symbols.insert_defines_edge(file_id, symbol_id)?;
+    // Batch insert symbol nodes and DEFINES edges for performance.
+    // This uses sqlitegraph's bulk_insert_entities/bulk_insert_edges wrapped
+    // in a TransactionGuard (BEGIN IMMEDIATE...COMMIT), reducing WAL frames
+    // from O(symbols) to O(1) per file.
+    let symbol_ids = graph.symbols.insert_symbol_nodes_batch(&symbol_facts)?;
+    graph
+        .symbols
+        .insert_defines_edges_batch(file_id, &symbol_ids)?;
+
+    for (i, fact) in symbol_facts.iter().enumerate() {
+        let symbol_id = symbol_ids[i];
 
         // Add labels for the symbol (SQLite backend only)
-        // Language label (e.g., "rust", "python", "javascript")
         if let Some(ref lang) = language_label {
             let _ = graph.add_label(symbol_id.as_i64(), lang);
         }
-        // Symbol kind label (e.g., "fn", "struct", "enum", "method")
         let _ = graph.add_label(symbol_id.as_i64(), &fact.kind_normalized);
 
         // Track function symbols for CFG extraction (Rust only)
-        // kind_normalized uses normalized_key: "fn" for Function, "method" for Method
         if fact.kind_normalized == "fn" || fact.kind_normalized == "method" {
             if let Some(ref name) = fact.name {
                 function_symbol_ids.push((

@@ -5,10 +5,16 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Added
+## [3.3.2] - 2026-05-09
 
-- **SIMD/AVX indexing optimizations** — XXH3-128 hashing, memchr newline counting, eliminated double-parsing per file, bitset dominator computation.
-- **Deliverable verification hook** — `.claude/hooks/deliverable-verify.fish` validates that claimed deliverables exist and meet quality criteria when an agent completes a task. 12 check types: `exists`, `non_empty`, `min_size`, `no_stubs`, `required_patterns`, `git_changed`, `git_added`, `parseable`, `symbols_exist`, `compiles`, `tests_pass`, `lint_pass`. Configured via `.envoy/deliverables.json`. Advisory mode (warnings only, never blocks).
+### Fixed
+
+- **Missing SQLite transactions during indexing** — Fixed the root cause of ~27x throughput degradation when indexing larger codebases. Each file's symbol/reference/call inserts were executing in auto-commit mode, creating one WAL frame per INSERT. With ~20 symbols + ~20 references + ~30 calls per file, 146 files generated ~24,000 individual SQL executes. At 3.3x scale (483 files) this exploded to ~79,000 executes, causing super-linear WAL checkpoint overhead.
+  - `SymbolOps` now uses `sqlitegraph::bulk_insert_entities` + `bulk_insert_edges` wrapped in `TransactionGuard` (BEGIN IMMEDIATE...COMMIT) for all symbol nodes and DEFINES edges per file.
+  - `ReferenceOps` now batches reference node inserts and REFERENCES edges via the same bulk APIs.
+  - `CallOps` now batches call node inserts, CALLER edges, and CALLS edges via the same bulk APIs.
+  - All three modules receive an `sqlite_backend: Option<Arc<SqliteGraphBackend>>` field during `CodeGraph::open`, with graceful fallback to individual inserts for non-SQLite backends.
+  - Verified: `magellan watch --scan-initial` over `./src` (146 files, 2,853 symbols, 3,196 references, 4,265 calls) completes cleanly; DB integrity check passes; `magellan doctor` reports all OK.
 
 ## [3.3.1] - 2026-05-06
 

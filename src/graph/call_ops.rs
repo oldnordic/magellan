@@ -24,6 +24,8 @@ use crate::references::CallFact;
 /// Call operations for CodeGraph
 pub struct CallOps {
     pub backend: Arc<dyn GraphBackend>,
+    /// SQLite backend for batch insert operations (optional, requires sqlite-backend feature)
+    pub sqlite_backend: Option<Arc<sqlitegraph::SqliteGraphBackend>>,
 }
 
 impl CallOps {
@@ -137,7 +139,7 @@ impl CallOps {
         symbol_facts.extend(current_file_facts);
 
         // Extract calls using parser pool (was creating fresh parsers per file)
-        let calls = match language {
+        let mut calls = match language {
             Some(Language::Rust) => pool::with_parser_opt(Language::Rust, |opt_parser| {
                 let parser = opt_parser
                     .take()
@@ -231,9 +233,9 @@ impl CallOps {
                 .push(id);
         }
 
-        // Insert call nodes and edges
-        for mut call in calls {
-            // Look up stable symbol_ids for caller and callee
+        // Batch insert call nodes and edges for performance.
+        // First, update stable symbol_ids on all calls.
+        for call in &mut calls {
             let caller_key = (
                 call.file_path.to_string_lossy().to_string(),
                 call.caller.clone(),
@@ -242,37 +244,35 @@ impl CallOps {
                 call.file_path.to_string_lossy().to_string(),
                 call.callee.clone(),
             );
-
             call.caller_symbol_id = stable_symbol_ids.get(&caller_key).and_then(|id| id.clone());
             call.callee_symbol_id = stable_symbol_ids.get(&callee_key).and_then(|id| id.clone());
+        }
 
-            // Resolve callee symbol_id with fallback to simple name
-            // This enables cross-file call resolution when:
-            // 1. The callee is in a different file
-            // 2. The FQN doesn't exactly match (e.g., method calls)
-            let callee_symbol_id = symbol_ids.get(&call.callee).or_else(|| {
-                // Fallback: try simple name lookup for cross-file calls
-                // For method calls like widget.render(), call.callee is "render"
-                // but the symbol might be stored as "Widget::render"
-                name_to_ids.get(&call.callee).and_then(|ids| ids.first())
-            });
+        // Batch insert all call nodes
+        let call_refs: Vec<&CallFact> = calls.iter().collect();
+        let call_node_ids = self.insert_call_nodes_batch(&call_refs)?;
 
-            // Resolve caller symbol_id - always in current file, so FQN should work
+        // Build edge lists
+        let mut caller_edges: Vec<(NodeId, NodeId)> = Vec::new();
+        let mut calls_edges: Vec<(NodeId, NodeId)> = Vec::new();
+        for (i, call) in calls.iter().enumerate() {
+            let call_id = call_node_ids[i];
+
+            let callee_symbol_id = symbol_ids
+                .get(&call.callee)
+                .or_else(|| name_to_ids.get(&call.callee).and_then(|ids| ids.first()));
             let caller_symbol_id = symbol_ids.get(&call.caller);
 
-            // Insert call node regardless of symbol resolution
-            let call_id = self.insert_call_node(&call)?;
-
-            // Create CALLER edge if caller symbol found
             if let Some(&caller_id) = caller_symbol_id {
-                self.insert_caller_edge(NodeId::from(caller_id), call_id)?;
+                caller_edges.push((NodeId::from(caller_id), call_id));
             }
-
-            // Create CALLS edge if callee symbol found
             if let Some(&callee_id) = callee_symbol_id {
-                self.insert_calls_edge(call_id, NodeId::from(callee_id))?;
+                calls_edges.push((call_id, NodeId::from(callee_id)));
             }
         }
+
+        self.insert_caller_edges_batch(&caller_edges)?;
+        self.insert_calls_edges_batch(&calls_edges)?;
 
         Ok(call_count)
     }
@@ -329,7 +329,7 @@ impl CallOps {
 
         symbol_facts.extend(current_file_facts);
 
-        let calls = match language {
+        let mut calls = match language {
             Language::Rust => crate::ingest::Parser::extract_calls_from_tree(
                 tree,
                 path_buf,
@@ -366,7 +366,8 @@ impl CallOps {
                 .push(id);
         }
 
-        for mut call in calls {
+        // Batch insert call nodes and edges for performance.
+        for call in &mut calls {
             let caller_key = (
                 call.file_path.to_string_lossy().to_string(),
                 call.caller.clone(),
@@ -375,24 +376,33 @@ impl CallOps {
                 call.file_path.to_string_lossy().to_string(),
                 call.callee.clone(),
             );
-
             call.caller_symbol_id = stable_symbol_ids.get(&caller_key).and_then(|id| id.clone());
             call.callee_symbol_id = stable_symbol_ids.get(&callee_key).and_then(|id| id.clone());
+        }
+
+        let call_refs: Vec<&CallFact> = calls.iter().collect();
+        let call_node_ids = self.insert_call_nodes_batch(&call_refs)?;
+
+        let mut caller_edges: Vec<(NodeId, NodeId)> = Vec::new();
+        let mut calls_edges: Vec<(NodeId, NodeId)> = Vec::new();
+        for (i, call) in calls.iter().enumerate() {
+            let call_id = call_node_ids[i];
 
             let callee_symbol_id = symbol_ids
                 .get(&call.callee)
                 .or_else(|| name_to_ids.get(&call.callee).and_then(|ids| ids.first()));
             let caller_symbol_id = symbol_ids.get(&call.caller);
 
-            let call_id = self.insert_call_node(&call)?;
-
             if let Some(&caller_id) = caller_symbol_id {
-                self.insert_caller_edge(NodeId::from(caller_id), call_id)?;
+                caller_edges.push((NodeId::from(caller_id), call_id));
             }
             if let Some(&callee_id) = callee_symbol_id {
-                self.insert_calls_edge(call_id, NodeId::from(callee_id))?;
+                calls_edges.push((call_id, NodeId::from(callee_id)));
             }
         }
+
+        self.insert_caller_edges_batch(&caller_edges)?;
+        self.insert_calls_edges_batch(&calls_edges)?;
 
         Ok(call_count)
     }
@@ -505,6 +515,96 @@ impl CallOps {
         };
 
         self.backend.insert_edge(edge_spec)?;
+        Ok(())
+    }
+
+    /// Batch insert call nodes using sqlitegraph bulk_insert_entities with TransactionGuard.
+    ///
+    /// This wraps all call node inserts in a single BEGIN IMMEDIATE...COMMIT transaction.
+    pub fn insert_call_nodes_batch(&self, calls: &[&CallFact]) -> Result<Vec<NodeId>> {
+        let Some(ref sqlite_backend) = self.sqlite_backend else {
+            let mut ids = Vec::with_capacity(calls.len());
+            for call in calls {
+                ids.push(self.insert_call_node(call)?);
+            }
+            return Ok(ids);
+        };
+
+        let graph = sqlite_backend.graph();
+        let entries: Vec<sqlitegraph::GraphEntityCreate> = calls
+            .iter()
+            .map(|call| {
+                let call_node = CallNode {
+                    file: call.file_path.to_string_lossy().to_string(),
+                    caller: call.caller.clone(),
+                    callee: call.callee.clone(),
+                    caller_symbol_id: call.caller_symbol_id.clone(),
+                    callee_symbol_id: call.callee_symbol_id.clone(),
+                    byte_start: call.byte_start as u64,
+                    byte_end: call.byte_end as u64,
+                    start_line: call.start_line as u64,
+                    start_col: call.start_col as u64,
+                    end_line: call.end_line as u64,
+                    end_col: call.end_col as u64,
+                };
+                sqlitegraph::GraphEntityCreate {
+                    kind: "Call".to_string(),
+                    name: format!("{} calls {}", call.caller, call.callee),
+                    file_path: Some(call.file_path.to_string_lossy().to_string()),
+                    data: serde_json::to_value(call_node).unwrap_or(serde_json::json!({})),
+                }
+            })
+            .collect();
+
+        let ids = sqlitegraph::bulk_insert_entities(graph, &entries)?;
+        Ok(ids.into_iter().map(NodeId::from).collect())
+    }
+
+    /// Batch insert CALLER edges using sqlitegraph bulk_insert_edges with TransactionGuard.
+    pub fn insert_caller_edges_batch(&self, pairs: &[(NodeId, NodeId)]) -> Result<()> {
+        let Some(ref sqlite_backend) = self.sqlite_backend else {
+            for (caller_id, call_id) in pairs {
+                self.insert_caller_edge(*caller_id, *call_id)?;
+            }
+            return Ok(());
+        };
+
+        let graph = sqlite_backend.graph();
+        let entries: Vec<sqlitegraph::GraphEdgeCreate> = pairs
+            .iter()
+            .map(|(caller_id, call_id)| sqlitegraph::GraphEdgeCreate {
+                from_id: caller_id.as_i64(),
+                to_id: call_id.as_i64(),
+                edge_type: "CALLER".to_string(),
+                data: serde_json::json!({}),
+            })
+            .collect();
+
+        sqlitegraph::bulk_insert_edges(graph, &entries)?;
+        Ok(())
+    }
+
+    /// Batch insert CALLS edges using sqlitegraph bulk_insert_edges with TransactionGuard.
+    pub fn insert_calls_edges_batch(&self, pairs: &[(NodeId, NodeId)]) -> Result<()> {
+        let Some(ref sqlite_backend) = self.sqlite_backend else {
+            for (call_id, callee_id) in pairs {
+                self.insert_calls_edge(*call_id, *callee_id)?;
+            }
+            return Ok(());
+        };
+
+        let graph = sqlite_backend.graph();
+        let entries: Vec<sqlitegraph::GraphEdgeCreate> = pairs
+            .iter()
+            .map(|(call_id, callee_id)| sqlitegraph::GraphEdgeCreate {
+                from_id: call_id.as_i64(),
+                to_id: callee_id.as_i64(),
+                edge_type: "CALLS".to_string(),
+                data: serde_json::json!({}),
+            })
+            .collect();
+
+        sqlitegraph::bulk_insert_edges(graph, &entries)?;
         Ok(())
     }
 

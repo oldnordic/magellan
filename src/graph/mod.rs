@@ -212,6 +212,10 @@ pub struct CodeGraph {
     /// Eliminates redundant connections opened by schema checks and diagnostics.
     pub(crate) side_conn: Arc<std::sync::Mutex<rusqlite::Connection>>,
 
+    /// SQLite backend for batch operations (when sqlite-backend feature is enabled).
+    /// Provides access to bulk_insert_entities and bulk_insert_edges via TransactionGuard.
+    pub(crate) sqlite_backend: Option<Arc<sqlitegraph::SqliteGraphBackend>>,
+
     /// Database file path for re-opening connections
     db_path: PathBuf,
 }
@@ -246,12 +250,20 @@ impl CodeGraph {
             clippy::arc_with_non_send_sync,
             reason = "sqlitegraph backend is used single-threaded"
         )]
-        let backend: Arc<dyn GraphBackend> = {
+        let (backend, sqlite_backend): (
+            Arc<dyn GraphBackend>,
+            Option<Arc<sqlitegraph::SqliteGraphBackend>>,
+        ) = {
             use sqlitegraph::{SqliteGraph, SqliteGraphBackend};
             let cfg = sqlitegraph::SqliteConfig::new().with_pool_size(1);
             let sqlite_graph = SqliteGraph::open_with_config(&db_path_buf, &cfg)?;
             eprintln!("Using SQLite backend: {:?}", db_path_buf);
-            Arc::new(SqliteGraphBackend::from_graph(sqlite_graph))
+            let sqlite_backend = Arc::new(SqliteGraphBackend::from_graph(sqlite_graph));
+            let backend: Arc<dyn GraphBackend> = {
+                let cloned = sqlite_backend.clone();
+                cloned
+            };
+            (backend, Some(sqlite_backend))
         };
 
         #[cfg(not(feature = "sqlite-backend"))]
@@ -444,12 +456,15 @@ impl CodeGraph {
             symbols: symbols::SymbolOps {
                 backend: Arc::clone(&backend),
                 lookup: symbol_lookup::SymbolLookup::new(),
+                sqlite_backend: sqlite_backend.clone(),
             },
             references: references::ReferenceOps {
                 backend: Arc::clone(&backend),
+                sqlite_backend: sqlite_backend.clone(),
             },
             calls: call_ops::CallOps {
                 backend: Arc::clone(&backend),
+                sqlite_backend: sqlite_backend.clone(),
             },
             imports: imports::ImportOps {
                 backend: Arc::clone(&backend),
@@ -462,6 +477,7 @@ impl CodeGraph {
             cfg_ops: cfg_ops::CfgOps::new(ChunkStore::new(&db_path_buf)),
             side_tables,
             side_conn,
+            sqlite_backend,
             db_path: db_path_buf,
         };
 
