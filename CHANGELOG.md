@@ -3,16 +3,16 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.3.3] - 2026-05-10
 
 ### Fixed
 
-- **Watch mode database corruption regression** — v3.3.2's `BEGIN IMMEDIATE` batch transactions caused "database disk image is malformed" errors and indefinite hangs in `magellan watch --scan-initial`. The root cause was concurrent WAL writes between the sqlitegraph pooled connection (used by `bulk_insert_entities`/`bulk_insert_edges`) and the `side_conn` (used for module resolution and side-table operations), both writing to the same WAL file with `pool_size=1`.
-  - Added `batch_mode: bool` toggle to `CodeGraph`, `SymbolOps`, `ReferenceOps`, and `CallOps`.
-  - Default `batch_mode = true` preserves the ~27x throughput improvement for `magellan index` (single-file, no concurrency concerns).
-  - Watch mode sets `batch_mode = false` before any file processing, falling back to individual per-insert auto-commit mode.
-  - This eliminates the `BEGIN IMMEDIATE` contention that caused WAL corruption during the watch pipeline's rapid flush cycles.
-  - Verified: `magellan watch --scan-initial` over `./src` completes with 0 malformed errors; `PRAGMA integrity_check` passes; `magellan doctor` reports all OK; `cargo test` passes (26 tests).
+- **Watch mode database corruption** — `magellan watch --scan-initial` produced "database disk image is malformed" and "file is not a database" errors. Root cause: `CfgOps` opened a new SQLite connection per operation via `ChunkStore::connect()`, each without WAL mode or busy_timeout PRAGMAs, while 3 other connections were also writing to the same WAL file. Additionally, `insert_cfg_blocks()` ran `PRAGMA wal_checkpoint(TRUNCATE)` from one of these ephemeral connections, truncating the WAL while other connections had pending writes.
+  - Replaced all 7 `connect()` calls in `CfgOps` with `with_connection_mut`/`with_conn`, which use the shared `Arc<Mutex<Connection>>` instead of opening new connections.
+  - Removed the rogue WAL checkpoint from `insert_cfg_blocks()`. Only the watch loop checkpoints, from a single coordinated connection.
+  - Added `batch_mode: bool` toggle to `CodeGraph`, `SymbolOps`, `ReferenceOps`, and `CallOps`. Watch mode sets `batch_mode = false` before any file processing, falling back to individual per-insert auto-commit mode to avoid `BEGIN IMMEDIATE` contention.
+  - CfgOps now shares the same ChunkStore connection as CodeGraph instead of creating its own.
+  - Verified: two consecutive `magellan watch --scan-initial` runs complete with zero corruption, `PRAGMA integrity_check` passes, 146 files indexed cleanly.
 
 ## [3.3.2] - 2026-05-09
 
