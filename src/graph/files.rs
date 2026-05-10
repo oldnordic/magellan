@@ -55,12 +55,35 @@ pub struct FileOps {
 pub(crate) fn normalize_path_for_index(path: &str) -> String {
     let path_buf = PathBuf::from(path);
     if path_buf.is_absolute() {
-        return path.to_string();
+        // Strip ./ and other non-semantic components from absolute paths
+        let mut normalized = PathBuf::new();
+        for component in path_buf.components() {
+            match component {
+                std::path::Component::CurDir => {} // skip .
+                std::path::Component::ParentDir => {
+                    normalized.pop();
+                }
+                other => normalized.push(other),
+            }
+        }
+        return normalized.to_string_lossy().to_string();
     }
 
     // Relative path: make absolute from current directory (don't canonicalize - file may not exist)
     if let Ok(cwd) = std::env::current_dir() {
-        return cwd.join(&path_buf).to_string_lossy().to_string();
+        let joined = cwd.join(&path_buf);
+        // Normalize the joined path to remove ./ segments
+        let mut normalized = PathBuf::new();
+        for component in joined.components() {
+            match component {
+                std::path::Component::CurDir => {}
+                std::path::Component::ParentDir => {
+                    normalized.pop();
+                }
+                other => normalized.push(other),
+            }
+        }
+        return normalized.to_string_lossy().to_string();
     }
 
     // Fallback: return as-is

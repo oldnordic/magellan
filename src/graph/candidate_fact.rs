@@ -560,7 +560,7 @@ pub fn list_by_status(
                     rejection_reason, created_at, reviewed_at
              FROM candidate_facts
              ORDER BY created_at DESC
-             LIMIT ?2"
+             LIMIT ?1"
         }
     };
 

@@ -1,6 +1,6 @@
 # Magellan
 
-**Version:** 3.3.4
+**Version:** 3.3.5
 
 Magellan is a deterministic codebase indexing tool. It watches or scans source
 trees, extracts symbols, references, calls, AST nodes, code chunks, CFG data, and

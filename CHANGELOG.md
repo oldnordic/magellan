@@ -3,6 +3,13 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.5] - 2026-05-10
+
+### Fixed
+
+- **candidate-fact list SQL parameter mismatch** — `magellan candidate-fact list` (without --status) failed with "Wrong number of parameters passed to query". The no-status SQL branch used `LIMIT ?2` but only passed 1 parameter. Changed to `LIMIT ?1`.
+- **query returns no symbols for indexed files** — `magellan query --file src/lib.rs` returned empty when the database stored paths with `./` segments (e.g., from `--root ./src`). `normalize_path_for_index` now strips `.` and resolves `..` path components so both indexing and querying produce matching paths.
+
 ## [3.3.4] - 2026-05-10
 
 ### Added
