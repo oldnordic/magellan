@@ -489,7 +489,7 @@ pub fn insert(conn: &Connection, candidate: &CandidateFact) -> Result<i64> {
             candidate.reviewed_at,
         ],
     )
-    .context("insert candidate fact")?;
+    .with_context(|| format!("insert candidate fact (candidate_id={})", candidate.candidate_id))?;
 
     Ok(conn.last_insert_rowid())
 }
@@ -1280,6 +1280,26 @@ mod tests {
             .warnings
             .iter()
             .any(|w| w.contains("Deterministic method")));
+    }
+
+    #[test]
+    fn test_insert_duplicate_candidate_id_returns_error() {
+        let conn = in_memory_db();
+        setup_schema(&conn);
+        let doc_id = sample_doc(&conn);
+
+        let c1 = sample_candidate(doc_id);
+        insert(&conn, &c1).unwrap();
+
+        // Second insert with same candidate_id should fail with descriptive error
+        let c2 = sample_candidate(doc_id);
+        let err = insert(&conn, &c2).unwrap_err();
+        let msg = format!("{:#}", err);
+        assert!(
+            msg.contains("candidate_id") || msg.contains("UNIQUE"),
+            "Error should mention candidate_id or UNIQUE constraint: {}",
+            msg
+        );
     }
 
     #[test]

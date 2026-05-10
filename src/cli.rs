@@ -3901,6 +3901,10 @@ fn parse_candidate_fact_args(args: &[String]) -> Result<Command> {
                 props.source = format!("source_doc:{}", source_doc_id);
             }
 
+            if candidate_id.is_empty() {
+                candidate_id = format!("cf_{}", uuid::Uuid::new_v4().as_simple());
+            }
+
             let mut fact = magellan::graph::candidate_fact::CandidateFact::new(
                 candidate_id.clone(),
                 source_doc_id,

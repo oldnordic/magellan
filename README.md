@@ -26,7 +26,7 @@ supported workflow.
 Optional source builds may include experimental geometric index code, but the
 SQLite database remains the source of truth.
 
-**Schema version:** 12 (FTS5 full-text search enabled)
+**Schema version:** 14 (FTS5 full-text search, graph memory tables)
 
 ## Features
 
@@ -40,6 +40,8 @@ SQLite database remains the source of truth.
 - CFG blocks and CFG edges for control-flow analysis
 - Coverage ingestion from LCOV into CFG coverage side tables
 - Graph algorithms: reachability, dead code, cycles, condensation, paths, slice
+- Source inventory: index wiki pages, specs, and other non-code documents
+- Candidate facts: structured knowledge triples linked to source documents
 - JSON, pretty JSON, human output, and graph exports
 - LSIF import/export and SCIP export
 - `doctor` checks for schema and database health
@@ -120,6 +122,11 @@ magellan slice --db code.db --target <SYMBOL_ID> --direction backward
 magellan export --db code.db --format json --output graph.json
 magellan export --db code.db --format scip --output graph.scip
 magellan import-lsif --db code.db path/to/index.lsif
+
+magellan source-inventory --db code.db --scan ./wiki markdown
+magellan source-inventory --db code.db --kind wiki
+magellan candidate-fact submit --db code.db --from-source 1 --subject-type Task --subject-key "task-1" --predicate assigned_to
+magellan candidate-fact list --db code.db --status pending
 ```
 
 ## External CFG Tools

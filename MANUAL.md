@@ -398,6 +398,70 @@ cargo test --features external-tools-cfg --test external_tools_tests
 
 This feature uses installed external tools for C/C++ and Java CFG extraction.
 
+## Source Inventory
+
+Index non-code documents (wiki pages, messages, specs) into the `source_documents` table for cross-referencing with code symbols.
+
+```bash
+# Scan a directory for markdown files
+magellan source-inventory --db code.db --scan ./wiki markdown
+
+# List indexed documents by kind
+magellan source-inventory --db code.db --kind wiki
+
+# Show stale documents (content hash changed)
+magellan source-inventory --db code.db --stale
+
+# JSON output
+magellan source-inventory --db code.db --output json
+```
+
+| Flag | Description |
+|------|-------------|
+| `--scan <dir> <kind>` | Scan directory for documents of given kind |
+| `--kind <kind>` | Filter listed documents by source kind |
+| `--stale` | Show documents whose content hash has changed |
+| `--output <format>` | Output format: human, json, pretty |
+
+Extracted metadata includes title, author, tags, wikilinks, and frontmatter fields.
+
+## Candidate Facts
+
+Submit and manage structured knowledge triples (subject-predicate-object) linked to source documents.
+
+```bash
+# Submit a fact (candidate_id auto-generated if omitted)
+magellan candidate-fact submit --db code.db \
+  --from-source 1 \
+  --subject-type Task --subject-key "impl-feature" \
+  --predicate assigned_to \
+  --object-type Agent --object-key "claude-1"
+
+# List pending facts
+magellan candidate-fact list --db code.db --status pending
+
+# Review queue (rejected + ambiguous facts)
+magellan candidate-fact review-queue --db code.db
+
+# Validate a fact against the ontology
+magellan candidate-fact validate --db code.db --candidate-id cf_001
+
+# JSON output
+magellan candidate-fact list --db code.db --output json
+```
+
+| Flag | Description |
+|------|-------------|
+| `--from-source <id>` | Source document ID (required for submit) |
+| `--candidate-id <id>` | Unique identifier (auto-generated if omitted) |
+| `--subject-type <type>` | Entity type: Task, Agent, Event, Failure, Module |
+| `--subject-key <key>` | Entity identifier |
+| `--predicate <rel>` | Relation: assigned_to, caused_by, depends_on, implements, tests |
+| `--object-type <type>` | Object entity type (optional) |
+| `--object-key <key>` | Object entity identifier (optional) |
+| `--status <status>` | Filter by status: pending, accepted, rejected, ambiguous |
+| `--limit <n>` | Maximum results |
+
 ## Supported Languages
 
 | Language | Extensions |

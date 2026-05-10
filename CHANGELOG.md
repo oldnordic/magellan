@@ -7,6 +7,15 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Source-inventory frontmatter parser panic** — `magellan source-inventory --scan` panicked with `called Option::unwrap() on a None value` when scanning markdown files containing non-finite float values (NaN, inf) in YAML frontmatter. The `parse_frontmatter()` function used `serde_json::Number::from_f64(...).unwrap()` which returns `None` for non-finite floats.
+  - Replaced with safe `if let Some(n) = serde_json::Number::from_f64(fv)` check, falling through to string representation for non-finite values.
+  - Added 3 regression tests for negative numbers, floats, and non-finite float handling.
+
+- **Candidate-fact submit silent errors** — `magellan candidate-fact submit` without `--candidate-id` sent an empty string as the candidate identifier, causing a UNIQUE constraint violation on the second insert that was obscured by a generic `.context()` error message.
+  - Auto-generates a UUID (`cf_<uuid>`) when `--candidate-id` is not provided.
+  - Error message now includes the candidate_id for diagnostics.
+  - Added regression test for duplicate candidate_id error reporting.
+
 - **Watch mode database corruption** — `magellan watch --scan-initial` produced "database disk image is malformed" and "file is not a database" errors. Root cause: `CfgOps` opened a new SQLite connection per operation via `ChunkStore::connect()`, each without WAL mode or busy_timeout PRAGMAs, while 3 other connections were also writing to the same WAL file. Additionally, `insert_cfg_blocks()` ran `PRAGMA wal_checkpoint(TRUNCATE)` from one of these ephemeral connections, truncating the WAL while other connections had pending writes.
   - Replaced all 7 `connect()` calls in `CfgOps` with `with_connection_mut`/`with_conn`, which use the shared `Arc<Mutex<Connection>>` instead of opening new connections.
   - Removed the rogue WAL checkpoint from `insert_cfg_blocks()`. Only the watch loop checkpoints, from a single coordinated connection.

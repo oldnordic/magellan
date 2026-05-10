@@ -239,13 +239,13 @@ pub fn parse_frontmatter(yaml: &str) -> Option<serde_json::Value> {
                 );
             } else if value_str.parse::<i64>().is_ok() {
                 map.insert(key, serde_json::Value::Number(value_str.parse().unwrap()));
-            } else if value_str.parse::<f64>().is_ok() {
-                map.insert(
-                    key,
-                    serde_json::Value::Number(
-                        serde_json::Number::from_f64(value_str.parse().unwrap()).unwrap(),
-                    ),
-                );
+            } else if let Ok(fv) = value_str.parse::<f64>() {
+                if let Some(n) = serde_json::Number::from_f64(fv) {
+                    map.insert(key, serde_json::Value::Number(n));
+                } else {
+                    // Non-finite float (NaN, inf) — store as string
+                    map.insert(key, serde_json::Value::String(value_str.to_string()));
+                }
             } else {
                 map.insert(key, serde_json::Value::String(value_str.to_string()));
             }
@@ -735,6 +735,35 @@ Also check out #memory systems.
         let docs = list_by_kind(&conn, Some("wiki")).unwrap();
         assert_eq!(docs.len(), 1);
         assert_eq!(docs[0].title, Some("Updated Title".to_string()));
+    }
+
+    #[test]
+    fn test_parse_frontmatter_f64_that_is_not_json_number() {
+        // f64 values like NaN or Infinity cannot be represented as serde_json::Number
+        // parse_frontmatter should not panic on these — it should fall through to string
+        let yaml = "ratio: inf\n";
+        let json = parse_frontmatter(yaml);
+        // Should return Some with the value as a string, not panic
+        assert!(
+            json.is_some(),
+            "parse_frontmatter should return Some for valid-looking frontmatter"
+        );
+        let json = json.unwrap();
+        assert_eq!(json["ratio"], "inf");
+    }
+
+    #[test]
+    fn test_parse_frontmatter_negative_number() {
+        let yaml = "count: -5\n";
+        let json = parse_frontmatter(yaml).unwrap();
+        assert_eq!(json["count"], -5);
+    }
+
+    #[test]
+    fn test_parse_frontmatter_float() {
+        let yaml = "ratio: 3.14\n";
+        let json = parse_frontmatter(yaml).unwrap();
+        assert!((json["ratio"].as_f64().unwrap() - 3.14).abs() < f64::EPSILON);
     }
 
     #[test]
