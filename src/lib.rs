@@ -27,6 +27,21 @@
 //!
 //! - **`llvm-cfg`**: LLVM IR-based CFG extraction for C/C++ (requires clang)
 //! - **`bytecode-cfg`**: Java bytecode-based CFG extraction (requires Java bytecode library)
+//!
+//! # Graph Memory
+//!
+//! Magellan can index external documents (wiki pages, markdown) as source documents
+//! and extract candidate facts (subject-predicate-object triples) from them.
+//!
+//! - **Source inventory**: `source-inventory` CLI command scans directories and
+//!   stores document metadata (path, kind, hash, tags, wikilinks) in the
+//!   `source_documents` table (schema v13+).
+//! - **Candidate facts**: `candidate-fact` CLI command submits, lists, and
+//!   validates facts extracted from source documents, stored in the
+//!   `candidate_facts` table (schema v14+). Facts have statuses: `pending`,
+//!   `accepted`, or `rejected`.
+//!
+//! See [MANUAL.md](../MANUAL.md) for full CLI reference.
 
 pub mod backend_router;
 pub mod capabilities;
@@ -73,6 +88,13 @@ pub use graph::source_inventory::{
     compute_hash, ensure_schema, extract_frontmatter, extract_metadata, extract_tags,
     extract_title, extract_wikilinks, find_stale, insert_or_update, list_by_kind,
     parse_frontmatter, scan_directory, scan_file, ExtractedMetadata, SourceDocument,
+};
+pub use graph::candidate_fact::{
+    ensure_schema as ensure_candidate_fact_schema, find_by_id as find_candidate_fact_by_id,
+    insert as insert_candidate_fact, list_by_status as list_candidate_facts_by_status,
+    review_queue as candidate_fact_review_queue, update_status as update_candidate_fact_status,
+    validate_ontology, CandidateFact, CandidateProperties, CandidateStatus, ConflictSet,
+    ConflictType, ResolutionStatus, ValidationError, ValidationResult,
 };
 pub use graph::test_helpers::{delete_file_facts_with_injection, FailPoint};
 pub use graph::CrossFileRef;
