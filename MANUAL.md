@@ -1,6 +1,6 @@
 # Magellan Manual
 
-**Version:** 3.3.3
+**Version:** 3.3.4
 
 This manual documents the current user-facing Magellan CLI. The supported normal
 workflow uses a SQLite `.db` database.

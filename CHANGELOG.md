@@ -3,6 +3,17 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.4] - 2026-05-10
+
+### Added
+
+- **Crate-level docs for graph memory** — `lib.rs` now documents source-inventory and candidate-fact features in the crate root documentation visible on docs.rs
+- **Public re-exports for candidate_fact API** — `CandidateFact`, `CandidateStatus`, `CandidateProperties`, `ValidationResult`, `ValidationError`, `ConflictSet`, `ConflictType`, `ResolutionStatus`, and key functions (`insert_candidate_fact`, `find_candidate_fact_by_id`, `list_candidate_facts_by_status`, `candidate_fact_review_queue`, `update_candidate_fact_status`, `validate_ontology`) re-exported from crate root for downstream crate users
+
+### Changed
+
+- **Docs: schema v12 → v14** — All internal `docs/` files updated from schema v12 to v14, including graph memory table documentation (`source_documents`, `candidate_facts`)
+
 ## [3.3.3] - 2026-05-10
 
 ### Fixed
