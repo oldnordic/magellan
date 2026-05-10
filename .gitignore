@@ -100,3 +100,7 @@ QWEN.md
 docs/superpowers/
 2026-*-this-session-*.txt
 .claude.zip
+plugins/
+.envoy/
+EOF
+check_schema

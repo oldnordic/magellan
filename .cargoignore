@@ -1,0 +1,16 @@
+# Non-crate directories
+plugins/
+.envoy/
+.grounded/
+.magellan/
+.planning/
+target/
+
+# Build artifacts
+*.db
+*.db-wal
+*.db-shm
+
+# Local dev files
+EOF
+check_schema
