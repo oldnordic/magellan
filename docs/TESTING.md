@@ -59,3 +59,21 @@ cargo test --features external-tools-cfg --test external_tools_tests
 
 These tests should gracefully handle missing external tools where the code is
 designed to fall back.
+
+## Graph Memory Tests
+
+```bash
+# Source inventory tests
+cargo test source_inventory
+cargo test source_document
+cargo test parse_frontmatter
+
+# Candidate fact tests
+cargo test candidate_fact
+cargo test insert_candidate
+cargo test candidate_status
+```
+
+Source inventory tests cover frontmatter parsing (including edge cases with
+non-finite floats), document scanning, and stale detection. Candidate fact tests
+cover submission, validation, status transitions, and duplicate ID rejection.

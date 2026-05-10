@@ -102,3 +102,49 @@ magellan export --db code.db --format lsif
 JSON command output and full graph exports are related but not identical:
 command output is wrapped in `JsonResponse`; export files use the selected graph
 export format.
+
+## Source Inventory Payload
+
+```json
+{
+  "documents": [
+    {
+      "id": 1,
+      "path_or_uri": "wiki/pages/architecture.md",
+      "source_kind": "wiki",
+      "content_hash": "blake3-hash",
+      "observed_at": 1715347200,
+      "title": "Architecture Overview",
+      "tags": "rust,graph",
+      "wikilinks": "[[CodeGraph]]"
+    }
+  ],
+  "count": 1
+}
+```
+
+## Candidate Fact Payload
+
+```json
+{
+  "candidate_id": "cf_abc123def456",
+  "source_document_id": 1,
+  "subject_type": "Symbol",
+  "subject_key": "CodeGraph::index_file",
+  "predicate": "has_complexity",
+  "object_type": null,
+  "object_key": null,
+  "properties_json": "{\"cyclomatic\": 8}",
+  "status": "pending",
+  "created_at": 1715347200
+}
+```
+
+Fact list responses wrap multiple facts:
+
+```json
+{
+  "facts": [ { ... } ],
+  "count": 5
+}
+```

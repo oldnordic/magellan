@@ -1,6 +1,6 @@
 # Magellan Schema Reference
 
-**Version:** 3.1.7
+**Version:** 3.3.3
 
 This document describes the public data model used by the SQLite `.db` workflow.
 
@@ -99,6 +99,49 @@ Core graph relationships:
 
 CFG edges are stored in the `cfg_edges` side table rather than as primary graph
 edges.
+
+## Graph Memory
+
+Schema v13+ adds source inventory and candidate fact tables for storing extracted
+knowledge from external documents.
+
+### Source Documents
+
+`source_documents` stores indexed external documents as graph memory sources:
+
+```json
+{
+  "id": 1,
+  "path_or_uri": "wiki/pages/architecture.md",
+  "source_kind": "wiki",
+  "content_hash": "blake3-hash",
+  "observed_at": 1715347200,
+  "title": "Architecture Overview",
+  "tags": "rust,graph,architecture",
+  "wikilinks": "[[CodeGraph]], [[symbols]]"
+}
+```
+
+### Candidate Facts
+
+`candidate_facts` stores subject-predicate-object triples extracted from source
+documents, pending validation:
+
+```json
+{
+  "candidate_id": "cf_abc123def456",
+  "source_document_id": 1,
+  "subject_type": "Symbol",
+  "subject_key": "CodeGraph::index_file",
+  "predicate": "has_complexity",
+  "object_type": "number",
+  "object_key": "8",
+  "properties_json": "{\"cyclomatic\": 8}",
+  "status": "pending"
+}
+```
+
+Fact status transitions: `pending` → `accepted` or `rejected`.
 
 ## CFG Data
 

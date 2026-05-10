@@ -1,6 +1,6 @@
 # Magellan API Integration
 
-**Version:** 3.1.7
+**Version:** 3.3.3
 
 This guide is for downstream tools that use Magellan as a Rust library or invoke
 the CLI and parse JSON output.
@@ -97,10 +97,57 @@ magellan import-lsif --db code.db dependency.lsif
 
 ## Schema Versions
 
-- Magellan database schema: `11`
+- Magellan database schema: `14`
 - JSON response schema: `1.0.0`
 
 Consumers should treat both as compatibility boundaries.
+
+## Graph Memory API
+
+Magellan provides CLI commands for managing external document sources and extracted
+facts:
+
+### Source Inventory
+
+```bash
+# List indexed source documents
+magellan source-inventory --db code.db --list
+
+# Show stale documents (changed since last scan)
+magellan source-inventory --db code.db --stale
+
+# Scan a directory for source documents
+magellan source-inventory --db code.db --scan ./wiki wiki
+magellan source-inventory --db code.db --scan ./docs markdown
+
+# Filter by kind
+magellan source-inventory --db code.db --list --kind wiki
+```
+
+### Candidate Facts
+
+```bash
+# Submit a candidate fact
+magellan candidate-fact submit --db code.db \
+  --from-source <DOC_ID> \
+  --subject-type Symbol \
+  --subject-key "parse" \
+  --predicate "has_complexity" \
+  --properties '{"value": 8}'
+
+# List facts by status
+magellan candidate-fact list --db code.db --status pending
+magellan candidate-fact list --db code.db --status accepted
+
+# Validate (accept) a fact
+magellan candidate-fact validate --db code.db --candidate-id cf_abc123
+
+# Review queue
+magellan candidate-fact review-queue --db code.db --limit 20
+```
+
+Fact statuses: `pending` → `accepted` or `rejected`. Candidate IDs are
+auto-generated UUIDs when omitted.
 
 ## Path Handling
 

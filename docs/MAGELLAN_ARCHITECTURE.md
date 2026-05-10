@@ -1,6 +1,6 @@
 # Magellan Architecture
 
-**Version:** 3.1.7
+**Version:** 3.3.3
 
 This document describes the current public architecture. Magellan's supported
 user-facing storage path is a SQLite `.db` database.
@@ -44,6 +44,8 @@ Magellan also maintains side tables for data that is easier to query directly:
 - `cfg_block_coverage`: covered CFG blocks from LCOV ingestion
 - `cfg_edge_coverage`: covered CFG edges from LCOV ingestion
 - `cfg_coverage_meta`: coverage source metadata
+- `source_documents`: indexed external documents for graph memory (schema v13+)
+- `candidate_facts`: validated fact triples from source documents (schema v14+)
 - metrics and execution-log tables
 
 SQLite remains the source of truth for normal operation.
@@ -64,6 +66,7 @@ SQLite remains the source of truth for normal operation.
 10. Store imports for Rust files.
 11. Extract and store CFG blocks/edges where supported.
 12. Extract references and calls.
+13. Scan and store source documents for graph memory (if configured).
 
 Current parser dispatch covers Rust, Python, C, C++, Java, JavaScript, and
 TypeScript.
@@ -90,6 +93,7 @@ Commands are organized around facts:
 - structure: `ast`, `find-ast`
 - graph algorithms: `reachable`, `dead-code`, `cycles`, `condense`, `paths`,
   `slice`
+- graph memory: `source-inventory`, `candidate-fact`
 - database health: `status`, `doctor`, `migrate`, `verify`
 - maintenance: `refresh`, `backfill`, `index`, `delete`
 

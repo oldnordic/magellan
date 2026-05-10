@@ -1,7 +1,7 @@
 # SQLite Schema Reference
 
-**Version:** 3.1.7
-**Magellan schema version:** 12
+**Version:** 3.3.3
+**Magellan schema version:** 14
 **Database extension:** `.db`
 
 SQLite is the supported user-facing storage model.
@@ -154,6 +154,64 @@ magellan ingest-coverage --db code.db --lcov coverage/lcov.info
 magellan status --db code.db --output pretty
 ```
 
+## Graph Memory Storage
+
+### `source_documents`
+
+Stores indexed external documents (wiki pages, markdown, messages) as graph memory
+sources (schema v13+).
+
+Key fields:
+
+- `id` — auto-increment primary key
+- `path_or_uri` — unique document path or URI
+- `source_kind` — document type (e.g., `wiki`, `markdown`, `message`)
+- `content_hash` — blake3 content hash
+- `observed_at` — timestamp when first observed
+- `source_timestamp` — original document timestamp
+- `title`, `author` — frontmatter metadata
+- `tags` — comma-separated tag labels
+- `wikilinks` — comma-separated wikilink targets
+- `frontmatter` — raw frontmatter JSON
+
+Indexes: `path_or_uri`, `content_hash`, `source_kind`
+
+```bash
+magellan source-inventory --db code.db --list
+magellan source-inventory --db code.db --stale
+magellan source-inventory --db code.db --scan ./wiki wiki
+```
+
+### `candidate_facts`
+
+Stores candidate facts extracted from source documents, pending validation
+(schema v14+). Facts represent subject-predicate-object triples extracted from
+external sources.
+
+Key fields:
+
+- `id` — auto-increment primary key
+- `candidate_id` — stable unique identifier (auto-generated UUID if omitted)
+- `source_document_id` — foreign key to `source_documents`
+- `subject_type` — subject entity type
+- `subject_key` — subject identifier
+- `predicate` — relationship type
+- `object_type` — object entity type (nullable)
+- `object_key` — object identifier (nullable)
+- `properties_json` — additional fact properties as JSON
+- `status` — `pending`, `accepted`, or `rejected`
+- `rejection_reason` — reason if rejected (nullable)
+- `created_at`, `reviewed_at` — timestamps
+
+Indexes: `status`, `source_document_id`, `predicate`, `(status, created_at)`
+
+```bash
+magellan candidate-fact submit --db code.db --from-source 1 --subject-type Symbol --subject-key "parse" --predicate "has_complexity" --properties '{"value": 8}'
+magellan candidate-fact list --db code.db --status pending
+magellan candidate-fact validate --db code.db --candidate-id cf_abc123
+magellan candidate-fact review-queue --db code.db
+```
+
 ## Other Side Tables
 
 Magellan also maintains side tables for:
@@ -165,9 +223,9 @@ Magellan also maintains side tables for:
 - cross-file references
 - lazy index metadata
 - **FTS5 full-text search** (schema v12+)
+- **graph memory** (schema v13+)
 
 Exact table presence can depend on schema version and which commands have been run.
-run.
 
 ## Schema Version History
 
@@ -182,6 +240,8 @@ run.
 | 10 | CFG coordinate columns |
 | 11 | lazy index metadata and current compatibility baseline |
 | 12 | **FTS5 full-text search index** for symbol names (`symbol_fts` virtual table) |
+| 13 | **source_documents** table for graph memory source inventory |
+| 14 | **candidate_facts** table for validated fact extraction from source documents |
 
 ### Schema v12: FTS5 Full-Text Search
 
