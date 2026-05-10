@@ -269,10 +269,7 @@ impl CodeGraph {
             let sqlite_graph = SqliteGraph::open_with_config(&db_path_buf, &cfg)?;
             eprintln!("Using SQLite backend: {:?}", db_path_buf);
             let sqlite_backend = Arc::new(SqliteGraphBackend::from_graph(sqlite_graph));
-            let backend: Arc<dyn GraphBackend> = {
-                
-                (sqlite_backend.clone()) as _
-            };
+            let backend: Arc<dyn GraphBackend> = { (sqlite_backend.clone()) as _ };
             (backend, Some(sqlite_backend))
         };
 
@@ -483,11 +480,11 @@ impl CodeGraph {
                 backend: Arc::clone(&backend),
             },
             module_resolver,
-            chunks,
+            chunks: chunks.clone(),
             execution_log,
             metrics,
             file_node_cache,
-            cfg_ops: cfg_ops::CfgOps::new(ChunkStore::new(&db_path_buf)),
+            cfg_ops: cfg_ops::CfgOps::new(chunks),
             side_tables,
             side_conn,
             sqlite_backend,

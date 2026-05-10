@@ -7,7 +7,6 @@ use anyhow::Result;
 use fixedbitset::FixedBitSet;
 use rusqlite::params;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::path::Path;
 
 use crate::generation::ChunkStore;
 use crate::graph::cfg_edges_extract::{CfgEdge, CfgEdgeType, CfgWithEdges};
@@ -111,75 +110,64 @@ impl CfgOps {
     pub fn insert_cfg_blocks(&self, blocks: &[CfgBlock]) -> Result<usize> {
         use sha2::{Digest, Sha256};
 
-        let conn = self.chunks.connect()?;
+        self.chunks.with_connection_mut(|conn| {
+            let tx = conn.unchecked_transaction()?;
+            {
+                let mut stmt = tx.prepare(
+                    "INSERT INTO cfg_blocks (
+                        function_id, kind, terminator,
+                        byte_start, byte_end,
+                        start_line, start_col,
+                        end_line, end_col,
+                        cfg_hash,
+                        statements,
+                        coord_x, coord_y, coord_z, coord_t
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+                )?;
 
-        let tx = conn.unchecked_transaction()?;
-        {
-            let mut stmt = tx.prepare(
-                "INSERT INTO cfg_blocks (
-                    function_id, kind, terminator,
-                    byte_start, byte_end,
-                    start_line, start_col,
-                    end_line, end_col,
-                    cfg_hash,
-                    statements,
-                    coord_x, coord_y, coord_z, coord_t
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
-            )?;
+                for block in blocks {
+                    let statements_json = block
+                        .statements
+                        .as_ref()
+                        .map(|s| serde_json::to_string(s).unwrap_or_else(|_| "[]".to_string()));
 
-            for block in blocks {
-                let statements_json = block
-                    .statements
-                    .as_ref()
-                    .map(|s| serde_json::to_string(s).unwrap_or_else(|_| "[]".to_string()));
+                    let cfg_hash = if let Some(ref h) = block.cfg_hash {
+                        h.clone()
+                    } else {
+                        let mut hasher = Sha256::new();
+                        hasher.update(block.function_id.to_le_bytes());
+                        hasher.update(&block.kind);
+                        hasher.update(&block.terminator);
+                        hasher.update(block.byte_start.to_le_bytes());
+                        hasher.update(block.byte_end.to_le_bytes());
+                        if let Some(ref s) = statements_json {
+                            hasher.update(s.as_bytes());
+                        }
+                        format!("{:x}", hasher.finalize())[..16].to_string()
+                    };
 
-                // Compute hash from block data for cache invalidation
-                // Use provided hash if available, otherwise compute it
-                let cfg_hash = if let Some(ref h) = block.cfg_hash {
-                    h.clone()
-                } else {
-                    let mut hasher = Sha256::new();
-                    hasher.update(block.function_id.to_le_bytes());
-                    hasher.update(&block.kind);
-                    hasher.update(&block.terminator);
-                    hasher.update(block.byte_start.to_le_bytes());
-                    hasher.update(block.byte_end.to_le_bytes());
-                    if let Some(ref s) = statements_json {
-                        hasher.update(s.as_bytes());
-                    }
-                    format!("{:x}", hasher.finalize())[..16].to_string()
-                };
-
-                stmt.execute(params![
-                    block.function_id,
-                    block.kind,
-                    block.terminator,
-                    block.byte_start,
-                    block.byte_end,
-                    block.start_line,
-                    block.start_col,
-                    block.end_line,
-                    block.end_col,
-                    cfg_hash,
-                    statements_json,
-                    block.coord_x,
-                    block.coord_y,
-                    block.coord_z,
-                    block.coord_t.as_ref(),
-                ])?;
+                    stmt.execute(params![
+                        block.function_id,
+                        block.kind,
+                        block.terminator,
+                        block.byte_start,
+                        block.byte_end,
+                        block.start_line,
+                        block.start_col,
+                        block.end_line,
+                        block.end_col,
+                        cfg_hash,
+                        statements_json,
+                        block.coord_x,
+                        block.coord_y,
+                        block.coord_z,
+                        block.coord_t.as_ref(),
+                    ])?;
+                }
             }
-        }
-        tx.commit()?;
-
-        // Checkpoint WAL after bulk block insert
-        if let Err(e) = crate::graph::wal::checkpoint_conn(&conn) {
-            eprintln!(
-                "Warning: WAL checkpoint failed after CFG block insert: {}",
-                e
-            );
-        }
-
-        Ok(blocks.len())
+            tx.commit()?;
+            Ok(blocks.len())
+        })
     }
 
     /// Insert CFG edges into database
@@ -191,24 +179,25 @@ impl CfgOps {
         if edges.is_empty() {
             return Ok(0);
         }
-        let conn = self.chunks.connect()?;
-        let tx = conn.unchecked_transaction()?;
-        {
-            let mut stmt = tx.prepare(
-                "INSERT INTO cfg_edges (function_id, source_idx, target_idx, edge_type)
-                 VALUES (?1, ?2, ?3, ?4)",
-            )?;
-            for edge in edges {
-                stmt.execute(params![
-                    function_id,
-                    edge.source_idx as i64,
-                    edge.target_idx as i64,
-                    edge.edge_type.as_str(),
-                ])?;
+        self.chunks.with_connection_mut(|conn| {
+            let tx = conn.unchecked_transaction()?;
+            {
+                let mut stmt = tx.prepare(
+                    "INSERT INTO cfg_edges (function_id, source_idx, target_idx, edge_type)
+                     VALUES (?1, ?2, ?3, ?4)",
+                )?;
+                for edge in edges {
+                    stmt.execute(params![
+                        function_id,
+                        edge.source_idx as i64,
+                        edge.target_idx as i64,
+                        edge.edge_type.as_str(),
+                    ])?;
+                }
             }
-        }
-        tx.commit()?;
-        Ok(edges.len())
+            tx.commit()?;
+            Ok(edges.len())
+        })
     }
 
     /// Get CFG edges for a function
@@ -216,222 +205,227 @@ impl CfgOps {
         &self,
         function_id: i64,
     ) -> Result<Vec<crate::graph::cfg_edges_extract::CfgEdge>> {
-        let conn = self.chunks.connect()?;
-        let mut stmt = conn.prepare(
-            "SELECT source_idx, target_idx, edge_type
-             FROM cfg_edges
-             WHERE function_id = ?1
-             ORDER BY id",
-        )?;
-        let edges = stmt
-            .query_map(params![function_id], |row| {
-                let source_idx: i64 = row.get(0)?;
-                let target_idx: i64 = row.get(1)?;
-                let edge_type_str: String = row.get(2)?;
-                let edge_type = match edge_type_str.as_str() {
-                    "fallthrough" => crate::graph::cfg_edges_extract::CfgEdgeType::Fallthrough,
-                    "conditional_true" => {
-                        crate::graph::cfg_edges_extract::CfgEdgeType::ConditionalTrue
-                    }
-                    "conditional_false" => {
-                        crate::graph::cfg_edges_extract::CfgEdgeType::ConditionalFalse
-                    }
-                    "jump" => crate::graph::cfg_edges_extract::CfgEdgeType::Jump,
-                    "back_edge" => crate::graph::cfg_edges_extract::CfgEdgeType::BackEdge,
-                    "call" => crate::graph::cfg_edges_extract::CfgEdgeType::Call,
-                    "return" => crate::graph::cfg_edges_extract::CfgEdgeType::Return,
-                    _ => crate::graph::cfg_edges_extract::CfgEdgeType::Fallthrough,
-                };
-                Ok(crate::graph::cfg_edges_extract::CfgEdge {
-                    source_idx: source_idx as usize,
-                    target_idx: target_idx as usize,
-                    edge_type,
-                })
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(edges)
+        self.chunks.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT source_idx, target_idx, edge_type
+                 FROM cfg_edges
+                 WHERE function_id = ?1
+                 ORDER BY id",
+            )?;
+            let edges = stmt
+                .query_map(params![function_id], |row| {
+                    let source_idx: i64 = row.get(0)?;
+                    let target_idx: i64 = row.get(1)?;
+                    let edge_type_str: String = row.get(2)?;
+                    let edge_type = match edge_type_str.as_str() {
+                        "fallthrough" => crate::graph::cfg_edges_extract::CfgEdgeType::Fallthrough,
+                        "conditional_true" => {
+                            crate::graph::cfg_edges_extract::CfgEdgeType::ConditionalTrue
+                        }
+                        "conditional_false" => {
+                            crate::graph::cfg_edges_extract::CfgEdgeType::ConditionalFalse
+                        }
+                        "jump" => crate::graph::cfg_edges_extract::CfgEdgeType::Jump,
+                        "back_edge" => crate::graph::cfg_edges_extract::CfgEdgeType::BackEdge,
+                        "call" => crate::graph::cfg_edges_extract::CfgEdgeType::Call,
+                        "return" => crate::graph::cfg_edges_extract::CfgEdgeType::Return,
+                        _ => crate::graph::cfg_edges_extract::CfgEdgeType::Fallthrough,
+                    };
+                    Ok(crate::graph::cfg_edges_extract::CfgEdge {
+                        source_idx: source_idx as usize,
+                        target_idx: target_idx as usize,
+                        edge_type,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(edges)
+        })
     }
 
     pub fn delete_cfg_for_function(&self, function_id: i64) -> Result<usize> {
-        let conn = self.chunks.connect()?;
-        conn.execute(
-            "DELETE FROM cfg_edges WHERE function_id = ?1",
-            params![function_id],
-        )?;
-        let affected = conn.execute(
-            "DELETE FROM cfg_blocks WHERE function_id = ?1",
-            params![function_id],
-        )?;
-        Ok(affected)
+        self.chunks.with_connection_mut(|conn| {
+            conn.execute(
+                "DELETE FROM cfg_edges WHERE function_id = ?1",
+                params![function_id],
+            )?;
+            let affected = conn.execute(
+                "DELETE FROM cfg_blocks WHERE function_id = ?1",
+                params![function_id],
+            )?;
+            Ok(affected)
+        })
     }
 
     pub fn delete_cfg_for_functions(&self, function_ids: &[i64]) -> Result<usize> {
         if function_ids.is_empty() {
             return Ok(0);
         }
-        let conn = self.chunks.connect()?;
-        let placeholders = function_ids
-            .iter()
-            .enumerate()
-            .map(|(i, _)| format!("?{}", i + 1))
-            .collect::<Vec<_>>()
-            .join(", ");
-
-        // Delete path elements first (FK to cfg_paths without cascade)
-        let path_elements_sql = format!(
-            "DELETE FROM cfg_path_elements WHERE path_id IN (SELECT path_id FROM cfg_paths WHERE function_id IN ({}))",
-            placeholders
-        );
-        if let Ok(mut path_elements_stmt) = conn.prepare(&path_elements_sql) {
-            let params = function_ids.to_vec();
-            let _ = path_elements_stmt.execute(rusqlite::params_from_iter(&params));
-        }
-
-        // Delete cfg_paths (FK to graph_entities without cascade)
-        let paths_sql = format!(
-            "DELETE FROM cfg_paths WHERE function_id IN ({})",
-            placeholders
-        );
-        if let Ok(mut paths_stmt) = conn.prepare(&paths_sql) {
-            let params = function_ids.to_vec();
-            let _ = paths_stmt.execute(rusqlite::params_from_iter(&params));
-        }
-
-        // Delete dominators referencing blocks of these functions
-        let dom_sql = format!(
-            "DELETE FROM cfg_dominators WHERE block_id IN (SELECT id FROM cfg_blocks WHERE function_id IN ({})) OR dominator_id IN (SELECT id FROM cfg_blocks WHERE function_id IN ({}))",
-            placeholders, placeholders
-        );
-        if let Ok(mut dom_stmt) = conn.prepare(&dom_sql) {
-            let params: Vec<i64> = function_ids
+        self.chunks.with_connection_mut(|conn| {
+            let placeholders = function_ids
                 .iter()
-                .chain(function_ids.iter())
-                .copied()
-                .collect();
-            let _ = dom_stmt.execute(rusqlite::params_from_iter(&params));
-        }
+                .enumerate()
+                .map(|(i, _)| format!("?{}", i + 1))
+                .collect::<Vec<_>>()
+                .join(", ");
 
-        let post_dom_sql = format!(
-            "DELETE FROM cfg_post_dominators WHERE block_id IN (SELECT id FROM cfg_blocks WHERE function_id IN ({})) OR post_dominator_id IN (SELECT id FROM cfg_blocks WHERE function_id IN ({}))",
-            placeholders, placeholders
-        );
-        if let Ok(mut post_dom_stmt) = conn.prepare(&post_dom_sql) {
-            let params: Vec<i64> = function_ids
-                .iter()
-                .chain(function_ids.iter())
-                .copied()
-                .collect();
-            let _ = post_dom_stmt.execute(rusqlite::params_from_iter(&params));
-        }
+            // Delete path elements first (FK to cfg_paths without cascade)
+            let path_elements_sql = format!(
+                "DELETE FROM cfg_path_elements WHERE path_id IN (SELECT path_id FROM cfg_paths WHERE function_id IN ({}))",
+                placeholders
+            );
+            if let Ok(mut path_elements_stmt) = conn.prepare(&path_elements_sql) {
+                let params = function_ids.to_vec();
+                let _ = path_elements_stmt.execute(rusqlite::params_from_iter(&params));
+            }
 
-        let edge_sql = format!(
-            "DELETE FROM cfg_edges WHERE function_id IN ({})",
-            placeholders
-        );
-        let mut edge_stmt = conn.prepare(&edge_sql)?;
-        let params = function_ids.to_vec();
-        edge_stmt.execute(rusqlite::params_from_iter(&params))?;
+            // Delete cfg_paths (FK to graph_entities without cascade)
+            let paths_sql = format!(
+                "DELETE FROM cfg_paths WHERE function_id IN ({})",
+                placeholders
+            );
+            if let Ok(mut paths_stmt) = conn.prepare(&paths_sql) {
+                let params = function_ids.to_vec();
+                let _ = paths_stmt.execute(rusqlite::params_from_iter(&params));
+            }
 
-        let sql = format!(
-            "DELETE FROM cfg_blocks WHERE function_id IN ({})",
-            placeholders
-        );
-        let mut stmt = conn.prepare(&sql)?;
-        let params = function_ids.to_vec();
-        let affected = stmt.execute(rusqlite::params_from_iter(params))?;
-        Ok(affected)
+            // Delete dominators referencing blocks of these functions
+            let dom_sql = format!(
+                "DELETE FROM cfg_dominators WHERE block_id IN (SELECT id FROM cfg_blocks WHERE function_id IN ({})) OR dominator_id IN (SELECT id FROM cfg_blocks WHERE function_id IN ({}))",
+                placeholders, placeholders
+            );
+            if let Ok(mut dom_stmt) = conn.prepare(&dom_sql) {
+                let params: Vec<i64> = function_ids
+                    .iter()
+                    .chain(function_ids.iter())
+                    .copied()
+                    .collect();
+                let _ = dom_stmt.execute(rusqlite::params_from_iter(&params));
+            }
+
+            let post_dom_sql = format!(
+                "DELETE FROM cfg_post_dominators WHERE block_id IN (SELECT id FROM cfg_blocks WHERE function_id IN ({})) OR post_dominator_id IN (SELECT id FROM cfg_blocks WHERE function_id IN ({}))",
+                placeholders, placeholders
+            );
+            if let Ok(mut post_dom_stmt) = conn.prepare(&post_dom_sql) {
+                let params: Vec<i64> = function_ids
+                    .iter()
+                    .chain(function_ids.iter())
+                    .copied()
+                    .collect();
+                let _ = post_dom_stmt.execute(rusqlite::params_from_iter(&params));
+            }
+
+            let edge_sql = format!(
+                "DELETE FROM cfg_edges WHERE function_id IN ({})",
+                placeholders
+            );
+            let mut edge_stmt = conn.prepare(&edge_sql)?;
+            let params = function_ids.to_vec();
+            edge_stmt.execute(rusqlite::params_from_iter(&params))?;
+
+            let sql = format!(
+                "DELETE FROM cfg_blocks WHERE function_id IN ({})",
+                placeholders
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let params = function_ids.to_vec();
+            let affected = stmt.execute(rusqlite::params_from_iter(params))?;
+            Ok(affected)
+        })
     }
 
     pub fn get_cfg_for_function(&self, function_id: i64) -> Result<Vec<CfgBlock>> {
-        let conn = self.chunks.connect()?;
-        let mut stmt = conn.prepare(
-            "SELECT function_id, kind, terminator,
-                    byte_start, byte_end,
-                    start_line, start_col,
-                    end_line, end_col,
-                    cfg_hash, statements,
-                    coord_x, coord_y, coord_z, coord_t
-             FROM cfg_blocks
-             WHERE function_id = ?1
-             ORDER BY byte_start",
-        )?;
+        self.chunks.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT function_id, kind, terminator,
+                        byte_start, byte_end,
+                        start_line, start_col,
+                        end_line, end_col,
+                        cfg_hash, statements,
+                        coord_x, coord_y, coord_z, coord_t
+                 FROM cfg_blocks
+                 WHERE function_id = ?1
+                 ORDER BY byte_start",
+            )?;
 
-        let blocks = stmt
-            .query_map(params![function_id], |row| {
-                let statements_json: Option<String> = row.get(10)?;
-                let statements = statements_json.and_then(|s| serde_json::from_str(&s).ok());
+            let blocks = stmt
+                .query_map(params![function_id], |row| {
+                    let statements_json: Option<String> = row.get(10)?;
+                    let statements = statements_json.and_then(|s| serde_json::from_str(&s).ok());
 
-                Ok(CfgBlock {
-                    function_id: row.get(0)?,
-                    kind: row.get(1)?,
-                    terminator: row.get(2)?,
-                    byte_start: row.get(3)?,
-                    byte_end: row.get(4)?,
-                    start_line: row.get(5)?,
-                    start_col: row.get(6)?,
-                    end_line: row.get(7)?,
-                    end_col: row.get(8)?,
-                    cfg_hash: row.get(9)?,
-                    statements,
-                    coord_x: row.get(11)?,
-                    coord_y: row.get(12)?,
-                    coord_z: row.get(13)?,
-                    coord_t: row.get(14)?,
-                })
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
+                    Ok(CfgBlock {
+                        function_id: row.get(0)?,
+                        kind: row.get(1)?,
+                        terminator: row.get(2)?,
+                        byte_start: row.get(3)?,
+                        byte_end: row.get(4)?,
+                        start_line: row.get(5)?,
+                        start_col: row.get(6)?,
+                        end_line: row.get(7)?,
+                        end_col: row.get(8)?,
+                        cfg_hash: row.get(9)?,
+                        statements,
+                        coord_x: row.get(11)?,
+                        coord_y: row.get(12)?,
+                        coord_z: row.get(13)?,
+                        coord_t: row.get(14)?,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
 
-        Ok(blocks)
+            Ok(blocks)
+        })
     }
 
     pub fn get_cfg_for_file(&self, file_path: &str) -> Result<Vec<(i64, Vec<CfgBlock>)>> {
-        let conn = self.chunks.connect()?;
-        let mut stmt = conn.prepare(
-            "SELECT e.id AS function_id,
-                    c.function_id, c.kind, c.terminator,
-                    c.byte_start, c.byte_end,
-                    c.start_line, c.start_col,
-                    c.end_line, c.end_col,
-                    c.cfg_hash, c.statements,
-                    c.coord_x, c.coord_y, c.coord_z, c.coord_t
-             FROM cfg_blocks c
-             JOIN graph_entities e ON c.function_id = e.id
-             WHERE e.file_path = ?1
-             ORDER BY e.id, c.byte_start",
-        )?;
+        self.chunks.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT e.id AS function_id,
+                        c.function_id, c.kind, c.terminator,
+                        c.byte_start, c.byte_end,
+                        c.start_line, c.start_col,
+                        c.end_line, c.end_col,
+                        c.cfg_hash, c.statements,
+                        c.coord_x, c.coord_y, c.coord_z, c.coord_t
+                 FROM cfg_blocks c
+                 JOIN graph_entities e ON c.function_id = e.id
+                 WHERE e.file_path = ?1
+                 ORDER BY e.id, c.byte_start",
+            )?;
 
-        let mut result: std::collections::HashMap<i64, Vec<CfgBlock>> =
-            std::collections::HashMap::new();
-        let rows = stmt.query_map(params![file_path], |row| {
-            let function_id: i64 = row.get(0)?;
-            let statements_json: Option<String> = row.get(11)?;
-            let statements = statements_json.and_then(|s| serde_json::from_str(&s).ok());
+            let mut result: std::collections::HashMap<i64, Vec<CfgBlock>> =
+                std::collections::HashMap::new();
+            let rows = stmt.query_map(params![file_path], |row| {
+                let function_id: i64 = row.get(0)?;
+                let statements_json: Option<String> = row.get(11)?;
+                let statements = statements_json.and_then(|s| serde_json::from_str(&s).ok());
 
-            let block = CfgBlock {
-                function_id: row.get(1)?,
-                kind: row.get(2)?,
-                terminator: row.get(3)?,
-                byte_start: row.get(4)?,
-                byte_end: row.get(5)?,
-                start_line: row.get(6)?,
-                start_col: row.get(7)?,
-                end_line: row.get(8)?,
-                end_col: row.get(9)?,
-                cfg_hash: row.get(10)?,
-                statements,
-                coord_x: row.get(12)?,
-                coord_y: row.get(13)?,
-                coord_z: row.get(14)?,
-                coord_t: row.get(15)?,
-            };
-            Ok((function_id, block))
-        })?;
+                let block = CfgBlock {
+                    function_id: row.get(1)?,
+                    kind: row.get(2)?,
+                    terminator: row.get(3)?,
+                    byte_start: row.get(4)?,
+                    byte_end: row.get(5)?,
+                    start_line: row.get(6)?,
+                    start_col: row.get(7)?,
+                    end_line: row.get(8)?,
+                    end_col: row.get(9)?,
+                    cfg_hash: row.get(10)?,
+                    statements,
+                    coord_x: row.get(12)?,
+                    coord_y: row.get(13)?,
+                    coord_z: row.get(14)?,
+                    coord_t: row.get(15)?,
+                };
+                Ok((function_id, block))
+            })?;
 
-        for row in rows {
-            let (function_id, block) = row?;
-            result.entry(function_id).or_default().push(block);
-        }
-        Ok(result.into_iter().collect())
+            for row in rows {
+                let (function_id, block) = row?;
+                result.entry(function_id).or_default().push(block);
+            }
+            Ok(result.into_iter().collect())
+        })
     }
 }
 

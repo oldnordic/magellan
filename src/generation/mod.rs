@@ -52,6 +52,24 @@ pub struct ChunkStore {
     backend: ChunkStoreBackend,
 }
 
+impl Clone for ChunkStore {
+    fn clone(&self) -> Self {
+        Self {
+            backend: self.backend.clone(),
+        }
+    }
+}
+
+impl Clone for ChunkStoreBackend {
+    fn clone(&self) -> Self {
+        match self {
+            ChunkStoreBackend::Shared(arc) => ChunkStoreBackend::Shared(Arc::clone(arc)),
+            ChunkStoreBackend::SideTables(st) => ChunkStoreBackend::SideTables(Arc::clone(st)),
+            ChunkStoreBackend::Owned(path) => ChunkStoreBackend::Owned(path.clone()),
+        }
+    }
+}
+
 impl ChunkStore {
     /// Create a new ChunkStore with the given database path.
     ///
@@ -286,7 +304,7 @@ impl ChunkStore {
     ///
     /// This helper method abstracts over owned vs shared connection sources,
     /// allowing all ChunkStore methods to work with both modes.
-    fn with_conn<F, R>(&self, f: F) -> Result<R>
+    pub(crate) fn with_conn<F, R>(&self, f: F) -> Result<R>
     where
         F: FnOnce(&rusqlite::Connection) -> Result<R>,
     {
@@ -312,7 +330,7 @@ impl ChunkStore {
     /// Execute a mutable operation with a connection.
     ///
     /// This helper method is for operations that need mutable access to the connection.
-    fn with_connection_mut<F, R>(&self, f: F) -> Result<R>
+    pub(crate) fn with_connection_mut<F, R>(&self, f: F) -> Result<R>
     where
         F: FnOnce(&mut rusqlite::Connection) -> Result<R>,
     {
