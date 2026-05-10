@@ -203,6 +203,9 @@ pub struct SymbolOps {
     pub lookup: super::symbol_lookup::SymbolLookup,
     /// SQLite backend for batch insert operations (optional, requires sqlite-backend feature)
     pub sqlite_backend: Option<Arc<sqlitegraph::SqliteGraphBackend>>,
+    /// Whether to use batch transactions for indexing.
+    /// When false, falls back to individual per-insert auto-commit mode.
+    pub batch_mode: bool,
 }
 
 impl SymbolOps {
@@ -279,6 +282,14 @@ impl SymbolOps {
         &mut self,
         facts: &[crate::ingest::SymbolFact],
     ) -> Result<Vec<NodeId>> {
+        if !self.batch_mode {
+            // Watch mode: individual inserts to avoid BEGIN IMMEDIATE deadlock
+            let mut ids = Vec::with_capacity(facts.len());
+            for fact in facts {
+                ids.push(self.insert_symbol_node(fact)?);
+            }
+            return Ok(ids);
+        }
         let Some(ref sqlite_backend) = self.sqlite_backend else {
             // Fallback to individual inserts if sqlite backend is not available
             let mut ids = Vec::with_capacity(facts.len());
@@ -350,6 +361,12 @@ impl SymbolOps {
 
     /// Batch insert DEFINES edges using sqlitegraph bulk_insert_edges with TransactionGuard.
     pub fn insert_defines_edges_batch(&self, file_id: NodeId, symbol_ids: &[NodeId]) -> Result<()> {
+        if !self.batch_mode {
+            for symbol_id in symbol_ids {
+                self.insert_defines_edge(file_id, *symbol_id)?;
+            }
+            return Ok(());
+        }
         let Some(ref sqlite_backend) = self.sqlite_backend else {
             // Fallback to individual inserts
             for symbol_id in symbol_ids {

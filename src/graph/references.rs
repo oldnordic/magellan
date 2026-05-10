@@ -26,6 +26,9 @@ pub struct ReferenceOps {
     pub backend: Arc<dyn GraphBackend>,
     /// SQLite backend for batch insert operations (optional, requires sqlite-backend feature)
     pub sqlite_backend: Option<Arc<sqlitegraph::SqliteGraphBackend>>,
+    /// Whether to use batch transactions for indexing.
+    /// When false, falls back to individual per-insert auto-commit mode.
+    pub batch_mode: bool,
 }
 
 impl ReferenceOps {
@@ -419,6 +422,13 @@ impl ReferenceOps {
         &self,
         references: &[&ReferenceFact],
     ) -> Result<Vec<NodeId>> {
+        if !self.batch_mode {
+            let mut ids = Vec::with_capacity(references.len());
+            for reference in references {
+                ids.push(self.insert_reference_node(reference)?);
+            }
+            return Ok(ids);
+        }
         let Some(ref sqlite_backend) = self.sqlite_backend else {
             let mut ids = Vec::with_capacity(references.len());
             for reference in references {
@@ -458,6 +468,12 @@ impl ReferenceOps {
         &self,
         pairs: &[(NodeId, NodeId, &ReferenceFact)],
     ) -> Result<()> {
+        if !self.batch_mode {
+            for (reference_id, symbol_id, reference) in pairs {
+                self.insert_references_edge(*reference_id, *symbol_id, reference)?;
+            }
+            return Ok(());
+        }
         let Some(ref sqlite_backend) = self.sqlite_backend else {
             for (reference_id, symbol_id, reference) in pairs {
                 self.insert_references_edge(*reference_id, *symbol_id, reference)?;

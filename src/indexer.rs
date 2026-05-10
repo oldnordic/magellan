@@ -446,6 +446,11 @@ pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>
     // Open graph first so we can get the backend for pub/sub subscription
     let mut graph = CodeGraph::open(&config.db_path)?;
 
+    // Disable batch mode for watch to avoid BEGIN IMMEDIATE deadlock
+    // on the single pooled connection during rapid flush cycles.
+    // This must happen BEFORE any file processing (scan + dirty path flush).
+    graph.batch_mode = false;
+
     // Create shared state for buffering dirty paths
     let (shared_state, wakeup_rx) = PipelineSharedState::new();
 

@@ -216,6 +216,16 @@ pub struct CodeGraph {
     /// Provides access to bulk_insert_entities and bulk_insert_edges via TransactionGuard.
     pub(crate) sqlite_backend: Option<Arc<sqlitegraph::SqliteGraphBackend>>,
 
+    /// Whether to use batch SQLite transactions for indexing.
+    ///
+    /// When `true` (default), `index_file` uses `bulk_insert_entities`/`bulk_insert_edges`
+    /// wrapped in `TransactionGuard` for ~27x throughput improvement on bulk indexing.
+    ///
+    /// When `false`, falls back to individual per-insert auto-commit mode. This is
+    /// required for watch mode where `BEGIN IMMEDIATE` transactions on the single
+    /// pooled connection deadlock with the flush cycle.
+    pub(crate) batch_mode: bool,
+
     /// Database file path for re-opening connections
     db_path: PathBuf,
 }
@@ -260,8 +270,8 @@ impl CodeGraph {
             eprintln!("Using SQLite backend: {:?}", db_path_buf);
             let sqlite_backend = Arc::new(SqliteGraphBackend::from_graph(sqlite_graph));
             let backend: Arc<dyn GraphBackend> = {
-                let cloned = sqlite_backend.clone();
-                cloned
+                
+                (sqlite_backend.clone()) as _
             };
             (backend, Some(sqlite_backend))
         };
@@ -457,14 +467,17 @@ impl CodeGraph {
                 backend: Arc::clone(&backend),
                 lookup: symbol_lookup::SymbolLookup::new(),
                 sqlite_backend: sqlite_backend.clone(),
+                batch_mode: true,
             },
             references: references::ReferenceOps {
                 backend: Arc::clone(&backend),
                 sqlite_backend: sqlite_backend.clone(),
+                batch_mode: true,
             },
             calls: call_ops::CallOps {
                 backend: Arc::clone(&backend),
                 sqlite_backend: sqlite_backend.clone(),
+                batch_mode: true,
             },
             imports: imports::ImportOps {
                 backend: Arc::clone(&backend),
@@ -478,6 +491,7 @@ impl CodeGraph {
             side_tables,
             side_conn,
             sqlite_backend,
+            batch_mode: true,
             db_path: db_path_buf,
         };
 

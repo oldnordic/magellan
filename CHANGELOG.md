@@ -5,6 +5,15 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Watch mode database corruption regression** — v3.3.2's `BEGIN IMMEDIATE` batch transactions caused "database disk image is malformed" errors and indefinite hangs in `magellan watch --scan-initial`. The root cause was concurrent WAL writes between the sqlitegraph pooled connection (used by `bulk_insert_entities`/`bulk_insert_edges`) and the `side_conn` (used for module resolution and side-table operations), both writing to the same WAL file with `pool_size=1`.
+  - Added `batch_mode: bool` toggle to `CodeGraph`, `SymbolOps`, `ReferenceOps`, and `CallOps`.
+  - Default `batch_mode = true` preserves the ~27x throughput improvement for `magellan index` (single-file, no concurrency concerns).
+  - Watch mode sets `batch_mode = false` before any file processing, falling back to individual per-insert auto-commit mode.
+  - This eliminates the `BEGIN IMMEDIATE` contention that caused WAL corruption during the watch pipeline's rapid flush cycles.
+  - Verified: `magellan watch --scan-initial` over `./src` completes with 0 malformed errors; `PRAGMA integrity_check` passes; `magellan doctor` reports all OK; `cargo test` passes (26 tests).
+
 ## [3.3.2] - 2026-05-09
 
 ### Fixed

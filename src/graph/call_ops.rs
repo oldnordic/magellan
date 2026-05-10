@@ -26,6 +26,9 @@ pub struct CallOps {
     pub backend: Arc<dyn GraphBackend>,
     /// SQLite backend for batch insert operations (optional, requires sqlite-backend feature)
     pub sqlite_backend: Option<Arc<sqlitegraph::SqliteGraphBackend>>,
+    /// Whether to use batch transactions for indexing.
+    /// When false, falls back to individual per-insert auto-commit mode.
+    pub batch_mode: bool,
 }
 
 impl CallOps {
@@ -522,6 +525,13 @@ impl CallOps {
     ///
     /// This wraps all call node inserts in a single BEGIN IMMEDIATE...COMMIT transaction.
     pub fn insert_call_nodes_batch(&self, calls: &[&CallFact]) -> Result<Vec<NodeId>> {
+        if !self.batch_mode {
+            let mut ids = Vec::with_capacity(calls.len());
+            for call in calls {
+                ids.push(self.insert_call_node(call)?);
+            }
+            return Ok(ids);
+        }
         let Some(ref sqlite_backend) = self.sqlite_backend else {
             let mut ids = Vec::with_capacity(calls.len());
             for call in calls {
@@ -562,6 +572,12 @@ impl CallOps {
 
     /// Batch insert CALLER edges using sqlitegraph bulk_insert_edges with TransactionGuard.
     pub fn insert_caller_edges_batch(&self, pairs: &[(NodeId, NodeId)]) -> Result<()> {
+        if !self.batch_mode {
+            for (caller_id, call_id) in pairs {
+                self.insert_caller_edge(*caller_id, *call_id)?;
+            }
+            return Ok(());
+        }
         let Some(ref sqlite_backend) = self.sqlite_backend else {
             for (caller_id, call_id) in pairs {
                 self.insert_caller_edge(*caller_id, *call_id)?;
@@ -586,6 +602,12 @@ impl CallOps {
 
     /// Batch insert CALLS edges using sqlitegraph bulk_insert_edges with TransactionGuard.
     pub fn insert_calls_edges_batch(&self, pairs: &[(NodeId, NodeId)]) -> Result<()> {
+        if !self.batch_mode {
+            for (call_id, callee_id) in pairs {
+                self.insert_calls_edge(*call_id, *callee_id)?;
+            }
+            return Ok(());
+        }
         let Some(ref sqlite_backend) = self.sqlite_backend else {
             for (call_id, callee_id) in pairs {
                 self.insert_calls_edge(*call_id, *callee_id)?;
