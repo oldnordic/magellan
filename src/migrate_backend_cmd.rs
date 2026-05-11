@@ -34,6 +34,15 @@ pub enum BackendFormat {
     Sqlite,
 }
 
+impl BackendFormat {
+    /// Return the backend format as a string
+    pub fn as_str(self) -> &'static str {
+        match self {
+            BackendFormat::Sqlite => "sqlite",
+        }
+    }
+}
+
 /// Errors that can occur during backend format detection
 ///
 /// These errors provide specific feedback for migration failures,

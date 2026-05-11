@@ -85,6 +85,10 @@ impl ExecutionTracker {
 
 /// Run status query command
 pub fn run_status(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
+    if !db_path.exists() {
+        anyhow::bail!("Database not found: {}", db_path.display());
+    }
+
     let backend_caps = capabilities_for_path(&db_path);
 
     if MagellanBackend::detect_type(&db_path) == BackendType::Geometric {

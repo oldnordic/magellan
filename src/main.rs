@@ -82,6 +82,28 @@ fn main() -> ExitCode {
         }
     }
 
+    // Handle --detect-backend before command dispatch
+    if args.contains(&"--detect-backend".to_string()) {
+        let db_idx = args.iter().position(|a| a == "--db");
+        let db_path = match db_idx {
+            Some(idx) if idx + 1 < args.len() => std::path::PathBuf::from(&args[idx + 1]),
+            _ => {
+                eprintln!("Error: --db required for --detect-backend");
+                return ExitCode::from(1);
+            }
+        };
+        match magellan::migrate_backend_cmd::detect_backend_format(&db_path) {
+            Ok(format) => {
+                println!("{}", format.as_str());
+                return ExitCode::SUCCESS;
+            }
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+        }
+    }
+
     if args.len() < 2 {
         print_short_usage();
         return ExitCode::from(1);
