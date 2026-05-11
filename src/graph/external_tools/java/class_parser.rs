@@ -411,6 +411,7 @@ fn build_cfg_from_bytecode(_method_name: &str, bytecode: &[u8]) -> Result<CfgWit
             coord_y: 0,
             coord_z: 0,
             coord_t: None,
+            cfg_condition: None,
         });
     }
 

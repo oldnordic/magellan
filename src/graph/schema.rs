@@ -177,6 +177,12 @@ pub struct CfgBlock {
     /// None for current version, Some(commit_hash) for historical queries
     #[serde(default)]
     pub coord_t: Option<String>,
+
+    /// CFG condition: `#[cfg(...)]` attribute that gates this block.
+    /// If present, the block is only live when the condition evaluates true
+    /// against the project's active features.
+    #[serde(default)]
+    pub cfg_condition: Option<String>,
 }
 
 /// Control Flow Edge payload stored in graph_edges table

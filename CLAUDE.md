@@ -1,8 +1,8 @@
 # Magellan Development Rules - Grounded Tool Workflow
 
 **Project:** Magellan - Graph Database Indexer
-**Crate Version:** 3.3.5 | **Schema Version:** 14
-**Last Updated:** 2026-05-10
+**Crate Version:** 3.3.7 | **Schema Version:** 16
+**Last Updated:** 2026-05-11
 
 ---
 

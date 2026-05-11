@@ -24,7 +24,8 @@ use std::path::{Path, PathBuf};
 /// v13: source_documents table for graph memory source inventory
 /// v14: candidate_facts table for graph memory candidate staging
 /// v15: magellan_meta.project_name and project_metadata columns
-pub const MAGELLAN_SCHEMA_VERSION: i64 = 15;
+/// v16: cfg_blocks.cfg_condition column for feature-gated blocks
+pub const MAGELLAN_SCHEMA_VERSION: i64 = 16;
 
 /// Migration result summary
 #[derive(Debug, Clone)]
@@ -370,6 +371,46 @@ fn migrate_from_version(tx: &Transaction, old_version: i64) -> Result<()> {
             "CREATE INDEX IF NOT EXISTS idx_candidate_facts_status_created ON candidate_facts(status, created_at)",
             [],
         )?;
+    }
+
+    if old_version < 15 {
+        // v14 -> v15: Add project_name and project_metadata to magellan_meta
+        // Check if columns exist first (they may have been added via db_compat)
+        let has_project_name: bool = tx
+            .query_row(
+                "SELECT 1 FROM pragma_table_info('magellan_meta') WHERE name='project_name' LIMIT 1",
+                [],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+        if !has_project_name {
+            tx.execute("ALTER TABLE magellan_meta ADD COLUMN project_name TEXT", [])?;
+        }
+
+        let has_project_metadata: bool = tx
+            .query_row(
+                "SELECT 1 FROM pragma_table_info('magellan_meta') WHERE name='project_metadata' LIMIT 1",
+                [],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+        if !has_project_metadata {
+            tx.execute("ALTER TABLE magellan_meta ADD COLUMN project_metadata TEXT", [])?;
+        }
+    }
+
+    if old_version < 16 {
+        // v15 -> v16: Add cfg_condition column to cfg_blocks for feature-gated blocks
+        let has_cfg_condition: bool = tx
+            .query_row(
+                "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='cfg_condition' LIMIT 1",
+                [],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+        if !has_cfg_condition {
+            tx.execute("ALTER TABLE cfg_blocks ADD COLUMN cfg_condition TEXT", [])?;
+        }
     }
 
     Ok(())

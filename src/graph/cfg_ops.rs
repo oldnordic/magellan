@@ -6,6 +6,7 @@
 use anyhow::Result;
 use fixedbitset::FixedBitSet;
 use rusqlite::params;
+use rusqlite::OptionalExtension;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::generation::ChunkStore;
@@ -121,8 +122,9 @@ impl CfgOps {
                         end_line, end_col,
                         cfg_hash,
                         statements,
-                        coord_x, coord_y, coord_z, coord_t
-                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+                        coord_x, coord_y, coord_z, coord_t,
+                        cfg_condition
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
                 )?;
 
                 for block in blocks {
@@ -162,6 +164,7 @@ impl CfgOps {
                         block.coord_y,
                         block.coord_z,
                         block.coord_t.as_ref(),
+                        block.cfg_condition.as_ref(),
                     ])?;
                 }
             }
@@ -342,7 +345,8 @@ impl CfgOps {
                         start_line, start_col,
                         end_line, end_col,
                         cfg_hash, statements,
-                        coord_x, coord_y, coord_z, coord_t
+                        coord_x, coord_y, coord_z, coord_t,
+                        cfg_condition
                  FROM cfg_blocks
                  WHERE function_id = ?1
                  ORDER BY byte_start",
@@ -369,6 +373,7 @@ impl CfgOps {
                         coord_y: row.get(12)?,
                         coord_z: row.get(13)?,
                         coord_t: row.get(14)?,
+                        cfg_condition: row.get(15)?,
                     })
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
@@ -386,7 +391,8 @@ impl CfgOps {
                         c.start_line, c.start_col,
                         c.end_line, c.end_col,
                         c.cfg_hash, c.statements,
-                        c.coord_x, c.coord_y, c.coord_z, c.coord_t
+                        c.coord_x, c.coord_y, c.coord_z, c.coord_t,
+                        c.cfg_condition
                  FROM cfg_blocks c
                  JOIN graph_entities e ON c.function_id = e.id
                  WHERE e.file_path = ?1
@@ -416,6 +422,7 @@ impl CfgOps {
                     coord_y: row.get(13)?,
                     coord_z: row.get(14)?,
                     coord_t: row.get(15)?,
+                    cfg_condition: row.get(16)?,
                 };
                 Ok((function_id, block))
             })?;
@@ -427,6 +434,97 @@ impl CfgOps {
             Ok(result.into_iter().collect())
         })
     }
+
+    /// Read active feature flags from `magellan_meta.project_metadata`.
+    ///
+    /// Returns empty set when no metadata exists or parsing fails.
+    pub fn get_active_features(&self,
+    ) -> Result<HashSet<String>> {
+        self.chunks.with_conn(|conn| {
+            let meta_json: Option<String> = conn
+                .query_row(
+                    "SELECT project_metadata FROM magellan_meta WHERE id = 1",
+                    [],
+                    |row| row.get(0),
+                )
+                .optional()
+                .unwrap_or(None);
+
+            let mut features = HashSet::new();
+            if let Some(json) = meta_json {
+                if let Ok(manifest) = serde_json::from_str::<
+                    crate::project_config::CargoManifest,
+                >(&json)
+                {
+                    for (feature, _deps) in manifest.features {
+                        features.insert(feature);
+                    }
+                }
+            }
+            Ok(features)
+        })
+    }
+
+    /// Get CFG blocks for a function, filtering out dead `#[cfg]` branches.
+    ///
+    /// A block is dead when its `cfg_condition` evaluates false against
+    /// the project's active features. Blocks without a condition are always live.
+    pub fn get_live_cfg_for_function(
+        &self,
+        function_id: i64,
+    ) -> Result<Vec<CfgBlock>> {
+        let active_features = self.get_active_features()?;
+        let all_blocks = self.get_cfg_for_function(function_id)?;
+
+        Ok(all_blocks
+            .into_iter()
+            .filter(|b| {
+                b.cfg_condition
+                    .as_ref()
+                    .map(|c| evaluate_cfg_condition(c, &active_features))
+                    .unwrap_or(true)
+            })
+            .collect())
+    }
+}
+
+/// Evaluate a simple cfg condition against active features.
+///
+/// Supports: `feature = "name"`, `all(feature = "a", feature = "b")`,
+/// `any(feature = "a", feature = "b")`, `not(feature = "a")`.
+/// Unknown conditions conservatively return `true`.
+pub fn evaluate_cfg_condition(condition: &str, active_features: &HashSet<String>) -> bool {
+    let condition = condition.trim();
+
+    // `feature = "name"`
+    if let Some(feature_name) = condition
+        .strip_prefix("feature = \"")
+        .and_then(|s| s.strip_suffix("\""))
+    {
+        return active_features.contains(feature_name);
+    }
+
+    // `all(...)` — all sub-conditions must be true
+    if let Some(inner) = condition.strip_prefix("all(").and_then(|s| s.strip_suffix(")")) {
+        return inner
+            .split(',')
+            .all(|c| evaluate_cfg_condition(c.trim(), active_features));
+    }
+
+    // `any(...)` — at least one sub-condition must be true
+    if let Some(inner) = condition.strip_prefix("any(").and_then(|s| s.strip_suffix(")")) {
+        return inner
+            .split(',')
+            .any(|c| evaluate_cfg_condition(c.trim(), active_features));
+    }
+
+    // `not(...)` — negate the sub-condition
+    if let Some(inner) = condition.strip_prefix("not(").and_then(|s| s.strip_suffix(")")) {
+        return !evaluate_cfg_condition(inner.trim(), active_features);
+    }
+
+    // Unknown condition — conservatively include the block
+    true
 }
 
 /// Compute dominator depth (X coordinate) for all CFG blocks
@@ -813,6 +911,7 @@ mod spatial_tests {
                     coord_y: 0,
                     coord_z: 0,
                     coord_t: None,
+                    cfg_condition: None,
                 },
                 CfgBlock {
                     function_id: 1,
@@ -830,6 +929,7 @@ mod spatial_tests {
                     coord_y: 0,
                     coord_z: 0,
                     coord_t: None,
+                    cfg_condition: None,
                 },
                 CfgBlock {
                     function_id: 1,
@@ -847,6 +947,7 @@ mod spatial_tests {
                     coord_y: 0,
                     coord_z: 0,
                     coord_t: None,
+                    cfg_condition: None,
                 },
                 CfgBlock {
                     function_id: 1,
@@ -864,6 +965,7 @@ mod spatial_tests {
                     coord_y: 0,
                     coord_z: 0,
                     coord_t: None,
+                    cfg_condition: None,
                 },
             ],
             edges: vec![
@@ -1034,6 +1136,7 @@ mod spatial_tests {
                 coord_y: 0,
                 coord_z: 0,
                 coord_t: None,
+                    cfg_condition: None,
             },
             CfgBlock {
                 function_id: 42,
@@ -1051,6 +1154,7 @@ mod spatial_tests {
                 coord_y: 0,
                 coord_z: 1,
                 coord_t: None,
+                    cfg_condition: None,
             },
         ];
         ops.insert_cfg_blocks(&blocks).unwrap();
@@ -1114,6 +1218,7 @@ mod spatial_tests {
                     coord_y: 0,
                     coord_z: 0,
                     coord_t: None,
+                    cfg_condition: None,
                 },
                 CfgBlock {
                     function_id: 1,
@@ -1131,6 +1236,7 @@ mod spatial_tests {
                     coord_y: 0,
                     coord_z: 0,
                     coord_t: None,
+                    cfg_condition: None,
                 },
                 CfgBlock {
                     function_id: 1,
@@ -1148,6 +1254,7 @@ mod spatial_tests {
                     coord_y: 0,
                     coord_z: 0,
                     coord_t: None,
+                    cfg_condition: None,
                 },
             ],
             edges: vec![
@@ -1244,5 +1351,185 @@ mod spatial_tests {
 
             println!("  PASSED");
         }
+    }
+
+    #[test]
+    fn test_evaluate_cfg_condition_feature() {
+        let mut features = HashSet::new();
+        features.insert("tokio".to_string());
+
+        assert!(
+            evaluate_cfg_condition(r#"feature = "tokio""#, &features),
+            "active feature should evaluate true"
+        );
+        assert!(
+            !evaluate_cfg_condition(r#"feature = "async-std""#, &features),
+            "inactive feature should evaluate false"
+        );
+    }
+
+    #[test]
+    fn test_evaluate_cfg_condition_all() {
+        let mut features = HashSet::new();
+        features.insert("a".to_string());
+        features.insert("b".to_string());
+
+        assert!(
+            evaluate_cfg_condition(r#"all(feature = "a", feature = "b")"#, &features),
+            "all active should be true"
+        );
+        assert!(
+            !evaluate_cfg_condition(r#"all(feature = "a", feature = "c")"#, &features),
+            "one missing should be false"
+        );
+    }
+
+    #[test]
+    fn test_evaluate_cfg_condition_any() {
+        let mut features = HashSet::new();
+        features.insert("a".to_string());
+
+        assert!(
+            evaluate_cfg_condition(r#"any(feature = "a", feature = "b")"#, &features),
+            "one active in any should be true"
+        );
+        assert!(
+            !evaluate_cfg_condition(r#"any(feature = "c", feature = "d")"#, &features),
+            "none active in any should be false"
+        );
+    }
+
+    #[test]
+    fn test_evaluate_cfg_condition_not() {
+        let mut features = HashSet::new();
+        features.insert("a".to_string());
+
+        assert!(
+            !evaluate_cfg_condition(r#"not(feature = "a")"#, &features),
+            "not active should be false"
+        );
+        assert!(
+            evaluate_cfg_condition(r#"not(feature = "b")"#, &features),
+            "not inactive should be true"
+        );
+    }
+
+    #[test]
+    fn test_evaluate_cfg_condition_unknown_is_true() {
+        let features = HashSet::new();
+
+        // Unknown conditions are conservatively included
+        assert!(
+            evaluate_cfg_condition("target_os = \"linux\"", &features),
+            "unknown condition should conservatively return true"
+        );
+    }
+
+    #[test]
+    fn test_get_live_cfg_filters_dead_branches() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+
+        // Create a fresh database
+        let _graph = crate::CodeGraph::open(&db_path).unwrap();
+
+        // Seed project_metadata with features and create a function entity for FK
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute(
+            "UPDATE magellan_meta SET project_metadata = ?1 WHERE id = 1",
+            rusqlite::params![r#"{"features":{"tokio":["sync"]},"dependencies":[],"targets":[],"package_name":null}"#],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO graph_entities (id, kind, name, file_path, data) VALUES (1, 'Function', 'test_fn', '/test.rs', '{}')",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+
+        let store = crate::generation::ChunkStore::new(&db_path);
+        let cfg_ops = CfgOps::new(store);
+
+        // Insert blocks with and without cfg_condition
+        let blocks = vec![
+            CfgBlock {
+                function_id: 1,
+                kind: "entry".to_string(),
+                terminator: "FALLTHROUGH".to_string(),
+                byte_start: 0,
+                byte_end: 10,
+                start_line: 1,
+                start_col: 0,
+                end_line: 1,
+                end_col: 10,
+                cfg_hash: None,
+                statements: None,
+                coord_x: 0,
+                coord_y: 0,
+                coord_z: 0,
+                coord_t: None,
+                cfg_condition: None,
+            },
+            CfgBlock {
+                function_id: 1,
+                kind: "conditional".to_string(),
+                terminator: "IF".to_string(),
+                byte_start: 10,
+                byte_end: 20,
+                start_line: 2,
+                start_col: 0,
+                end_line: 2,
+                end_col: 10,
+                cfg_hash: None,
+                statements: None,
+                coord_x: 1,
+                coord_y: 0,
+                coord_z: 1,
+                coord_t: None,
+                cfg_condition: Some(r#"feature = "tokio""#.to_string()),
+            },
+            CfgBlock {
+                function_id: 1,
+                kind: "dead".to_string(),
+                terminator: "RETURN".to_string(),
+                byte_start: 20,
+                byte_end: 30,
+                start_line: 3,
+                start_col: 0,
+                end_line: 3,
+                end_col: 10,
+                cfg_hash: None,
+                statements: None,
+                coord_x: 2,
+                coord_y: 0,
+                coord_z: 2,
+                coord_t: None,
+                cfg_condition: Some(r#"feature = "async-std""#.to_string()),
+            },
+        ];
+
+        cfg_ops.insert_cfg_blocks(&blocks).unwrap();
+
+        // get_cfg_for_function returns all blocks
+        let all = cfg_ops.get_cfg_for_function(1).unwrap();
+        assert_eq!(all.len(), 3, "all blocks should be stored");
+
+        // get_live_cfg_for_function filters dead branches
+        let live = cfg_ops.get_live_cfg_for_function(1).unwrap();
+        assert_eq!(live.len(), 2, "dead branch should be filtered out");
+        assert!(
+            live.iter().any(|b| b.kind == "entry"),
+            "entry block should be live"
+        );
+        assert!(
+            live.iter().any(|b| b.kind == "conditional"),
+            "tokio block should be live"
+        );
+        assert!(
+            !live.iter().any(|b| b.kind == "dead"),
+            "async-std block should be dead"
+        );
     }
 }

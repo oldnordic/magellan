@@ -138,6 +138,10 @@ pub fn ensure_magellan_meta(
                             ensure_project_metadata_schema(conn)?;
                             current_version = 15;
                         }
+                        15 => {
+                            ensure_cfg_condition_column(conn)?;
+                            current_version = 16;
+                        }
                         _ => {
                             return Err(DbCompatError::MagellanSchemaMismatch {
                                 path: db_path.to_path_buf(),
@@ -212,6 +216,7 @@ pub fn ensure_cfg_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatErro
         coord_y INTEGER DEFAULT 0,
         coord_z INTEGER DEFAULT 0,
         coord_t TEXT DEFAULT NULL,
+        cfg_condition TEXT,
         FOREIGN KEY (function_id) REFERENCES graph_entities(id) ON DELETE CASCADE
     )",
         [],
@@ -377,6 +382,24 @@ pub fn ensure_project_metadata_schema(
         .unwrap_or(false);
     if !has_meta {
         conn.execute("ALTER TABLE magellan_meta ADD COLUMN project_metadata TEXT", [])
+            .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    }
+    Ok(())
+}
+
+/// Add cfg_condition column to cfg_blocks table (v16).
+pub fn ensure_cfg_condition_column(
+    conn: &rusqlite::Connection,
+) -> Result<(), DbCompatError> {
+    let has_col: bool = conn
+        .query_row(
+            "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='cfg_condition'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+    if !has_col {
+        conn.execute("ALTER TABLE cfg_blocks ADD COLUMN cfg_condition TEXT", [])
             .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
     }
     Ok(())

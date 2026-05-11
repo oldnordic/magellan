@@ -729,7 +729,8 @@ fn ensure_table_schema(conn: &rusqlite::Connection, table_name: &str) -> Result<
                     coord_x INTEGER DEFAULT 0,
                     coord_y INTEGER DEFAULT 0,
                     coord_z INTEGER DEFAULT 0,
-                    coord_t TEXT DEFAULT NULL
+                    coord_t TEXT DEFAULT NULL,
+                    cfg_condition TEXT
                 )",
                 [],
             )

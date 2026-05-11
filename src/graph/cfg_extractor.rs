@@ -219,6 +219,7 @@ impl<'a> CfgExtractor<'a> {
             coord_y: 0,
             coord_z: 0,
             coord_t: None,
+            cfg_condition: None,
         };
 
         self.blocks.push(block);
@@ -426,6 +427,7 @@ impl<'a> CfgExtractor<'a> {
             coord_y: 0,
             coord_z: 0,
             coord_t: None,
+            cfg_condition: None,
         };
 
         self.blocks.push(block);
@@ -456,6 +458,7 @@ impl<'a> CfgExtractor<'a> {
             coord_y: 0,
             coord_z: 0,
             coord_t: None,
+            cfg_condition: None,
         };
 
         self.blocks.push(block);
@@ -486,6 +489,7 @@ impl<'a> CfgExtractor<'a> {
             coord_y: 0,
             coord_z: 0,
             coord_t: None,
+            cfg_condition: None,
         };
 
         self.blocks.push(block);

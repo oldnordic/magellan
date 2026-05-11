@@ -3,7 +3,7 @@
 use tempfile::TempDir;
 
 #[test]
-fn test_new_database_has_v15_schema() {
+fn test_new_database_has_v16_schema() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
 
@@ -20,7 +20,7 @@ fn test_new_database_has_v15_schema() {
         )
         .unwrap();
 
-    assert_eq!(version, 15, "New databases should have schema version 15");
+    assert_eq!(version, 16, "New databases should have schema version 16");
 
     // Verify ast_nodes table exists
     let has_ast_table: bool = conn
@@ -171,10 +171,23 @@ fn test_new_database_has_v15_schema() {
         has_project_name,
         "project_name column should exist in magellan_meta (v15)"
     );
+
+    // Verify cfg_condition column exists (v16 addition)
+    let has_cfg_condition: bool = conn
+        .query_row(
+            "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='cfg_condition'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+    assert!(
+        has_cfg_condition,
+        "cfg_condition column should exist in cfg_blocks (v16)"
+    );
 }
 
 #[test]
-fn test_fresh_database_creation_v15() {
+fn test_fresh_database_creation_v16() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("fresh.db");
 
@@ -194,7 +207,7 @@ fn test_fresh_database_creation_v15() {
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(version, 15);
+    assert_eq!(version, 16);
 
     // Check ast_nodes table
     let count: i64 = conn
@@ -245,9 +258,9 @@ fn test_fresh_database_creation_v15() {
     assert!(indexes.contains(&"idx_ast_nodes_span".to_string()));
 }
 
-/// Test that v4->v14 migration creates the required tables
+/// Test that v4->v16 migration creates the required tables
 #[test]
-fn test_migration_v4_to_v15_creates_required_tables() {
+fn test_migration_v4_to_v16_creates_required_tables() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test_v4_to_v15.db");
 
@@ -275,7 +288,7 @@ fn test_migration_v4_to_v15_creates_required_tables() {
     let result = magellan::migrate_cmd::run_migrate(db_path.clone(), false, true).unwrap();
     assert!(result.success);
     assert_eq!(result.old_version, 4);
-    assert_eq!(result.new_version, 15);
+    assert_eq!(result.new_version, 16);
 
     // Verify ast_nodes table exists
     let conn = rusqlite::Connection::open(&db_path).unwrap();
@@ -391,12 +404,12 @@ fn test_migration_v4_to_v15_creates_required_tables() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(version, 15, "schema version should be 15 after migration");
+    assert_eq!(version, 16, "schema version should be 16 after migration");
 }
 
-/// Test that opening a v4 database auto-upgrades to v14
+/// Test that opening a v4 database auto-upgrades to v16
 #[test]
-fn test_opening_v4_database_auto_upgrades_to_v14() {
+fn test_opening_v4_database_auto_upgrades_to_v16() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test_v4_auto.db");
 
@@ -437,8 +450,8 @@ fn test_opening_v4_database_auto_upgrades_to_v14() {
         .unwrap();
 
     assert_eq!(
-        version, 15,
-        "Opening v4 database should auto-upgrade to v15"
+        version, 16,
+        "Opening v4 database should auto-upgrade to v16"
     );
 
     // Verify ast_nodes table exists

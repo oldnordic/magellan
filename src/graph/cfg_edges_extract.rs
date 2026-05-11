@@ -818,6 +818,7 @@ fn extract_short_circuit_blocks(
         coord_y: 0,
         coord_z: 0,
         coord_t: None,
+            cfg_condition: None,
     };
     let merge_idx = blocks.len();
     blocks.push(merge_block);
@@ -954,6 +955,7 @@ fn create_entry_block(func_node: &Node, function_id: i64, _source: &str) -> CfgB
         coord_y: 0,
         coord_z: 0,
         coord_t: None,
+            cfg_condition: None,
     }
 }
 
@@ -1118,6 +1120,7 @@ fn extract_if_blocks_with_fallthrough(
         coord_y: 0,
         coord_z: 0,
         coord_t: None,
+            cfg_condition: None,
     };
     blocks.push(merge_block);
 
@@ -1231,6 +1234,7 @@ fn extract_loop_blocks_with_fallthrough(
         coord_y: 0,
         coord_z: 0,
         coord_t: None,
+            cfg_condition: None,
     };
     blocks.push(exit_block);
 
@@ -1541,6 +1545,7 @@ fn extract_match_blocks_with_fallthrough(
         coord_y: 0,
         coord_z: 0,
         coord_t: None,
+            cfg_condition: None,
     };
     blocks.push(merge_block);
 
@@ -1583,6 +1588,7 @@ fn create_block_from_node(
         coord_y: 0,
         coord_z: 0,
         coord_t: None,
+            cfg_condition: None,
     }
 }
 
