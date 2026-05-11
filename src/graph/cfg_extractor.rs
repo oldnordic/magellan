@@ -35,6 +35,7 @@
 //! - Research: docs/MIR_EXTRACTION_RESEARCH.md
 //! - stable_mir tracking: https://rust-lang.github.io/rust-project-goals/2025h1/stable-mir.html
 
+use crate::graph::cfg_edges_extract::extract_cfg_condition;
 use crate::graph::schema::CfgBlock;
 use tree_sitter::Node;
 
@@ -179,6 +180,13 @@ impl<'a> CfgExtractor<'a> {
         self.blocks.clear();
         self.next_block_id = 0;
 
+        // Extract #[cfg(...)] condition from the function node
+        let cfg_condition = if let Ok(source_str) = std::str::from_utf8(self._source) {
+            extract_cfg_condition(func_node, source_str)
+        } else {
+            None
+        };
+
         // Find the function body block
         if let Some(body_node) = find_function_body(func_node) {
             // Create entry block
@@ -188,7 +196,16 @@ impl<'a> CfgExtractor<'a> {
             self.visit_block(&body_node, function_id, BlockKind::Entry);
         }
 
-        std::mem::take(&mut self.blocks)
+        let mut blocks = std::mem::take(&mut self.blocks);
+
+        // Apply #[cfg] condition to all blocks in this function
+        if let Some(ref cond) = cfg_condition {
+            for block in &mut blocks {
+                block.cfg_condition = Some(cond.clone());
+            }
+        }
+
+        blocks
     }
 
     /// Visit a block and extract CFG information

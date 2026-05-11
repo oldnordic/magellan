@@ -248,3 +248,103 @@ fn simple() {
         "Should have entry block"
     );
 }
+
+#[test]
+fn test_cfg_condition_extracted_from_cfg_attribute() {
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+
+    let source = r#"
+#[cfg(feature = "tokio")]
+fn tokio_only() {
+    let x = 1;
+}
+
+#[cfg(all(feature = "a", feature = "b"))]
+fn complex_cfg() {
+    let y = 2;
+}
+
+fn always_available() {
+    let z = 3;
+}
+"#;
+
+    let mut graph = CodeGraph::open(&db_path).unwrap();
+    let path = "/test.rs";
+    let _ = graph.index_file(path, source.as_bytes());
+
+    // Query cfg_blocks directly to verify cfg_condition
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    let mut stmt = conn
+        .prepare(
+            "SELECT c.kind, e.name, c.cfg_condition
+             FROM cfg_blocks c
+             JOIN graph_entities e ON c.function_id = e.id
+             ORDER BY e.name, c.byte_start",
+        )
+        .unwrap();
+
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<usize, String>(0)?,
+                row.get::<usize, String>(1)?,
+                row.get::<usize, Option<String>>(2)?,
+            ))
+        })
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+
+    // Group by function
+    let mut func_cfg: std::collections::HashMap<String, Vec<(String, Option<String>)>> =
+        std::collections::HashMap::new();
+    for (kind, name, cfg) in rows {
+        func_cfg.entry(name).or_default().push((kind, cfg));
+    }
+
+    // tokio_only should have cfg_condition = feature = "tokio"
+    let tokio_blocks = func_cfg.get("tokio_only").expect("tokio_only should have CFG");
+    assert!(
+        !tokio_blocks.is_empty(),
+        "tokio_only should have at least one block"
+    );
+    for (_kind, cfg) in tokio_blocks {
+        assert_eq!(
+            cfg.as_deref(),
+            Some(r#"feature = "tokio""#),
+            "tokio_only blocks should have cfg condition"
+        );
+    }
+
+    // complex_cfg should have cfg_condition = all(feature = "a", feature = "b")
+    let complex_blocks = func_cfg.get("complex_cfg").expect("complex_cfg should have CFG");
+    assert!(
+        !complex_blocks.is_empty(),
+        "complex_cfg should have at least one block"
+    );
+    for (_kind, cfg) in complex_blocks {
+        assert_eq!(
+            cfg.as_deref(),
+            Some(r#"all(feature = "a", feature = "b")"#),
+            "complex_cfg blocks should have cfg condition"
+        );
+    }
+
+    // always_available should have no cfg_condition
+    let always_blocks = func_cfg
+        .get("always_available")
+        .expect("always_available should have CFG");
+    assert!(
+        !always_blocks.is_empty(),
+        "always_available should have at least one block"
+    );
+    for (_kind, cfg) in always_blocks {
+        assert_eq!(
+            cfg.as_deref(),
+            None,
+            "always_available blocks should have no cfg condition"
+        );
+    }
+}

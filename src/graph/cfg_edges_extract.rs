@@ -6,6 +6,70 @@
 use crate::graph::schema::CfgBlock;
 use tree_sitter::{Node, Parser as TsParser};
 
+/// Extract `#[cfg(...)]` condition string from a tree-sitter node.
+///
+/// In tree-sitter Rust grammar, `#[cfg(...)]` attributes are siblings of
+/// the item they decorate (e.g. `function_item`), not children. This
+/// function looks at the node's previous siblings for `attribute_item`
+/// nodes and returns the first `cfg(...)` condition found.
+pub fn extract_cfg_condition(node: &Node, source: &str) -> Option<String> {
+    let parent = node.parent()?;
+    let mut cursor = parent.walk();
+
+    // Collect previous siblings until we hit the target node.
+    // Only consecutive `attribute_item`s immediately before the target
+    // belong to it; stop at any non-attribute sibling.
+    let mut prev_attrs: Vec<Node> = Vec::new();
+    for sibling in parent.children(&mut cursor) {
+        if sibling.id() == node.id() {
+            break;
+        }
+        if sibling.kind() == "attribute_item" {
+            prev_attrs.push(sibling);
+        } else {
+            prev_attrs.clear();
+        }
+    }
+
+    for attr in prev_attrs.iter().rev() {
+        let cond = parse_cfg_attribute(attr, source);
+        if cond.is_some() {
+            return cond;
+        }
+    }
+    None
+}
+
+fn parse_cfg_attribute(attr_item: &Node, source: &str) -> Option<String> {
+    let mut attr_cursor = attr_item.walk();
+    for attr_child in attr_item.children(&mut attr_cursor) {
+        if attr_child.kind() != "attribute" {
+            continue;
+        }
+        let mut inner = attr_child.walk();
+        let first = attr_child.children(&mut inner).next()?;
+        if first.kind() != "identifier" {
+            continue;
+        }
+        let name = &source[first.start_byte()..first.end_byte()];
+        if name != "cfg" {
+            continue;
+        }
+        let mut inner2 = attr_child.walk();
+        for token_tree in attr_child.children(&mut inner2) {
+            if token_tree.kind() == "token_tree" {
+                let text = &source[token_tree.start_byte()..token_tree.end_byte()];
+                let trimmed = text.trim();
+                if trimmed.starts_with('(') && trimmed.ends_with(')') {
+                    return Some(trimmed[1..trimmed.len() - 1].trim().to_string());
+                }
+                return Some(trimmed.to_string());
+            }
+        }
+    }
+    None
+}
+
 /// A CFG edge with source and target block indices
 #[derive(Debug, Clone)]
 pub struct CfgEdge {
@@ -137,6 +201,9 @@ pub fn extract_cfg_from_function_node(
     let mut blocks = Vec::new();
     let mut edges = Vec::new();
 
+    // Extract #[cfg(...)] condition from the function node
+    let cfg_condition = extract_cfg_condition(func_node, source);
+
     // Create entry block
     let entry_block = create_entry_block(func_node, function_id, source);
     blocks.push(entry_block);
@@ -162,6 +229,13 @@ pub fn extract_cfg_from_function_node(
                 target_idx: 1,
                 edge_type: CfgEdgeType::Fallthrough,
             });
+        }
+    }
+
+    // Apply #[cfg] condition to all blocks in this function
+    if let Some(ref cond) = cfg_condition {
+        for block in &mut blocks {
+            block.cfg_condition = Some(cond.clone());
         }
     }
 
@@ -2180,5 +2254,106 @@ fn test_last(x: Option<i32>) -> i32 {
             merge_indices.contains(&guard_false[0].target_idx),
             "Last guard false should point to merge block"
         );
+    }
+
+    #[test]
+    fn test_extract_cfg_condition_from_function() {
+        let source = r#"
+#[cfg(feature = "tokio")]
+fn cfg_function() {
+    let x = 1;
+}
+
+fn normal_function() {
+    let y = 2;
+}
+"#;
+
+        let mut parser = TsParser::new();
+        parser.set_language(&tree_sitter_rust::language()).unwrap();
+        let tree = parser.parse(source.as_bytes(), None).unwrap();
+        let root = tree.root_node();
+
+        let mut funcs = Vec::new();
+        let mut cursor = root.walk();
+        for child in root.children(&mut cursor) {
+            if child.kind() == "function_item" {
+                funcs.push(child);
+            }
+        }
+        assert_eq!(funcs.len(), 2);
+
+        let cfg_cond = extract_cfg_condition(&funcs[0], source);
+        assert_eq!(
+            cfg_cond,
+            Some(r#"feature = "tokio""#.to_string()),
+            "Should extract cfg condition from #[cfg(feature = \"tokio\")]"
+        );
+
+        let no_cfg = extract_cfg_condition(&funcs[1], source);
+        assert_eq!(
+            no_cfg, None,
+            "Normal function should have no cfg condition"
+        );
+    }
+
+    #[test]
+    fn test_extract_cfg_condition_complex() {
+        let source = r#"
+#[cfg(all(feature = "a", feature = "b"))]
+fn complex_cfg() {}
+"#;
+
+        let mut parser = TsParser::new();
+        parser.set_language(&tree_sitter_rust::language()).unwrap();
+        let tree = parser.parse(source.as_bytes(), None).unwrap();
+        let root = tree.root_node();
+
+        let mut func = None;
+        let mut cursor = root.walk();
+        for child in root.children(&mut cursor) {
+            if child.kind() == "function_item" {
+                func = Some(child);
+                break;
+            }
+        }
+        let func = func.expect("should find function_item");
+
+        let cfg_cond = extract_cfg_condition(&func, source);
+        assert_eq!(
+            cfg_cond,
+            Some(r#"all(feature = "a", feature = "b")"#.to_string()),
+            "Should extract complex cfg condition"
+        );
+    }
+
+    #[test]
+    fn test_extract_cfg_condition_applied_to_blocks() {
+        let source = r#"
+#[cfg(feature = "tokio")]
+fn cfg_function() {
+    let x = 1;
+    if x > 0 {
+        return x;
+    }
+}
+"#;
+
+        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
+
+        assert!(
+            !result.blocks.is_empty(),
+            "Should have blocks for cfg function"
+        );
+
+        // All blocks should inherit the cfg condition from the function
+        for block in &result.blocks {
+            assert_eq!(
+                block.cfg_condition,
+                Some(r#"feature = "tokio""#.to_string()),
+                "Block {:?} should inherit function's cfg condition",
+                block.kind
+            );
+        }
     }
 }
