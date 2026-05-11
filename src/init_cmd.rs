@@ -11,6 +11,11 @@ pub fn run_project_init(path: Option<PathBuf>) -> Result<()> {
             .context("Could not detect project root. Use --path to specify one.")?,
     };
 
+    // Canonicalize so relative paths like "." resolve to the actual directory name.
+    let project_root = project_root
+        .canonicalize()
+        .unwrap_or_else(|_| project_root.clone());
+
     let name = project_root
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
@@ -33,5 +38,29 @@ fn detect_project_root() -> Option<PathBuf> {
             return Some(dir.to_path_buf());
         }
         dir = dir.parent()?;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn init_with_dot_path_uses_canonical_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let dir_name = dir.path().file_name().unwrap().to_str().unwrap();
+
+        // Simulate `magellan init --path .` by running from inside the dir with "."
+        let original = std::env::current_dir().unwrap();
+        std::env::set_current_dir(dir.path()).unwrap();
+        run_project_init(Some(PathBuf::from("."))).unwrap();
+        std::env::set_current_dir(original).unwrap();
+
+        let config = ProjectConfig::load(dir.path()).unwrap();
+        assert_eq!(
+            config.project.name.as_deref(),
+            Some(dir_name),
+            "init with '.' should resolve to canonical directory name, not 'project'"
+        );
     }
 }

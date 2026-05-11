@@ -538,6 +538,12 @@ mod tests {
 
     #[test]
     fn test_compute_delta_basic() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("src")).unwrap();
+        std::fs::write(dir.path().join("src/main.rs"), "").unwrap();
+        let original = std::env::current_dir().unwrap();
+        std::env::set_current_dir(dir.path()).unwrap();
+
         let git_status = GitStatus {
             modified: vec!["src/main.rs".to_string()],
             deleted: vec!["src/old.rs".to_string()],
@@ -549,12 +555,11 @@ mod tests {
         let mut db_files = HashSet::new();
         db_files.insert("src/main.rs".to_string());
         db_files.insert("src/old.rs".to_string());
-        // Note: src/unchanged.rs is not included because it would be detected
-        // as a stale file (doesn't exist on filesystem) and deleted.
-        // In a real scenario, all DB files would exist on the filesystem.
 
         let args = RefreshArgs::default();
         let delta = compute_delta(&git_status, &db_files, &args).unwrap();
+
+        std::env::set_current_dir(original).unwrap();
 
         assert_eq!(delta.to_update, vec!["src/main.rs"]);
         assert_eq!(delta.to_delete, vec!["src/old.rs"]);
@@ -564,6 +569,13 @@ mod tests {
 
     #[test]
     fn test_compute_delta_with_untracked() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("src")).unwrap();
+        std::fs::write(dir.path().join("src/new.rs"), "").unwrap();
+        std::fs::write(dir.path().join("src/existing.rs"), "").unwrap();
+        let original = std::env::current_dir().unwrap();
+        std::env::set_current_dir(dir.path()).unwrap();
+
         let git_status = GitStatus {
             modified: vec![],
             deleted: vec![],
@@ -580,12 +592,11 @@ mod tests {
             ..Default::default()
         };
 
-        // Note: This test would need the file to actually exist for to_add to be populated
-        // Since we can't create files in unit tests easily, we just verify the logic path
         let delta = compute_delta(&git_status, &db_files, &args).unwrap();
 
-        // No files to add because src/new.rs doesn't exist in test environment
-        assert!(delta.to_add.is_empty() || delta.to_add == vec!["src/new.rs"]);
+        std::env::set_current_dir(original).unwrap();
+
+        assert_eq!(delta.to_add, vec!["src/new.rs"]);
     }
 
     #[test]
