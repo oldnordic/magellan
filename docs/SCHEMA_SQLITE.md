@@ -1,7 +1,7 @@
 # SQLite Schema Reference
 
-**Version:** 3.3.3
-**Magellan schema version:** 14
+**Version:** 3.3.7
+**Magellan schema version:** 16
 **Database extension:** `.db`
 
 SQLite is the supported user-facing storage model.
@@ -58,6 +58,8 @@ Fields:
 - `magellan_schema_version`
 - `sqlitegraph_schema_version`
 - `created_at`
+- `project_name` (schema v15+) — project name, usually from `.magellan.toml` or directory name
+- `project_metadata` (schema v15+) — JSON blob with parsed Cargo.toml data: features, dependencies, targets
 
 ## Source Storage
 
@@ -114,6 +116,7 @@ Key fields:
 - `coord_y`
 - `coord_z`
 - `coord_t`
+- `cfg_condition` (schema v16+) — `#[cfg(...)]` condition string inherited from the function's attributes. All blocks within a cfg-gated function share the same condition. Used by downstream tools to filter out dead code paths behind disabled feature flags. Examples: `feature = "tokio"`, `all(feature = "a", feature = "b")`.
 
 ### `cfg_edges`
 

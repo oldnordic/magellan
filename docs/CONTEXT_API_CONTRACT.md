@@ -1,7 +1,7 @@
 # Context API JSON Contract
 
 **Version:** 1.0.0  
-**Stability:** Stable (3.3.3+)
+**Stability:** Stable (3.3.7+)
 
 This document specifies the deterministic JSON contract for Magellan's LLM Context API. All responses follow this schema for predictable parsing by downstream tools.
 
@@ -386,6 +386,7 @@ magellan context list --db code.db --cursor cGFnZT0y --json
 |---------|------|---------|
 | 1.0.0 | 2026-03-02 | Initial release (Magellan 3.0.0) |
 | 1.0.0 | 2026-05-10 | Updated stability baseline to 3.3.3+ (schema 14, graph memory) |
+| 1.0.0 | 2026-05-11 | Updated stability baseline to 3.3.7+ (schema 16, cfg-aware CFG) |
 
 ---
 

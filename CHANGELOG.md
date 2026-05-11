@@ -3,6 +3,32 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.7] - 2026-05-11
+
+### Added
+
+- **`#[cfg]` attribute extraction for CFG blocks** — During indexing, `#[cfg(...)]` attributes on functions are now parsed from the tree-sitter AST and stored in the `cfg_condition` column of `cfg_blocks`. All blocks within a cfg-gated function inherit the same condition. Supports `feature = "X"`, `all(...)`, `any(...)`, and `not(...)` forms.
+- **`get_live_cfg_for_function()`** — Returns only CFG blocks whose `cfg_condition` evaluates true against the project's active features. Blocks without a condition are always included. This allows downstream tools (e.g. Mirage) to filter out dead code paths behind disabled feature flags.
+- **`evaluate_cfg_condition()`** — Evaluates cfg condition strings against a set of active features. Supports `feature = "name"`, `all(...)`, `any(...)`, and `not(...)`. Unknown conditions conservatively return `true`.
+
+### Changed
+
+- **Schema v16** — Added `cfg_condition TEXT` column to `cfg_blocks`. Fresh databases include it; existing databases are upgraded automatically via migration.
+
+## [3.3.6] - 2026-05-11
+
+### Added
+
+- **`magellan init` command** — Creates a `.magellan.toml` configuration file with sensible defaults. Detects the project root from `Cargo.toml` if present. Refuses to overwrite an existing config.
+- **`.magellan.toml` configuration** — TOML-based project config with `[project]`, `[index]`, and `[watch]` sections. Supports `include`/`exclude` glob patterns for filtering what gets indexed.
+- **Cargo.toml manifest parsing** — `magellan watch` reads `Cargo.toml` to extract feature flags, dependencies, and test/bench targets. Features are stored as JSON in `magellan_meta.project_metadata`. Dependencies are stored in `CargoManifest.dependencies`.
+- **Config-driven indexing** — `magellan watch` loads `.magellan.toml` and respects `include`/`exclude` filters. Auto-detects `tests/` and `benches/` targets from `Cargo.toml` `[[test]]`/`[[bench]]` sections.
+- **`magellan refresh` command** — Incrementally syncs the database with git working tree changes. Re-indexes modified files, removes deleted files, optionally includes untracked files. Supports `--dry-run` for preview.
+
+### Fixed
+
+- **`magellan init --path .` produced `name = "project"`** — Now canonicalizes the path before extracting the directory name, so `magellan init --path .` uses the actual project directory name.
+
 ## [3.3.5] - 2026-05-10
 
 ### Fixed

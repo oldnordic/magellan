@@ -1,6 +1,6 @@
 # Magellan Architecture
 
-**Version:** 3.3.3
+**Version:** 3.3.7
 
 This document describes the current public architecture. Magellan's supported
 user-facing storage path is a SQLite `.db` database.

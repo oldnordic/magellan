@@ -1,6 +1,6 @@
 # Magellan
 
-**Version:** 3.3.5
+**Version:** 3.3.7
 
 Magellan is a deterministic codebase indexing tool. It watches or scans source
 trees, extracts symbols, references, calls, AST nodes, code chunks, CFG data, and
@@ -26,7 +26,7 @@ supported workflow.
 Optional source builds may include experimental geometric index code, but the
 SQLite database remains the source of truth.
 
-**Schema version:** 14 (FTS5 full-text search, graph memory tables)
+**Schema version:** 16 (cfg-aware CFG blocks, project metadata, FTS5 full-text search, graph memory tables)
 
 ## Features
 
@@ -38,6 +38,9 @@ SQLite database remains the source of truth.
 - AST node storage and AST queries
 - Code chunks for source retrieval and editor context
 - CFG blocks and CFG edges for control-flow analysis
+- `#[cfg]` attribute extraction: CFG blocks inherit cfg conditions from function attributes
+- Cargo.toml manifest parsing: features, dependencies, and test targets
+- `.magellan.toml` project configuration with include/exclude filters
 - Coverage ingestion from LCOV into CFG coverage side tables
 - Graph algorithms: reachability, dead code, cycles, condensation, paths, slice
 - Source inventory: index wiki pages, specs, and other non-code documents
@@ -51,8 +54,11 @@ SQLite database remains the source of truth.
 ```bash
 cargo build --release
 
+# Initialize project configuration
+target/release/magellan init --path .
+
 # Build an index
-target/release/magellan watch --root . --db .magellan/code.db --scan-initial
+target/release/magellan watch --root ./src --db .magellan/code.db --scan-initial
 
 # Check database contents
 target/release/magellan status --db .magellan/code.db
@@ -69,6 +75,9 @@ target/release/magellan refs --db .magellan/code.db --name main --direction out
 # Index or delete one file
 target/release/magellan index --db .magellan/code.db --file src/lib.rs
 target/release/magellan delete --db .magellan/code.db --file src/lib.rs
+
+# Refresh from git working tree changes
+target/release/magellan refresh --db .magellan/code.db
 
 # Recompute derived metrics
 target/release/magellan backfill --db .magellan/code.db

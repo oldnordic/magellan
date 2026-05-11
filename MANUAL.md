@@ -1,6 +1,6 @@
 # Magellan Manual
 
-**Version:** 3.3.5
+**Version:** 3.3.7
 
 This manual documents the current user-facing Magellan CLI. The supported normal
 workflow uses a SQLite `.db` database.
@@ -16,6 +16,36 @@ magellan watch --root . --db .magellan/code.db --scan-initial
 SQLite is the source-of-truth storage path for current Magellan usage. Older
 alternative backend instructions are intentionally absent from this manual
 because they are not part of the supported public workflow.
+
+## Project Initialization
+
+### Init
+
+```bash
+magellan init [--path <DIR>]
+```
+
+Creates a `.magellan.toml` configuration file in the project root with sensible
+defaults. If `--path` is omitted, uses the current directory. Detects the
+project name from the directory or from `Cargo.toml` if present.
+
+The generated `.magellan.toml`:
+
+```toml
+[project]
+name = "myproject"
+
+[index]
+include = ["src/"]
+exclude = []
+
+[watch]
+debounce_ms = 500
+gitignore_aware = true
+scan_initial = true
+```
+
+`init` refuses to overwrite an existing `.magellan.toml`.
 
 ## Output Formats
 
@@ -120,7 +150,7 @@ magellan migrate --db code.db --dry-run
 magellan migrate --db code.db --no-backup
 ```
 
-Current Magellan schema version: `14`.
+Current Magellan schema version: `16`.
 
 **Schema v12 changes:** Added FTS5 full-text search index for fast prefix search.
 Migration is automatic and creates a backup. See [docs/SCHEMA_SQLITE.md](docs/SCHEMA_SQLITE.md)
