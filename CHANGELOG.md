@@ -3,6 +3,16 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.8] - 2026-05-12
+
+### Added
+
+- **`--detect-backend` flag** — New top-level flag that detects the backend format of a given database file. Usage: `magellan --detect-backend --db <path>`. Returns `sqlite` for valid SQLite databases, or exits with an error for missing or invalid files.
+
+### Fixed
+
+- **`status` on missing database** — Previously, `magellan status --db <missing>` silently created an empty database and reported 0 files/symbols. Now it fails with a clear "Database not found" error and exits non-zero.
+
 ## [3.3.7] - 2026-05-11
 
 ### Added
