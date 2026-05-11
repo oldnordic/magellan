@@ -127,7 +127,7 @@ macro_rules! debug_print {
 use anyhow::{Context, Result};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -460,14 +460,44 @@ pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>
     let project_config =
         ProjectConfig::load(&scan_root).context("Failed to load .magellan.toml")?;
 
+    // Parse Cargo.toml for auto-include targets (tests/, benches/, examples/)
+    let cargo_targets = crate::project_config::CargoManifest::parse(&scan_root)
+        .ok()
+        .filter(|_| project_config.index.include.is_empty()) // only when user hasn't set include
+        .map(|m| {
+            m.targets
+                .iter()
+                .filter_map(|p| {
+                    // Extract directory from path: "tests/integration.rs" → "tests/"
+                    Path::new(p).parent().map(|d| {
+                        let mut s = d.to_string_lossy().to_string();
+                        if !s.ends_with('/') {
+                            s.push('/');
+                        }
+                        s
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
     // Merge include/exclude: CLI patterns override config patterns when non-empty
+    let merged_include = if config.include_patterns.is_empty() {
+        if project_config.index.include.is_empty() && !cargo_targets.is_empty() {
+            // User has no .magellan.toml include AND Cargo.toml has targets → auto-include
+            let mut auto = vec!["src/".to_string()];
+            auto.extend(cargo_targets.into_iter().collect::<std::collections::HashSet<_>>().into_iter());
+            auto
+        } else {
+            project_config.index.include.clone()
+        }
+    } else {
+        config.include_patterns.clone()
+    };
+
     let merged_config = crate::project_config::ProjectConfig {
         index: crate::project_config::IndexSection {
-            include: if config.include_patterns.is_empty() {
-                project_config.index.include.clone()
-            } else {
-                config.include_patterns.clone()
-            },
+            include: merged_include,
             exclude: if config.exclude_patterns.is_empty() {
                 project_config.index.exclude.clone()
             } else {
@@ -479,6 +509,15 @@ pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>
 
     // Open graph first so we can get the backend for pub/sub subscription
     let mut graph = CodeGraph::open(&config.db_path)?;
+
+    // Parse Cargo.toml and store manifest metadata in magellan_meta
+    if let Ok(manifest) = crate::project_config::CargoManifest::parse(&scan_root) {
+        if manifest.package_name.is_some() {
+            if let Ok(conn) = rusqlite::Connection::open(&config.db_path) {
+                let _ = manifest.store_in_db(&conn);
+            }
+        }
+    }
 
     // Disable batch mode for watch to avoid BEGIN IMMEDIATE deadlock
     // on the single pooled connection during rapid flush cycles.

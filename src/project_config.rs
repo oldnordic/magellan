@@ -142,6 +142,102 @@ impl ProjectConfig {
     }
 }
 
+/// Parsed Cargo.toml manifest data.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CargoManifest {
+    pub package_name: Option<String>,
+    /// Feature flags from [features] section.
+    /// `default` feature is excluded — it's a meta-feature listing defaults.
+    #[serde(default)]
+    pub features: std::collections::HashMap<String, Vec<String>>,
+    /// Crate names from [dependencies] section (dev-dependencies excluded).
+    #[serde(default)]
+    pub dependencies: Vec<String>,
+    /// Target paths extracted from [[bin]], [[test]], [[bench]] arrays.
+    #[serde(default)]
+    pub targets: Vec<String>,
+}
+
+impl CargoManifest {
+    /// Parse `Cargo.toml` from `project_root`.
+    ///
+    /// Returns `CargoManifest::default()` when `Cargo.toml` is absent.
+    pub fn parse(project_root: &Path) -> Result<Self> {
+        let path = project_root.join("Cargo.toml");
+        if !path.exists() {
+            return Ok(Self::default());
+        }
+
+        let content = std::fs::read_to_string(&path)
+            .with_context(|| format!("Failed to read {}", path.display()))?;
+
+        let doc: toml::Table = toml::from_str(&content)
+            .with_context(|| format!("Failed to parse {}", path.display()))?;
+
+        let mut manifest = Self::default();
+
+        // [package].name
+        if let Some(toml::Value::Table(package)) = doc.get("package") {
+            if let Some(toml::Value::String(name)) = package.get("name") {
+                manifest.package_name = Some(name.clone());
+            }
+        }
+
+        // [features] — skip "default" meta-feature
+        if let Some(toml::Value::Table(features)) = doc.get("features") {
+            for (k, v) in features.iter().filter(|(k, _)| *k != "default") {
+                if let toml::Value::Array(arr) = v {
+                    manifest.features.insert(
+                        k.clone(),
+                        arr.iter()
+                            .filter_map(|item| item.as_str().map(String::from))
+                            .collect(),
+                    );
+                }
+            }
+        }
+
+        // [dependencies]
+        if let Some(toml::Value::Table(deps)) = doc.get("dependencies") {
+            manifest.dependencies = deps.keys().cloned().collect();
+        }
+
+        // [[bin]], [[test]], [[bench]] — extract path
+        for key in ["bin", "test", "bench"] {
+            if let Some(toml::Value::Array(arr)) = doc.get(key) {
+                for item in arr {
+                    if let toml::Value::Table(t) = item {
+                        if let Some(toml::Value::String(path)) = t.get("path") {
+                            manifest.targets.push(path.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(manifest)
+    }
+
+    /// Store manifest data into `magellan_meta` table on `conn`.
+    pub fn store_in_db(&self, conn: &rusqlite::Connection) -> Result<()> {
+        let metadata_json = serde_json::to_string(self)
+            .context("Failed to serialize CargoManifest")?;
+        conn.execute(
+            "UPDATE magellan_meta SET project_name = ?1, project_metadata = ?2 WHERE id = 1",
+            rusqlite::params![self.package_name, metadata_json],
+        )
+        .context("Failed to update magellan_meta with project metadata")?;
+        Ok(())
+    }
+}
+
+impl ProjectConfig {
+    /// Parse `Cargo.toml` manifest from `project_root`.
+    pub fn parse_cargo_manifest(project_root: &Path) -> Result<CargoManifest> {
+        CargoManifest::parse(project_root)
+    }
+}
+
 /// Expand directory patterns: `src/` → `src/**` so globs match files inside.
 fn normalize_dir_patterns(patterns: &[String]) -> Vec<String> {
     patterns
@@ -258,5 +354,50 @@ scan_initial = false
         assert!(filter
             .should_skip(&dir.path().join("target/foo.rs"))
             .is_some());
+    }
+
+    #[test]
+    fn parse_cargo_toml_features_and_dependencies() {
+        let dir = tempfile::tempdir().unwrap();
+        let cargo_toml = r#"
+[package]
+name = "test-crate"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = ["sqlite-backend", "geometric-backend"]
+sqlite-backend = []
+geometric-backend = ["dep:geographdb-core"]
+llvm-cfg = ["dep:llvm-sys"]
+
+[dependencies]
+anyhow = "1.0"
+thiserror = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+
+[dev-dependencies]
+tempfile = "3.10"
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
+"#;
+        fs::write(dir.path().join("Cargo.toml"), cargo_toml).unwrap();
+
+        let manifest = ProjectConfig::parse_cargo_manifest(dir.path()).unwrap();
+
+        assert_eq!(manifest.package_name, Some("test-crate".to_string()));
+        assert!(manifest.features.contains_key("sqlite-backend"));
+        assert!(manifest.features.contains_key("geometric-backend"));
+        assert!(manifest.features.contains_key("llvm-cfg"));
+        assert!(!manifest.features.contains_key("default")); // default is a meta-feature, skip
+
+        assert!(manifest.dependencies.contains(&"anyhow".to_string()));
+        assert!(manifest.dependencies.contains(&"thiserror".to_string()));
+        assert!(manifest.dependencies.contains(&"serde".to_string()));
+        assert!(!manifest.dependencies.contains(&"tempfile".to_string())); // dev-dependencies excluded
+
+        assert!(manifest.targets.contains(&"tests/integration.rs".to_string()));
     }
 }

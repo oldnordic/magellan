@@ -524,6 +524,9 @@ mod tests {
         assert_eq!(report.total_changes(), 4);
     }
 
+    use std::sync::Mutex;
+    static CWD_LOCK: Mutex<()> = Mutex::new(());
+
     #[test]
     fn test_refresh_args_default() {
         let args = RefreshArgs::default();
@@ -538,6 +541,7 @@ mod tests {
 
     #[test]
     fn test_compute_delta_basic() {
+        let _guard = CWD_LOCK.lock().unwrap();
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir(dir.path().join("src")).unwrap();
         std::fs::write(dir.path().join("src/main.rs"), "").unwrap();
@@ -569,6 +573,7 @@ mod tests {
 
     #[test]
     fn test_compute_delta_with_untracked() {
+        let _guard = CWD_LOCK.lock().unwrap();
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir(dir.path().join("src")).unwrap();
         std::fs::write(dir.path().join("src/new.rs"), "").unwrap();

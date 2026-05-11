@@ -44,9 +44,12 @@ fn detect_project_root() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+    static CWD_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn init_with_dot_path_uses_canonical_name() {
+        let _guard = CWD_LOCK.lock().unwrap();
         let dir = tempfile::tempdir().unwrap();
         let dir_name = dir.path().file_name().unwrap().to_str().unwrap();
 

@@ -23,7 +23,8 @@ use std::path::{Path, PathBuf};
 /// v12: symbol_fts FTS5 virtual table for fast symbol search
 /// v13: source_documents table for graph memory source inventory
 /// v14: candidate_facts table for graph memory candidate staging
-pub const MAGELLAN_SCHEMA_VERSION: i64 = 14;
+/// v15: magellan_meta.project_name and project_metadata columns
+pub const MAGELLAN_SCHEMA_VERSION: i64 = 15;
 
 /// Migration result summary
 #[derive(Debug, Clone)]

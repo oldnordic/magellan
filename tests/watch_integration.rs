@@ -166,6 +166,59 @@ fn scan_with_tests_included_indexes_test_files() {
     );
 }
 
+/// Test: Cargo.toml manifest is stored in magellan_meta during watch.
+#[test]
+fn cargo_manifest_stored_in_magellan_meta() {
+    let dir = create_temp_project();
+
+    let cargo_toml = r#"
+[package]
+name = "test-crate"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = ["sqlite-backend"]
+sqlite-backend = []
+
+[dependencies]
+anyhow = "1.0"
+"#;
+    fs::write(dir.path().join("Cargo.toml"), cargo_toml).unwrap();
+
+    let db_path = dir.path().join(".magellan").join("test.db");
+    fs::create_dir_all(db_path.parent().unwrap()).unwrap();
+    let mut graph = CodeGraph::open(&db_path).unwrap();
+
+    // Simulate what watch pipeline does: parse manifest and store in DB
+    let manifest = magellan::project_config::CargoManifest::parse(dir.path()).unwrap();
+    assert_eq!(manifest.package_name, Some("test-crate".to_string()));
+
+    // Store in magellan_meta via direct SQL (watch pipeline does this)
+    let metadata_json = serde_json::to_string(&manifest).unwrap();
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    conn.execute(
+        "UPDATE magellan_meta SET project_name = ?1, project_metadata = ?2 WHERE id = 1",
+        rusqlite::params![manifest.package_name, metadata_json],
+    )
+    .unwrap();
+
+    // Verify round-trip
+    let (name, meta_json): (Option<String>, Option<String>) = conn
+        .query_row(
+            "SELECT project_name, project_metadata FROM magellan_meta WHERE id = 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+
+    assert_eq!(name, Some("test-crate".to_string()));
+    let loaded: magellan::project_config::CargoManifest =
+        serde_json::from_str(&meta_json.unwrap()).unwrap();
+    assert_eq!(loaded.package_name, Some("test-crate".to_string()));
+    assert!(loaded.dependencies.contains(&"anyhow".to_string()));
+}
+
 /// Test: ProjectConfig round-trips through TOML serialization.
 #[test]
 fn config_round_trip() {

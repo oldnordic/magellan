@@ -55,7 +55,9 @@ pub fn ensure_magellan_meta(
             id INTEGER PRIMARY KEY CHECK (id = 1),
             magellan_schema_version INTEGER NOT NULL,
             sqlitegraph_schema_version INTEGER NOT NULL,
-            created_at INTEGER NOT NULL
+            created_at INTEGER NOT NULL,
+            project_name TEXT,
+            project_metadata TEXT
         )",
         [],
     )
@@ -78,8 +80,8 @@ pub fn ensure_magellan_meta(
                 .unwrap_or_default()
                 .as_secs() as i64;
             conn.execute(
-                "INSERT INTO magellan_meta (id, magellan_schema_version, sqlitegraph_schema_version, created_at)
-                 VALUES (1, ?1, ?2, ?3)",
+                "INSERT INTO magellan_meta (id, magellan_schema_version, sqlitegraph_schema_version, created_at, project_name, project_metadata)
+                 VALUES (1, ?1, ?2, ?3, NULL, NULL)",
                 params![MAGELLAN_SCHEMA_VERSION, expected_sqlitegraph, created_at],
             ).map_err(|e| map_sqlite_query_err(db_path, e))?;
             ensure_geo_index_meta_schema(conn)?;
@@ -131,6 +133,10 @@ pub fn ensure_magellan_meta(
                         13 => {
                             ensure_candidate_fact_schema(conn)?;
                             current_version = 14;
+                        }
+                        14 => {
+                            ensure_project_metadata_schema(conn)?;
+                            current_version = 15;
                         }
                         _ => {
                             return Err(DbCompatError::MagellanSchemaMismatch {
@@ -343,6 +349,36 @@ pub fn ensure_candidate_fact_schema(conn: &rusqlite::Connection) -> Result<(), D
     )
     .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
 
+    Ok(())
+}
+
+/// Add project_metadata and project_name columns to magellan_meta table (v15).
+pub fn ensure_project_metadata_schema(
+    conn: &rusqlite::Connection,
+) -> Result<(), DbCompatError> {
+    let has_name: bool = conn
+        .query_row(
+            "SELECT 1 FROM pragma_table_info('magellan_meta') WHERE name='project_name'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+    if !has_name {
+        conn.execute("ALTER TABLE magellan_meta ADD COLUMN project_name TEXT", [])
+            .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    }
+
+    let has_meta: bool = conn
+        .query_row(
+            "SELECT 1 FROM pragma_table_info('magellan_meta') WHERE name='project_metadata'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+    if !has_meta {
+        conn.execute("ALTER TABLE magellan_meta ADD COLUMN project_metadata TEXT", [])
+            .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    }
     Ok(())
 }
 
