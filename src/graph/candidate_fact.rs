@@ -489,7 +489,12 @@ pub fn insert(conn: &Connection, candidate: &CandidateFact) -> Result<i64> {
             candidate.reviewed_at,
         ],
     )
-    .with_context(|| format!("insert candidate fact (candidate_id={})", candidate.candidate_id))?;
+    .with_context(|| {
+        format!(
+            "insert candidate fact (candidate_id={})",
+            candidate.candidate_id
+        )
+    })?;
 
     Ok(conn.last_insert_rowid())
 }

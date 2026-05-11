@@ -49,7 +49,11 @@ fn test_watch_command_indexes_file_on_create() {
     fs::write(&file_path, rust_code).unwrap();
 
     // Wait for debounce (100ms) + processing. Use longer wait on CI.
-    let wait_ms = if std::env::var("CI").is_ok() { 3000 } else { 1500 };
+    let wait_ms = if std::env::var("CI").is_ok() {
+        3000
+    } else {
+        1500
+    };
     thread::sleep(Duration::from_millis(wait_ms));
     let _ = child.kill();
     let output = child

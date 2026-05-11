@@ -17,6 +17,7 @@ pub fn print_short_usage() {
     eprintln!();
     eprintln!("Common commands:");
     eprintln!("  watch       Index codebase: magellan watch --root . --db code.db");
+    eprintln!("  init        Create .magellan.toml: magellan init [--path dir]");
     eprintln!("  status      Show database stats: magellan status --db code.db");
     eprintln!("  doctor      Diagnose issues: magellan doctor --db code.db [--fix]");
     eprintln!("  refresh     Refresh from git: magellan refresh --db code.db");
@@ -487,6 +488,9 @@ pub enum Command {
     ConfigInit {
         force: bool,
     },
+    ProjectInit {
+        path: Option<PathBuf>,
+    },
     Delete {
         db_path: PathBuf,
         file_path: PathBuf,
@@ -923,6 +927,26 @@ fn parse_config_init_args(args: &[String]) -> Result<Command> {
     }
 
     Ok(Command::ConfigInit { force })
+}
+
+fn parse_project_init_args(args: &[String]) -> Result<Command> {
+    let mut path: Option<PathBuf> = None;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--path" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--path requires an argument"));
+                }
+                path = Some(PathBuf::from(&args[i + 1]));
+                i += 2;
+            }
+            _ => i += 1,
+        }
+    }
+
+    Ok(Command::ProjectInit { path })
 }
 
 fn parse_delete_args(args: &[String]) -> Result<Command> {
@@ -2167,6 +2191,7 @@ where
             }
         }
         "condense" => parse_condense_args(&args[2..]),
+        "init" => parse_project_init_args(&args[2..]),
         "paths" => parse_paths_args(&args[2..]),
         "slice" => parse_slice_args(&args[2..]),
         "source-inventory" => parse_source_inventory_args(&args[2..]),

@@ -101,6 +101,8 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::graph::scan::ScanResult;
+
 use crate::generation::{ChunkStore, CodeChunk};
 use crate::references::{CallFact, ReferenceFact};
 
@@ -821,6 +823,18 @@ impl CodeGraph {
         progress: Option<&ScanProgress>,
     ) -> Result<usize> {
         scan::scan_directory(self, dir_path, progress)
+    }
+
+    /// Scan a directory with a pre-built `FileFilter`.
+    ///
+    /// Use when include/exclude patterns come from project config.
+    pub fn scan_directory_with_filter(
+        &mut self,
+        dir_path: &Path,
+        filter: &filter::FileFilter,
+        progress: Option<&ScanProgress>,
+    ) -> Result<ScanResult> {
+        scan::scan_directory_with_filter(self, dir_path, filter, progress)
     }
 
     /// Async version of scan_directory with parallel file reading

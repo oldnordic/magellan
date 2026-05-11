@@ -133,6 +133,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use crate::project_config::ProjectConfig;
 use crate::{CodeGraph, FileEvent, FileSystemWatcher, WatcherConfig};
 
 /// Reconcile files that exist in DB but not on filesystem.
@@ -309,6 +310,10 @@ pub struct WatchPipelineConfig {
     pub watcher_config: WatcherConfig,
     /// Whether to run initial baseline scan
     pub scan_initial: bool,
+    /// Include glob patterns (from .magellan.toml or CLI). Empty = include all.
+    pub include_patterns: Vec<String>,
+    /// Exclude glob patterns
+    pub exclude_patterns: Vec<String>,
 }
 
 impl WatchPipelineConfig {
@@ -324,6 +329,8 @@ impl WatchPipelineConfig {
             db_path,
             watcher_config,
             scan_initial,
+            include_patterns: Vec::new(),
+            exclude_patterns: Vec::new(),
         }
     }
 }
@@ -443,6 +450,33 @@ impl PipelineSharedState {
 /// # Returns
 /// Number of paths processed during watch phase
 pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>) -> Result<usize> {
+    // Canonicalize root so walkdir and FileFilter both use absolute paths.
+    // Without this, walkdir yields relative paths but FileFilter canonicalizes
+    // its root, causing strip_prefix to fail and include globs to mismatch.
+    let scan_root =
+        std::fs::canonicalize(&config.root_path).unwrap_or_else(|_| config.root_path.clone());
+
+    // Load .magellan.toml if present (read-only, no DB access)
+    let project_config =
+        ProjectConfig::load(&scan_root).context("Failed to load .magellan.toml")?;
+
+    // Merge include/exclude: CLI patterns override config patterns when non-empty
+    let merged_config = crate::project_config::ProjectConfig {
+        index: crate::project_config::IndexSection {
+            include: if config.include_patterns.is_empty() {
+                project_config.index.include.clone()
+            } else {
+                config.include_patterns.clone()
+            },
+            exclude: if config.exclude_patterns.is_empty() {
+                project_config.index.exclude.clone()
+            } else {
+                config.exclude_patterns.clone()
+            },
+        },
+        ..project_config
+    };
+
     // Open graph first so we can get the backend for pub/sub subscription
     let mut graph = CodeGraph::open(&config.db_path)?;
 
@@ -480,8 +514,11 @@ pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>
     if config.scan_initial {
         use indicatif::HumanCount;
 
-        graph.scan_directory(
-            &config.root_path,
+        let file_filter = merged_config.to_file_filter(&scan_root)?;
+
+        graph.scan_directory_with_filter(
+            &scan_root,
+            &file_filter,
             Some(&|current, total, file_path| {
                 // Progress bar is created on first call
                 static PB: std::sync::OnceLock<ProgressBar> = std::sync::OnceLock::new();

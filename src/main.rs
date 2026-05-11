@@ -23,6 +23,7 @@ mod get_cmd;
 mod import_lsif_cmd;
 mod index_cmd;
 mod ingest_coverage_cmd;
+mod init_cmd;
 mod label_cmd;
 mod migrate_cmd;
 mod path_enumeration_cmd;
@@ -134,6 +135,13 @@ fn main() -> ExitCode {
         }
         Ok(Command::ConfigInit { force }) => {
             if let Err(e) = config_cmd::run_config_init(force) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::ProjectInit { path }) => {
+            if let Err(e) = init_cmd::run_project_init(path) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }

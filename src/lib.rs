@@ -70,6 +70,7 @@ pub use backend_router::{MagellanBackend, UnifiedSymbolInfo};
 pub use capabilities::all_capabilities;
 pub use migrate_backend_cmd::{detect_backend_format, BackendFormat};
 pub mod output;
+pub mod project_config;
 pub mod references;
 pub mod validation;
 pub mod verify;
@@ -81,6 +82,13 @@ pub use common::{
 };
 pub use diagnostics::{DiagnosticStage, SkipReason, WatchDiagnostic};
 pub use generation::{ChunkStore, CodeChunk};
+pub use graph::candidate_fact::{
+    ensure_schema as ensure_candidate_fact_schema, find_by_id as find_candidate_fact_by_id,
+    insert as insert_candidate_fact, list_by_status as list_candidate_facts_by_status,
+    review_queue as candidate_fact_review_queue, update_status as update_candidate_fact_status,
+    validate_ontology, CandidateFact, CandidateProperties, CandidateStatus, ConflictSet,
+    ConflictType, ResolutionStatus, ValidationError, ValidationResult,
+};
 pub use graph::filter::FileFilter;
 pub use graph::query::{cross_file_references_to, SymbolQueryResult};
 pub use graph::scan::ScanResult;
@@ -88,13 +96,6 @@ pub use graph::source_inventory::{
     compute_hash, ensure_schema, extract_frontmatter, extract_metadata, extract_tags,
     extract_title, extract_wikilinks, find_stale, insert_or_update, list_by_kind,
     parse_frontmatter, scan_directory, scan_file, ExtractedMetadata, SourceDocument,
-};
-pub use graph::candidate_fact::{
-    ensure_schema as ensure_candidate_fact_schema, find_by_id as find_candidate_fact_by_id,
-    insert as insert_candidate_fact, list_by_status as list_candidate_facts_by_status,
-    review_queue as candidate_fact_review_queue, update_status as update_candidate_fact_status,
-    validate_ontology, CandidateFact, CandidateProperties, CandidateStatus, ConflictSet,
-    ConflictType, ResolutionStatus, ValidationError, ValidationResult,
 };
 pub use graph::test_helpers::{delete_file_facts_with_injection, FailPoint};
 pub use graph::CrossFileRef;

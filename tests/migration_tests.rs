@@ -239,7 +239,7 @@ fn test_migration_v4_to_v14_creates_required_tables() {
     .unwrap();
     conn.execute(
         "INSERT INTO magellan_meta (id, magellan_schema_version, sqlitegraph_schema_version, created_at)
-         VALUES (1, 4, 3, 1000)",
+         VALUES (1, 4, 4, 1000)",
         [],
     )
     .unwrap();
@@ -391,7 +391,7 @@ fn test_opening_v4_database_auto_upgrades_to_v14() {
     .unwrap();
     conn.execute(
         "INSERT INTO magellan_meta (id, magellan_schema_version, sqlitegraph_schema_version, created_at)
-         VALUES (1, 4, 3, 1000)",
+         VALUES (1, 4, 4, 1000)",
         [],
     )
     .unwrap();
