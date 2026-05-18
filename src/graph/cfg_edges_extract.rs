@@ -1704,7 +1704,7 @@ fn simple() -> i32 {
 }
 "#;
 
-        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
+        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::LANGUAGE.into());
 
         assert_eq!(result.function_id, 1);
         assert!(
@@ -1725,7 +1725,7 @@ fn with_if(x: i32) -> i32 {
 }
 "#;
 
-        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
+        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::LANGUAGE.into());
 
         assert!(result.blocks.len() >= 2, "Should have multiple blocks");
         assert!(result.edges.len() >= 2, "Should have edges for if/else");
@@ -1752,7 +1752,7 @@ fn with_loop() -> i32 {
 }
 "#;
 
-        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
+        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::LANGUAGE.into());
 
         assert!(result.blocks.len() >= 2, "Should have multiple blocks");
         // Note: Back-edge detection depends on proper loop body extraction
@@ -1771,7 +1771,7 @@ fn with_return(x: i32) -> i32 {
 }
 "#;
 
-        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
+        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::LANGUAGE.into());
 
         // Check for return edges
         let has_return = result
@@ -1787,7 +1787,7 @@ fn with_return(x: i32) -> i32 {
 fn empty() {}
 "#;
 
-        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
+        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::LANGUAGE.into());
 
         assert_eq!(result.function_id, 1);
         assert!(!result.blocks.is_empty(), "Should have entry block");
@@ -1801,7 +1801,7 @@ fn test() -> Result<i32, ()> {
     Ok(x)
 }
 "#;
-        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
+        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::LANGUAGE.into());
         let try_blocks: Vec<_> = result.blocks.iter().filter(|b| b.kind == "try").collect();
         assert!(!try_blocks.is_empty(), "Should have try blocks");
     }
@@ -1814,7 +1814,7 @@ fn test() -> Result<i32, ()> {
     Ok(x + 1)
 }
 "#;
-        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
+        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::LANGUAGE.into());
 
         let try_blocks: Vec<_> = result.blocks.iter().filter(|b| b.kind == "try").collect();
         assert!(
@@ -1842,7 +1842,7 @@ async fn test() -> i32 {
     x
 }
 "#;
-        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
+        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::LANGUAGE.into());
         let await_blocks: Vec<_> = result.blocks.iter().filter(|b| b.kind == "await").collect();
         assert!(!await_blocks.is_empty(), "Should have await blocks");
     }
@@ -1857,7 +1857,7 @@ fn test() {
     println!("{}", f(1));
 }
 "#;
-        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
+        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::LANGUAGE.into());
         let closure_blocks: Vec<_> = result
             .blocks
             .iter()
@@ -1879,7 +1879,7 @@ fn test() {
     if x { a } else { b }
 }
 "#;
-        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
+        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::LANGUAGE.into());
         let merge_blocks: Vec<_> = result.blocks.iter().filter(|b| b.kind == "merge").collect();
         assert!(!merge_blocks.is_empty(), "Should have merge blocks");
         for merge in merge_blocks {
@@ -1899,7 +1899,7 @@ fn test() -> bool {
     a && b
 }
 "#;
-        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
+        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::LANGUAGE.into());
 
         let and_blocks: Vec<_> = result.blocks.iter().filter(|b| b.kind == "and").collect();
         assert!(!and_blocks.is_empty(), "Should have && blocks");
@@ -1969,7 +1969,7 @@ fn test() -> bool {
     a || b
 }
 "#;
-        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
+        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::LANGUAGE.into());
 
         let or_blocks: Vec<_> = result.blocks.iter().filter(|b| b.kind == "or").collect();
         assert!(!or_blocks.is_empty(), "Should have || blocks");
@@ -2021,7 +2021,7 @@ fn test() -> bool {
     a && b && c
 }
 "#;
-        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
+        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::LANGUAGE.into());
 
         let and_blocks: Vec<_> = result.blocks.iter().filter(|b| b.kind == "and").collect();
         assert_eq!(
@@ -2093,7 +2093,7 @@ fn test_match_guard(x: Option<i32>) -> i32 {
     }
 }
 "#;
-        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
+        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::LANGUAGE.into());
 
         // Should have match_guard blocks
         let guard_blocks: Vec<_> = result
@@ -2154,7 +2154,7 @@ fn test_chain(x: Option<i32>) -> i32 {
     }
 }
 "#;
-        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
+        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::LANGUAGE.into());
 
         // Should have two match_guard blocks
         let guard_blocks: Vec<_> = result
@@ -2217,7 +2217,7 @@ fn test_last(x: Option<i32>) -> i32 {
     }
 }
 "#;
-        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
+        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::LANGUAGE.into());
 
         let guard_blocks: Vec<_> = result
             .blocks
@@ -2270,7 +2270,7 @@ fn normal_function() {
 "#;
 
         let mut parser = TsParser::new();
-        parser.set_language(&tree_sitter_rust::language()).unwrap();
+        parser.set_language(&tree_sitter_rust::LANGUAGE.into()).unwrap();
         let tree = parser.parse(source.as_bytes(), None).unwrap();
         let root = tree.root_node();
 
@@ -2305,7 +2305,7 @@ fn complex_cfg() {}
 "#;
 
         let mut parser = TsParser::new();
-        parser.set_language(&tree_sitter_rust::language()).unwrap();
+        parser.set_language(&tree_sitter_rust::LANGUAGE.into()).unwrap();
         let tree = parser.parse(source.as_bytes(), None).unwrap();
         let root = tree.root_node();
 
@@ -2339,7 +2339,7 @@ fn cfg_function() {
 }
 "#;
 
-        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::language());
+        let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::LANGUAGE.into());
 
         assert!(
             !result.blocks.is_empty(),

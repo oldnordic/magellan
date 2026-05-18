@@ -20,7 +20,7 @@ impl CParser {
     /// Create a new parser for C source code.
     pub fn new() -> Result<Self> {
         let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&tree_sitter_c::language())?;
+        parser.set_language(&tree_sitter_c::LANGUAGE.into())?;
         Ok(Self { parser })
     }
 

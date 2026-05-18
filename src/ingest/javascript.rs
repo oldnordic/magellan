@@ -21,7 +21,7 @@ impl JavaScriptParser {
     /// Create a new parser for JavaScript source code.
     pub fn new() -> Result<Self> {
         let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&tree_sitter_javascript::language())?;
+        parser.set_language(&tree_sitter_javascript::LANGUAGE.into())?;
         Ok(Self { parser })
     }
 

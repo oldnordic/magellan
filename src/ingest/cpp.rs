@@ -21,7 +21,7 @@ impl CppParser {
     /// Create a new parser for C++ source code.
     pub fn new() -> Result<Self> {
         let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&tree_sitter_cpp::language())?;
+        parser.set_language(&tree_sitter_cpp::LANGUAGE.into())?;
         Ok(Self { parser })
     }
 

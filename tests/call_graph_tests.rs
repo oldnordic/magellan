@@ -354,7 +354,7 @@ fn helper() {}
 
     let mut ts_parser = tree_sitter::Parser::new();
     ts_parser
-        .set_language(&tree_sitter_rust::language())
+        .set_language(&tree_sitter_rust::LANGUAGE.into())
         .unwrap();
     let tree = ts_parser.parse(source.as_bytes(), None).unwrap();
 

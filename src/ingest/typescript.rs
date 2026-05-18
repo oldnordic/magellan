@@ -21,7 +21,7 @@ impl TypeScriptParser {
     /// Create a new parser for TypeScript source code.
     pub fn new() -> Result<Self> {
         let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&tree_sitter_typescript::language_typescript())?;
+        parser.set_language(&tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into())?;
         Ok(Self { parser })
     }
 

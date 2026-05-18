@@ -189,7 +189,7 @@ mod tests {
         let source = b"fn main() { }";
 
         let mut parser = Parser::new();
-        parser.set_language(&tree_sitter_rust::language()).unwrap();
+        parser.set_language(&tree_sitter_rust::LANGUAGE.into()).unwrap();
         let tree = parser.parse(source, None).unwrap();
 
         let nodes = extract_ast_nodes(&tree, source);
@@ -205,7 +205,7 @@ mod tests {
         let source = b"fn test() { if x { y } else { z } }";
 
         let mut parser = Parser::new();
-        parser.set_language(&tree_sitter_rust::language()).unwrap();
+        parser.set_language(&tree_sitter_rust::LANGUAGE.into()).unwrap();
         let tree = parser.parse(source, None).unwrap();
 
         let nodes = extract_ast_nodes(&tree, source);
@@ -220,7 +220,7 @@ mod tests {
         let source = b"fn main() { let x = 42; }";
 
         let mut parser = Parser::new();
-        parser.set_language(&tree_sitter_rust::language()).unwrap();
+        parser.set_language(&tree_sitter_rust::LANGUAGE.into()).unwrap();
         let tree = parser.parse(source, None).unwrap();
 
         let nodes = extract_ast_nodes(&tree, source);
@@ -238,7 +238,7 @@ mod tests {
         let source = b"fn main() { if x { y } }";
 
         let mut parser = Parser::new();
-        parser.set_language(&tree_sitter_rust::language()).unwrap();
+        parser.set_language(&tree_sitter_rust::LANGUAGE.into()).unwrap();
         let tree = parser.parse(source, None).unwrap();
 
         let nodes = extract_ast_nodes(&tree, source);

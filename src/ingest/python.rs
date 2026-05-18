@@ -21,7 +21,7 @@ impl PythonParser {
     /// Create a new parser for Python source code.
     pub fn new() -> Result<Self> {
         let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&tree_sitter_python::language())?;
+        parser.set_language(&tree_sitter_python::LANGUAGE.into())?;
         Ok(Self { parser })
     }
 

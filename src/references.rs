@@ -71,7 +71,7 @@ impl ReferenceExtractor {
     /// Create a new reference extractor
     pub fn new() -> anyhow::Result<Self> {
         let mut parser = tree_sitter::Parser::new();
-        let language = tree_sitter_rust::language();
+        let language = tree_sitter_rust::LANGUAGE.into();
         parser.set_language(&language)?;
 
         Ok(Self { parser })
@@ -266,7 +266,7 @@ impl CallExtractor {
     /// Create a new call extractor
     pub fn new() -> anyhow::Result<Self> {
         let mut parser = tree_sitter::Parser::new();
-        let language = tree_sitter_rust::language();
+        let language = tree_sitter_rust::LANGUAGE.into();
         parser.set_language(&language)?;
 
         Ok(Self { parser })

@@ -71,7 +71,7 @@ where
         let mut parser_ref = parser_cell.borrow_mut();
         if parser_ref.is_none() {
             let mut parser = tree_sitter::Parser::new();
-            parser.set_language(&tree_sitter_rust::language())?;
+            parser.set_language(&tree_sitter_rust::LANGUAGE.into())?;
             *parser_ref = Some(parser);
         } // M-UNWRAP: initialized to Some() above
         let parser = parser_ref.as_mut().expect(
@@ -90,7 +90,7 @@ where
         let mut parser_ref = parser_cell.borrow_mut();
         if parser_ref.is_none() {
             let mut parser = tree_sitter::Parser::new();
-            parser.set_language(&tree_sitter_python::language())?;
+            parser.set_language(&tree_sitter_python::LANGUAGE.into())?;
             *parser_ref = Some(parser);
         }
         let parser = parser_ref
@@ -109,7 +109,7 @@ where
         let mut parser_ref = parser_cell.borrow_mut();
         if parser_ref.is_none() {
             let mut parser = tree_sitter::Parser::new();
-            parser.set_language(&tree_sitter_c::language())?;
+            parser.set_language(&tree_sitter_c::LANGUAGE.into())?;
             *parser_ref = Some(parser);
         }
         let parser = parser_ref
@@ -128,7 +128,7 @@ where
         let mut parser_ref = parser_cell.borrow_mut();
         if parser_ref.is_none() {
             let mut parser = tree_sitter::Parser::new();
-            parser.set_language(&tree_sitter_cpp::language())?;
+            parser.set_language(&tree_sitter_cpp::LANGUAGE.into())?;
             *parser_ref = Some(parser);
         }
         let parser = parser_ref
@@ -147,7 +147,7 @@ where
         let mut parser_ref = parser_cell.borrow_mut();
         if parser_ref.is_none() {
             let mut parser = tree_sitter::Parser::new();
-            parser.set_language(&tree_sitter_java::language())?;
+            parser.set_language(&tree_sitter_java::LANGUAGE.into())?;
             *parser_ref = Some(parser);
         }
         let parser = parser_ref
@@ -166,7 +166,7 @@ where
         let mut parser_ref = parser_cell.borrow_mut();
         if parser_ref.is_none() {
             let mut parser = tree_sitter::Parser::new();
-            parser.set_language(&tree_sitter_javascript::language())?;
+            parser.set_language(&tree_sitter_javascript::LANGUAGE.into())?;
             *parser_ref = Some(parser);
         } // M-UNWRAP: initialized to Some() above
         let parser = parser_ref.as_mut().expect(
@@ -185,7 +185,7 @@ where
         let mut parser_ref = parser_cell.borrow_mut();
         if parser_ref.is_none() {
             let mut parser = tree_sitter::Parser::new();
-            parser.set_language(&tree_sitter_typescript::language_typescript())?;
+            parser.set_language(&tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into())?;
             *parser_ref = Some(parser);
         } // M-UNWRAP: initialized to Some() above
         let parser = parser_ref.as_mut().expect(
@@ -208,7 +208,7 @@ where
         let mut parser_ref = parser_cell.borrow_mut();
         if parser_ref.is_none() {
             let mut parser = tree_sitter::Parser::new();
-            parser.set_language(&tree_sitter_rust::language())?;
+            parser.set_language(&tree_sitter_rust::LANGUAGE.into())?;
             *parser_ref = Some(parser);
         }
         Ok(f(&mut parser_ref))
@@ -224,7 +224,7 @@ where
         let mut parser_ref = parser_cell.borrow_mut();
         if parser_ref.is_none() {
             let mut parser = tree_sitter::Parser::new();
-            parser.set_language(&tree_sitter_python::language())?;
+            parser.set_language(&tree_sitter_python::LANGUAGE.into())?;
             *parser_ref = Some(parser);
         }
         Ok(f(&mut parser_ref))
@@ -240,7 +240,7 @@ where
         let mut parser_ref = parser_cell.borrow_mut();
         if parser_ref.is_none() {
             let mut parser = tree_sitter::Parser::new();
-            parser.set_language(&tree_sitter_c::language())?;
+            parser.set_language(&tree_sitter_c::LANGUAGE.into())?;
             *parser_ref = Some(parser);
         }
         Ok(f(&mut parser_ref))
@@ -256,7 +256,7 @@ where
         let mut parser_ref = parser_cell.borrow_mut();
         if parser_ref.is_none() {
             let mut parser = tree_sitter::Parser::new();
-            parser.set_language(&tree_sitter_cpp::language())?;
+            parser.set_language(&tree_sitter_cpp::LANGUAGE.into())?;
             *parser_ref = Some(parser);
         }
         Ok(f(&mut parser_ref))
@@ -272,7 +272,7 @@ where
         let mut parser_ref = parser_cell.borrow_mut();
         if parser_ref.is_none() {
             let mut parser = tree_sitter::Parser::new();
-            parser.set_language(&tree_sitter_java::language())?;
+            parser.set_language(&tree_sitter_java::LANGUAGE.into())?;
             *parser_ref = Some(parser);
         }
         Ok(f(&mut parser_ref))
@@ -288,7 +288,7 @@ where
         let mut parser_ref = parser_cell.borrow_mut();
         if parser_ref.is_none() {
             let mut parser = tree_sitter::Parser::new();
-            parser.set_language(&tree_sitter_javascript::language())?;
+            parser.set_language(&tree_sitter_javascript::LANGUAGE.into())?;
             *parser_ref = Some(parser);
         }
         Ok(f(&mut parser_ref))
@@ -304,7 +304,7 @@ where
         let mut parser_ref = parser_cell.borrow_mut();
         if parser_ref.is_none() {
             let mut parser = tree_sitter::Parser::new();
-            parser.set_language(&tree_sitter_typescript::language_typescript())?;
+            parser.set_language(&tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into())?;
             *parser_ref = Some(parser);
         }
         Ok(f(&mut parser_ref))

@@ -314,7 +314,7 @@ impl Parser {
     /// Create a new parser for Rust source code
     pub fn new() -> anyhow::Result<Self> {
         let mut parser = tree_sitter::Parser::new();
-        let language = tree_sitter_rust::language();
+        let language = tree_sitter_rust::LANGUAGE.into();
         parser.set_language(&language)?;
 
         Ok(Self { parser })

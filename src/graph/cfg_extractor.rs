@@ -554,7 +554,7 @@ mod tests {
 
     fn parse_rust(source: &[u8]) -> tree_sitter::Tree {
         let mut parser = Parser::new();
-        parser.set_language(&tree_sitter_rust::language()).unwrap();
+        parser.set_language(&tree_sitter_rust::LANGUAGE.into()).unwrap();
         parser.parse(source, None).unwrap()
     }
 

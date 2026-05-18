@@ -22,7 +22,7 @@ impl JavaParser {
     /// Create a new parser for Java source code.
     pub fn new() -> Result<Self> {
         let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&tree_sitter_java::language())?;
+        parser.set_language(&tree_sitter_java::LANGUAGE.into())?;
         Ok(Self { parser })
     }
 

@@ -2140,13 +2140,13 @@ pub fn extract_ast_nodes_from_file(
 
     // Set language based on file type
     let language_set = match language {
-        Language::Rust => parser.set_language(&tree_sitter_rust::language()),
-        Language::Python => parser.set_language(&tree_sitter_python::language()),
-        Language::C => parser.set_language(&tree_sitter_c::language()),
-        Language::Cpp => parser.set_language(&tree_sitter_cpp::language()),
-        Language::Java => parser.set_language(&tree_sitter_java::language()),
-        Language::JavaScript => parser.set_language(&tree_sitter_javascript::language()),
-        Language::TypeScript => parser.set_language(&tree_sitter_typescript::language_typescript()),
+        Language::Rust => parser.set_language(&tree_sitter_rust::LANGUAGE.into()),
+        Language::Python => parser.set_language(&tree_sitter_python::LANGUAGE.into()),
+        Language::C => parser.set_language(&tree_sitter_c::LANGUAGE.into()),
+        Language::Cpp => parser.set_language(&tree_sitter_cpp::LANGUAGE.into()),
+        Language::Java => parser.set_language(&tree_sitter_java::LANGUAGE.into()),
+        Language::JavaScript => parser.set_language(&tree_sitter_javascript::LANGUAGE.into()),
+        Language::TypeScript => parser.set_language(&tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into()),
     };
 
     if language_set.is_err() {
@@ -2402,12 +2402,12 @@ fn extract_ast_nodes_non_rust(
 
     // Set language based on file type
     let language_set = match language {
-        Language::Python => parser.set_language(&tree_sitter_python::language()),
-        Language::C => parser.set_language(&tree_sitter_c::language()),
-        Language::Cpp => parser.set_language(&tree_sitter_cpp::language()),
-        Language::Java => parser.set_language(&tree_sitter_java::language()),
-        Language::JavaScript => parser.set_language(&tree_sitter_javascript::language()),
-        Language::TypeScript => parser.set_language(&tree_sitter_typescript::language_typescript()),
+        Language::Python => parser.set_language(&tree_sitter_python::LANGUAGE.into()),
+        Language::C => parser.set_language(&tree_sitter_c::LANGUAGE.into()),
+        Language::Cpp => parser.set_language(&tree_sitter_cpp::LANGUAGE.into()),
+        Language::Java => parser.set_language(&tree_sitter_java::LANGUAGE.into()),
+        Language::JavaScript => parser.set_language(&tree_sitter_javascript::LANGUAGE.into()),
+        Language::TypeScript => parser.set_language(&tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into()),
         Language::Rust => {
             // Should not happen - Rust uses single-parse path
             return Ok(Vec::new());

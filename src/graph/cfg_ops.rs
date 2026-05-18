@@ -862,7 +862,7 @@ mod spatial_tests {
 
     fn get_test_language() -> tree_sitter::Language {
         // Use tree-sitter-rust language for testing
-        tree_sitter_rust::language()
+        tree_sitter_rust::LANGUAGE.into()
     }
 
     #[test]
@@ -1293,7 +1293,7 @@ mod spatial_tests {
     fn test_cfg_extract_ops_functions_no_stack_overflow() {
         let source = std::fs::read_to_string("src/graph/ops.rs").unwrap();
         let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&tree_sitter_rust::language()).unwrap();
+        parser.set_language(&tree_sitter_rust::LANGUAGE.into()).unwrap();
         let tree = parser.parse(source.as_bytes(), None).unwrap();
 
         let root = tree.root_node();
