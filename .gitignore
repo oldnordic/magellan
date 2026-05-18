@@ -104,3 +104,14 @@ plugins/
 .envoy/
 EOF
 check_schema
+
+# AI assistant config files (may contain secrets)
+.mcp.json
+AGENTS.md
+GEMINI.md
+CLAUDE.md
+
+# AI assistant working directories
+.magellan/
+.hermes/
+.claude/

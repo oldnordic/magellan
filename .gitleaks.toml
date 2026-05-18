@@ -1,0 +1,28 @@
+title = "Project Gitleaks Config"
+
+[extend]
+# Use default gitleaks rules as base
+useDefault = true
+
+[allowlist]
+# Paths to ignore (not secrets, just noise)
+paths = [
+  '''\.mcp\.json$''',
+  '''\.magellan\/''',
+  '''perf\.data''',
+  '''target\/''',
+  '''\.git\/''',
+  '''\.cargo\/''',
+  '''Cargo\.lock$''',
+  '''\.cargo_vcs_info\.json$''',
+]
+
+# Regexes for test/example values to ignore
+regexes = [
+  '''YOUR_''',
+  '''example''',
+  '''placeholder''',
+  '''dummy''',
+  '''test_key''',
+  '''fake_token''',
+]
