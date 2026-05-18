@@ -30,7 +30,7 @@ pub struct ProjectSection {
 }
 
 /// `[index]` — path filtering during scan/watch.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct IndexSection {
     /// Glob patterns to include (additive). Empty means "include all".
     #[serde(default)]
@@ -38,15 +38,6 @@ pub struct IndexSection {
     /// Glob patterns to exclude. Applied after include.
     #[serde(default)]
     pub exclude: Vec<String>,
-}
-
-impl Default for IndexSection {
-    fn default() -> Self {
-        Self {
-            include: Vec::new(),
-            exclude: Vec::new(),
-        }
-    }
 }
 
 /// `[watch]` — watcher behaviour.

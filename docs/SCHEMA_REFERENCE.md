@@ -1,6 +1,6 @@
 # Magellan Schema Reference
 
-**Version:** 3.3.7
+**Version:** 3.3.9
 
 This document describes the public data model used by the SQLite `.db` workflow.
 

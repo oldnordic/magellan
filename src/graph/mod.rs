@@ -214,10 +214,6 @@ pub struct CodeGraph {
     /// Eliminates redundant connections opened by schema checks and diagnostics.
     pub(crate) side_conn: Arc<std::sync::Mutex<rusqlite::Connection>>,
 
-    /// SQLite backend for batch operations (when sqlite-backend feature is enabled).
-    /// Provides access to bulk_insert_entities and bulk_insert_edges via TransactionGuard.
-    pub(crate) sqlite_backend: Option<Arc<sqlitegraph::SqliteGraphBackend>>,
-
     /// Whether to use batch SQLite transactions for indexing.
     ///
     /// When `true` (default), `index_file` uses `bulk_insert_entities`/`bulk_insert_edges`
@@ -489,7 +485,6 @@ impl CodeGraph {
             cfg_ops: cfg_ops::CfgOps::new(chunks),
             side_tables,
             side_conn,
-            sqlite_backend,
             batch_mode: true,
             db_path: db_path_buf,
         };

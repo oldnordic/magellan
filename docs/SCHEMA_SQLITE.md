@@ -1,6 +1,6 @@
 # SQLite Schema Reference
 
-**Version:** 3.3.7
+**Version:** 3.3.9
 **Magellan schema version:** 16
 **Database extension:** `.db`
 

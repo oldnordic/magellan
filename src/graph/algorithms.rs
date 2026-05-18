@@ -64,6 +64,7 @@
 use ahash::{AHashMap, AHashSet};
 use anyhow::Result;
 use rusqlite::params;
+use sqlitegraph::algo::backend::graph_ops::strongly_connected_components;
 use sqlitegraph::errors::SqliteGraphError;
 use sqlitegraph::{GraphBackend, SnapshotId};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -351,119 +352,6 @@ fn dfs_enumerate(
     visit_count.entry(node).and_modify(|e| *e -= 1);
 
     Ok(())
-}
-
-/// Result of strongly connected components computation
-#[derive(Debug, Clone)]
-struct SccResult {
-    /// List of SCCs, each is a vector of node IDs
-    components: Vec<Vec<i64>>,
-    /// Mapping from node ID to component index
-    node_to_component: AHashMap<i64, usize>,
-}
-
-/// Backend-agnostic strongly_connected_components implementation
-///
-/// Uses `all_entity_ids` and `fetch_outgoing` from GraphBackend trait.
-/// Implements Tarjan's SCC algorithm.
-fn strongly_connected_components(
-    backend: &dyn GraphBackend,
-) -> Result<SccResult, SqliteGraphError> {
-    let all_ids = backend.all_entity_ids()?;
-
-    if all_ids.is_empty() {
-        return Ok(SccResult {
-            components: Vec::new(),
-            node_to_component: AHashMap::new(),
-        });
-    }
-
-    let mut index = 0usize;
-    let mut stack: Vec<i64> = Vec::new();
-    let mut on_stack: HashSet<i64> = HashSet::new();
-    let mut indices: AHashMap<i64, usize> = AHashMap::new();
-    let mut lowlinks: AHashMap<i64, usize> = AHashMap::new();
-    let mut components: Vec<Vec<i64>> = Vec::new();
-    let mut node_to_component: AHashMap<i64, usize> = AHashMap::new();
-
-    #[allow(clippy::too_many_arguments)]
-    fn strongconnect(
-        v: i64,
-        backend: &dyn GraphBackend,
-        index: &mut usize,
-        stack: &mut Vec<i64>,
-        on_stack: &mut HashSet<i64>,
-        indices: &mut AHashMap<i64, usize>,
-        lowlinks: &mut AHashMap<i64, usize>,
-        components: &mut Vec<Vec<i64>>,
-        node_to_component: &mut AHashMap<i64, usize>,
-    ) -> Result<(), SqliteGraphError> {
-        indices.insert(v, *index);
-        lowlinks.insert(v, *index);
-        *index += 1;
-        stack.push(v);
-        on_stack.insert(v);
-
-        for w in backend.fetch_outgoing(v)? {
-            if !indices.contains_key(&w) {
-                strongconnect(
-                    w,
-                    backend,
-                    index,
-                    stack,
-                    on_stack,
-                    indices,
-                    lowlinks,
-                    components,
-                    node_to_component,
-                )?;
-                let v_low = lowlinks[&v];
-                let w_low = lowlinks[&w];
-                lowlinks.insert(v, v_low.min(w_low));
-            } else if on_stack.contains(&w) {
-                let v_low = lowlinks[&v];
-                let w_idx = indices[&w];
-                lowlinks.insert(v, v_low.min(w_idx));
-            }
-        }
-
-        if lowlinks[&v] == indices[&v] {
-            let mut component = Vec::new();
-            loop {
-                let w = stack.pop().unwrap(); // M-UNWRAP: Tarjan SCC invariant guarantees stack non-empty
-                on_stack.remove(&w);
-                node_to_component.insert(w, components.len());
-                component.push(w);
-                if w == v {
-                    break;
-                }
-            }
-            components.push(component);
-        }
-
-        Ok(())
-    }
-
-    for &node in &all_ids {
-        if !indices.contains_key(&node) {
-            strongconnect(
-                node,
-                backend,
-                &mut index,
-                &mut stack,
-                &mut on_stack,
-                &mut indices,
-                &mut lowlinks,
-                &mut components,
-                &mut node_to_component,
-            )?;
-        }
-    }
-
-    Ok(SccResult {
-        components,
-        node_to_component,
-    })
 }
 
 /// Symbol information for algorithm results

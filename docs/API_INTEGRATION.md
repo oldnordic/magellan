@@ -1,6 +1,6 @@
 # Magellan API Integration
 
-**Version:** 3.3.7
+**Version:** 3.3.9
 
 This guide is for downstream tools that use Magellan as a Rust library or invoke
 the CLI and parse JSON output.

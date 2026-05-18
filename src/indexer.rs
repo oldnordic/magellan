@@ -486,7 +486,7 @@ pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>
         if project_config.index.include.is_empty() && !cargo_targets.is_empty() {
             // User has no .magellan.toml include AND Cargo.toml has targets → auto-include
             let mut auto = vec!["src/".to_string()];
-            auto.extend(cargo_targets.into_iter().collect::<std::collections::HashSet<_>>().into_iter());
+            auto.extend(cargo_targets.into_iter().collect::<std::collections::HashSet<_>>());
             auto
         } else {
             project_config.index.include.clone()

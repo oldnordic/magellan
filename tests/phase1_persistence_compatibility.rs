@@ -173,48 +173,52 @@ fn missing_graph_meta_row_id_1_is_refused_without_mutation() {
 }
 
 #[test]
-fn sqlitegraph_schema_version_mismatch_older_newer_is_refused_without_mutation() {
+fn sqlitegraph_schema_version_newer_is_refused_without_mutation() {
     let dir = tempdir().unwrap();
 
     let expected = sqlitegraph::schema::SCHEMA_VERSION;
-    let cases = [expected - 1, expected + 1];
+    // sqlitegraph 3.0.1 auto-migrates older schemas, so only newer schemas are refused.
+    let wrong = expected + 1;
 
-    for wrong in cases {
-        let db_path = dir.path().join(format!("schema_mismatch_{wrong}.db"));
+    let db_path = dir.path().join(format!("schema_mismatch_{wrong}.db"));
 
-        let conn = Connection::open(&db_path).unwrap();
-        conn.execute(
-            "CREATE TABLE graph_meta(id INTEGER PRIMARY KEY CHECK (id = 1), schema_version INTEGER NOT NULL)",
-            [],
-        )
-        .unwrap();
-        conn.execute(
-            "INSERT INTO graph_meta (id, schema_version) VALUES (1, ?1)",
-            [wrong],
-        )
-        .unwrap();
-        let before_tables = sqlite_master_tables(&conn);
-        drop(conn);
+    let conn = Connection::open(&db_path).unwrap();
+    conn.execute(
+        "CREATE TABLE graph_meta(id INTEGER PRIMARY KEY CHECK (id = 1), schema_version INTEGER NOT NULL)",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "CREATE TABLE graph_meta_history(version INTEGER NOT NULL, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO graph_meta (id, schema_version) VALUES (1, ?1)",
+        [wrong],
+    )
+    .unwrap();
+    let before_tables = sqlite_master_tables(&conn);
+    drop(conn);
 
-        let err = match CodeGraph::open(&db_path) {
-            Ok(_) => panic!("expected open() to fail"),
-            Err(e) => e,
-        };
-        let msg = format!("{err:#}");
-        assert!(
-            msg.contains("DB_COMPAT: sqlitegraph schema mismatch"),
-            "expected schema mismatch marker, got: {msg}"
-        );
-        assert!(
-            msg.contains(&format!("found={wrong}"))
-                && msg.contains(&format!("expected={expected}")),
-            "expected found/expected values in message, got: {msg}"
-        );
+    let err = match CodeGraph::open(&db_path) {
+        Ok(_) => panic!("expected open() to fail"),
+        Err(e) => e,
+    };
+    let msg = format!("{err:#}");
+    assert!(
+        msg.contains("DB_COMPAT: sqlitegraph schema mismatch"),
+        "expected schema mismatch marker, got: {msg}"
+    );
+    assert!(
+        msg.contains(&format!("found={wrong}"))
+            && msg.contains(&format!("expected={expected}")),
+        "expected found/expected values in message, got: {msg}"
+    );
 
-        let conn_after = Connection::open(&db_path).unwrap();
-        let after_tables = sqlite_master_tables(&conn_after);
-        assert_eq!(before_tables, after_tables, "no tables should be created");
-    }
+    let conn_after = Connection::open(&db_path).unwrap();
+    let after_tables = sqlite_master_tables(&conn_after);
+    assert_eq!(before_tables, after_tables, "no tables should be created");
 }
 
 #[test]

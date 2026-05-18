@@ -188,7 +188,7 @@ anyhow = "1.0"
 
     let db_path = dir.path().join(".magellan").join("test.db");
     fs::create_dir_all(db_path.parent().unwrap()).unwrap();
-    let mut graph = CodeGraph::open(&db_path).unwrap();
+    let _graph = CodeGraph::open(&db_path).unwrap();
 
     // Simulate what watch pipeline does: parse manifest and store in DB
     let manifest = magellan::project_config::CargoManifest::parse(dir.path()).unwrap();

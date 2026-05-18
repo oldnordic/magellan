@@ -1,7 +1,7 @@
 # Context API JSON Contract
 
 **Version:** 1.0.0  
-**Stability:** Stable (3.3.7+)
+****Stability:** Stable (3.3.9+)
 
 This document specifies the deterministic JSON contract for Magellan's LLM Context API. All responses follow this schema for predictable parsing by downstream tools.
 

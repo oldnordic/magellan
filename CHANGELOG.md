@@ -3,6 +3,19 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.9] - 2026-05-18
+
+### Changed
+
+- **sqlitegraph 2.2.5 → 3.0.1** — Upgraded core graph dependency. Brings built-in graph algorithms (SCC, cycles, topological sort), bulk insert APIs, and HNSW vector search. Internal `strongly_connected_components` implementation removed in favor of sqlitegraph's native `algo` module.
+- **Schema compatibility auto-migration** — `db_compat.rs` updated for sqlitegraph 3.0.1 schema. Databases with older schemas are now auto-migrated on open. Newer schemas (forward-incompatible) are still rejected with `DB_COMPAT` markers.
+
+### Fixed
+
+- **`test_compute_delta_with_untracked`** — Removed CWD dependency by passing explicit `project_root` parameter. Test is now deterministic regardless of working directory.
+- **`test_parse_frontmatter_float`** — Replaced `PI` comparison with exact `2.5` to avoid `f64::EPSILON` precision flakiness.
+- **4 pre-existing clippy warnings** — Resolved in `indexer.rs`, `project_config.rs`, `watch_integration.rs`, and `source_inventory.rs`.
+
 ## [3.3.8] - 2026-05-12
 
 ### Added

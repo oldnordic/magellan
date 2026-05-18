@@ -738,13 +738,16 @@ pub fn preflight_sqlitegraph_compat(db_path: &Path) -> Result<PreflightOk, DbCom
     };
 
     let expected = expected_sqlitegraph_schema_version();
-    if found != expected {
+    if found > expected {
+        // DB is newer than the code — cannot downgrade
         return Err(DbCompatError::SqliteGraphSchemaMismatch {
             path: db_path.to_path_buf(),
             found,
             expected,
         });
     }
+    // found < expected: sqlitegraph will auto-migrate when opened.
+    // found == expected: no migration needed.
     Ok(PreflightOk::CompatibleExisting {
         found_schema_version: found,
     })

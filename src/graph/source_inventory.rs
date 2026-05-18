@@ -761,9 +761,9 @@ Also check out #memory systems.
 
     #[test]
     fn test_parse_frontmatter_float() {
-        let yaml = "ratio: 3.14\n";
+        let yaml = "ratio: 2.5\n";
         let json = parse_frontmatter(yaml).unwrap();
-        assert!((json["ratio"].as_f64().unwrap() - 3.14).abs() < f64::EPSILON);
+        assert!((json["ratio"].as_f64().unwrap() - 2.5).abs() < f64::EPSILON);
     }
 
     #[test]

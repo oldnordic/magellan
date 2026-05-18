@@ -129,6 +129,9 @@ pub fn run_refresh(args: &RefreshArgs) -> Result<RefreshReport> {
     // Open the git repository
     let repo = Repository::open(".")
         .context("Failed to open git repository. Are you in a git repository?")?;
+    let repo_root = repo
+        .workdir()
+        .context("Failed to get repository working directory")?;
 
     // Open the graph database
     let mut graph = CodeGraph::open(&args.db_path)?;
@@ -150,7 +153,7 @@ pub fn run_refresh(args: &RefreshArgs) -> Result<RefreshReport> {
     let db_file_paths: HashSet<String> = db_files.keys().cloned().collect();
 
     // Compute delta between git and database
-    let delta = compute_delta(&git_status, &db_file_paths, args)?;
+    let delta = compute_delta(&git_status, &db_file_paths, args, repo_root)?;
 
     // Apply changes if not dry-run (before moving fields from delta)
     if !args.dry_run {
@@ -324,6 +327,7 @@ fn compute_delta(
     git_status: &GitStatus,
     db_files: &HashSet<String>,
     args: &RefreshArgs,
+    project_root: &Path,
 ) -> Result<FileDelta> {
     let mut to_update = Vec::new();
     let mut to_delete = Vec::new();
@@ -368,7 +372,7 @@ fn compute_delta(
     // Files to add: untracked in git and not in database
     if args.include_untracked {
         for path in &untracked_files {
-            if !db_files.contains(path) && Path::new(path).exists() {
+            if !db_files.contains(path) && project_root.join(path).exists() {
                 to_add.push(path.clone());
             }
         }
@@ -561,7 +565,7 @@ mod tests {
         db_files.insert("src/old.rs".to_string());
 
         let args = RefreshArgs::default();
-        let delta = compute_delta(&git_status, &db_files, &args).unwrap();
+        let delta = compute_delta(&git_status, &db_files, &args, dir.path()).unwrap();
 
         std::env::set_current_dir(original).unwrap();
 
@@ -597,7 +601,7 @@ mod tests {
             ..Default::default()
         };
 
-        let delta = compute_delta(&git_status, &db_files, &args).unwrap();
+        let delta = compute_delta(&git_status, &db_files, &args, dir.path()).unwrap();
 
         std::env::set_current_dir(original).unwrap();
 
