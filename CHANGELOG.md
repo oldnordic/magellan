@@ -3,6 +3,13 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.12] - 2026-05-21
+
+### Fixed
+
+- **`--root ./src --scan-initial` returned 0 files** — Auto-include logic added `src/` as a glob pattern, but FileFilter computed relative paths by stripping the root, so `src/lib.rs` became `lib.rs` and never matched `src/`. Now detects when root is already a source subdirectory and skips auto-include.
+- **FTS5 index empty after bulk scan** — `scan_directory_with_filter` inserts directly into `graph_entities`, bypassing FTS5 triggers. Added automatic `rebuild_fts5()` after initial scan completes.
+
 ## [3.3.11] - 2026-05-19
 
 ### Changed

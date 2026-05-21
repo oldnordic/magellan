@@ -592,6 +592,12 @@ pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>
                 }
             }),
         )?;
+
+        // Rebuild FTS5 index after bulk scan — direct inserts into graph_entities
+        // don't fire FTS triggers, leaving the index empty.
+        if let Err(e) = graph.rebuild_fts5() {
+            eprintln!("Warning: FTS5 rebuild after scan failed: {}", e);
+        }
     }
 
     // Drain any dirty paths that accumulated during scan
