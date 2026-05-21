@@ -482,11 +482,25 @@ pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>
         .unwrap_or_default();
 
     // Merge include/exclude: CLI patterns override config patterns when non-empty
+    // Auto-include patterns are relative to the project root (e.g. "src/", "tests/").
+    // When --root points to a subdirectory (e.g. ./src), these patterns break because
+    // relative paths no longer have the "src/" prefix. Skip auto-include in that case.
+    let root_is_subdir = scan_root
+        .file_name()
+        .is_some_and(|n| matches!(n.to_str(), Some("src") | Some("tests") | Some("benches")));
+
     let merged_include = if config.include_patterns.is_empty() {
-        if project_config.index.include.is_empty() && !cargo_targets.is_empty() {
+        if root_is_subdir {
+            // Root is already a source subdirectory — no include patterns needed
+            vec![]
+        } else if project_config.index.include.is_empty() && !cargo_targets.is_empty() {
             // User has no .magellan.toml include AND Cargo.toml has targets → auto-include
             let mut auto = vec!["src/".to_string()];
-            auto.extend(cargo_targets.into_iter().collect::<std::collections::HashSet<_>>());
+            auto.extend(
+                cargo_targets
+                    .into_iter()
+                    .collect::<std::collections::HashSet<_>>(),
+            );
             auto
         } else {
             project_config.index.include.clone()
