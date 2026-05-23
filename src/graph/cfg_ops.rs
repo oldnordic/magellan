@@ -4,7 +4,9 @@
 //! extracted from AST nodes or MIR, plus 4D spatial-temporal analysis.
 
 use anyhow::Result;
-use fixedbitset::FixedBitSet;
+// use fixedbitset::FixedBitSet; // removed: migrated to petgraph dominators
+use petgraph::graph::Graph;
+use petgraph::algo::dominators::simple_fast;
 use rusqlite::params;
 use rusqlite::OptionalExtension;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -535,124 +537,45 @@ pub fn evaluate_cfg_condition(condition: &str, active_features: &HashSet<String>
 ///
 /// Dominator depth represents structural hierarchy depth in the control flow.
 /// Entry block has depth 0, its immediate children have depth 1, etc.
+/// Compute dominator depth (X coordinate) for all CFG blocks
 ///
-/// Algorithm: Cooper-Harvey-Kennedy with bitset dominators for O(N²/W)
-/// where W is the machine word size (64 bits).
+/// The dominator depth is the count of strict dominators from the entry block.
+/// Entry block has depth 0, blocks directly dominated by entry have depth 1, etc.
+/// Unreachable blocks (no path from entry, but present in the edge list) receive depth -1.
 pub fn compute_dominator_depth(cfg: &CfgWithEdges) -> HashMap<usize, i64> {
-    let mut depth = HashMap::new();
     let n = cfg.blocks.len();
     if n == 0 {
-        return depth;
+        return HashMap::new();
     }
-
-    // Build predecessor list
-    let mut predecessors: Vec<Vec<usize>> = vec![Vec::new(); n];
-    for edge in &cfg.edges {
-        predecessors[edge.target_idx].push(edge.source_idx);
-    }
-
     let entry_idx = 0;
 
-    // Bitset dominators: dominators[i] is a bitset of all nodes that dominate i
-    let mut dominators: Vec<FixedBitSet> = Vec::with_capacity(n);
-    for i in 0..n {
-        let mut set = FixedBitSet::with_capacity(n);
-        set.set_range(.., true);
-        set.set(i, true);
-        dominators.push(set);
-    }
-    dominators[entry_idx].clear();
-    dominators[entry_idx].set(entry_idx, true);
-
-    // Iterative dataflow with bitset AND
-    let mut changed = true;
-    while changed {
-        changed = false;
-        for i in 0..n {
-            if i == entry_idx {
-                continue;
-            }
-            let preds = &predecessors[i];
-            if preds.is_empty() {
-                continue;
-            }
-
-            let mut new_doms = FixedBitSet::with_capacity(n);
-            new_doms.set_range(.., true);
-            for pred in preds {
-                new_doms.intersect_with(&dominators[*pred]);
-            }
-            new_doms.set(i, true);
-
-            if new_doms != dominators[i] {
-                dominators[i] = new_doms;
-                changed = true;
-            }
+    // Build petgraph DiGraph from CfgWithEdges
+    let mut graph = Graph::<(), ()>::new();
+    let nodes: Vec<_> = (0..n).map(|_| graph.add_node(())).collect();
+    for edge in &cfg.edges {
+        if edge.source_idx < n && edge.target_idx < n {
+            graph.add_edge(nodes[edge.source_idx], nodes[edge.target_idx], ());
         }
     }
 
-    // Compute immediate dominators from bitset dominators
-    let mut immediate_dominator: HashMap<usize, Option<usize>> = HashMap::new();
-    immediate_dominator.insert(entry_idx, None);
+    // Run simple_fast dominator algorithm
+    let dom = simple_fast(&graph, nodes[entry_idx]);
 
-    for i in 1..n {
-        // Unreachable blocks (no predecessors) have no immediate dominator
-        if predecessors[i].is_empty() {
-            immediate_dominator.insert(i, None);
-            continue;
-        }
-
-        let doms = &dominators[i];
-        let mut idom = None;
-        for d in doms.ones() {
-            if d == i {
-                continue;
+    // Compute depth by counting strict dominators along immediate-dominator chain.
+    let mut depth = HashMap::new();
+    depth.insert(entry_idx, 0i64);
+    for (i, &node) in nodes.iter().enumerate().take(n).skip(1) {
+        // petgraph returns None for unreachable nodes.
+        match dom.strict_dominators(node) {
+            Some(iter) => {
+                let d = iter.count() as i64;
+                depth.insert(i, d);
             }
-            // idom(i) is the strict dominator d of i such that d does NOT
-            // strictly dominate any other strict dominator of i.
-            let mut dominates_another = false;
-            for s in doms.ones() {
-                if s == i || s == d {
-                    continue;
-                }
-                if dominators[s].contains(d) {
-                    dominates_another = true;
-                    break;
-                }
-            }
-            if !dominates_another {
-                idom = Some(d);
-                break;
+            None => {
+                // Unreachable block
+                depth.insert(i, -1i64);
             }
         }
-        immediate_dominator.insert(i, idom);
-    }
-
-    // Compute depths iteratively to avoid stack overflow on deep or cyclic idom graphs
-    for i in 0..n {
-        let mut current = i;
-        let mut steps = 0i64;
-        let mut visited = HashSet::new();
-        let d = loop {
-            if current == entry_idx {
-                break steps;
-            }
-            match immediate_dominator.get(&current) {
-                Some(Some(parent)) => {
-                    if !visited.insert(*parent) {
-                        // Cycle detected in idom graph
-                        break -1;
-                    }
-                    steps += 1;
-                    current = *parent;
-                }
-                _ => {
-                    // No idom: unreachable block
-                    break -1;
-                }
-            }
-        };
-        depth.insert(i, d);
     }
 
     depth

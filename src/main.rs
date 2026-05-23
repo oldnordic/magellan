@@ -10,6 +10,7 @@ mod collisions_cmd;
 mod condense_cmd;
 mod config_cmd;
 mod context_cmd;
+mod cypher_cmd;
 mod cross_file_refs_cmd;
 mod cycles_cmd;
 mod dead_code_cmd;
@@ -20,6 +21,7 @@ mod export_cmd;
 mod files_cmd;
 mod find_cmd;
 mod get_cmd;
+mod hnsw_cmd;
 mod import_lsif_cmd;
 mod index_cmd;
 mod ingest_coverage_cmd;
@@ -948,6 +950,47 @@ fn main() -> ExitCode {
             if let Err(e) =
                 runtime.block_on(async { service_cmd::run(action, output_format).await })
             {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::Cypher {
+            db_path,
+            query,
+            output_format,
+        }) => {
+            if let Err(e) = cypher_cmd::run_cypher(db_path, query, output_format) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::HnswCreate {
+            db_path,
+            name,
+            dim,
+            m,
+            ef_construction,
+            ef_search,
+            output_format,
+        }) => {
+            if let Err(e) =
+                hnsw_cmd::run_hnsw_create(db_path, name, dim, m, ef_construction, ef_search, output_format)
+            {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::HnswQuery {
+            db_path,
+            name,
+            vector,
+            k,
+            output_format,
+        }) => {
+            if let Err(e) = hnsw_cmd::run_hnsw_query(db_path, name, vector, k, output_format) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }

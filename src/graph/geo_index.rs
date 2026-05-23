@@ -424,23 +424,27 @@ pub fn scan_directory_with_progress(
                     let mut block_id_map: std::collections::HashMap<usize, u64> =
                         std::collections::HashMap::new();
 
-                    for (idx, mut block) in extracted.cfg_blocks.into_iter().enumerate() {
+                    for (idx, block) in extracted.cfg_blocks.iter_mut().enumerate() {
                         let local_sym_idx = block.function_id as usize;
                         if local_sym_idx < symbol_ids.len() {
                             block.function_id = symbol_ids[local_sym_idx] as i64;
                         }
                         let logical_id = block.id;
                         block_id_map.insert(idx, logical_id);
-                        let _ = backend.insert_cfg_block(block);
                     }
 
-                    for edge in extracted.cfg_edges {
-                        if let (Some(&src_id), Some(&dst_id)) = (
-                            block_id_map.get(&(edge.src_id as usize)),
-                            block_id_map.get(&(edge.dst_id as usize)),
-                        ) {
-                            let _ = backend.insert_edge(src_id, dst_id, "cfg");
+                    let _ = backend.insert_cfg_blocks(extracted.cfg_blocks);
+
+                    let mut edges: Vec<(u64, u64, &str)> = Vec::new();
+                    for edge in &extracted.cfg_edges {
+                        if let Some(&src_id) = block_id_map.get(&(edge.src_id as usize)) {
+                            if let Some(&dst_id) = block_id_map.get(&(edge.dst_id as usize)) {
+                                edges.push((src_id, dst_id, "cfg"));
+                            }
                         }
+                    }
+                    if !edges.is_empty() {
+                        let _ = backend.insert_edges(&edges);
                     }
                 }
                 if timing_enabled {

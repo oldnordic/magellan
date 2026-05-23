@@ -1053,7 +1053,7 @@ fn process_dirty_paths_geometric(
         };
 
         match extract_symbols_cfg_and_calls_from_file(path, &content, language) {
-            Ok((symbols, cfg_blocks, cfg_edges, _call_edges)) => {
+            Ok((symbols, mut cfg_blocks, cfg_edges, _call_edges)) => {
                 let sym_count: usize = symbols.len();
                 let symbol_ids = backend.insert_symbols(symbols)?;
 
@@ -1064,27 +1064,28 @@ fn process_dirty_paths_geometric(
                     let mut block_id_map: std::collections::HashMap<usize, u64> =
                         std::collections::HashMap::new();
 
-                    for (idx, mut block) in cfg_blocks.into_iter().enumerate() {
+                    for (idx, block) in cfg_blocks.iter_mut().enumerate() {
                         let local_sym_idx = block.function_id as usize;
                         if local_sym_idx < symbol_ids.len() {
                             block.function_id = symbol_ids[local_sym_idx] as i64;
                         }
-                        // Track the logical block ID (block.id) which is what edges need to reference
                         let logical_id = block.id;
                         block_id_map.insert(idx, logical_id);
-                        let _ = backend.insert_cfg_block(block);
                     }
 
-                    // Insert edges - CfgEdge from geographdb_core has src_id/dst_id as block IDs
+                    let _ = backend.insert_cfg_blocks(cfg_blocks);
+
+                    let mut edges: Vec<(u64, u64, &str)> = Vec::new();
                     for edge in cfg_edges {
-                        // edge.src_id and edge.dst_id are already block IDs
-                        // edge_type is u32: 0=normal, 1=branch_true, 2=branch_false
                         let edge_type_str = match edge.edge_type {
                             1 => "branch_true",
                             2 => "branch_false",
                             _ => "normal",
                         };
-                        let _ = backend.insert_edge(edge.src_id, edge.dst_id, edge_type_str);
+                        edges.push((edge.src_id, edge.dst_id, edge_type_str));
+                    }
+                    if !edges.is_empty() {
+                        let _ = backend.insert_edges(&edges);
                     }
                 }
 

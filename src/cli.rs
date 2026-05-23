@@ -736,6 +736,30 @@ pub enum Command {
         action: crate::service_cmd::ServiceAction,
         output_format: OutputFormat,
     },
+    /// Cypher graph query (sqlitegraph 3.0)
+    Cypher {
+        db_path: PathBuf,
+        query: String,
+        output_format: OutputFormat,
+    },
+    /// HNSW vector index creation (sqlitegraph 3.0)
+    HnswCreate {
+        db_path: PathBuf,
+        name: String,
+        dim: usize,
+        m: usize,
+        ef_construction: usize,
+        ef_search: usize,
+        output_format: OutputFormat,
+    },
+    /// HNSW vector index query (sqlitegraph 3.0)
+    HnswQuery {
+        db_path: PathBuf,
+        name: String,
+        vector: String,
+        k: usize,
+        output_format: OutputFormat,
+    },
 }
 
 // ============================================================================
@@ -2286,6 +2310,9 @@ where
             })
         }
         "candidate-fact" => parse_candidate_fact_args(&args[2..]),
+        "cypher" => parse_cypher_args(&args[2..]),
+        "hnsw-create" => parse_hnsw_create_args(&args[2..]),
+        "hnsw-query" => parse_hnsw_query_args(&args[2..]),
         _ => Err(anyhow::anyhow!("Unknown command: {}", command)),
     }
 }
@@ -4069,6 +4096,216 @@ fn parse_candidate_fact_args(args: &[String]) -> Result<Command> {
 pub fn parse_args() -> Result<Command> {
     parse_args_impl(|| {
         println!("{}", crate::version::version());
+    })
+}
+
+/// Parse the `cypher` command arguments
+fn parse_cypher_args(args: &[String]) -> Result<Command> {
+    let mut db_path: Option<PathBuf> = None;
+    let mut query: Option<String> = None;
+    let mut output_format = OutputFormat::Human;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--db" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--db requires an argument"));
+                }
+                db_path = Some(PathBuf::from(&args[i + 1]));
+                i += 2;
+            }
+            "--query" | "-q" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--query requires an argument"));
+                }
+                query = Some(args[i + 1].clone());
+                i += 2;
+            }
+            "--output" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--output requires an argument"));
+                }
+                output_format = match args[i + 1].as_str() {
+                    "human" => OutputFormat::Human,
+                    "json" => OutputFormat::Json,
+                    "pretty" => OutputFormat::Pretty,
+                    _ => return Err(anyhow::anyhow!("Invalid output format: {}", args[i + 1])),
+                };
+                i += 2;
+            }
+            _ => {
+                // Positional: first unknown is the query string
+                query = Some(args[i].clone());
+                i += 1;
+            }
+        }
+    }
+
+    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let query = query.ok_or_else(|| anyhow::anyhow!("Query string is required"))?;
+
+    Ok(Command::Cypher {
+        db_path,
+        query,
+        output_format,
+    })
+}
+
+/// Parse the `hnsw-create` command arguments
+fn parse_hnsw_create_args(args: &[String]) -> Result<Command> {
+    let mut db_path: Option<PathBuf> = None;
+    let mut name: Option<String> = None;
+    let mut dim = 128usize;
+    let mut m = 16usize;
+    let mut ef_construction = 200usize;
+    let mut ef_search = 50usize;
+    let mut output_format = OutputFormat::Human;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--db" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--db requires an argument"));
+                }
+                db_path = Some(PathBuf::from(&args[i + 1]));
+                i += 2;
+            }
+            "--name" | "-n" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--name requires an argument"));
+                }
+                name = Some(args[i + 1].clone());
+                i += 2;
+            }
+            "--dim" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--dim requires an argument"));
+                }
+                dim = args[i + 1].parse().map_err(|_| anyhow::anyhow!("--dim must be a number"))?;
+                i += 2;
+            }
+            "--m" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--m requires an argument"));
+                }
+                m = args[i + 1].parse().map_err(|_| anyhow::anyhow!("--m must be a number"))?;
+                i += 2;
+            }
+            "--ef-construction" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--ef-construction requires an argument"));
+                }
+                ef_construction = args[i + 1]
+                    .parse()
+                    .map_err(|_| anyhow::anyhow!("--ef-construction must be a number"))?;
+                i += 2;
+            }
+            "--ef-search" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--ef-search requires an argument"));
+                }
+                ef_search = args[i + 1]
+                    .parse()
+                    .map_err(|_| anyhow::anyhow!("--ef-search must be a number"))?;
+                i += 2;
+            }
+            "--output" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--output requires an argument"));
+                }
+                output_format = match args[i + 1].as_str() {
+                    "human" => OutputFormat::Human,
+                    "json" => OutputFormat::Json,
+                    "pretty" => OutputFormat::Pretty,
+                    _ => return Err(anyhow::anyhow!("Invalid output format: {}", args[i + 1])),
+                };
+                i += 2;
+            }
+            _ => i += 1,
+        }
+    }
+
+    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let name = name.ok_or_else(|| anyhow::anyhow!("--name is required"))?;
+
+    Ok(Command::HnswCreate {
+        db_path,
+        name,
+        dim,
+        m,
+        ef_construction,
+        ef_search,
+        output_format,
+    })
+}
+
+/// Parse the `hnsw-query` command arguments
+fn parse_hnsw_query_args(args: &[String]) -> Result<Command> {
+    let mut db_path: Option<PathBuf> = None;
+    let mut name: Option<String> = None;
+    let mut vector: Option<String> = None;
+    let mut k = 10usize;
+    let mut output_format = OutputFormat::Human;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--db" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--db requires an argument"));
+                }
+                db_path = Some(PathBuf::from(&args[i + 1]));
+                i += 2;
+            }
+            "--name" | "-n" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--name requires an argument"));
+                }
+                name = Some(args[i + 1].clone());
+                i += 2;
+            }
+            "--vector" | "-v" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--vector requires an argument"));
+                }
+                vector = Some(args[i + 1].clone());
+                i += 2;
+            }
+            "--k" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--k requires an argument"));
+                }
+                k = args[i + 1].parse().map_err(|_| anyhow::anyhow!("--k must be a number"))?;
+                i += 2;
+            }
+            "--output" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--output requires an argument"));
+                }
+                output_format = match args[i + 1].as_str() {
+                    "human" => OutputFormat::Human,
+                    "json" => OutputFormat::Json,
+                    "pretty" => OutputFormat::Pretty,
+                    _ => return Err(anyhow::anyhow!("Invalid output format: {}", args[i + 1])),
+                };
+                i += 2;
+            }
+            _ => i += 1,
+        }
+    }
+
+    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let name = name.ok_or_else(|| anyhow::anyhow!("--name is required"))?;
+    let vector = vector.ok_or_else(|| anyhow::anyhow!("--vector is required (JSON array of f32)"))?;
+
+    Ok(Command::HnswQuery {
+        db_path,
+        name,
+        vector,
+        k,
+        output_format,
     })
 }
 

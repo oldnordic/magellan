@@ -991,10 +991,7 @@ impl GeometricBackend {
             }
         }
 
-        let mut cfg_ids = Vec::new();
-        for block in cfg_blocks {
-            cfg_ids.push(self.insert_cfg_block(block)?);
-        }
+        let cfg_ids = self.insert_cfg_blocks(cfg_blocks)?;
 
         Ok((symbol_ids, cfg_ids))
     }
@@ -1110,6 +1107,18 @@ impl GeometricBackend {
         Ok(id)
     }
 
+    /// Insert multiple CFG blocks in a single lock acquisition
+    pub fn insert_cfg_blocks(&self, blocks: Vec<SerializableCfgBlock>) -> Result<Vec<u64>> {
+        let mut cache = write_lock(&self.cfg_cache);
+        let mut ids = Vec::with_capacity(blocks.len());
+        for block in blocks {
+            let id = cache.blocks.len() as u64;
+            cache.blocks.push(block);
+            ids.push(id);
+        }
+        Ok(ids)
+    }
+
     /// Get all CFG blocks for a specific function
     pub fn get_cfg_blocks_for_function(&self, function_id: i64) -> Vec<SerializableCfgBlock> {
         let cache = read_lock(&self.cfg_cache);
@@ -1142,6 +1151,28 @@ impl GeometricBackend {
             Self::update_edge_offsets(&mut cache);
         }
 
+        Ok(())
+    }
+
+    /// Insert multiple edges between CFG blocks in a single lock acquisition
+    pub fn insert_edges(&self, edges: &[(u64, u64, &str)]) -> Result<()> {
+        let mut cache = write_lock(&self.graph_cache);
+
+        for &(src_id, dst_id, _edge_type) in edges {
+            let edge = EdgeRec {
+                src: src_id,
+                dst: dst_id,
+                w: 1.0,
+                flags: 0,
+                begin_ts: 0,
+                end_ts: 0,
+                tx_id: 0,
+                visibility: 1,
+                _padding: [0; 7],
+            };
+            cache.edges.push(edge);
+        }
+        Self::update_edge_offsets(&mut cache);
         Ok(())
     }
 
