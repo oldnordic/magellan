@@ -2302,6 +2302,7 @@ where
                     name: name.unwrap_or_default(),
                 },
                 "status" => crate::service_cmd::ServiceAction::Status,
+                "stats" => crate::service_cmd::ServiceAction::Stats,
                 _ => return Err(anyhow::anyhow!("Unknown service subcommand: {}", args[2])),
             };
             Ok(Command::Service {

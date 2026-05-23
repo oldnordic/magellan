@@ -164,9 +164,10 @@ impl Service {
                 }
                 Ok((stream, _)) = socket.accept() => {
                     let reg = registry.clone();
+                    let meta = self.meta_db.clone();
                     let tx = self.batch_tx.clone();
                     tokio::spawn(async move {
-                        if let Err(e) = AdminSocket::handle_client(stream, reg, tx).await {
+                        if let Err(e) = AdminSocket::handle_client(stream, reg, meta, tx).await {
                             eprintln!("Admin socket handler error: {}", e);
                         }
                     });
@@ -498,14 +499,20 @@ mod integration_tests {
             super::registry::Registry::load_from(reg_path).unwrap(),
         ));
 
+        let meta_ping = std::sync::Arc::new(tokio::sync::Mutex::new(
+            super::meta_db::MetaDb::open_at("/tmp/magellan_test_ping_meta.db").unwrap(),
+        ));
+
         // Spawn accept loop
         let accept_task = tokio::spawn(async move {
             loop {
                 let (stream, _) = listener.accept().await.unwrap();
                 let reg = reg.clone();
+                let meta = meta_ping.clone();
                 let (tx, _rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16); // dummy sender for ping test
                 tokio::spawn(async move {
-                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, tx).await;
+                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, meta, tx)
+                        .await;
                 });
             }
         });
@@ -538,6 +545,7 @@ mod integration_tests {
 
         accept_task.abort();
         let _ = tokio::fs::remove_file(&socket).await;
+        let _ = tokio::fs::remove_file("/tmp/magellan_test_ping_meta.db").await;
     }
 
     // P0-12c: Multi-root dispatch — register multiple roots, list returns all
@@ -580,15 +588,20 @@ mod integration_tests {
             super::registry::Registry::load_from(reg_path).unwrap(),
         ));
         let (tx, mut rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16);
+        let meta_db = std::sync::Arc::new(tokio::sync::Mutex::new(
+            super::meta_db::MetaDb::open_at(socket.with_extension("meta_watch.db")).unwrap(),
+        ));
 
         // Spawn accept loop
         let accept_task = tokio::spawn(async move {
             loop {
                 let (stream, _) = listener.accept().await.unwrap();
                 let reg = reg.clone();
+                let meta = meta_db.clone();
                 let tx = tx.clone();
                 tokio::spawn(async move {
-                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, tx).await;
+                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, meta, tx)
+                        .await;
                 });
             }
         });
@@ -791,5 +804,91 @@ mod integration_tests {
         if parent.exists() && parent != std::path::Path::new(".") {
             let _ = std::fs::remove_dir(parent);
         }
+    }
+
+    // P2-5: service.stats JSON-RPC over admin socket
+    #[tokio::test]
+    async fn test_admin_socket_stats_returns_meta_db_projects() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+        use tokio::net::{UnixListener, UnixStream};
+
+        let socket_path = "/tmp/magellan_test_stats.sock";
+        let socket = std::path::PathBuf::from(socket_path);
+        let _ = tokio::fs::remove_file(&socket).await;
+
+        let listener = UnixListener::bind(socket_path).unwrap();
+        let reg = std::sync::Arc::new(tokio::sync::Mutex::new(
+            super::registry::Registry::load_from(PathBuf::from("/tmp/magellan_test_stats.toml"))
+                .unwrap(),
+        ));
+
+        // Pre-seed meta.db with a test project
+        let meta_db = std::sync::Arc::new(tokio::sync::Mutex::new(
+            super::meta_db::MetaDb::open_at("/tmp/magellan_test_stats_meta.db").unwrap(),
+        ));
+        {
+            let mut meta = meta_db.lock().await;
+            meta.upsert_project("omega", "/tmp/roots/omega", "/tmp/dbs/omega.db", true)
+                .unwrap();
+        }
+
+        // Spawn accept loop
+        let meta_clone = meta_db.clone();
+        let accept_task = tokio::spawn(async move {
+            loop {
+                let (stream, _) = listener.accept().await.unwrap();
+                let reg = reg.clone();
+                let meta = meta_clone.clone();
+                let (tx, _rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16); // dummy for stats
+                tokio::spawn(async move {
+                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, meta, tx)
+                        .await;
+                });
+            }
+        });
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+        // Connect and request stats
+        let mut stream = UnixStream::connect(socket_path)
+            .await
+            .expect("connect to socket");
+        let req = r#"{"id":"test-stats-1","method":"stats","params":{}}"#;
+        let (read_half, mut write_half) = stream.split();
+        write_half
+            .write_all((req.to_string() + "\n").as_bytes())
+            .await
+            .unwrap();
+        write_half.shutdown().await.unwrap();
+
+        let mut reader = tokio::io::BufReader::new(read_half);
+        let mut line = String::new();
+        reader.read_line(&mut line).await.unwrap();
+        let resp: serde_json::Value = serde_json::from_str(&line).unwrap();
+
+        // Assert top-level structure
+        let projects = resp
+            .get("result")
+            .and_then(|r| r.get("projects"))
+            .and_then(|p| p.as_array());
+        assert!(
+            projects.is_some(),
+            "response should contain stats.projects array, got: {}",
+            line
+        );
+        let projects = projects.unwrap();
+        assert_eq!(projects.len(), 1);
+        assert_eq!(
+            projects[0].get("name").and_then(|v| v.as_str()),
+            Some("omega")
+        );
+        assert_eq!(
+            projects[0].get("enabled").and_then(|v| v.as_bool()),
+            Some(true)
+        );
+
+        accept_task.abort();
+        let _ = tokio::fs::remove_file(&socket).await;
+        let _ = tokio::fs::remove_file("/tmp/magellan_test_stats_meta.db").await;
     }
 }

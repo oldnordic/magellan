@@ -17,6 +17,7 @@ pub enum ServiceAction {
     Pause { name: String },
     Resume { name: String },
     Status,
+    Stats,
 }
 
 /// Run a service action (CLI-side; talks to daemon via unix socket)
@@ -165,6 +166,21 @@ pub async fn run(action: ServiceAction, _output_format: OutputFormat) -> Result<
             let req = json!({
                 "id": "status-1",
                 "method": "status",
+                "params": {}
+            });
+            let resp = crate::service::send_request(req).await?;
+            if let Some(result) = resp.get("result") {
+                println!("{}", serde_json::to_string_pretty(result)?);
+            } else if let Some(err) = resp.get("error") {
+                println!("Error: {}", err);
+            }
+            Ok(())
+        }
+
+        ServiceAction::Stats => {
+            let req = json!({
+                "id": "stats-1",
+                "method": "stats",
                 "params": {}
             });
             let resp = crate::service::send_request(req).await?;

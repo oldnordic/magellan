@@ -16,6 +16,7 @@ impl AdminSocket {
     pub async fn handle_client(
         stream: UnixStream,
         registry: Arc<Mutex<Registry>>,
+        meta_db: Arc<Mutex<super::meta_db::MetaDb>>,
         batch_tx: mpsc::Sender<super::types::TaggedBatch>,
     ) -> Result<()> {
         let (read_half, mut write_half) = stream.into_split();
@@ -27,15 +28,18 @@ impl AdminSocket {
                 continue;
             }
 
-            let response = match Self::dispatch(line, registry.clone(), batch_tx.clone()).await {
-                Ok(resp) => resp,
-                Err(e) => {
-                    json!({
-                        "id": null,
-                        "error": { "code": -32603, "message": format!("Internal error: {}", e) }
-                    })
-                }
-            };
+            let response =
+                match Self::dispatch(line, registry.clone(), meta_db.clone(), batch_tx.clone())
+                    .await
+                {
+                    Ok(resp) => resp,
+                    Err(e) => {
+                        json!({
+                            "id": null,
+                            "error": { "code": -32603, "message": format!("Internal error: {}", e) }
+                        })
+                    }
+                };
 
             let resp_line = serde_json::to_string(&response)? + "\n";
             write_half.write_all(resp_line.as_bytes()).await?;
@@ -47,6 +51,7 @@ impl AdminSocket {
     async fn dispatch(
         line: &str,
         registry: Arc<Mutex<Registry>>,
+        meta_db: Arc<Mutex<super::meta_db::MetaDb>>,
         batch_tx: mpsc::Sender<super::types::TaggedBatch>,
     ) -> Result<serde_json::Value> {
         let req: super::types::ServiceRequest =
@@ -169,6 +174,39 @@ impl AdminSocket {
                 // Phase 1: propagate stop via request-injection or global signal
                 Ok(super::types::ServiceResponse::ok(id, json!({ "stopping": true })).into_val())
             }
+
+            "stats" => {
+                let meta = meta_db.lock().await;
+                match meta.list_projects() {
+                    Ok(projects) => {
+                        let arr: Vec<serde_json::Value> = projects
+                            .iter()
+                            .map(|p| {
+                                json!({
+                                    "name": p.name,
+                                    "root": p.root,
+                                    "db_path": p.db_path,
+                                    "enabled": p.enabled,
+                                    "last_reindexed": p.last_reindexed,
+                                    "file_count": p.file_count,
+                                    "symbol_count": p.symbol_count,
+                                })
+                            })
+                            .collect();
+                        Ok(
+                            super::types::ServiceResponse::ok(id, json!({ "projects": arr }))
+                                .into_val(),
+                        )
+                    }
+                    Err(e) => Ok(super::types::ServiceResponse::err(
+                        id,
+                        -32003,
+                        format!("Meta-db query error: {}", e),
+                    )
+                    .into_val()),
+                }
+            }
+
             _ => Ok(super::types::ServiceResponse::not_implemented(id, method).into_val()),
         }
     }
