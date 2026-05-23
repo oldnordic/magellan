@@ -11,6 +11,7 @@ use serde::Serialize;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
+use crate::service::registry::Registry;
 
 /// Arguments for the refresh command
 #[derive(Debug, Clone)]
@@ -111,6 +112,38 @@ impl RefreshResponse {
             dry_run,
         }
     }
+}
+
+/// Resolve database path from registry or fallback default
+///
+/// When `--db` is omitted:
+/// 1. Load project registry
+/// 2. Find registered project whose root matches current working directory
+/// 3. Return that project's canonical DB path
+/// 4. If no match, fall back to existing default (`.magellan/magellan.db`)
+///
+/// This is idempotent — repeated calls return the same DB for the same cwd.
+pub fn resolve_db_path(explicit: Option<PathBuf>) -> Result<PathBuf> {
+    if let Some(path) = explicit {
+        return Ok(path);
+    }
+
+    // Load registry from default location
+    let registry = Registry::load()
+        .context("Failed to load project registry for default DB resolution")?;
+
+    // Try to find a project whose root matches the current working directory
+    let cwd = std::env::current_dir()
+        .context("Failed to get current working directory")?;
+
+    if let Some(entry) = registry.find_by_root(&cwd) {
+        let canon = Registry::canonical_db_path(&entry.name);
+        Registry::ensure_db_dir(&entry.name)?;
+        return Ok(canon);
+    }
+
+    // Fallback: existing default heuristic
+    Ok(PathBuf::from(".magellan/magellan.db"))
 }
 
 /// Run the refresh command
@@ -626,5 +659,31 @@ mod tests {
         assert_eq!(response.unchanged, 2);
         assert_eq!(response.duration_ms, 50);
         assert!(response.dry_run);
+    }
+}
+
+#[cfg(test)]
+mod resolve_db_tests {
+    use super::*;
+    use std::path::PathBuf;
+    use crate::service::registry::Registry;
+    use std::sync::Mutex;
+
+    // Guard to prevent concurrent registry file writes from interfering
+    static REG_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn test_resolve_explicit_path_returns_it() {
+        let explicit = Some(PathBuf::from("/custom/code.db"));
+        let resolved = resolve_db_path(explicit).unwrap();
+        assert_eq!(resolved, PathBuf::from("/custom/code.db"));
+    }
+
+    #[test]
+    fn test_resolve_canonical_db_path_contains_name() {
+        // Verify that Registry::canonical_db_path is wired correctly
+        let _guard = REG_LOCK.lock().unwrap();
+        let resolved = Registry::canonical_db_path("myproj");
+        assert!(resolved.to_string_lossy().contains("myproj"));
     }
 }

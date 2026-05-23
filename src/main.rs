@@ -860,7 +860,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Ok(Command::Refresh {
-            db_path,
+            db_path: raw_db_path,
             dry_run,
             include_untracked,
             staged,
@@ -868,6 +868,18 @@ fn main() -> ExitCode {
             force,
             output_format,
         }) => {
+            // svc-9: registry lookup for default DB path when not explicitly provided
+            let db_path = if raw_db_path.as_path() == std::path::Path::new(".magellan/magellan.db") {
+                match refresh_cmd::resolve_db_path(None) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        eprintln!("Warning: registry lookup failed ({}), using default", e);
+                        raw_db_path
+                    }
+                }
+            } else {
+                raw_db_path
+            };
             let args = refresh_cmd::RefreshArgs {
                 db_path,
                 dry_run,
