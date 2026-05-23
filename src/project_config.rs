@@ -150,11 +150,17 @@ pub struct CargoManifest {
 }
 
 impl CargoManifest {
-    /// Parse `Cargo.toml` from `project_root`.
-    ///
-    /// Returns `CargoManifest::default()` when `Cargo.toml` is absent.
     pub fn parse(project_root: &Path) -> Result<Self> {
-        let path = project_root.join("Cargo.toml");
+        let mut path = project_root.join("Cargo.toml");
+        let mut current = Some(project_root);
+        while !path.exists() {
+            if let Some(p) = current.and_then(|c| c.parent()) {
+                path = p.join("Cargo.toml");
+                current = Some(p);
+            } else {
+                break;
+            }
+        }
         if !path.exists() {
             return Ok(Self::default());
         }
@@ -211,8 +217,8 @@ impl CargoManifest {
 
     /// Store manifest data into `magellan_meta` table on `conn`.
     pub fn store_in_db(&self, conn: &rusqlite::Connection) -> Result<()> {
-        let metadata_json = serde_json::to_string(self)
-            .context("Failed to serialize CargoManifest")?;
+        let metadata_json =
+            serde_json::to_string(self).context("Failed to serialize CargoManifest")?;
         conn.execute(
             "UPDATE magellan_meta SET project_name = ?1, project_metadata = ?2 WHERE id = 1",
             rusqlite::params![self.package_name, metadata_json],
@@ -389,6 +395,8 @@ path = "tests/integration.rs"
         assert!(manifest.dependencies.contains(&"serde".to_string()));
         assert!(!manifest.dependencies.contains(&"tempfile".to_string())); // dev-dependencies excluded
 
-        assert!(manifest.targets.contains(&"tests/integration.rs".to_string()));
+        assert!(manifest
+            .targets
+            .contains(&"tests/integration.rs".to_string()));
     }
 }

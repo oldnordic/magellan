@@ -15,16 +15,56 @@ macro_rules! debug_print {
     };
 }
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use crate::{generate_execution_id, OutputFormat};
+
 use magellan::backend_router::{BackendType, MagellanBackend};
 use magellan::graph::validation;
 use magellan::WatchPipelineConfig;
 use magellan::WatcherConfig;
+use serde_json::json;
+
+/// Synchronous helper: send JSON-RPC watch request to daemon
+fn send_watch_request(req_line: &str, exec_id: &str) -> Result<()> {
+    use std::io::{Read, Write};
+    use std::os::unix::net::UnixStream;
+    use std::time::Duration;
+
+    let socket_path = std::path::PathBuf::from(crate::service::SOCKET_PATH);
+    let mut stream = UnixStream::connect(&socket_path)
+        .with_context(|| format!("Daemon socket unreachable at {}", socket_path.display()))?;
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
+    let _ = stream.set_write_timeout(Some(Duration::from_millis(500)));
+
+    if let Err(e) = stream.write_all(req_line.as_bytes()) {
+        return Err(anyhow::anyhow!(
+            "Failed to write watch request to daemon socket: {}",
+            e
+        ));
+    }
+
+    let mut buf = [0u8; 4096];
+    match stream.read(&mut buf) {
+        Ok(n) if n > 0 => {
+            let resp = String::from_utf8_lossy(&buf[..n]);
+            if resp.contains(r#""error""#) {
+                return Err(anyhow::anyhow!("Daemon refused watch request: {}", resp));
+            }
+            println!(
+                "Watch request dispatched to daemon ({}) — response: {}",
+                exec_id,
+                resp.trim()
+            );
+            Ok(())
+        }
+        Ok(_) => Err(anyhow::anyhow!("Daemon socket closed before response")),
+        Err(e) => Err(anyhow::anyhow!("Failed to read daemon response: {}", e)),
+    }
+}
 
 pub fn run_watch(
     root_path: PathBuf,
@@ -56,6 +96,23 @@ pub fn run_watch(
     args.push(config.debounce_ms.to_string());
 
     let exec_id = generate_execution_id();
+
+    // svc-8: if daemon is running, signal it instead of local watch
+    if crate::service::is_daemon_running() {
+        return send_watch_request(
+            &json!({
+                "id": exec_id,
+                "method": "watch",
+                "params": {
+                    "tag": root_path.to_string_lossy(),
+                    "paths": [root_path.to_string_lossy().to_string()],
+                }
+            })
+            .to_string(),
+            &exec_id,
+        );
+    }
+
     let root_str = root_path.to_string_lossy().to_string();
     let db_path_str = db_path.to_string_lossy().to_string();
 

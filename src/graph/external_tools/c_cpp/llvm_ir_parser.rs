@@ -139,7 +139,7 @@ pub fn extract_cfg_from_llvm_ir(ll_content: &str) -> Result<HashMap<String, CfgW
                         coord_y: 0,
                         coord_z: 0,
                         coord_t: None,
-            cfg_condition: None,
+                        cfg_condition: None,
                     };
 
                     result.insert(

@@ -358,9 +358,7 @@ pub fn ensure_candidate_fact_schema(conn: &rusqlite::Connection) -> Result<(), D
 }
 
 /// Add project_metadata and project_name columns to magellan_meta table (v15).
-pub fn ensure_project_metadata_schema(
-    conn: &rusqlite::Connection,
-) -> Result<(), DbCompatError> {
+pub fn ensure_project_metadata_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
     let has_name: bool = conn
         .query_row(
             "SELECT 1 FROM pragma_table_info('magellan_meta') WHERE name='project_name'",
@@ -381,16 +379,17 @@ pub fn ensure_project_metadata_schema(
         )
         .unwrap_or(false);
     if !has_meta {
-        conn.execute("ALTER TABLE magellan_meta ADD COLUMN project_metadata TEXT", [])
-            .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+        conn.execute(
+            "ALTER TABLE magellan_meta ADD COLUMN project_metadata TEXT",
+            [],
+        )
+        .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
     }
     Ok(())
 }
 
 /// Add cfg_condition column to cfg_blocks table (v16).
-pub fn ensure_cfg_condition_column(
-    conn: &rusqlite::Connection,
-) -> Result<(), DbCompatError> {
+pub fn ensure_cfg_condition_column(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
     let has_col: bool = conn
         .query_row(
             "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='cfg_condition'",

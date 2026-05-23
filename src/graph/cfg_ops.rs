@@ -438,8 +438,7 @@ impl CfgOps {
     /// Read active feature flags from `magellan_meta.project_metadata`.
     ///
     /// Returns empty set when no metadata exists or parsing fails.
-    pub fn get_active_features(&self,
-    ) -> Result<HashSet<String>> {
+    pub fn get_active_features(&self) -> Result<HashSet<String>> {
         self.chunks.with_conn(|conn| {
             let meta_json: Option<String> = conn
                 .query_row(
@@ -452,9 +451,8 @@ impl CfgOps {
 
             let mut features = HashSet::new();
             if let Some(json) = meta_json {
-                if let Ok(manifest) = serde_json::from_str::<
-                    crate::project_config::CargoManifest,
-                >(&json)
+                if let Ok(manifest) =
+                    serde_json::from_str::<crate::project_config::CargoManifest>(&json)
                 {
                     for (feature, _deps) in manifest.features {
                         features.insert(feature);
@@ -469,10 +467,7 @@ impl CfgOps {
     ///
     /// A block is dead when its `cfg_condition` evaluates false against
     /// the project's active features. Blocks without a condition are always live.
-    pub fn get_live_cfg_for_function(
-        &self,
-        function_id: i64,
-    ) -> Result<Vec<CfgBlock>> {
+    pub fn get_live_cfg_for_function(&self, function_id: i64) -> Result<Vec<CfgBlock>> {
         let active_features = self.get_active_features()?;
         let all_blocks = self.get_cfg_for_function(function_id)?;
 
@@ -505,21 +500,30 @@ pub fn evaluate_cfg_condition(condition: &str, active_features: &HashSet<String>
     }
 
     // `all(...)` — all sub-conditions must be true
-    if let Some(inner) = condition.strip_prefix("all(").and_then(|s| s.strip_suffix(")")) {
+    if let Some(inner) = condition
+        .strip_prefix("all(")
+        .and_then(|s| s.strip_suffix(")"))
+    {
         return inner
             .split(',')
             .all(|c| evaluate_cfg_condition(c.trim(), active_features));
     }
 
     // `any(...)` — at least one sub-condition must be true
-    if let Some(inner) = condition.strip_prefix("any(").and_then(|s| s.strip_suffix(")")) {
+    if let Some(inner) = condition
+        .strip_prefix("any(")
+        .and_then(|s| s.strip_suffix(")"))
+    {
         return inner
             .split(',')
             .any(|c| evaluate_cfg_condition(c.trim(), active_features));
     }
 
     // `not(...)` — negate the sub-condition
-    if let Some(inner) = condition.strip_prefix("not(").and_then(|s| s.strip_suffix(")")) {
+    if let Some(inner) = condition
+        .strip_prefix("not(")
+        .and_then(|s| s.strip_suffix(")"))
+    {
         return !evaluate_cfg_condition(inner.trim(), active_features);
     }
 
@@ -1136,7 +1140,7 @@ mod spatial_tests {
                 coord_y: 0,
                 coord_z: 0,
                 coord_t: None,
-                    cfg_condition: None,
+                cfg_condition: None,
             },
             CfgBlock {
                 function_id: 42,
@@ -1154,7 +1158,7 @@ mod spatial_tests {
                 coord_y: 0,
                 coord_z: 1,
                 coord_t: None,
-                    cfg_condition: None,
+                cfg_condition: None,
             },
         ];
         ops.insert_cfg_blocks(&blocks).unwrap();
@@ -1293,7 +1297,9 @@ mod spatial_tests {
     fn test_cfg_extract_ops_functions_no_stack_overflow() {
         let source = std::fs::read_to_string("src/graph/ops.rs").unwrap();
         let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&tree_sitter_rust::LANGUAGE.into()).unwrap();
+        parser
+            .set_language(&tree_sitter_rust::LANGUAGE.into())
+            .unwrap();
         let tree = parser.parse(source.as_bytes(), None).unwrap();
 
         let root = tree.root_node();

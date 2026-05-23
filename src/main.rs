@@ -27,11 +27,14 @@ mod init_cmd;
 mod label_cmd;
 mod migrate_cmd;
 mod path_enumeration_cmd;
+mod project_metadata_cmd;
 mod query_cmd;
 mod reachable_cmd;
 mod refresh_cmd;
 mod refs_cmd;
 mod registry_cmd;
+mod service;
+mod service_cmd;
 mod slice_cmd;
 mod source_inventory_cmd;
 mod status_cmd;
@@ -196,6 +199,19 @@ fn main() -> ExitCode {
             db_path,
         }) => {
             if let Err(e) = run_status(db_path, output_format) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::ProjectMetadata {
+            db_path,
+            query,
+            output_format,
+        }) => {
+            if let Err(e) =
+                project_metadata_cmd::run_project_metadata(db_path, query, output_format)
+            {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
@@ -913,6 +929,25 @@ fn main() -> ExitCode {
             output_format,
         }) => {
             if let Err(e) = candidate_fact_cmd::run_candidate_fact(db_path, action, output_format) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::Service {
+            action,
+            output_format,
+        }) => {
+            let runtime = match tokio::runtime::Runtime::new() {
+                Ok(rt) => rt,
+                Err(e) => {
+                    eprintln!("Error: failed to create async runtime: {}", e);
+                    return ExitCode::from(1);
+                }
+            };
+            if let Err(e) =
+                runtime.block_on(async { service_cmd::run(action, output_format).await })
+            {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }

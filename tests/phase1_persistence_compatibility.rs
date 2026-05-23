@@ -211,8 +211,7 @@ fn sqlitegraph_schema_version_newer_is_refused_without_mutation() {
         "expected schema mismatch marker, got: {msg}"
     );
     assert!(
-        msg.contains(&format!("found={wrong}"))
-            && msg.contains(&format!("expected={expected}")),
+        msg.contains(&format!("found={wrong}")) && msg.contains(&format!("expected={expected}")),
         "expected found/expected values in message, got: {msg}"
     );
 

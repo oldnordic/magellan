@@ -2146,7 +2146,9 @@ pub fn extract_ast_nodes_from_file(
         Language::Cpp => parser.set_language(&tree_sitter_cpp::LANGUAGE.into()),
         Language::Java => parser.set_language(&tree_sitter_java::LANGUAGE.into()),
         Language::JavaScript => parser.set_language(&tree_sitter_javascript::LANGUAGE.into()),
-        Language::TypeScript => parser.set_language(&tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into()),
+        Language::TypeScript => {
+            parser.set_language(&tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into())
+        }
     };
 
     if language_set.is_err() {
@@ -2407,7 +2409,9 @@ fn extract_ast_nodes_non_rust(
         Language::Cpp => parser.set_language(&tree_sitter_cpp::LANGUAGE.into()),
         Language::Java => parser.set_language(&tree_sitter_java::LANGUAGE.into()),
         Language::JavaScript => parser.set_language(&tree_sitter_javascript::LANGUAGE.into()),
-        Language::TypeScript => parser.set_language(&tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into()),
+        Language::TypeScript => {
+            parser.set_language(&tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into())
+        }
         Language::Rust => {
             // Should not happen - Rust uses single-parse path
             return Ok(Vec::new());

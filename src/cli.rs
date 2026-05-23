@@ -529,6 +529,11 @@ pub enum Command {
         output_format: OutputFormat,
         db_path: PathBuf,
     },
+    ProjectMetadata {
+        db_path: PathBuf,
+        query: Option<String>,
+        output_format: OutputFormat,
+    },
     Query {
         db_path: PathBuf,
         file_path: Option<PathBuf>,
@@ -724,6 +729,11 @@ pub enum Command {
     CandidateFact {
         db_path: PathBuf,
         action: crate::candidate_fact_cmd::CandidateFactAction,
+        output_format: OutputFormat,
+    },
+    /// Service daemon control (Phase 0)
+    Service {
+        action: crate::service_cmd::ServiceAction,
         output_format: OutputFormat,
     },
 }
@@ -1943,6 +1953,37 @@ fn parse_status_args(args: &[String]) -> Result<Command> {
     })
 }
 
+fn parse_project_metadata_args(args: &[String]) -> Result<Command> {
+    let mut db_path: Option<PathBuf> = None;
+    let mut query: Option<String> = None;
+    let mut output_format = OutputFormat::Human;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--db" => db_path = Some(parse_path_arg(args, &mut i, "--db")?),
+            "--query" => query = Some(parse_required_arg(args, &mut i, "--query")?),
+            "--json" => {
+                output_format = OutputFormat::Json;
+                i += 1;
+            }
+            "--output" => {
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output_format = parse_output_format(&value)?;
+            }
+            _ => return Err(anyhow::anyhow!("Unknown argument: {}", args[i])),
+        }
+    }
+
+    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+
+    Ok(Command::ProjectMetadata {
+        db_path,
+        query,
+        output_format,
+    })
+}
+
 /// Parse the `find` command arguments
 fn parse_find_args(args: &[String]) -> Result<Command> {
     let mut db_path: Option<PathBuf> = None;
@@ -2144,6 +2185,7 @@ where
         "ingest-coverage" => parse_ingest_coverage_args(&args[2..]),
         "enrich" => parse_enrich_args(&args[2..]),
         "status" => parse_status_args(&args[2..]),
+        "project-metadata" => parse_project_metadata_args(&args[2..]),
         "context" => parse_context_args(&args[2..]),
         "doctor" => parse_doctor_args(&args[2..]),
         #[cfg(feature = "web-ui")]
@@ -2195,6 +2237,54 @@ where
         "paths" => parse_paths_args(&args[2..]),
         "slice" => parse_slice_args(&args[2..]),
         "source-inventory" => parse_source_inventory_args(&args[2..]),
+        "service" => {
+            if args.len() < 3 {
+                return Err(anyhow::anyhow!("service subcommand required: start, stop, list, register, unregister, pause, resume, status"));
+            }
+            let mut output_format = OutputFormat::Human;
+            let mut name: Option<String> = None;
+            let mut root: Option<PathBuf> = None;
+            let mut i = 0;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--output" | "-o" => {
+                        let value = parse_required_arg(&args[..], &mut i, "--output")?;
+                        output_format = parse_output_format(&value)?;
+                    }
+                    "--name" | "-n" => {
+                        name = Some(parse_required_arg(&args[..], &mut i, "--name")?);
+                    }
+                    "--root" | "-r" => {
+                        root = Some(parse_path_arg(&args[..], &mut i, "--root")?);
+                    }
+                    _ => i += 1,
+                }
+            }
+            let action = match args[2].as_str() {
+                "start" => crate::service_cmd::ServiceAction::Start,
+                "stop" => crate::service_cmd::ServiceAction::Stop,
+                "list" => crate::service_cmd::ServiceAction::List,
+                "register" => crate::service_cmd::ServiceAction::Register {
+                    root: root.unwrap_or_else(|| PathBuf::from(".")),
+                    name,
+                },
+                "unregister" => crate::service_cmd::ServiceAction::Unregister {
+                    name: name.unwrap_or_default(),
+                },
+                "pause" => crate::service_cmd::ServiceAction::Pause {
+                    name: name.unwrap_or_default(),
+                },
+                "resume" => crate::service_cmd::ServiceAction::Resume {
+                    name: name.unwrap_or_default(),
+                },
+                "status" => crate::service_cmd::ServiceAction::Status,
+                _ => return Err(anyhow::anyhow!("Unknown service subcommand: {}", args[2])),
+            };
+            Ok(Command::Service {
+                action,
+                output_format,
+            })
+        }
         "candidate-fact" => parse_candidate_fact_args(&args[2..]),
         _ => Err(anyhow::anyhow!("Unknown command: {}", command)),
     }
@@ -2589,7 +2679,7 @@ fn parse_refresh_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = db_path.unwrap_or_else(|| PathBuf::from(".magellan/magellan.db"));
 
     Ok(Command::Refresh {
         db_path,

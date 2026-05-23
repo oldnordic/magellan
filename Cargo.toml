@@ -153,7 +153,7 @@ geographdb-core = { version = "0.1.0", optional = true }
 llvm-sys = { version = "170", optional = true }
 
 # Async runtime for watcher (Phase 1)
-tokio = { version = "1", features = ["rt-multi-thread", "fs", "sync", "time", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "fs", "sync", "time", "macros", "net", "process", "io-util"] }
 tokio-stream = "0.1"
 async-channel = "2"
 

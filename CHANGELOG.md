@@ -3,6 +3,24 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.14] - Unreleased
+
+### Added
+
+- **Phase 0: Service Daemon Foundation**:
+  - `src/service/types.rs` — `ProjectEntry`, `ServiceRequest`, `ServiceResponse`, `TaggedBatch`, `into_val()`
+  - `src/service/registry.rs` — `Registry` with CRUD, auto-disambiguation, TOML persistence at `~/.config/magellan/registry.toml`
+  - `src/service/mod.rs` — Daemon `Service` struct, signal handler, worker loop, `send_request()` unix socket client
+  - `src/service/admin_socket.rs` — JSON-RPC dispatch over UDS (`ping`, `list`, `status`, `register`, `unregister`, `pause`, `resume`)
+  - `src/service_cmd.rs` — `ServiceAction` enum + async CLI handlers for 8 subcommands (`start`, `stop`, `list`, `register`, `unregister`, `pause`, `resume`, `status`)
+  - `Command::Service { action, output_format }` — CLI wiring in `src/cli.rs` and dispatch in `src/main.rs`
+  - `tokio` features expanded: `net`, `process`, `io-util`
+
+### Fixed
+
+- `src/cli.rs` inline `service` block: `parse_required_arg`/`parse_path_arg` called with `&args` (Vec<String>) instead of `&args[..]` (slice), causing type mismatch
+- `src/main.rs` `Command::Service` match arm: destructured `db_path: _` which no longer exists on the enum variant
+
 ## [3.3.13] - 2026-05-21
 
 ### Changed

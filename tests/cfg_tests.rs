@@ -305,7 +305,9 @@ fn always_available() {
     }
 
     // tokio_only should have cfg_condition = feature = "tokio"
-    let tokio_blocks = func_cfg.get("tokio_only").expect("tokio_only should have CFG");
+    let tokio_blocks = func_cfg
+        .get("tokio_only")
+        .expect("tokio_only should have CFG");
     assert!(
         !tokio_blocks.is_empty(),
         "tokio_only should have at least one block"
@@ -319,7 +321,9 @@ fn always_available() {
     }
 
     // complex_cfg should have cfg_condition = all(feature = "a", feature = "b")
-    let complex_blocks = func_cfg.get("complex_cfg").expect("complex_cfg should have CFG");
+    let complex_blocks = func_cfg
+        .get("complex_cfg")
+        .expect("complex_cfg should have CFG");
     assert!(
         !complex_blocks.is_empty(),
         "complex_cfg should have at least one block"

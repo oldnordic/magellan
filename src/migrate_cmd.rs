@@ -395,7 +395,10 @@ fn migrate_from_version(tx: &Transaction, old_version: i64) -> Result<()> {
             )
             .unwrap_or(false);
         if !has_project_metadata {
-            tx.execute("ALTER TABLE magellan_meta ADD COLUMN project_metadata TEXT", [])?;
+            tx.execute(
+                "ALTER TABLE magellan_meta ADD COLUMN project_metadata TEXT",
+                [],
+            )?;
         }
     }
 

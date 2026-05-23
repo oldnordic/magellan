@@ -892,7 +892,7 @@ fn extract_short_circuit_blocks(
         coord_y: 0,
         coord_z: 0,
         coord_t: None,
-            cfg_condition: None,
+        cfg_condition: None,
     };
     let merge_idx = blocks.len();
     blocks.push(merge_block);
@@ -1029,7 +1029,7 @@ fn create_entry_block(func_node: &Node, function_id: i64, _source: &str) -> CfgB
         coord_y: 0,
         coord_z: 0,
         coord_t: None,
-            cfg_condition: None,
+        cfg_condition: None,
     }
 }
 
@@ -1194,7 +1194,7 @@ fn extract_if_blocks_with_fallthrough(
         coord_y: 0,
         coord_z: 0,
         coord_t: None,
-            cfg_condition: None,
+        cfg_condition: None,
     };
     blocks.push(merge_block);
 
@@ -1308,7 +1308,7 @@ fn extract_loop_blocks_with_fallthrough(
         coord_y: 0,
         coord_z: 0,
         coord_t: None,
-            cfg_condition: None,
+        cfg_condition: None,
     };
     blocks.push(exit_block);
 
@@ -1619,7 +1619,7 @@ fn extract_match_blocks_with_fallthrough(
         coord_y: 0,
         coord_z: 0,
         coord_t: None,
-            cfg_condition: None,
+        cfg_condition: None,
     };
     blocks.push(merge_block);
 
@@ -1662,7 +1662,7 @@ fn create_block_from_node(
         coord_y: 0,
         coord_z: 0,
         coord_t: None,
-            cfg_condition: None,
+        cfg_condition: None,
     }
 }
 
@@ -2270,7 +2270,9 @@ fn normal_function() {
 "#;
 
         let mut parser = TsParser::new();
-        parser.set_language(&tree_sitter_rust::LANGUAGE.into()).unwrap();
+        parser
+            .set_language(&tree_sitter_rust::LANGUAGE.into())
+            .unwrap();
         let tree = parser.parse(source.as_bytes(), None).unwrap();
         let root = tree.root_node();
 
@@ -2291,10 +2293,7 @@ fn normal_function() {
         );
 
         let no_cfg = extract_cfg_condition(&funcs[1], source);
-        assert_eq!(
-            no_cfg, None,
-            "Normal function should have no cfg condition"
-        );
+        assert_eq!(no_cfg, None, "Normal function should have no cfg condition");
     }
 
     #[test]
@@ -2305,7 +2304,9 @@ fn complex_cfg() {}
 "#;
 
         let mut parser = TsParser::new();
-        parser.set_language(&tree_sitter_rust::LANGUAGE.into()).unwrap();
+        parser
+            .set_language(&tree_sitter_rust::LANGUAGE.into())
+            .unwrap();
         let tree = parser.parse(source.as_bytes(), None).unwrap();
         let root = tree.root_node();
 
