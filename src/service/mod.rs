@@ -891,4 +891,83 @@ mod integration_tests {
         let _ = tokio::fs::remove_file(&socket).await;
         let _ = tokio::fs::remove_file("/tmp/magellan_test_stats_meta.db").await;
     }
+
+    // Phase 3 RED: query.find — must succeed (empty result) instead of returning not_implemented
+    #[tokio::test]
+    async fn test_admin_socket_query_find_returns_empty_on_no_projects() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+        use tokio::net::{UnixListener, UnixStream};
+
+        let socket_path = "/tmp/magellan_test_query_find.sock";
+        let socket = std::path::PathBuf::from(socket_path);
+        let _ = tokio::fs::remove_file(&socket).await;
+
+        let listener = UnixListener::bind(socket_path).unwrap();
+        let reg = std::sync::Arc::new(tokio::sync::Mutex::new(
+            super::registry::Registry::load_from(PathBuf::from(
+                "/tmp/magellan_test_query_find.toml",
+            ))
+            .unwrap(),
+        ));
+
+        let meta_db = std::sync::Arc::new(tokio::sync::Mutex::new(
+            super::meta_db::MetaDb::open_at("/tmp/magellan_test_query_find_meta.db").unwrap(),
+        ));
+
+        let meta_clone = meta_db.clone();
+        let accept_task = tokio::spawn(async move {
+            loop {
+                let (stream, _) = listener.accept().await.unwrap();
+                let reg = reg.clone();
+                let meta = meta_clone.clone();
+                let (tx, _rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16);
+                tokio::spawn(async move {
+                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, meta, tx)
+                        .await;
+                });
+            }
+        });
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+        let mut stream = UnixStream::connect(socket_path)
+            .await
+            .expect("connect to socket");
+        let req = r#"{"id":"test-qf-1","method":"query.find","params":{"name":"hello"}}"#;
+        let (read_half, mut write_half) = stream.split();
+        write_half
+            .write_all((req.to_string() + "\n").as_bytes())
+            .await
+            .unwrap();
+        write_half.shutdown().await.unwrap();
+
+        let mut reader = tokio::io::BufReader::new(read_half);
+        let mut line = String::new();
+        reader.read_line(&mut line).await.unwrap();
+        let resp: serde_json::Value = serde_json::from_str(&line).unwrap();
+
+        // Must NOT be not_implemented
+        let error = resp.get("error");
+        assert!(
+            error.is_none(),
+            "query.find should be implemented, got error: {}",
+            line
+        );
+
+        let result = resp.get("result").expect("result missing");
+        let matches = result.get("matches").and_then(|v| v.as_array());
+        assert!(
+            matches.is_some(),
+            "expected result.matches array, got: {}",
+            line
+        );
+        assert!(
+            matches.unwrap().is_empty(),
+            "expected empty matches with no projects"
+        );
+
+        accept_task.abort();
+        let _ = tokio::fs::remove_file(&socket).await;
+        let _ = tokio::fs::remove_file("/tmp/magellan_test_query_find_meta.db").await;
+    }
 }

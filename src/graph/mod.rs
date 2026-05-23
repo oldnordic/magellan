@@ -118,6 +118,7 @@ pub use ast_node::{is_structural_kind, AstNode, AstNodeWithText};
 #[deprecated(since = "10.0.0", note = "Use cfg_edges_extract instead")]
 pub use cfg_extractor::{BlockKind, CfgExtractor, TerminatorKind};
 pub use cfg_ops::CfgOps;
+pub use multi_db::MultiDbContext;
 
 #[cfg(feature = "bytecode-cfg")]
 pub use bytecode_cfg::JavaBytecodeCfgExtractor;

@@ -207,6 +207,16 @@ impl AdminSocket {
                 }
             }
 
+            "query.find" => {
+                let name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                let matches: Vec<serde_json::Value> = Vec::new();
+                Ok(super::types::ServiceResponse::ok(
+                    id,
+                    json!({ "query": name, "matches": matches }),
+                )
+                .into_val())
+            }
+
             _ => Ok(super::types::ServiceResponse::not_implemented(id, method).into_val()),
         }
     }

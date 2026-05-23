@@ -100,28 +100,10 @@ pub use graph::source_inventory::{
 pub use graph::test_helpers::{delete_file_facts_with_injection, FailPoint};
 pub use graph::CrossFileRef;
 pub use graph::{
-    CodeGraph,
-    CondensationGraph,
-    CondensationResult,
-    Cycle,
-    CycleKind,
-    CycleReport,
-    DeadSymbol,
-    DeleteResult,
-    ExecutionPath,
-    ExportConfig,
-    ExportFormat, // GraphSymbol, MemoryGraph,
-    PathEnumerationResult,
-    PathStatistics,
-    ProgramSlice,
-    ReconcileOutcome,
-    ScanProgress,
-    SliceDirection,
-    SliceResult,
-    SliceStatistics,
-    Supernode,
-    SymbolInfo,
-    MAGELLAN_SCHEMA_VERSION,
+    CodeGraph, CondensationGraph, CondensationResult, Cycle, CycleKind, CycleReport, DeadSymbol,
+    DeleteResult, ExecutionPath, ExportConfig, ExportFormat, MultiDbContext, PathEnumerationResult,
+    PathStatistics, ProgramSlice, ReconcileOutcome, ScanProgress, SliceDirection, SliceResult,
+    SliceStatistics, Supernode, SymbolInfo, MAGELLAN_SCHEMA_VERSION,
 };
 pub use indexer::{run_indexer, run_indexer_n, run_watch_pipeline, WatchPipelineConfig};
 pub use ingest::detect::{detect_language, Language};
