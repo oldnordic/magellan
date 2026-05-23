@@ -26,6 +26,7 @@ use crate::service::types::TaggedBatch;
 use magellan::{FileSystemWatcher, WatcherConfig};
 
 mod admin_socket;
+mod meta_db;
 pub mod registry;
 mod types;
 
@@ -37,6 +38,7 @@ pub struct Service {
     shutdown: watch::Sender<bool>,
     batch_tx: mpsc::Sender<TaggedBatch>,
     worker_shutdown: Arc<AtomicBool>,
+    meta_db: Arc<tokio::sync::Mutex<meta_db::MetaDb>>,
 }
 
 impl Service {
@@ -66,12 +68,37 @@ impl Service {
         let project_map = Arc::new(project_map);
 
         let reg = Arc::new(tokio::sync::Mutex::new(registry));
+        let meta_db = meta_db::MetaDb::open().context("Failed to open meta.db")?;
+        let meta_db = Arc::new(tokio::sync::Mutex::new(meta_db));
+
+        // Populate meta.db from registry entries
+        {
+            let lock = reg.lock().await;
+            let mut meta = meta_db.lock().await;
+            for entry in lock.list().iter() {
+                if let Err(e) = meta.upsert_project(
+                    &entry.name,
+                    &entry.root.to_string_lossy(),
+                    &entry.db.to_string_lossy(),
+                    entry.enabled,
+                ) {
+                    eprintln!("[daemon] meta.db upsert error for '{}': {}", entry.name, e);
+                }
+            }
+        }
 
         // Spawn worker in blocking task (CodeGraph is not Send)
         let worker_shutdown_clone = worker_shutdown.clone();
         let global_db = Registry::canonical_db_path("global");
+        let meta_db_path = Some(meta_db::MetaDb::default_path());
         tokio::task::spawn_blocking(move || {
-            worker_loop(batch_rx, worker_shutdown_clone, global_db, project_map);
+            worker_loop(
+                batch_rx,
+                worker_shutdown_clone,
+                global_db,
+                project_map,
+                meta_db_path,
+            );
         });
 
         // Start per-project watchers
@@ -95,6 +122,7 @@ impl Service {
             shutdown: shutdown_tx,
             batch_tx,
             worker_shutdown,
+            meta_db,
         };
 
         Ok((svc, shutdown_rx))
@@ -169,6 +197,7 @@ fn worker_loop(
     shutdown: Arc<AtomicBool>,
     _global_db: PathBuf,
     project_map: Arc<HashMap<String, (PathBuf, PathBuf)>>,
+    meta_db_path: Option<PathBuf>,
 ) {
     let mut open_graphs: HashMap<String, magellan::CodeGraph> = HashMap::new();
 
@@ -229,6 +258,29 @@ fn worker_loop(
                         "[daemon] WAL checkpoint failed for '{}': {}",
                         batch.project_name, e
                     );
+                }
+
+                // Update meta.db last_reindexed for this project
+                if let Some(ref meta_path) = meta_db_path {
+                    if let Ok(mut meta) = meta_db::MetaDb::open_at(meta_path) {
+                        // Ensure project entry exists before updating
+                        if meta
+                            .get_project(&batch.project_name)
+                            .unwrap_or(None)
+                            .is_none()
+                        {
+                            if let Some((root, db)) = project_map.get(&batch.project_name) {
+                                let _ = meta.upsert_project(
+                                    &batch.project_name,
+                                    &root.to_string_lossy(),
+                                    &db.to_string_lossy(),
+                                    true,
+                                );
+                            }
+                        }
+                        let _ = meta.update_last_reindexed(&batch.project_name);
+                        let _ = meta.close();
+                    }
                 }
             }
             None => break,
@@ -653,7 +705,7 @@ mod integration_tests {
         // Run worker_loop synchronously in blocking task (CodeGraph is notSend)
         let db_for_worker = db_path.clone();
         tokio::task::spawn_blocking(move || {
-            worker_loop(batch_rx, shutdown, db_for_worker, project_map);
+            worker_loop(batch_rx, shutdown, db_for_worker, project_map, None);
         })
         .await
         .unwrap();
@@ -665,6 +717,70 @@ mod integration_tests {
             file_count >= 1,
             "Expected at least 1 file in DB after reconcile, got {}",
             file_count
+        );
+
+        // Cleanup
+        if db_path.exists() {
+            let _ = std::fs::remove_file(&db_path);
+        }
+        let parent = db_path.parent().unwrap();
+        if parent.exists() && parent != std::path::Path::new(".") {
+            let _ = std::fs::remove_dir(parent);
+        }
+    }
+
+    // Phase 2: meta.db update
+    #[tokio::test]
+    async fn test_worker_loop_updates_meta_db_last_reindexed() {
+        use std::fs::write;
+
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = Registry::ensure_db_dir("test_p15_meta").unwrap();
+        let meta_db_path = dir.path().join("meta.db");
+        let root = dir.path().to_path_buf();
+
+        let src_file = root.join("main.rs");
+        write(&src_file, r#"pub fn hello() -> &'static str { "world" }"#).unwrap();
+
+        let batch = TaggedBatch {
+            project_name: "test_p15_meta".to_string(),
+            paths: vec![src_file.clone()],
+        };
+
+        let mut project_map = std::collections::HashMap::new();
+        project_map.insert("test_p15_meta".to_string(), (root.clone(), db_path.clone()));
+        let project_map = std::sync::Arc::new(project_map);
+
+        let (batch_tx, batch_rx) = tokio::sync::mpsc::channel::<TaggedBatch>(4);
+        let _ = batch_tx.send(batch).await;
+        drop(batch_tx);
+
+        let shutdown = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+        let db_for_worker = db_path.clone();
+        let meta_for_worker = meta_db_path.clone();
+        tokio::task::spawn_blocking(move || {
+            worker_loop(
+                batch_rx,
+                shutdown,
+                db_for_worker,
+                project_map,
+                Some(meta_for_worker),
+            );
+        })
+        .await
+        .unwrap();
+
+        // Verify meta.db was created and last_reindexed updated
+        let meta = meta_db::MetaDb::open_at(&meta_db_path).unwrap();
+        let stats = meta.get_project("test_p15_meta").unwrap();
+        assert!(
+            stats.is_some(),
+            "meta.db should contain project entry after reconcile"
+        );
+        assert!(
+            stats.unwrap().last_reindexed.is_some(),
+            "last_reindexed should be set"
         );
 
         // Cleanup
