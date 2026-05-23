@@ -4,14 +4,15 @@
 //! - Admin socket: unix domain socket at /tmp/magellan.sock (CLI control)
 //! - Registry: ~/.config/magellan/registry.toml (persistent project list)
 //! - Watcher: one FileSystemWatcher per enabled project root
-//! - Dispatcher: tagged batch queue → worker pool
+//! - Dispatcher: tagged batch queue -> worker pool
 //! - Shutdown: signal_hook + tokio::sync::watch
 //!
-//! Phase 0: skeleton. Watcher/dispatcher wiring in Phase 1.
+//! Phase 1: worker_loop -> CodeGraph reconcile. TODO: remove allow(dead_code) when stable.
 #![allow(dead_code)]
 
 use anyhow::{Context, Result};
 use signal_hook::{consts::SIGTERM, iterator::Signals};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -35,6 +36,7 @@ pub struct Service {
     registry: Arc<tokio::sync::Mutex<Registry>>,
     shutdown: watch::Sender<bool>,
     batch_tx: mpsc::Sender<TaggedBatch>,
+    worker_shutdown: Arc<AtomicBool>,
 }
 
 impl Service {
@@ -54,22 +56,29 @@ impl Service {
 
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let (batch_tx, batch_rx) = mpsc::channel::<TaggedBatch>(1024);
+        let worker_shutdown = Arc::new(AtomicBool::new(false));
+
+        // Build immutable project map for worker to avoid async Mutex in blocking thread
+        let mut project_map: HashMap<String, (PathBuf, PathBuf)> = HashMap::new();
+        for entry in registry.list().iter().filter(|e| e.enabled) {
+            project_map.insert(entry.name.clone(), (entry.root.clone(), entry.db.clone()));
+        }
+        let project_map = Arc::new(project_map);
 
         let reg = Arc::new(tokio::sync::Mutex::new(registry));
 
-        // Spawn worker task
+        // Spawn worker in blocking task (CodeGraph is not Send)
+        let worker_shutdown_clone = worker_shutdown.clone();
         let global_db = Registry::canonical_db_path("global");
-        tokio::spawn(worker_loop(batch_rx, shutdown_rx.clone(), global_db));
+        tokio::task::spawn_blocking(move || {
+            worker_loop(batch_rx, worker_shutdown_clone, global_db, project_map);
+        });
 
-        // Start per-project watchers (Phase 1)
+        // Start per-project watchers
         {
             let lock = reg.lock().await;
-            let entries: Vec<types::ProjectEntry> = lock
-                .list()
-                .iter()
-                .filter(|e| e.enabled)
-                .cloned()
-                .collect();
+            let entries: Vec<types::ProjectEntry> =
+                lock.list().iter().filter(|e| e.enabled).cloned().collect();
             drop(lock);
 
             for entry in entries {
@@ -85,6 +94,7 @@ impl Service {
             registry: reg,
             shutdown: shutdown_tx,
             batch_tx,
+            worker_shutdown,
         };
 
         Ok((svc, shutdown_rx))
@@ -92,6 +102,7 @@ impl Service {
 
     /// Graceful shutdown
     pub fn shutdown(&self) {
+        self.worker_shutdown.store(true, Ordering::SeqCst);
         let _ = self.shutdown.send(true);
     }
 
@@ -101,10 +112,12 @@ impl Service {
 
         // Signal handler task
         let shutdown_tx = self.shutdown.clone();
+        let worker_shutdown = self.worker_shutdown.clone();
         tokio::task::spawn_blocking(move || {
             let mut signals = Signals::new([signal_hook::consts::SIGINT, SIGTERM])
                 .expect("Failed to register signal handler");
             if let Some(_sig) = signals.forever().next() {
+                worker_shutdown.store(true, Ordering::SeqCst);
                 let _ = shutdown_tx.send(true);
             }
         });
@@ -150,28 +163,85 @@ impl Service {
     }
 }
 
-/// Worker loop: receives TaggedBatch and dispatches to indexer
-async fn worker_loop(
+/// Worker loop: receives TaggedBatch and dispatches to indexer via CodeGraph
+fn worker_loop(
     mut rx: mpsc::Receiver<TaggedBatch>,
-    mut shutdown: watch::Receiver<bool>,
+    shutdown: Arc<AtomicBool>,
     _global_db: PathBuf,
+    project_map: Arc<HashMap<String, (PathBuf, PathBuf)>>,
 ) {
+    let mut open_graphs: HashMap<String, magellan::CodeGraph> = HashMap::new();
+
     loop {
-        tokio::select! {
-            biased;
-            _ = shutdown.changed() => {
-                if *shutdown.borrow() {
-                    break;
+        if shutdown.load(Ordering::SeqCst) {
+            break;
+        }
+        match rx.blocking_recv() {
+            Some(batch) => {
+                let (root, db) = project_map
+                    .get(&batch.project_name)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        let db = Registry::canonical_db_path(&batch.project_name);
+                        (PathBuf::new(), db)
+                    });
+
+                let graph = match open_graphs.get_mut(&batch.project_name) {
+                    Some(g) => g,
+                    None => match magellan::CodeGraph::open(&db) {
+                        Ok(g) => {
+                            open_graphs.insert(batch.project_name.clone(), g);
+                            open_graphs.get_mut(&batch.project_name).unwrap()
+                        }
+                        Err(err) => {
+                            eprintln!(
+                                "[daemon] Failed to open DB {} for '{}': {}",
+                                db.display(),
+                                batch.project_name,
+                                err
+                            );
+                            continue;
+                        }
+                    },
+                };
+
+                for raw_path in &batch.paths {
+                    let path = if raw_path.is_absolute() {
+                        raw_path.clone()
+                    } else {
+                        root.join(raw_path)
+                    };
+                    let path_key = magellan::normalize_path(&path)
+                        .unwrap_or_else(|_| path.to_string_lossy().to_string());
+
+                    if let Err(e) = graph.reconcile_file_path(&path, &path_key) {
+                        eprintln!(
+                            "[daemon] Reconcile error for {} in '{}': {}",
+                            path.display(),
+                            batch.project_name,
+                            e
+                        );
+                    }
+                }
+
+                if let Err(e) = graph.checkpoint_wal() {
+                    eprintln!(
+                        "[daemon] WAL checkpoint failed for '{}': {}",
+                        batch.project_name, e
+                    );
                 }
             }
-            Some(batch) = rx.recv() => {
-                eprintln!(
-                    "[daemon] {:?} files for project '{}'",
-                    batch.paths.len(),
-                    batch.project_name
-                );
-                // Phase 1: call run_watch_pipeline() for batch.paths in batch.project_name context
-            }
+            None => break,
+        }
+    }
+
+    // Flush remaining open graphs
+    for (name, graph) in open_graphs {
+        if let Err(e) = graph.checkpoint_wal() {
+            eprintln!(
+                "[daemon] WAL checkpoint failed on shutdown for '{}': {}",
+                name, e
+            );
         }
     }
 }
@@ -187,8 +257,7 @@ async fn watcher_task(
     let flag = shutdown_flag.clone();
 
     // Bridge from blocking watcher thread to async task
-    let (bridge_tx, mut bridge_rx) =
-        tokio::sync::mpsc::channel::<magellan::WatcherBatch>(16);
+    let (bridge_tx, mut bridge_rx) = tokio::sync::mpsc::channel::<magellan::WatcherBatch>(16);
 
     let name_for_blocking = project_name.clone();
 
@@ -201,7 +270,10 @@ async fn watcher_task(
         let fw = match FileSystemWatcher::new(root, cfg, flag.clone()) {
             Ok(w) => w,
             Err(e) => {
-                eprintln!("[daemon] Failed to start watcher for {}: {}", name_for_blocking, e);
+                eprintln!(
+                    "[daemon] Failed to start watcher for {}: {}",
+                    name_for_blocking, e
+                );
                 return;
             }
         };
@@ -301,6 +373,7 @@ pub fn is_daemon_running() -> bool {
 
 #[cfg(test)]
 mod integration_tests {
+    use super::*;
     use std::path::PathBuf;
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
     use tokio::net::{UnixListener, UnixStream};
@@ -472,10 +545,15 @@ mod integration_tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
         // Connect and send watch request
-        let mut stream = UnixStream::connect(socket_path).await.expect("connect to socket");
+        let mut stream = UnixStream::connect(socket_path)
+            .await
+            .expect("connect to socket");
         let req = r#"{"id":"test-watch-1","method":"watch","tag":"alpha","paths":["/tmp/roots/alpha/src/main.rs"]}"#;
         let (read_half, mut write_half) = stream.split();
-        write_half.write_all((req.to_string() + "\n").as_bytes()).await.unwrap();
+        write_half
+            .write_all((req.to_string() + "\n").as_bytes())
+            .await
+            .unwrap();
         write_half.shutdown().await.unwrap();
 
         // Await acknowledgment line
@@ -487,13 +565,10 @@ mod integration_tests {
         assert_eq!(resp["result"]["queued"].as_str(), Some("alpha"));
 
         // Worker queue MUST receive the TaggedBatch
-        let batch = tokio::time::timeout(
-            tokio::time::Duration::from_secs(2),
-            rx.recv(),
-        )
-        .await
-        .expect("timed out waiting for worker queue")
-        .expect("worker channel closed with no batch");
+        let batch = tokio::time::timeout(tokio::time::Duration::from_secs(2), rx.recv())
+            .await
+            .expect("timed out waiting for worker queue")
+            .expect("worker channel closed with no batch");
         assert_eq!(batch.project_name, "alpha");
         assert_eq!(batch.paths.len(), 1);
         assert_eq!(
@@ -504,7 +579,6 @@ mod integration_tests {
         accept_task.abort();
         let _ = tokio::fs::remove_file(&socket).await;
     }
-
 
     // P0-15: WatcherReactor — watcher_task must emit TaggedBatch on file changes
     #[tokio::test]
@@ -535,16 +609,78 @@ mod integration_tests {
         write(&file2, "// new file").unwrap();
 
         // Wait for batch (debounce + poll interval = up to ~1.5s normally)
-        let batch = tokio::time::timeout(
-            tokio::time::Duration::from_secs(10),
-            rx.recv(),
-        )
-        .await
-        .expect("timed out waiting for watcher batch")
-        .expect("batch channel closed");
+        let batch = tokio::time::timeout(tokio::time::Duration::from_secs(10), rx.recv())
+            .await
+            .expect("timed out waiting for watcher batch")
+            .expect("batch channel closed");
 
         assert_eq!(batch.project_name, "testproj");
         // Should contain at least one of the files from temp dir
         assert!(!batch.paths.is_empty(), "batch should contain dirty paths");
+    }
+
+    // P1.5: Worker Loop -> Pipeline Dispatch — indexing via reconcile_file_path
+    #[tokio::test]
+    async fn test_worker_loop_indexes_file_and_reconciles() {
+        use std::fs::write;
+
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = Registry::ensure_db_dir("test_p15").unwrap();
+        let root = dir.path().to_path_buf();
+
+        // Create a minimal Rust file for indexing
+        let src_file = root.join("main.rs");
+        write(
+            &src_file,
+            r#"pub fn hello() -> &'static str { "world" }"#,
+        )
+        .unwrap();
+
+        // Build a batch pointing at the file
+        let batch = TaggedBatch {
+            project_name: "test_p15".to_string(),
+            paths: vec![src_file.clone()],
+        };
+
+        // Set up the project map for the worker
+        let mut project_map = std::collections::HashMap::new();
+        project_map.insert(
+            "test_p15".to_string(),
+            (root.clone(), db_path.clone()),
+        );
+        let project_map = std::sync::Arc::new(project_map);
+
+        // tokio::sync::mpsc required for worker_loop's blocking_recv()
+        let (batch_tx, batch_rx) = tokio::sync::mpsc::channel::<TaggedBatch>(4);
+        let _ = batch_tx.send(batch).await;
+        drop(batch_tx); // signal end
+
+        let shutdown = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+        // Run worker_loop synchronously in blocking task (CodeGraph is notSend)
+        let db_for_worker = db_path.clone();
+        let _ = tokio::task::spawn_blocking(move || {
+            worker_loop(batch_rx, shutdown, db_for_worker, project_map);
+        })
+        .await
+        .unwrap();
+
+        // Verify DB exists and the file was indexed (count_files > 0)
+        let graph = magellan::CodeGraph::open(&db_path).unwrap();
+        let file_count = graph.count_files().unwrap();
+        assert!(
+            file_count >= 1,
+            "Expected at least 1 file in DB after reconcile, got {}",
+            file_count
+        );
+
+        // Cleanup
+        if db_path.exists() {
+            let _ = std::fs::remove_file(&db_path);
+        }
+        let parent = db_path.parent().unwrap();
+        if parent.exists() && parent != std::path::Path::new(".") {
+            let _ = std::fs::remove_dir(parent);
+        }
     }
 }

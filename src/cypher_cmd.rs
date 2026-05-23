@@ -8,11 +8,7 @@ use sqlitegraph::{SqliteGraph, SqliteGraphBackend};
 use std::path::PathBuf;
 
 /// Run a Cypher query against the database
-pub fn run_cypher(
-    db_path: PathBuf,
-    query_str: String,
-    output_format: OutputFormat,
-) -> Result<()> {
+pub fn run_cypher(db_path: PathBuf, query_str: String, output_format: OutputFormat) -> Result<()> {
     use sqlitegraph::cypher::{execute, parse};
 
     // Open the graph and wrap in a backend
@@ -24,7 +20,8 @@ pub fn run_cypher(
     let query = parse(&query_str).map_err(|e| anyhow::anyhow!("Parse error: {}", e))?;
 
     // Execute
-    let result = execute(&backend, &query).map_err(|e| anyhow::anyhow!("Execution error: {}", e))?;
+    let result =
+        execute(&backend, &query).map_err(|e| anyhow::anyhow!("Execution error: {}", e))?;
 
     // Output
     match output_format {

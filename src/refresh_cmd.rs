@@ -3,6 +3,7 @@
 //! Synchronizes the graph database with the current git working tree state.
 //! Detects modified, deleted, and new files, then updates the database accordingly.
 
+use crate::service::registry::Registry;
 use anyhow::{Context, Result};
 use git2::{Repository, StatusOptions};
 use magellan::output::{generate_execution_id, output_json, JsonResponse, OutputFormat};
@@ -11,7 +12,6 @@ use serde::Serialize;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
-use crate::service::registry::Registry;
 
 /// Arguments for the refresh command
 #[derive(Debug, Clone)]
@@ -129,12 +129,11 @@ pub fn resolve_db_path(explicit: Option<PathBuf>) -> Result<PathBuf> {
     }
 
     // Load registry from default location
-    let registry = Registry::load()
-        .context("Failed to load project registry for default DB resolution")?;
+    let registry =
+        Registry::load().context("Failed to load project registry for default DB resolution")?;
 
     // Try to find a project whose root matches the current working directory
-    let cwd = std::env::current_dir()
-        .context("Failed to get current working directory")?;
+    let cwd = std::env::current_dir().context("Failed to get current working directory")?;
 
     if let Some(entry) = registry.find_by_root(&cwd) {
         let canon = Registry::canonical_db_path(&entry.name);
@@ -665,8 +664,8 @@ mod tests {
 #[cfg(test)]
 mod resolve_db_tests {
     use super::*;
-    use std::path::PathBuf;
     use crate::service::registry::Registry;
+    use std::path::PathBuf;
     use std::sync::Mutex;
 
     // Guard to prevent concurrent registry file writes from interfering

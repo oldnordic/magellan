@@ -46,17 +46,18 @@ pub fn run_hnsw_query(
     k: usize,
     output_format: OutputFormat,
 ) -> Result<()> {
-    let vector: Vec<f32> = serde_json::from_str(&vector_str)
-        .with_context(|| format!("Failed to parse vector as JSON array of f32: {}", vector_str))?;
+    let vector: Vec<f32> = serde_json::from_str(&vector_str).with_context(|| {
+        format!(
+            "Failed to parse vector as JSON array of f32: {}",
+            vector_str
+        )
+    })?;
 
     let graph = SqliteGraph::open(&db_path)
         .with_context(|| format!("Failed to open database: {}", db_path.display()))?;
 
     let results: Vec<(u64, f32)> = graph
-        .get_hnsw_index_ref(&name, |idx| {
-            idx.search(&vector, k)
-                .unwrap_or_default()
-        })
+        .get_hnsw_index_ref(&name, |idx| idx.search(&vector, k).unwrap_or_default())
         .map_err(|e| anyhow::anyhow!("HNSW query failed: {}", e))?;
 
     let rows: Vec<serde_json::Value> = results

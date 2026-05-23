@@ -10,9 +10,9 @@ mod collisions_cmd;
 mod condense_cmd;
 mod config_cmd;
 mod context_cmd;
-mod cypher_cmd;
 mod cross_file_refs_cmd;
 mod cycles_cmd;
+mod cypher_cmd;
 mod dead_code_cmd;
 mod delete_cmd;
 mod doctor_cmd;
@@ -869,7 +869,8 @@ fn main() -> ExitCode {
             output_format,
         }) => {
             // svc-9: registry lookup for default DB path when not explicitly provided
-            let db_path = if raw_db_path.as_path() == std::path::Path::new(".magellan/magellan.db") {
+            let db_path = if raw_db_path.as_path() == std::path::Path::new(".magellan/magellan.db")
+            {
                 match refresh_cmd::resolve_db_path(None) {
                     Ok(p) => p,
                     Err(e) => {
@@ -987,9 +988,15 @@ fn main() -> ExitCode {
             ef_search,
             output_format,
         }) => {
-            if let Err(e) =
-                hnsw_cmd::run_hnsw_create(db_path, name, dim, m, ef_construction, ef_search, output_format)
-            {
+            if let Err(e) = hnsw_cmd::run_hnsw_create(
+                db_path,
+                name,
+                dim,
+                m,
+                ef_construction,
+                ef_search,
+                output_format,
+            ) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }

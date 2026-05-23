@@ -4183,14 +4183,18 @@ fn parse_hnsw_create_args(args: &[String]) -> Result<Command> {
                 if i + 1 >= args.len() {
                     return Err(anyhow::anyhow!("--dim requires an argument"));
                 }
-                dim = args[i + 1].parse().map_err(|_| anyhow::anyhow!("--dim must be a number"))?;
+                dim = args[i + 1]
+                    .parse()
+                    .map_err(|_| anyhow::anyhow!("--dim must be a number"))?;
                 i += 2;
             }
             "--m" => {
                 if i + 1 >= args.len() {
                     return Err(anyhow::anyhow!("--m requires an argument"));
                 }
-                m = args[i + 1].parse().map_err(|_| anyhow::anyhow!("--m must be a number"))?;
+                m = args[i + 1]
+                    .parse()
+                    .map_err(|_| anyhow::anyhow!("--m must be a number"))?;
                 i += 2;
             }
             "--ef-construction" => {
@@ -4277,7 +4281,9 @@ fn parse_hnsw_query_args(args: &[String]) -> Result<Command> {
                 if i + 1 >= args.len() {
                     return Err(anyhow::anyhow!("--k requires an argument"));
                 }
-                k = args[i + 1].parse().map_err(|_| anyhow::anyhow!("--k must be a number"))?;
+                k = args[i + 1]
+                    .parse()
+                    .map_err(|_| anyhow::anyhow!("--k must be a number"))?;
                 i += 2;
             }
             "--output" => {
@@ -4298,7 +4304,8 @@ fn parse_hnsw_query_args(args: &[String]) -> Result<Command> {
 
     let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
     let name = name.ok_or_else(|| anyhow::anyhow!("--name is required"))?;
-    let vector = vector.ok_or_else(|| anyhow::anyhow!("--vector is required (JSON array of f32)"))?;
+    let vector =
+        vector.ok_or_else(|| anyhow::anyhow!("--vector is required (JSON array of f32)"))?;
 
     Ok(Command::HnswQuery {
         db_path,

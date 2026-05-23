@@ -5,8 +5,8 @@
 
 use anyhow::Result;
 // use fixedbitset::FixedBitSet; // removed: migrated to petgraph dominators
-use petgraph::graph::Graph;
 use petgraph::algo::dominators::simple_fast;
+use petgraph::graph::Graph;
 use rusqlite::params;
 use rusqlite::OptionalExtension;
 use std::collections::{HashMap, HashSet, VecDeque};

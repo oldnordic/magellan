@@ -13,7 +13,11 @@ pub struct AdminSocket;
 
 impl AdminSocket {
     /// Handle a single client connection (one request per line)
-    pub async fn handle_client(stream: UnixStream, registry: Arc<Mutex<Registry>>, batch_tx: mpsc::Sender<super::types::TaggedBatch>) -> Result<()> {
+    pub async fn handle_client(
+        stream: UnixStream,
+        registry: Arc<Mutex<Registry>>,
+        batch_tx: mpsc::Sender<super::types::TaggedBatch>,
+    ) -> Result<()> {
         let (read_half, mut write_half) = stream.into_split();
         let mut reader = BufReader::new(read_half).lines();
 
@@ -40,7 +44,11 @@ impl AdminSocket {
         Ok(())
     }
 
-    async fn dispatch(line: &str, registry: Arc<Mutex<Registry>>, batch_tx: mpsc::Sender<super::types::TaggedBatch>) -> Result<serde_json::Value> {
+    async fn dispatch(
+        line: &str,
+        registry: Arc<Mutex<Registry>>,
+        batch_tx: mpsc::Sender<super::types::TaggedBatch>,
+    ) -> Result<serde_json::Value> {
         let req: super::types::ServiceRequest =
             serde_json::from_str(line).context("Invalid JSON-RPC request")?;
 
@@ -145,7 +153,8 @@ impl AdminSocket {
                         id,
                         -32002,
                         format!("Dispatch queue closed: {}", e),
-                    ).into_val());
+                    )
+                    .into_val());
                 }
                 Ok(super::types::ServiceResponse::ok(
                     id,
