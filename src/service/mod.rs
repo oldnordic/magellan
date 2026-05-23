@@ -105,8 +105,9 @@ impl Service {
                 }
                 Ok((stream, _)) = socket.accept() => {
                     let reg = registry.clone();
+                    let tx = self.batch_tx.clone();
                     tokio::spawn(async move {
-                        if let Err(e) = AdminSocket::handle_client(stream, reg).await {
+                        if let Err(e) = AdminSocket::handle_client(stream, reg, tx).await {
                             eprintln!("Admin socket handler error: {}", e);
                         }
                     });
@@ -292,8 +293,9 @@ mod integration_tests {
             loop {
                 let (stream, _) = listener.accept().await.unwrap();
                 let reg = reg.clone();
+                let (tx, _rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16); // dummy sender for ping test
                 tokio::spawn(async move {
-                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg).await;
+                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, tx).await;
                 });
             }
         });
@@ -350,5 +352,71 @@ mod integration_tests {
         assert!(names.contains(&"root_a".to_string()));
         assert!(names.contains(&"root_b".to_string()));
         assert!(names.contains(&"root_c".to_string()));
+    }
+
+    // P0-14: Watch dispatch — admin socket "watch" request must queue a TaggedBatch
+    #[tokio::test]
+    async fn test_admin_socket_watch_dispatches_to_worker_queue() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+        use tokio::net::{UnixListener, UnixStream};
+
+        let socket_path = "/tmp/magellan_test_watch.sock";
+        let socket = std::path::PathBuf::from(socket_path);
+        let _ = tokio::fs::remove_file(&socket).await;
+
+        let listener = UnixListener::bind(socket_path).unwrap();
+        let reg_path = socket.with_extension("toml");
+        let reg = std::sync::Arc::new(tokio::sync::Mutex::new(
+            super::registry::Registry::load_from(reg_path).unwrap(),
+        ));
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16);
+
+        // Spawn accept loop
+        let accept_task = tokio::spawn(async move {
+            loop {
+                let (stream, _) = listener.accept().await.unwrap();
+                let reg = reg.clone();
+                let tx = tx.clone();
+                tokio::spawn(async move {
+                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, tx).await;
+                });
+            }
+        });
+
+        // Give listener time to bind
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+        // Connect and send watch request
+        let mut stream = UnixStream::connect(socket_path).await.expect("connect to socket");
+        let req = r#"{"id":"test-watch-1","method":"watch","tag":"alpha","paths":["/tmp/roots/alpha/src/main.rs"]}"#;
+        let (read_half, mut write_half) = stream.split();
+        write_half.write_all((req.to_string() + "\n").as_bytes()).await.unwrap();
+        write_half.shutdown().await.unwrap();
+
+        // Await acknowledgment line
+        let mut reader = tokio::io::BufReader::new(read_half);
+        let mut line = String::new();
+        let n = reader.read_line(&mut line).await.unwrap();
+        assert!(n > 0, "expected acknowledgment");
+        let resp: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(resp["result"]["queued"].as_str(), Some("alpha"));
+
+        // Worker queue MUST receive the TaggedBatch
+        let batch = tokio::time::timeout(
+            tokio::time::Duration::from_secs(2),
+            rx.recv(),
+        )
+        .await
+        .expect("timed out waiting for worker queue")
+        .expect("worker channel closed with no batch");
+        assert_eq!(batch.project_name, "alpha");
+        assert_eq!(batch.paths.len(), 1);
+        assert_eq!(
+            batch.paths[0],
+            std::path::PathBuf::from("/tmp/roots/alpha/src/main.rs")
+        );
+
+        accept_task.abort();
+        let _ = tokio::fs::remove_file(&socket).await;
     }
 }

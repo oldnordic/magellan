@@ -103,10 +103,8 @@ pub fn run_watch(
             &json!({
                 "id": exec_id,
                 "method": "watch",
-                "params": {
-                    "tag": root_path.to_string_lossy(),
-                    "paths": [root_path.to_string_lossy().to_string()],
-                }
+                "tag": root_path.to_string_lossy(),
+                "paths": [root_path.to_string_lossy().to_string()],
             })
             .to_string(),
             &exec_id,

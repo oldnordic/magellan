@@ -5,7 +5,7 @@ use serde_json::json;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc, Mutex};
 
 use super::registry::Registry;
 
@@ -13,7 +13,7 @@ pub struct AdminSocket;
 
 impl AdminSocket {
     /// Handle a single client connection (one request per line)
-    pub async fn handle_client(stream: UnixStream, registry: Arc<Mutex<Registry>>) -> Result<()> {
+    pub async fn handle_client(stream: UnixStream, registry: Arc<Mutex<Registry>>, batch_tx: mpsc::Sender<super::types::TaggedBatch>) -> Result<()> {
         let (read_half, mut write_half) = stream.into_split();
         let mut reader = BufReader::new(read_half).lines();
 
@@ -23,7 +23,7 @@ impl AdminSocket {
                 continue;
             }
 
-            let response = match Self::dispatch(line, registry.clone()).await {
+            let response = match Self::dispatch(line, registry.clone(), batch_tx.clone()).await {
                 Ok(resp) => resp,
                 Err(e) => {
                     json!({
@@ -40,7 +40,7 @@ impl AdminSocket {
         Ok(())
     }
 
-    async fn dispatch(line: &str, registry: Arc<Mutex<Registry>>) -> Result<serde_json::Value> {
+    async fn dispatch(line: &str, registry: Arc<Mutex<Registry>>, batch_tx: mpsc::Sender<super::types::TaggedBatch>) -> Result<serde_json::Value> {
         let req: super::types::ServiceRequest =
             serde_json::from_str(line).context("Invalid JSON-RPC request")?;
 
@@ -135,12 +135,18 @@ impl AdminSocket {
                             .collect::<Vec<_>>()
                     })
                     .unwrap_or_default();
-                // Phase 1: queue to dispatcher
                 let batch = super::types::TaggedBatch {
                     project_name: tag,
                     paths,
                 };
-                // For now, acknowledge receipt; actual dispatch in Phase 1 worker_loop
+                // Queue to dispatcher channel
+                if let Err(e) = batch_tx.send(batch.clone()).await {
+                    return Ok(super::types::ServiceResponse::err(
+                        id,
+                        -32002,
+                        format!("Dispatch queue closed: {}", e),
+                    ).into_val());
+                }
                 Ok(super::types::ServiceResponse::ok(
                     id,
                     json!({ "queued": batch.project_name, "files": batch.paths.len() }),

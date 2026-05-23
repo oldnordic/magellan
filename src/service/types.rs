@@ -98,7 +98,7 @@ impl ServiceResponse {
 }
 
 /// Tagged filesystem event batch for multi-root dispatcher
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TaggedBatch {
     pub project_name: String,
     pub paths: Vec<PathBuf>,
