@@ -630,11 +630,7 @@ mod integration_tests {
 
         // Create a minimal Rust file for indexing
         let src_file = root.join("main.rs");
-        write(
-            &src_file,
-            r#"pub fn hello() -> &'static str { "world" }"#,
-        )
-        .unwrap();
+        write(&src_file, r#"pub fn hello() -> &'static str { "world" }"#).unwrap();
 
         // Build a batch pointing at the file
         let batch = TaggedBatch {
@@ -644,10 +640,7 @@ mod integration_tests {
 
         // Set up the project map for the worker
         let mut project_map = std::collections::HashMap::new();
-        project_map.insert(
-            "test_p15".to_string(),
-            (root.clone(), db_path.clone()),
-        );
+        project_map.insert("test_p15".to_string(), (root.clone(), db_path.clone()));
         let project_map = std::sync::Arc::new(project_map);
 
         // tokio::sync::mpsc required for worker_loop's blocking_recv()
@@ -659,7 +652,7 @@ mod integration_tests {
 
         // Run worker_loop synchronously in blocking task (CodeGraph is notSend)
         let db_for_worker = db_path.clone();
-        let _ = tokio::task::spawn_blocking(move || {
+        tokio::task::spawn_blocking(move || {
             worker_loop(batch_rx, shutdown, db_for_worker, project_map);
         })
         .await
