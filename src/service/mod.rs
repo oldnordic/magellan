@@ -13,13 +13,16 @@
 use anyhow::{Context, Result};
 use signal_hook::{consts::SIGTERM, iterator::Signals};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::net::UnixListener;
 use tokio::sync::{mpsc, watch};
 
 use crate::service::admin_socket::AdminSocket;
 use crate::service::registry::Registry;
 use crate::service::types::TaggedBatch;
+use magellan::{FileSystemWatcher, WatcherConfig};
 
 mod admin_socket;
 pub mod registry;
@@ -35,10 +38,14 @@ pub struct Service {
 }
 
 impl Service {
-    /// Build daemon from registry; fail if no enabled projects
+    /// Build daemon from default registry file
     pub async fn new() -> Result<(Self, watch::Receiver<bool>)> {
         let registry = Registry::load().context("Failed to load project registry")?;
+        Self::from_registry(registry).await
+    }
 
+    /// Build daemon from an in-memory registry (test entry point)
+    pub async fn from_registry(registry: Registry) -> Result<(Self, watch::Receiver<bool>)> {
         if registry.enabled_names().is_empty() {
             anyhow::bail!(
                 "No enabled projects in registry. Add one with 'magellan service register --root <path>'"
@@ -56,10 +63,21 @@ impl Service {
 
         // Start per-project watchers (Phase 1)
         {
-            let names = reg.lock().await.enabled_names();
-            for name in names {
-                let _ = name;
-                // Phase 1: spawn watcher task here
+            let lock = reg.lock().await;
+            let entries: Vec<types::ProjectEntry> = lock
+                .list()
+                .iter()
+                .filter(|e| e.enabled)
+                .cloned()
+                .collect();
+            drop(lock);
+
+            for entry in entries {
+                let tx = batch_tx.clone();
+                let shutdown = shutdown_rx.clone();
+                let root = entry.root;
+                let name = entry.name;
+                let _handle = tokio::spawn(watcher_task(root, name, shutdown, tx));
             }
         }
 
@@ -153,6 +171,73 @@ async fn worker_loop(
                     batch.project_name
                 );
                 // Phase 1: call run_watch_pipeline() for batch.paths in batch.project_name context
+            }
+        }
+    }
+}
+
+/// Per-project watcher task: bridges synchronous FileSystemWatcher to async batch_tx
+async fn watcher_task(
+    root: PathBuf,
+    project_name: String,
+    mut shutdown: watch::Receiver<bool>,
+    batch_tx: mpsc::Sender<TaggedBatch>,
+) {
+    let shutdown_flag = Arc::new(AtomicBool::new(false));
+    let flag = shutdown_flag.clone();
+
+    // Bridge from blocking watcher thread to async task
+    let (bridge_tx, mut bridge_rx) =
+        tokio::sync::mpsc::channel::<magellan::WatcherBatch>(16);
+
+    let name_for_blocking = project_name.clone();
+
+    // Spawn the actual blocking filesystem watcher
+    let _task = tokio::task::spawn_blocking(move || {
+        let cfg = WatcherConfig {
+            root_path: root.clone(),
+            ..Default::default()
+        };
+        let fw = match FileSystemWatcher::new(root, cfg, flag.clone()) {
+            Ok(w) => w,
+            Err(e) => {
+                eprintln!("[daemon] Failed to start watcher for {}: {}", name_for_blocking, e);
+                return;
+            }
+        };
+        loop {
+            match fw.recv_batch_timeout(Duration::from_millis(500)) {
+                Ok(Some(batch)) => {
+                    if bridge_tx.blocking_send(batch).is_err() {
+                        break; // Bridge receiver dropped
+                    }
+                }
+                Ok(None) => break, // All senders dropped
+                Err(_) => {
+                    if flag.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    // Otherwise just continue polling
+                }
+            }
+        }
+    });
+
+    // Forward from bridge to batch_tx while watching shutdown
+    loop {
+        tokio::select! {
+            _ = shutdown.changed() => {
+                shutdown_flag.store(true, Ordering::SeqCst);
+                break;
+            }
+            Some(batch) = bridge_rx.recv() => {
+                let paths = batch.paths;
+                let _ = batch_tx
+                    .send(TaggedBatch {
+                        project_name: project_name.clone(),
+                        paths,
+                    })
+                    .await;
             }
         }
     }
@@ -418,5 +503,48 @@ mod integration_tests {
 
         accept_task.abort();
         let _ = tokio::fs::remove_file(&socket).await;
+    }
+
+
+    // P0-15: WatcherReactor — watcher_task must emit TaggedBatch on file changes
+    #[tokio::test]
+    async fn test_watcher_task_emits_batch_on_file_change() {
+        use std::fs::write;
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        let file1 = root.join("test.rs");
+        write(&file1, "// initial").unwrap();
+
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16);
+        let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+
+        // Spawn watcher task
+        let _join = tokio::spawn(super::watcher_task(
+            root.clone(),
+            "testproj".to_string(),
+            shutdown_rx,
+            tx,
+        ));
+
+        // Give watcher time to start
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+        // Create another file to trigger a watch event
+        let file2 = root.join("new.rs");
+        write(&file2, "// new file").unwrap();
+
+        // Wait for batch (debounce + poll interval = up to ~1.5s normally)
+        let batch = tokio::time::timeout(
+            tokio::time::Duration::from_secs(10),
+            rx.recv(),
+        )
+        .await
+        .expect("timed out waiting for watcher batch")
+        .expect("batch channel closed");
+
+        assert_eq!(batch.project_name, "testproj");
+        // Should contain at least one of the files from temp dir
+        assert!(!batch.paths.is_empty(), "batch should contain dirty paths");
     }
 }
