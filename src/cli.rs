@@ -566,6 +566,7 @@ pub enum Command {
         with_semantics: bool,
         with_checksums: bool,
         context_lines: usize,
+        all: bool,
     },
     Refs {
         db_path: PathBuf,
@@ -2153,6 +2154,7 @@ fn parse_find_args(args: &[String]) -> Result<Command> {
         with_semantics,
         with_checksums,
         context_lines,
+        all: false,
     })
 }
 
@@ -4384,6 +4386,7 @@ mod tests {
             with_semantics: false,
             with_checksums: false,
             context_lines: 3,
+            all: false,
         };
 
         match cmd {

@@ -3,15 +3,16 @@
 //! Finds a symbol by name, optionally limited to a specific file.
 //! Now supports multiple backends: SQLite, Geometric, V3
 
+use crate::service::registry::Registry;
 use anyhow::{Context, Result};
 use globset::GlobBuilder;
 use magellan::backend_router::{BackendType, MagellanBackend};
 use magellan::common::{detect_language_from_path, format_symbol_kind, resolve_path};
 use magellan::graph::query;
+use magellan::graph::MultiDbContext;
 use magellan::output::rich::{SpanChecksums, SpanContext};
 use magellan::output::{
-    output_json, CalleeInfo, CallerInfo, FindResponse, JsonResponse, OutputFormat, Span,
-    SymbolMatch,
+    output_json, CalleeInfo, CallerInfo, FindResponse, JsonResponse, OutputFormat, Span, SymbolMatch,
 };
 use magellan::{CodeGraph, SymbolKind};
 use std::path::PathBuf;
@@ -213,11 +214,25 @@ pub fn run_find(
     with_semantics: bool,
     with_checksums: bool,
     context_lines: usize,
+    all: bool,
 ) -> Result<()> {
     // Check if this is a geometric database and route accordingly
     if MagellanBackend::detect_type(&db_path) == BackendType::Geometric {
         // For geometric databases, use the geometric backend directly
         return run_find_geometric(db_path, name, output_format);
+    }
+
+    if all {
+        return run_find_all(
+            &name,
+            &path,
+            &root,
+            output_format,
+            context_lines,
+            with_context,
+            with_callers,
+            with_callees,
+        );
     }
 
     // Build args for execution tracking
@@ -830,6 +845,95 @@ fn run_glob_listing(
             symbol.line,
             format_symbol_kind(&symbol.kind)
         );
+    }
+
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+/// Run find across all enabled projects in the registry
+fn run_find_all(
+    name: &Option<String>,
+    path: &Option<PathBuf>,
+    _root: &Option<PathBuf>,
+    output_format: OutputFormat,
+    context_lines: usize,
+    _with_context: bool,
+    with_callers: bool,
+    with_callees: bool,
+) -> Result<()> {
+    let registry = Registry::load().with_context(|| "Failed to load project registry")?;
+    let enabled_projects: Vec<_> = registry.projects.iter().filter(|p| p.enabled).collect();
+
+    if enabled_projects.is_empty() {
+        println!("No enabled projects in registry.");
+        println!("Hint: use `magellan registry scan` to discover projects, then `magellan registry enable <name>` to activate.");
+        return Ok(());
+    }
+
+    let db_paths: Vec<PathBuf> = enabled_projects.iter().map(|p| p.db.clone()).collect();
+    let mut multi_db = MultiDbContext::from_paths(&db_paths)?;
+
+    let name_ref = name.as_deref().unwrap_or("");
+    let path_ref = path.as_ref().map(|p| p.to_string_lossy().to_string());
+    let file_filter = path_ref.as_deref();
+
+    let matches = multi_db.search_symbol(
+        name_ref,
+        file_filter,
+        Some(context_lines),
+        with_callers,
+        with_callees,
+    );
+
+    if matches.is_empty() {
+        println!(
+            "No symbols matched '{}' across {} project(s).",
+            name_ref,
+            enabled_projects.len()
+        );
+        return Ok(());
+    }
+
+    match output_format {
+        OutputFormat::Json | OutputFormat::Pretty => {
+            let exec_id = magellan::output::generate_execution_id();
+            let response = JsonResponse::new(matches, &exec_id);
+            if output_format == OutputFormat::Pretty {
+                println!("{}", serde_json::to_string_pretty(&response).unwrap());
+            } else {
+                println!("{}", serde_json::to_string(&response).unwrap());
+            }
+        }
+        OutputFormat::Human => {
+            println!(
+                "Matched {} symbol(s) across {} project(s):",
+                matches.len(),
+                enabled_projects.len()
+            );
+            for m in matches {
+                println!(
+                    "  {} [{}] in {}:{} ({})",
+                    m.name, m.kind, m.span.file_path, m.span.start_line, m.project
+                );
+                if let Some(ref callers) = m.callers {
+                    for caller in callers {
+                        println!(
+                            "    called by {} in {}:{}",
+                            caller.name, caller.file_path, caller.line
+                        );
+                    }
+                }
+                if let Some(ref callees) = m.callees {
+                    for callee in callees {
+                        println!(
+                            "    calls {} in {}:{}",
+                            callee.name, callee.file_path, callee.line
+                        );
+                    }
+                }
+            }
+        }
     }
 
     Ok(())
