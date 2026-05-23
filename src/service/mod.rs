@@ -933,7 +933,7 @@ mod integration_tests {
         let mut stream = UnixStream::connect(socket_path)
             .await
             .expect("connect to socket");
-        let req = r#"{"id":"test-qf-1","method":"query.find","params":{"name":"hello"}}"#;
+        let req = r#"{"id":"test-qf-1","method":"query.find","name":"hello"}"#;
         let (read_half, mut write_half) = stream.split();
         write_half
             .write_all((req.to_string() + "\n").as_bytes())
@@ -969,5 +969,138 @@ mod integration_tests {
         accept_task.abort();
         let _ = tokio::fs::remove_file(&socket).await;
         let _ = tokio::fs::remove_file("/tmp/magellan_test_query_find_meta.db").await;
+    }
+
+    // Phase 3 RED: query.find returns actual symbol from meta.db-registered project
+    #[tokio::test]
+    async fn test_admin_socket_query_find_returns_symbol_from_meta_db() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+        use tokio::net::{UnixListener, UnixStream};
+
+        let socket_path = "/tmp/magellan_test_qf_real.sock";
+        let socket = std::path::PathBuf::from(socket_path);
+        let _ = tokio::fs::remove_file(&socket).await;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_path = temp_dir.path().to_path_buf();
+
+        // Create a real indexed DB in blocking task (CodeGraph is !Send)
+        let db_path_clone = temp_path.clone();
+        let db_path = tokio::task::spawn_blocking(move || {
+            let db_path = db_path_clone.join("real_proj.db");
+            std::fs::create_dir_all(db_path_clone.join("src")).unwrap();
+            let mut graph = magellan::CodeGraph::open(&db_path).unwrap();
+            graph
+                .index_file(
+                    "src/lib.rs",
+                    b"fn greet() { hello() }\nfn hello() { println!(\"hi\") }\n",
+                )
+                .unwrap();
+            graph.checkpoint_wal().unwrap();
+            db_path
+        })
+        .await
+        .unwrap();
+
+        // Verify DB was created and the graph has symbols before admin socket query
+        let verify_path = db_path.clone();
+        let symbols = tokio::task::spawn_blocking(move || {
+            let graph = magellan::CodeGraph::open(&verify_path).unwrap();
+            graph.count_symbols().unwrap_or(0)
+        })
+        .await
+        .unwrap();
+        assert!(symbols > 0, "expected indexed symbols in DB");
+
+        // Pre-seed registry + meta.db with this project
+        let reg_path = temp_dir.path().join("registry.toml");
+        let mut reg = super::registry::Registry::load_from(reg_path.clone()).unwrap();
+        reg.register(super::types::ProjectEntry::new(
+            "real_proj".to_string(),
+            temp_path.clone(),
+            db_path.clone(),
+            "test".to_string(),
+        ))
+        .unwrap();
+
+        let meta_db = std::sync::Arc::new(tokio::sync::Mutex::new(
+            super::meta_db::MetaDb::open_at(temp_dir.path().join("meta.db")).unwrap(),
+        ));
+        {
+            let mut meta = meta_db.lock().await;
+            meta.upsert_project(
+                "real_proj",
+                &temp_path.to_string_lossy(),
+                &db_path.to_string_lossy(),
+                true,
+            )
+            .unwrap();
+            let projects = meta.list_projects().unwrap();
+            assert!(
+                !projects.is_empty(),
+                "meta_db should have real_proj after upsert"
+            );
+        }
+
+        let reg = std::sync::Arc::new(tokio::sync::Mutex::new(reg));
+
+        let listener = UnixListener::bind(socket_path).unwrap();
+        let meta_clone = meta_db.clone();
+        let accept_task = tokio::spawn(async move {
+            loop {
+                let (stream, _) = listener.accept().await.unwrap();
+                let reg = reg.clone();
+                let meta = meta_clone.clone();
+                let (tx, _rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16);
+                tokio::spawn(async move {
+                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, meta, tx)
+                        .await;
+                });
+            }
+        });
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+        let mut stream = UnixStream::connect(socket_path)
+            .await
+            .expect("connect to socket");
+        let req = r#"{"id":"test-qf-real","method":"query.find","name":"greet"}"#;
+        let (read_half, mut write_half) = stream.split();
+        write_half
+            .write_all((req.to_string() + "\n").as_bytes())
+            .await
+            .unwrap();
+        write_half.shutdown().await.unwrap();
+
+        let mut reader = tokio::io::BufReader::new(read_half);
+        let mut line = String::new();
+        reader.read_line(&mut line).await.unwrap();
+        let resp: serde_json::Value = serde_json::from_str(&line).unwrap();
+
+        let error = resp.get("error");
+        assert!(
+            error.is_none(),
+            "query.find should succeed, got error: {}",
+            line
+        );
+
+        let result = resp.get("result").expect("result missing");
+        let matches = result
+            .get("matches")
+            .and_then(|v| v.as_array())
+            .expect("matches array missing");
+        assert!(
+            !matches.is_empty(),
+            "expected at least 1 match for 'greet', got empty array"
+        );
+        let first = &matches[0];
+        assert_eq!(
+            first.get("name").and_then(|v| v.as_str()),
+            Some("greet"),
+            "first match should be name=greet"
+        );
+
+        accept_task.abort();
+        let _ = tokio::fs::remove_file(&socket).await;
     }
 }
