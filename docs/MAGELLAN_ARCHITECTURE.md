@@ -1,6 +1,6 @@
 # Magellan Architecture
 
-**Version:** 3.3.9
+**Version:** 3.3.13
 
 This document describes the current public architecture. Magellan's supported
 user-facing storage path is a SQLite `.db` database.
@@ -46,6 +46,7 @@ Magellan also maintains side tables for data that is easier to query directly:
 - `cfg_coverage_meta`: coverage source metadata
 - `source_documents`: indexed external documents for graph memory (schema v13+)
 - `candidate_facts`: validated fact triples from source documents (schema v14+)
+- `v3_node_map`: maps SQLite entity IDs to V3 native backend node IDs (dual mode only)
 - metrics and execution-log tables
 
 SQLite remains the source of truth for normal operation.
@@ -82,6 +83,40 @@ Magellan exposes two different identifier classes:
 
 Use `symbol_id` for precise CLI/API lookup when possible.
 
+## Multi-Project Querying
+
+Magellan maintains a persistent project registry at
+`~/.config/magellan/registry.toml`. Once projects are registered (via
+`magellan registry scan` or `magellan registry add`), cross-project flags are
+available:
+
+```bash
+magellan find --all --name main          # search all registered projects
+magellan status --all                    # health summary for all projects
+magellan ask --all "who calls index_file"  # intent-routed cross-project query
+magellan find --project magellan --name main  # single named project
+```
+
+The `ask` command detects intent (find, callers, callees, CFG, blast zone,
+cycles, impact, complex, search) and routes to the appropriate tool. With
+`--all`, it fans out across the registry and aggregates results.
+
+## V3 Dual Backend
+
+When a `.db.v3` companion file exists alongside a `.db` database, Magellan
+detects it as `BackendType::Dual` and opens both backends.
+
+- **Open**: `CodeGraph::open_dual(db_path, v3_path)` opens SQLite and creates or
+  opens the V3 native B+Tree backend.
+- **Sync**: `CodeGraph::sync_to_v3(paths)` walks each file's symbols and inserts
+  them into the V3 backend via a `WriteBatchGuard` (single fsync per call).
+  Mappings are recorded in the `v3_node_map` side table.
+- **Watch pipeline**: `WatchPipelineConfig::with_v3_sync(v3_path)` enables
+  automatic V3 sync after each FTS5 rebuild cycle.
+
+The V3 backend is intended for high-throughput graph traversal workloads. The
+SQLite backend remains the source of truth for symbol facts and metadata.
+
 ## Query Model
 
 Commands are organized around facts:
@@ -96,6 +131,7 @@ Commands are organized around facts:
 - graph memory: `source-inventory`, `candidate-fact`
 - database health: `status`, `doctor`, `migrate`, `verify`
 - maintenance: `refresh`, `backfill`, `index`, `delete`
+- multi-project: `ask`, `find --all`, `status --all`, `find --project <name>`
 
 ## Coverage Data
 
@@ -124,6 +160,32 @@ Optional features:
 | `geometric-backend` | experimental geometric index code for source builds |
 
 The public command documentation assumes the default SQLite `.db` workflow.
+
+## Framework API
+
+`magellan` is also a library crate. The `framework` module exposes a
+programmatic entry point that does not require spawning the CLI:
+
+```rust
+use magellan::{MagellanFramework, FrameworkSymbol};
+
+// Open all enabled projects from ~/.config/magellan/registry.toml
+let fw = MagellanFramework::from_registry()?;
+
+// Or supply explicit (name, db_path) pairs — useful in tests
+let fw = MagellanFramework::from_db_paths(vec![
+    ("myproject".into(), PathBuf::from("path/to/myproject.db")),
+])?;
+
+let symbols: Vec<FrameworkSymbol> = fw.find("index_file")?;
+let response: String = fw.ask("who calls index_file")?;
+
+let handle = fw.project("myproject").unwrap();
+let syms = handle.find_symbols_by_name("main")?;
+```
+
+`MagellanFramework` reads the same registry TOML as the CLI but has no
+dependency on the service daemon or async runtime.
 
 ## Compatibility Preflight
 

@@ -1,6 +1,6 @@
 # Magellan Schema Reference
 
-**Version:** 3.3.9
+**Version:** 3.3.13
 
 This document describes the public data model used by the SQLite `.db` workflow.
 
@@ -99,6 +99,20 @@ Core graph relationships:
 
 CFG edges are stored in the `cfg_edges` side table rather than as primary graph
 edges.
+
+## V3 Node Map
+
+When a project is opened in dual mode (`open_dual`), a `v3_node_map` side table
+is created in the SQLite database:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `sqlite_id` | INTEGER PK | SQLite entity ID of the symbol |
+| `v3_id` | INTEGER | Corresponding node ID in the V3 native backend |
+
+This table is populated by `sync_to_v3` and allows queries to be routed between
+the SQLite and V3 backends. It is only present when the `.db.v3` companion file
+exists alongside the primary `.db` file.
 
 ## Graph Memory
 

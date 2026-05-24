@@ -16,10 +16,35 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - `Command::Service { action, output_format }` — CLI wiring in `src/cli.rs` and dispatch in `src/main.rs`
   - `tokio` features expanded: `net`, `process`, `io-util`
 
+- **Phase 1: Registry CLI flags** (`find`, `status`):
+  - `--all` — fan-out across all enabled projects in the registry
+  - `--project <name>` — target a single named project by registry entry
+  - `db_resolver.rs` — `resolve_db_path()` helper routes `--db`, `--project`, or cwd fallback
+- **Phase 2: `ask` intent router**:
+  - `ask_cmd.rs` — `detect_intent()` classifies queries into 9 intents (Callers, Callees, Cfg, BlastZone, Cycles, Impact, Complex, Search, Find)
+  - Intent routing dispatches to `magellan refs`, `mirage cfg`, `mirage blast-zone`, in-process cycle/impact analysis, `llmgrep`, or symbol find
+- **Phase 3: `ask --all` cross-project fan-out**:
+  - `ask --all` iterates registry, runs per-project routing, aggregates results
+  - `ask --project <name>` targets a single named project
+- **Phase 4: V3 Dual Backend**:
+  - `BackendType::Dual` — detected when a `.db.v3` companion file exists alongside `.db`
+  - `CodeGraph::open_dual(db, v3)` — opens SQLite + creates/opens V3 native backend
+  - `CodeGraph::sync_to_v3(paths)` — batch-inserts symbols into V3, records mappings in `v3_node_map` side table
+  - `WatchPipelineConfig::with_v3_sync(v3_path)` — enables automatic V3 sync after each watch cycle
+  - `CodeGraph::has_v3()`, `CodeGraph::v3_node_for_symbol()` — V3 presence and lookup
+- **Phase 5: Framework API** (`src/framework/mod.rs`):
+  - `MagellanFramework` — opens multiple project databases from registry or explicit path list
+  - `MagellanFramework::from_registry()` / `from_registry_file(path)` / `from_db_paths(entries)`
+  - `find(&self, name)` — cross-project symbol search returning `Vec<FrameworkSymbol>`
+  - `project(&self, name)` — returns `ProjectHandle<'_>` scoped to one database
+  - `ask(&self, query)` — intent-routed query returning a formatted `String`
+  - `FrameworkSymbol`, `ProjectHandle` re-exported from crate root
+
 ### Fixed
 
 - `src/cli.rs` inline `service` block: `parse_required_arg`/`parse_path_arg` called with `&args` (Vec<String>) instead of `&args[..]` (slice), causing type mismatch
 - `src/main.rs` `Command::Service` match arm: destructured `db_path: _` which no longer exists on the enum variant
+- `BackendType::Dual` exhaustiveness: `find_cmd.rs` and `slice_cmd.rs` updated to match `SQLite | Dual` arm
 
 ## [3.3.13] - 2026-05-21
 
