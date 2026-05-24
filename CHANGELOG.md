@@ -50,6 +50,10 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - Output: markdown investigation packet with token estimate
   - `NavigateConfig` struct; `extract_terms()` and `truncate_to_budget()` are public for downstream use
 
+- **P4-CROSS: Cross-project structural similarity index** (`src/service/structural.rs`, `src/service/admin_socket.rs`):
+  - `build_cross_refs(meta_db, db_paths, threshold)` — iterates all project symbols, extracts AST via `parse_with_language`, upserts embeddings, then performs pairwise cosine similarity across different projects; pairs ≥ threshold inserted into `pattern_cross_refs`; returns count of pairs inserted
+  - `query.build-index` socket method — triggers `build_cross_refs` across all enabled registry projects with default threshold 0.70; returns `{ "pairs_inserted": N }`
+  - `magellan::parse_with_language` and `magellan::extract_ast_nodes` re-exported for binary crate use
 - **P3-CMP: `query.compare` socket method** (`src/service/admin_socket.rs`):
   - JSON-RPC method for side-by-side cross-project symbol comparison
   - Params: `name` (required), `projects` (array of project names)

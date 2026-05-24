@@ -101,7 +101,7 @@ pub use graph::source_inventory::{
 };
 pub use graph::test_helpers::{delete_file_facts_with_injection, FailPoint};
 pub use graph::CrossFileRef;
-pub use graph::{is_structural_kind, AstNode};
+pub use graph::{extract_ast_nodes, is_structural_kind, AstNode};
 pub use graph::{
     CodeGraph, CondensationGraph, CondensationResult, Cycle, CycleKind, CycleReport, DeadSymbol,
     DeleteResult, ExecutionPath, ExportConfig, ExportFormat, MultiDbContext, PathEnumerationResult,
@@ -110,6 +110,7 @@ pub use graph::{
 };
 pub use indexer::{run_indexer, run_indexer_n, run_watch_pipeline, WatchPipelineConfig};
 pub use ingest::detect::{detect_language, Language};
+pub use ingest::pool::with_parser as parse_with_language;
 pub use ingest::{ImplRelation, Parser, SymbolFact, SymbolKind};
 pub use output::command::{MigrateResponse, ReferenceMatch, Span, SymbolMatch};
 pub use output::{generate_execution_id, output_json, JsonResponse, OutputFormat};

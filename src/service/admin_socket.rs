@@ -497,6 +497,46 @@ impl AdminSocket {
                 }
             }
 
+            "query.build-index" => {
+                // Collect all enabled project (name, db_path) pairs from meta.db
+                let db_entries: Vec<(String, std::path::PathBuf)> = {
+                    let meta = meta_db.lock().await;
+                    meta.list_projects()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter(|p| p.enabled)
+                        .map(|p| (p.name.clone(), std::path::PathBuf::from(&p.db_path)))
+                        .collect()
+                };
+
+                let meta_db_clone = Arc::clone(&meta_db);
+                let result = tokio::task::spawn_blocking(move || {
+                    let mut meta = meta_db_clone.blocking_lock();
+                    crate::service::structural::build_cross_refs(&mut meta, &db_entries, 0.70)
+                })
+                .await;
+
+                match result {
+                    Ok(Ok(count)) => Ok(super::types::ServiceResponse::ok(
+                        id,
+                        json!({ "pairs_inserted": count }),
+                    )
+                    .into_val()),
+                    Ok(Err(e)) => Ok(super::types::ServiceResponse::err(
+                        id,
+                        -32003,
+                        format!("Build index error: {}", e),
+                    )
+                    .into_val()),
+                    Err(e) => Ok(super::types::ServiceResponse::err(
+                        id,
+                        -32603,
+                        format!("Blocking task panic: {}", e),
+                    )
+                    .into_val()),
+                }
+            }
+
             _ => Ok(super::types::ServiceResponse::not_implemented(id, method).into_val()),
         }
     }
