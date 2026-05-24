@@ -184,6 +184,12 @@ magellan find --db code.db --name parse_args
 magellan find --db code.db --name parse_args --path src/main.rs
 magellan find --db code.db --symbol-id <SYMBOL_ID>
 magellan find --db code.db --ambiguous parse_args
+
+# Cross-project: search all registered projects
+magellan find --all --name parse_args
+
+# Cross-project: search one named project from the registry
+magellan find --project magellan --name parse_args
 ```
 
 ### References And Calls
@@ -204,13 +210,49 @@ magellan cross-file-refs --db code.db --fqn crate::module::symbol --output prett
 ### Registry (Cross-Project Discovery)
 
 ```bash
-# Scan for databases
+# Populate the registry (run once, then --all flags work everywhere)
 magellan registry scan --root /home/feanor/Projects
 magellan registry scan --root . --output json
 
-# List discovered databases
-magellan registry list --root /home/feanor/Projects
+# List registered projects
+magellan registry list
+
+# Add / remove a project explicitly
+magellan registry add --name myproject --root /path/to/project
+magellan registry remove --name myproject
 ```
+
+### Natural Language Query (`ask`)
+
+`ask` detects the intent of a question and routes to the right tool automatically.
+
+```bash
+# Single project
+magellan ask --db code.db "who calls index_file"
+magellan ask --db code.db "cfg for parse_watch_args"
+magellan ask --db code.db "blast zone of handle_request"
+magellan ask --db code.db "cycles in the call graph"
+magellan ask --db code.db "find CodeGraph"
+magellan ask --db code.db "search for error handling retry logic"
+
+# Cross-project (requires registry to be populated)
+magellan ask --all "who calls index_file"
+magellan ask --project magellan "find MagellanBackend"
+```
+
+Detected intents and their routing:
+
+| Intent keyword | Routes to |
+|---------------|-----------|
+| `who calls`, `callers of`, `who uses` | `magellan refs --direction in` |
+| `callees of`, `calls from`, `outgoing calls` | `magellan refs --direction out` |
+| `cfg for`, `control flow of` | `mirage cfg` |
+| `blast zone`, `hot paths` | `mirage blast-zone` |
+| `cycles`, `circular`, `strongly connected` | in-process cycle detection |
+| `impact of`, `affected by` | in-process impact analysis |
+| `complex`, `high complexity` | `llmgrep --min-complexity 10` |
+| `search`, `semantic`, `find code` | `llmgrep search` |
+| *(anything else)* | symbol find |
 
 ### Configuration
 
