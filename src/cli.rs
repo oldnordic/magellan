@@ -533,6 +533,7 @@ pub enum Command {
     Status {
         output_format: OutputFormat,
         db_path: PathBuf,
+        all: bool,
     },
     Features {
         db_path: PathBuf,
@@ -841,7 +842,7 @@ fn parse_backfill_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = resolve_db_path(db_path)?;
 
     Ok(Command::Backfill { db_path })
 }
@@ -1033,7 +1034,7 @@ fn parse_delete_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = resolve_db_path(db_path)?;
     let file_path = file_path.ok_or_else(|| anyhow::anyhow!("--file is required"))?;
 
     Ok(Command::Delete {
@@ -1076,7 +1077,7 @@ fn parse_index_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = resolve_db_path(db_path)?;
     let file_path = file_path.ok_or_else(|| anyhow::anyhow!("--file is required"))?;
 
     Ok(Command::Index {
@@ -1175,7 +1176,7 @@ fn parse_watch_args(args: &[String]) -> Result<Command> {
     };
 
     // Require --db argument (like other commands)
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = resolve_db_path(db_path)?;
 
     if watch_only {
         scan_initial = false;
@@ -1299,7 +1300,7 @@ fn parse_export_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = resolve_db_path(db_path)?;
 
     Ok(Command::Export {
         db_path,
@@ -1345,7 +1346,7 @@ fn parse_import_lsif_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = resolve_db_path(db_path)?;
 
     if lsif_paths.is_empty() {
         return Err(anyhow::anyhow!("At least one LSIF file must be specified"));
@@ -1385,7 +1386,7 @@ fn parse_ingest_coverage_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = resolve_db_path(db_path)?;
     let lcov_path = lcov_path.ok_or_else(|| anyhow::anyhow!("--lcov is required"))?;
 
     Ok(Command::IngestCoverage { db_path, lcov_path })
@@ -1430,7 +1431,7 @@ fn parse_enrich_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = resolve_db_path(db_path)?;
 
     Ok(Command::Enrich {
         db_path,
@@ -1944,7 +1945,7 @@ fn parse_doctor_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = resolve_db_path(db_path)?;
 
     Ok(Command::Doctor {
         db_path,
@@ -1992,7 +1993,7 @@ fn parse_web_ui_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = resolve_db_path(db_path)?;
 
     Ok(Command::WebUi {
         db_path,
@@ -2005,11 +2006,20 @@ fn parse_web_ui_args(args: &[String]) -> Result<Command> {
 fn parse_status_args(args: &[String]) -> Result<Command> {
     let mut db_path: Option<PathBuf> = None;
     let mut output_format = OutputFormat::Human;
+    let mut all = false;
+    let mut project: Option<String> = None;
 
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
             "--db" => db_path = Some(parse_path_arg(args, &mut i, "--db")?),
+            "--all" => {
+                all = true;
+                i += 1;
+            }
+            "--project" => {
+                project = Some(parse_required_arg(args, &mut i, "--project")?);
+            }
             "--json" => {
                 output_format = OutputFormat::Json;
                 i += 1;
@@ -2022,11 +2032,21 @@ fn parse_status_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    if let Some(ref name) = project {
+        let registry =
+            Registry::load().context("Failed to load project registry for --project resolution")?;
+        let entry = registry
+            .find(name)
+            .ok_or_else(|| anyhow::anyhow!("project '{}' not found in registry", name))?;
+        db_path = Some(entry.db.clone());
+    }
+
+    let db_path = resolve_db_path(db_path)?;
 
     Ok(Command::Status {
         output_format,
         db_path,
+        all,
     })
 }
 
@@ -2051,7 +2071,7 @@ fn parse_features_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = resolve_db_path(db_path)?;
 
     Ok(Command::Features {
         db_path,
@@ -2081,7 +2101,7 @@ fn parse_project_metadata_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = resolve_db_path(db_path)?;
 
     Ok(Command::ProjectMetadata {
         db_path,
@@ -2100,6 +2120,8 @@ fn parse_find_args(args: &[String]) -> Result<Command> {
     let mut symbol_id: Option<String> = None;
     let mut ambiguous_name: Option<String> = None;
     let mut first = false;
+    let mut all = false;
+    let mut project: Option<String> = None;
     let mut output_format = OutputFormat::Human;
     let mut with_context = false;
     let mut with_callers = false;
@@ -2164,6 +2186,13 @@ fn parse_find_args(args: &[String]) -> Result<Command> {
                 first = true;
                 i += 1;
             }
+            "--all" => {
+                all = true;
+                i += 1;
+            }
+            "--project" => {
+                project = Some(parse_required_arg(args, &mut i, "--project")?);
+            }
             "--json" => {
                 output_format = OutputFormat::Json;
                 i += 1;
@@ -2217,6 +2246,15 @@ fn parse_find_args(args: &[String]) -> Result<Command> {
         }
     }
 
+    if let Some(ref name) = project {
+        let registry =
+            Registry::load().context("Failed to load project registry for --project resolution")?;
+        let entry = registry
+            .find(name)
+            .ok_or_else(|| anyhow::anyhow!("project '{}' not found in registry", name))?;
+        db_path = Some(entry.db.clone());
+    }
+
     let db_path = resolve_db_path(db_path)?;
 
     Ok(Command::Find {
@@ -2235,7 +2273,7 @@ fn parse_find_args(args: &[String]) -> Result<Command> {
         with_semantics,
         with_checksums,
         context_lines,
-        all: false,
+        all,
     })
 }
 
@@ -2732,7 +2770,7 @@ fn parse_verify_args(args: &[String]) -> Result<Command> {
     }
 
     let root_path = root_path.ok_or_else(|| anyhow::anyhow!("--root is required"))?;
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = resolve_db_path(db_path)?;
 
     Ok(Command::Verify {
         root_path,
@@ -2864,7 +2902,7 @@ fn parse_label_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = resolve_db_path(db_path)?;
 
     Ok(Command::Label {
         db_path,
@@ -2938,7 +2976,7 @@ fn parse_collisions_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = resolve_db_path(db_path)?;
 
     Ok(Command::Collisions {
         db_path,
@@ -2994,7 +3032,7 @@ fn parse_migrate_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = resolve_db_path(db_path)?;
 
     Ok(Command::Migrate {
         db_path,
@@ -3833,7 +3871,7 @@ fn parse_paths_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = resolve_db_path(db_path)?;
     let start_symbol_id = start_symbol_id.ok_or_else(|| anyhow::anyhow!("--start is required"))?;
 
     Ok(Command::Paths {
@@ -4238,7 +4276,7 @@ fn parse_cypher_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = resolve_db_path(db_path)?;
     let query = query.ok_or_else(|| anyhow::anyhow!("Query string is required"))?;
 
     Ok(Command::Cypher {
@@ -4367,7 +4405,7 @@ fn parse_hnsw_create_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = resolve_db_path(db_path)?;
     let name = name.ok_or_else(|| anyhow::anyhow!("--name is required"))?;
 
     Ok(Command::HnswCreate {
@@ -4438,7 +4476,7 @@ fn parse_hnsw_query_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = resolve_db_path(db_path)?;
     let name = name.ok_or_else(|| anyhow::anyhow!("--name is required"))?;
     let vector =
         vector.ok_or_else(|| anyhow::anyhow!("--vector is required (JSON array of f32)"))?;
@@ -4571,9 +4609,9 @@ mod tests {
     fn test_parse_watch_args_missing_required() {
         let args = vec!["--root".to_string(), "/home/test".to_string()];
 
+        // --db is now optional; resolve_db_path provides a CWD fallback
         let result = parse_watch_args(&args);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("--db is required"));
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -4612,6 +4650,7 @@ mod tests {
             Command::Status {
                 db_path,
                 output_format,
+                ..
             } => {
                 assert_eq!(db_path, PathBuf::from("test.db"));
                 assert!(matches!(output_format, OutputFormat::Human));
@@ -5322,14 +5361,14 @@ mod tests {
     fn test_edge_empty_args() {
         let args: Vec<String> = vec![];
 
-        // status still requires --db because the resolver was not wired for it
-        assert!(parse_status_args(&args).is_err());
+        // all commands now use resolve_db_path fallback; empty args succeed
+        assert!(parse_status_args(&args).is_ok());
 
-        // files now uses resolve_db_path fallback: empty args succeeds with cwd default
+        // files uses resolve_db_path fallback: empty args succeeds with cwd default
         assert!(parse_files_args(&args).is_ok());
 
-        // watch still needs at least --root (or --db for --watch-only mode)
-        assert!(parse_watch_args(&args).is_err());
+        // watch also uses resolve_db_path + detect_project_root fallbacks
+        assert!(parse_watch_args(&args).is_ok());
     }
 
     /// Test arguments in different orders
@@ -5359,10 +5398,12 @@ mod tests {
                 Command::Status {
                     db_path: db1,
                     output_format: fmt1,
+                    ..
                 },
                 Command::Status {
                     db_path: db2,
                     output_format: fmt2,
+                    ..
                 },
             ) => {
                 assert_eq!(db1, db2);
@@ -5895,5 +5936,74 @@ mod tests {
             }
             _ => panic!("Expected Find command"),
         }
+    }
+
+    // =========================================================================
+    // Phase 1 — Project Registry: --all and --project flags
+    // =========================================================================
+
+    #[test]
+    fn test_parse_find_args_all_flag() {
+        let args = vec![
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--name".to_string(),
+            "foo".to_string(),
+            "--all".to_string(),
+        ];
+        let result = parse_find_args(&args).unwrap();
+        match result {
+            Command::Find { all, .. } => assert!(all, "--all flag should set all=true"),
+            _ => panic!("Expected Find command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_find_args_all_false_by_default() {
+        let args = vec!["--db".to_string(), "test.db".to_string()];
+        let result = parse_find_args(&args).unwrap();
+        match result {
+            Command::Find { all, .. } => assert!(!all, "all should be false when --all is absent"),
+            _ => panic!("Expected Find command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_status_args_all_flag() {
+        let args = vec!["--all".to_string()];
+        let result = parse_status_args(&args).unwrap();
+        match result {
+            Command::Status { all, .. } => assert!(all, "--all flag should set all=true"),
+            _ => panic!("Expected Status command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_find_args_project_flag_unknown() {
+        // --project with a name not in registry must return an error
+        let args = vec![
+            "--project".to_string(),
+            "__no_such_project_xyzzy__".to_string(),
+        ];
+        let err = parse_find_args(&args).unwrap_err();
+        assert!(
+            err.to_string().contains("not found in registry"),
+            "expected 'not found in registry', got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_parse_status_args_project_flag_unknown() {
+        let args = vec![
+            "--project".to_string(),
+            "__no_such_project_xyzzy__".to_string(),
+        ];
+        let err = parse_status_args(&args).unwrap_err();
+        assert!(
+            err.to_string().contains("not found in registry"),
+            "expected 'not found in registry', got: {}",
+            err
+        );
     }
 }

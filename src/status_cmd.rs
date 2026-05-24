@@ -8,6 +8,7 @@ use magellan::capabilities::{capabilities_for_path, BackendCapabilities};
 use magellan::output::{
     generate_execution_id, output_json, CoverageInfo, JsonResponse, StatusResponse,
 };
+use crate::service::registry::Registry;
 use magellan::{CodeGraph, OutputFormat};
 use std::path::PathBuf;
 
@@ -84,7 +85,11 @@ impl ExecutionTracker {
 }
 
 /// Run status query command
-pub fn run_status(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
+pub fn run_status(db_path: PathBuf, output_format: OutputFormat, all: bool) -> Result<()> {
+    if all {
+        return run_status_all(output_format);
+    }
+
     if !db_path.exists() {
         anyhow::bail!("Database not found: {}", db_path.display());
     }
@@ -227,6 +232,34 @@ pub fn run_status(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
     }
 
     tracker.finish(&graph)?;
+    Ok(())
+}
+
+/// Run status across all enabled projects in the registry
+fn run_status_all(output_format: OutputFormat) -> Result<()> {
+    let registry = Registry::load()?;
+    let enabled: Vec<_> = registry.projects.iter().filter(|p| p.enabled).collect();
+
+    if enabled.is_empty() {
+        println!("No enabled projects in registry.");
+        println!(
+            "Hint: use `magellan registry scan` to discover projects."
+        );
+        return Ok(());
+    }
+
+    for entry in &enabled {
+        println!("=== {} ===", entry.name);
+        if entry.db.exists() {
+            if let Err(e) = run_status(entry.db.clone(), output_format, false) {
+                println!("  error: {}", e);
+            }
+        } else {
+            println!("  database not found: {}", entry.db.display());
+        }
+        println!();
+    }
+
     Ok(())
 }
 

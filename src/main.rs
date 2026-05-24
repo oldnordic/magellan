@@ -202,8 +202,10 @@ fn main() -> ExitCode {
         Ok(Command::Status {
             output_format,
             db_path,
+            all,
+            ..
         }) => {
-            if let Err(e) = run_status(db_path, output_format) {
+            if let Err(e) = run_status(db_path, output_format, all) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
