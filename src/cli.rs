@@ -22,6 +22,7 @@ pub fn print_short_usage() {
     eprintln!("  watch       Index codebase: magellan watch --root . --db code.db");
     eprintln!("  init        Create .magellan.toml: magellan init [--path dir]");
     eprintln!("  status      Show database stats: magellan status --db code.db");
+    eprintln!("  features    Show active Cargo features: magellan features --db code.db");
     eprintln!("  doctor      Diagnose issues: magellan doctor --db code.db [--fix]");
     eprintln!("  refresh     Refresh from git: magellan refresh --db code.db");
     #[cfg(feature = "web-ui")]
@@ -164,6 +165,7 @@ pub fn print_full_usage() {
     eprintln!("  registry        Discover and list Magellan databases (scan, list)");
     eprintln!("  export          Export graph data to JSON/JSONL/CSV/SCIP");
     eprintln!("  status          Show database statistics");
+    eprintln!("  features        Show active Cargo features from project metadata");
     eprintln!("  query           List symbols in a file");
     eprintln!("  find            Find a symbol by name");
     eprintln!("  refs            Show calls for a symbol");
@@ -531,6 +533,10 @@ pub enum Command {
     Status {
         output_format: OutputFormat,
         db_path: PathBuf,
+    },
+    Features {
+        db_path: PathBuf,
+        output_format: OutputFormat,
     },
     ProjectMetadata {
         db_path: PathBuf,
@@ -2024,6 +2030,35 @@ fn parse_status_args(args: &[String]) -> Result<Command> {
     })
 }
 
+/// Parse the `features` command arguments
+fn parse_features_args(args: &[String]) -> Result<Command> {
+    let mut db_path: Option<PathBuf> = None;
+    let mut output_format = OutputFormat::Human;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--db" => db_path = Some(parse_path_arg(args, &mut i, "--db")?),
+            "--json" => {
+                output_format = OutputFormat::Json;
+                i += 1;
+            }
+            "--output" => {
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output_format = parse_output_format(&value)?;
+            }
+            _ => return Err(anyhow::anyhow!("Unknown argument: {}", args[i])),
+        }
+    }
+
+    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+
+    Ok(Command::Features {
+        db_path,
+        output_format,
+    })
+}
+
 fn parse_project_metadata_args(args: &[String]) -> Result<Command> {
     let mut db_path: Option<PathBuf> = None;
     let mut query: Option<String> = None;
@@ -2363,6 +2398,7 @@ where
         "hnsw-create" => parse_hnsw_create_args(&args[2..]),
         "hnsw-query" => parse_hnsw_query_args(&args[2..]),
         "ask" => parse_ask_args(&args[2..]),
+        "features" => parse_features_args(&args[2..]),
         _ => Err(anyhow::anyhow!("Unknown command: {}", command)),
     }
 }

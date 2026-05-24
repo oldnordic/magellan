@@ -20,6 +20,7 @@ mod delete_cmd;
 mod doctor_cmd;
 mod enrich_cmd;
 mod export_cmd;
+mod features_cmd;
 mod files_cmd;
 mod find_cmd;
 mod get_cmd;
@@ -1027,6 +1028,16 @@ fn main() -> ExitCode {
             output_format,
         }) => {
             if let Err(e) = ask_cmd::run_ask(question, db_path, output_format) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::Features {
+            db_path,
+            output_format,
+        }) => {
+            if let Err(e) = features_cmd::run_features(db_path, output_format) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
