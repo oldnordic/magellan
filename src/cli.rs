@@ -2,12 +2,14 @@
 //!
 //! Defines the Command enum and parse_args() function for all CLI commands.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use magellan::capabilities::BackendCapabilities;
 use magellan::graph::export::ExportFilters;
 use magellan::graph::query::CollisionField;
 use magellan::{detect_project_root, ExportFormat, OutputFormat, WatcherConfig};
 use std::path::PathBuf;
+
+use crate::service::registry::Registry;
 
 /// Print short usage (≤25 lines) for quick reference
 pub fn print_short_usage() {
@@ -1433,8 +1435,9 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
     }
 
     let mut db_paths: Vec<PathBuf> = Vec::new();
+    let mut all = false;
 
-    // Pre-scan for global flags (--db, --output) that may appear before subcommand
+    // Pre-scan for global flags (--db, --output, --all) that may appear before subcommand
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -1451,6 +1454,10 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                 }
                 let _ = parse_output_format(&args[i + 1])?;
                 i += 2;
+            }
+            "--all" => {
+                all = true;
+                i += 1;
             }
             _ => break,
         }
@@ -1529,6 +1536,10 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                         }
                         output_format = parse_output_format(&args[i + 1])?;
                         i += 2;
+                    }
+                    "--all" => {
+                        all = true;
+                        i += 1;
                     }
                     _ => {
                         return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
@@ -1615,6 +1626,10 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                         project = Some(args[i + 1].clone());
                         i += 2;
                     }
+                    "--all" => {
+                        all = true;
+                        i += 1;
+                    }
                     _ => {
                         return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
                     }
@@ -1653,6 +1668,10 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                         }
                         path = Some(args[i + 1].clone());
                         i += 2;
+                    }
+                    "--all" => {
+                        all = true;
+                        i += 1;
                     }
                     _ => {
                         return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
@@ -1717,6 +1736,10 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                         }
                         output_format = parse_output_format(&args[i + 1])?;
                         i += 2;
+                    }
+                    "--all" => {
+                        all = true;
+                        i += 1;
                     }
                     _ => {
                         return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
@@ -1788,6 +1811,10 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
                         output_format = parse_output_format(&args[i + 1])?;
                         i += 2;
                     }
+                    "--all" => {
+                        all = true;
+                        i += 1;
+                    }
                     _ => {
                         return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
                     }
@@ -1824,8 +1851,19 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
         }
     }
 
+    if all {
+        let registry = Registry::load().with_context(|| "Failed to load project registry")?;
+        let enabled: Vec<_> = registry.projects.iter().filter(|p| p.enabled).collect();
+        if enabled.is_empty() {
+            return Err(anyhow::anyhow!(
+                "No enabled projects in registry. Use `magellan registry scan` to discover projects, then `magellan registry enable <name>` to activate."
+            ));
+        }
+        db_paths = enabled.iter().map(|p| p.db.clone()).collect();
+    }
+
     if db_paths.is_empty() {
-        return Err(anyhow::anyhow!("--db is required"));
+        return Err(anyhow::anyhow!("--db is required (or use --all)"));
     }
 
     Ok(Command::Context {
