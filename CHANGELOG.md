@@ -50,6 +50,10 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - Output: markdown investigation packet with token estimate
   - `NavigateConfig` struct; `extract_terms()` and `truncate_to_budget()` are public for downstream use
 
+- **P3-CMP: `query.compare` socket method** (`src/service/admin_socket.rs`):
+  - JSON-RPC method for side-by-side cross-project symbol comparison
+  - Params: `name` (required), `projects` (array of project names)
+  - Resolves project DBs from meta.db by name; returns `comparisons` array with per-project name/kind/file/callers/callees
 - **P3-CTX: `query.context` socket method** (`src/service/admin_socket.rs`):
   - JSON-RPC method returning per-project symbol matches with `callers`/`callees` arrays
   - Params: `name` (required), `file` (optional), `callers` (bool), `callees` (bool), `depth` (usize)

@@ -1220,4 +1220,122 @@ mod integration_tests {
         accept_task.abort();
         let _ = tokio::fs::remove_file(socket_path).await;
     }
+
+    // P3-CMP RED: query.compare returns per-project symbol side-by-side
+    #[tokio::test]
+    async fn test_admin_socket_query_compare_returns_per_project() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+        use tokio::net::{UnixListener, UnixStream};
+
+        let socket_path = "/tmp/magellan_test_qcmp.sock";
+        let _ = tokio::fs::remove_file(socket_path).await;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_path = temp_dir.path().to_path_buf();
+
+        // Create two DBs — both have "greet", each in a different file
+        let tp = temp_path.clone();
+        let (db_a, db_b) = tokio::task::spawn_blocking(move || {
+            let db_a = tp.join("cmp_a.db");
+            let db_b = tp.join("cmp_b.db");
+            let mut g = magellan::CodeGraph::open(&db_a).unwrap();
+            g.index_file("src/a.rs", b"fn greet() { println!(\"a\") }\n")
+                .unwrap();
+            g.checkpoint_wal().unwrap();
+            let mut g = magellan::CodeGraph::open(&db_b).unwrap();
+            g.index_file("src/b.rs", b"fn greet() { println!(\"b\") }\n")
+                .unwrap();
+            g.checkpoint_wal().unwrap();
+            (db_a, db_b)
+        })
+        .await
+        .unwrap();
+
+        let meta_db = std::sync::Arc::new(tokio::sync::Mutex::new(
+            super::meta_db::MetaDb::open_at(temp_dir.path().join("cmp_meta.db")).unwrap(),
+        ));
+        {
+            let mut meta = meta_db.lock().await;
+            meta.upsert_project(
+                "cmp_a",
+                &temp_path.to_string_lossy(),
+                &db_a.to_string_lossy(),
+                true,
+            )
+            .unwrap();
+            meta.upsert_project(
+                "cmp_b",
+                &temp_path.to_string_lossy(),
+                &db_b.to_string_lossy(),
+                true,
+            )
+            .unwrap();
+        }
+
+        let reg = std::sync::Arc::new(tokio::sync::Mutex::new(
+            super::registry::Registry::load_from(temp_dir.path().join("cmp_reg.toml")).unwrap(),
+        ));
+
+        let listener = UnixListener::bind(socket_path).unwrap();
+        let meta_clone = meta_db.clone();
+        let accept_task = tokio::spawn(async move {
+            loop {
+                let (stream, _) = listener.accept().await.unwrap();
+                let reg = reg.clone();
+                let meta = meta_clone.clone();
+                let (tx, _rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16);
+                tokio::spawn(async move {
+                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, meta, tx)
+                        .await;
+                });
+            }
+        });
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+        let mut stream = UnixStream::connect(socket_path)
+            .await
+            .expect("connect to socket");
+        // Compare "greet" across cmp_a and cmp_b
+        let req = r#"{"id":"test-qcmp-1","method":"query.compare","name":"greet","projects":["cmp_a","cmp_b"]}"#;
+        let (read_half, mut write_half) = stream.split();
+        write_half
+            .write_all((req.to_string() + "\n").as_bytes())
+            .await
+            .unwrap();
+        write_half.shutdown().await.unwrap();
+
+        let mut reader = tokio::io::BufReader::new(read_half);
+        let mut line = String::new();
+        reader.read_line(&mut line).await.unwrap();
+        let resp: serde_json::Value = serde_json::from_str(&line).unwrap();
+
+        // Must NOT return not_implemented
+        assert!(
+            resp.get("error").is_none(),
+            "query.compare should be implemented, got: {}",
+            line
+        );
+
+        let result = resp.get("result").expect("result missing");
+        let comparisons = result
+            .get("comparisons")
+            .and_then(|v| v.as_array())
+            .expect("comparisons array missing");
+        assert_eq!(
+            comparisons.len(),
+            2,
+            "expected 2 per-project entries, got: {}",
+            line
+        );
+        // Each entry has project + name + file_path
+        for entry in comparisons {
+            assert!(entry.get("project").is_some(), "project field missing");
+            assert!(entry.get("name").is_some(), "name field missing");
+            assert!(entry.get("file_path").is_some(), "file_path field missing");
+        }
+
+        accept_task.abort();
+        let _ = tokio::fs::remove_file(socket_path).await;
+    }
 }

@@ -415,6 +415,88 @@ impl AdminSocket {
                 }
             }
 
+            "query.compare" => {
+                let name = params
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let project_names: Vec<String> = params
+                    .get("projects")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                // Resolve DB paths for the requested projects only
+                let db_entries: Vec<(String, std::path::PathBuf)> = {
+                    let meta = meta_db.lock().await;
+                    meta.list_projects()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter(|p| p.enabled && project_names.contains(&p.name))
+                        .map(|p| (p.name.clone(), std::path::PathBuf::from(&p.db_path)))
+                        .collect()
+                };
+
+                let name_for_query = name.clone();
+                let json_comparisons = tokio::task::spawn_blocking(move || {
+                    let mut arr: Vec<serde_json::Value> = Vec::new();
+                    for (project, db_path) in &db_entries {
+                        let mut graph = match magellan::CodeGraph::open(db_path) {
+                            Ok(g) => g,
+                            Err(_) => continue,
+                        };
+                        let detail = match magellan::context::get_symbol_detail(
+                            &mut graph,
+                            &name_for_query,
+                            None,
+                        ) {
+                            Ok(d) => d,
+                            Err(_) => continue,
+                        };
+                        arr.push(json!({
+                            "project": project,
+                            "name": &detail.name,
+                            "kind": &detail.kind,
+                            "file_path": &detail.file,
+                            "start_line": detail.line,
+                            "callers": detail.callers.iter().map(|c| json!({
+                                "name": &c.name, "file": &c.file, "line": c.line,
+                            })).collect::<Vec<_>>(),
+                            "callees": detail.callees.iter().map(|c| json!({
+                                "name": &c.name, "file": &c.file, "line": c.line,
+                            })).collect::<Vec<_>>(),
+                        }));
+                    }
+                    Ok::<Vec<serde_json::Value>, anyhow::Error>(arr)
+                })
+                .await;
+
+                match json_comparisons {
+                    Ok(Ok(arr)) => Ok(super::types::ServiceResponse::ok(
+                        id,
+                        json!({ "query": name, "comparisons": arr }),
+                    )
+                    .into_val()),
+                    Ok(Err(e)) => Ok(super::types::ServiceResponse::err(
+                        id,
+                        -32003,
+                        format!("Query error: {}", e),
+                    )
+                    .into_val()),
+                    Err(e) => Ok(super::types::ServiceResponse::err(
+                        id,
+                        -32603,
+                        format!("Blocking task panic: {}", e),
+                    )
+                    .into_val()),
+                }
+            }
+
             _ => Ok(super::types::ServiceResponse::not_implemented(id, method).into_val()),
         }
     }
