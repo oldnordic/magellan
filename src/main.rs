@@ -2,6 +2,7 @@
 //!
 //! Usage: magellan <command> [arguments]
 
+mod ask_cmd;
 mod ast_cmd;
 mod backfill_cmd;
 mod candidate_fact_cmd;
@@ -13,6 +14,7 @@ mod context_cmd;
 mod cross_file_refs_cmd;
 mod cycles_cmd;
 mod cypher_cmd;
+mod db_resolver;
 mod dead_code_cmd;
 mod delete_cmd;
 mod doctor_cmd;
@@ -1014,6 +1016,17 @@ fn main() -> ExitCode {
             output_format,
         }) => {
             if let Err(e) = hnsw_cmd::run_hnsw_query(db_path, name, vector, k, output_format) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::Ask {
+            question,
+            db_path,
+            output_format,
+        }) => {
+            if let Err(e) = ask_cmd::run_ask(question, db_path, output_format) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }

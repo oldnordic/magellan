@@ -3,7 +3,6 @@
 //! Synchronizes the graph database with the current git working tree state.
 //! Detects modified, deleted, and new files, then updates the database accordingly.
 
-use crate::service::registry::Registry;
 use anyhow::{Context, Result};
 use git2::{Repository, StatusOptions};
 use magellan::output::{generate_execution_id, output_json, JsonResponse, OutputFormat};
@@ -123,27 +122,7 @@ impl RefreshResponse {
 /// 4. If no match, fall back to existing default (`.magellan/magellan.db`)
 ///
 /// This is idempotent — repeated calls return the same DB for the same cwd.
-pub fn resolve_db_path(explicit: Option<PathBuf>) -> Result<PathBuf> {
-    if let Some(path) = explicit {
-        return Ok(path);
-    }
-
-    // Load registry from default location
-    let registry =
-        Registry::load().context("Failed to load project registry for default DB resolution")?;
-
-    // Try to find a project whose root matches the current working directory
-    let cwd = std::env::current_dir().context("Failed to get current working directory")?;
-
-    if let Some(entry) = registry.find_by_root(&cwd) {
-        let canon = Registry::canonical_db_path(&entry.name);
-        Registry::ensure_db_dir(&entry.name)?;
-        return Ok(canon);
-    }
-
-    // Fallback: existing default heuristic
-    Ok(PathBuf::from(".magellan/magellan.db"))
-}
+pub use crate::db_resolver::resolve_db_path;
 
 /// Run the refresh command
 ///

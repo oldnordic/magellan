@@ -9,6 +9,7 @@ use magellan::graph::query::CollisionField;
 use magellan::{detect_project_root, ExportFormat, OutputFormat, WatcherConfig};
 use std::path::PathBuf;
 
+use crate::db_resolver::resolve_db_path;
 use crate::service::registry::Registry;
 
 /// Print short usage (≤25 lines) for quick reference
@@ -764,6 +765,12 @@ pub enum Command {
         k: usize,
         output_format: OutputFormat,
     },
+    /// Ask — natural-language intent router (Phase 2 UX)
+    Ask {
+        question: String,
+        db_path: PathBuf,
+        output_format: OutputFormat,
+    },
 }
 
 // ============================================================================
@@ -863,7 +870,7 @@ fn parse_cross_file_refs_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = resolve_db_path(db_path)?;
     let fqn = fqn.ok_or_else(|| anyhow::anyhow!("--fqn is required"))?;
 
     Ok(Command::CrossFileRefs {
@@ -1863,7 +1870,7 @@ fn parse_context_args(args: &[String]) -> Result<Command> {
     }
 
     if db_paths.is_empty() {
-        return Err(anyhow::anyhow!("--db is required (or use --all)"));
+        db_paths.push(resolve_db_path(None)?);
     }
 
     Ok(Command::Context {
@@ -2175,7 +2182,7 @@ fn parse_find_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = resolve_db_path(db_path)?;
 
     Ok(Command::Find {
         db_path,
@@ -2355,6 +2362,7 @@ where
         "cypher" => parse_cypher_args(&args[2..]),
         "hnsw-create" => parse_hnsw_create_args(&args[2..]),
         "hnsw-query" => parse_hnsw_query_args(&args[2..]),
+        "ask" => parse_ask_args(&args[2..]),
         _ => Err(anyhow::anyhow!("Unknown command: {}", command)),
     }
 }
@@ -2381,7 +2389,7 @@ fn parse_files_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = resolve_db_path(db_path)?;
 
     Ok(Command::Files {
         db_path,
@@ -2465,7 +2473,7 @@ fn parse_get_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = resolve_db_path(db_path)?;
     let file_path = file_path.ok_or_else(|| anyhow::anyhow!("--file is required"))?;
     let symbol_name = symbol_name.ok_or_else(|| anyhow::anyhow!("--symbol is required"))?;
 
@@ -2503,7 +2511,7 @@ fn parse_get_file_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = resolve_db_path(db_path)?;
     let file_path = file_path.ok_or_else(|| anyhow::anyhow!("--file is required"))?;
 
     Ok(Command::GetFile {
@@ -2628,7 +2636,7 @@ fn parse_refs_args(args: &[String]) -> Result<Command> {
     }
 
     let db_path = if !all {
-        db_path.ok_or_else(|| anyhow::anyhow!("--db is required (or use --all)"))?
+        resolve_db_path(db_path)?
     } else {
         db_path.unwrap_or_default()
     };
@@ -3151,7 +3159,7 @@ fn parse_query_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = resolve_db_path(db_path)?;
 
     Ok(Command::Query {
         db_path,
@@ -3231,7 +3239,7 @@ fn parse_chunks_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = resolve_db_path(db_path)?;
 
     Ok(Command::Chunks {
         db_path,
@@ -3302,7 +3310,7 @@ fn parse_chunk_by_span_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = resolve_db_path(db_path)?;
     let file_path = file_path.ok_or_else(|| anyhow::anyhow!("--file is required"))?;
     let byte_start = byte_start.ok_or_else(|| anyhow::anyhow!("--start is required"))?;
     let byte_end = byte_end.ok_or_else(|| anyhow::anyhow!("--end is required"))?;
@@ -3368,7 +3376,7 @@ fn parse_chunk_by_symbol_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = resolve_db_path(db_path)?;
     let symbol_name = symbol_name.ok_or_else(|| anyhow::anyhow!("--symbol is required"))?;
 
     Ok(Command::ChunkBySymbol {
@@ -3431,7 +3439,7 @@ fn parse_ast_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = resolve_db_path(db_path)?;
     let file_path = file_path.ok_or_else(|| anyhow::anyhow!("--file is required"))?;
 
     Ok(Command::Ast {
@@ -3486,7 +3494,7 @@ fn parse_find_ast_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = resolve_db_path(db_path)?;
     let kind = kind.ok_or_else(|| anyhow::anyhow!("--kind is required"))?;
 
     Ok(Command::FindAst {
@@ -3545,7 +3553,7 @@ fn parse_reachable_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = resolve_db_path(db_path)?;
     let symbol_id = symbol_id.ok_or_else(|| anyhow::anyhow!("--symbol is required"))?;
 
     Ok(Command::Reachable {
@@ -3604,7 +3612,7 @@ fn parse_dead_code_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = resolve_db_path(db_path)?;
     let entry_symbol_id = entry_symbol_id.ok_or_else(|| anyhow::anyhow!("--entry is required"))?;
 
     Ok(Command::DeadCode {
@@ -3662,7 +3670,7 @@ fn parse_cycles_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = resolve_db_path(db_path)?;
 
     Ok(Command::Cycles {
         db_path,
@@ -3712,7 +3720,7 @@ fn parse_condense_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = resolve_db_path(db_path)?;
 
     Ok(Command::Condense {
         db_path,
@@ -3865,7 +3873,7 @@ fn parse_slice_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = resolve_db_path(db_path)?;
     let target = target.ok_or_else(|| anyhow::anyhow!("--target is required"))?;
 
     Ok(Command::Slice {
@@ -3936,7 +3944,7 @@ fn parse_source_inventory_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = resolve_db_path(db_path)?;
 
     Ok(Command::SourceInventory {
         db_path,
@@ -4079,7 +4087,7 @@ fn parse_candidate_fact_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = resolve_db_path(db_path)?;
 
     let action = match subcommand.as_str() {
         "submit" => {
@@ -4200,6 +4208,46 @@ fn parse_cypher_args(args: &[String]) -> Result<Command> {
     Ok(Command::Cypher {
         db_path,
         query,
+        output_format,
+    })
+}
+
+/// Parse the `ask` command arguments
+fn parse_ask_args(args: &[String]) -> Result<Command> {
+    let mut db_path: Option<PathBuf> = None;
+    let mut output_format = OutputFormat::Human;
+    let mut name: Option<String> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--db" => {
+                let value = parse_required_arg(args, &mut i, "--db")?;
+                db_path = Some(PathBuf::from(value));
+            }
+            "--output" | "-o" => {
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output_format = parse_output_format(&value)?;
+            }
+            "--name" | "-n" => {
+                name = Some(parse_required_arg(args, &mut i, "--name")?);
+            }
+            _ => {
+                if !args[i].starts_with("--") && name.is_none() {
+                    name = Some(args[i].clone());
+                }
+                i += 1;
+            }
+        }
+    }
+    let Some(question) = name else {
+        return Err(anyhow::anyhow!(
+            "ask requires a question. Example: magellan ask \"who calls run_find\""
+        ));
+    };
+    let db_path = resolve_db_path(db_path)?;
+    Ok(Command::Ask {
+        question,
+        db_path,
         output_format,
     })
 }
@@ -5234,14 +5282,17 @@ mod tests {
     // Edge Case Explosion Tests
     // ============================================================================
 
-    /// Test empty arguments
     #[test]
     fn test_edge_empty_args() {
         let args: Vec<String> = vec![];
 
-        // All parsers should fail with missing --db
+        // status still requires --db because the resolver was not wired for it
         assert!(parse_status_args(&args).is_err());
-        assert!(parse_files_args(&args).is_err());
+
+        // files now uses resolve_db_path fallback: empty args succeeds with cwd default
+        assert!(parse_files_args(&args).is_ok());
+
+        // watch still needs at least --root (or --db for --watch-only mode)
         assert!(parse_watch_args(&args).is_err());
     }
 
