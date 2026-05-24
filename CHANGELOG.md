@@ -50,6 +50,9 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - Output: markdown investigation packet with token estimate
   - `NavigateConfig` struct; `extract_terms()` and `truncate_to_budget()` are public for downstream use
 
+- **P4-COMPARE: `query.compare` enriched with `similarity_score`** (`src/service/admin_socket.rs`):
+  - Each entry in the `comparisons` array now includes `"similarity_score"` when a cross-ref pair exists in `pattern_cross_refs`
+  - Score is the best stored similarity across the requested project set for that symbol; field absent when no cross-ref has been indexed yet
 - **P4-CROSS: Cross-project structural similarity index** (`src/service/structural.rs`, `src/service/admin_socket.rs`):
   - `build_cross_refs(meta_db, db_paths, threshold)` — iterates all project symbols, extracts AST via `parse_with_language`, upserts embeddings, then performs pairwise cosine similarity across different projects; pairs ≥ threshold inserted into `pattern_cross_refs`; returns count of pairs inserted
   - `query.build-index` socket method — triggers `build_cross_refs` across all enabled registry projects with default threshold 0.70; returns `{ "pairs_inserted": N }`

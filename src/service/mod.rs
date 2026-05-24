@@ -1447,4 +1447,133 @@ mod integration_tests {
         accept_task.abort();
         let _ = tokio::fs::remove_file(socket_path).await;
     }
+
+    #[tokio::test]
+    async fn test_admin_socket_query_compare_includes_similarity_score() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+        use tokio::net::{UnixListener, UnixStream};
+
+        let socket_path = "/tmp/magellan_test_qcmp_score.sock";
+        let _ = tokio::fs::remove_file(socket_path).await;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_path = temp_dir.path().to_path_buf();
+
+        // Two projects with same structural shape — build-index should produce cross-ref pair
+        let tp = temp_path.clone();
+        let (db_a, db_b) = tokio::task::spawn_blocking(move || {
+            let src = b"fn greet() { if true { println!(\"hi\"); } }\n";
+            let src_a = tp.join("score_a.rs");
+            let src_b = tp.join("score_b.rs");
+            std::fs::write(&src_a, src).unwrap();
+            std::fs::write(&src_b, src).unwrap();
+
+            let db_a = tp.join("score_a.db");
+            let db_b = tp.join("score_b.db");
+            let mut g = magellan::CodeGraph::open(&db_a).unwrap();
+            g.index_file(src_a.to_str().unwrap(), src).unwrap();
+            g.checkpoint_wal().unwrap();
+            let mut g = magellan::CodeGraph::open(&db_b).unwrap();
+            g.index_file(src_b.to_str().unwrap(), src).unwrap();
+            g.checkpoint_wal().unwrap();
+            (db_a, db_b)
+        })
+        .await
+        .unwrap();
+
+        let meta_db = std::sync::Arc::new(tokio::sync::Mutex::new(
+            super::meta_db::MetaDb::open_at(temp_dir.path().join("score_meta.db")).unwrap(),
+        ));
+        {
+            let mut meta = meta_db.lock().await;
+            meta.upsert_project(
+                "score_a",
+                &temp_path.to_string_lossy(),
+                &db_a.to_string_lossy(),
+                true,
+            )
+            .unwrap();
+            meta.upsert_project(
+                "score_b",
+                &temp_path.to_string_lossy(),
+                &db_b.to_string_lossy(),
+                true,
+            )
+            .unwrap();
+        }
+
+        let reg = std::sync::Arc::new(tokio::sync::Mutex::new(
+            super::registry::Registry::load_from(temp_dir.path().join("score_reg.toml")).unwrap(),
+        ));
+
+        let listener = UnixListener::bind(socket_path).unwrap();
+        let meta_clone = meta_db.clone();
+        let accept_task = tokio::spawn(async move {
+            loop {
+                let (stream, _) = listener.accept().await.unwrap();
+                let reg = reg.clone();
+                let meta = meta_clone.clone();
+                let (tx, _rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16);
+                tokio::spawn(async move {
+                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, meta, tx)
+                        .await;
+                });
+            }
+        });
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+        // Step 1: build the cross-ref index first
+        let mut stream = UnixStream::connect(socket_path).await.unwrap();
+        let req_build = r#"{"id":"score-build","method":"query.build-index"}"#;
+        let (read_half, mut write_half) = stream.split();
+        write_half
+            .write_all((req_build.to_string() + "\n").as_bytes())
+            .await
+            .unwrap();
+        write_half.shutdown().await.unwrap();
+        let mut reader = tokio::io::BufReader::new(read_half);
+        let mut _line = String::new();
+        reader.read_line(&mut _line).await.unwrap(); // consume build response
+
+        // Step 2: query.compare — should now include similarity_score per entry
+        let mut stream = UnixStream::connect(socket_path).await.unwrap();
+        let req = r#"{"id":"score-cmp","method":"query.compare","name":"greet","projects":["score_a","score_b"]}"#;
+        let (read_half, mut write_half) = stream.split();
+        write_half
+            .write_all((req.to_string() + "\n").as_bytes())
+            .await
+            .unwrap();
+        write_half.shutdown().await.unwrap();
+
+        let mut reader = tokio::io::BufReader::new(read_half);
+        let mut line = String::new();
+        reader.read_line(&mut line).await.unwrap();
+        let resp: serde_json::Value = serde_json::from_str(&line).unwrap();
+
+        assert!(
+            resp.get("error").is_none(),
+            "query.compare should succeed, got: {}",
+            line
+        );
+
+        let result = resp.get("result").expect("result missing");
+        let comparisons = result
+            .get("comparisons")
+            .and_then(|v| v.as_array())
+            .expect("comparisons array missing");
+        assert_eq!(comparisons.len(), 2, "expected 2 comparison entries");
+
+        // At least one entry should carry a similarity_score
+        let has_score = comparisons
+            .iter()
+            .any(|e| e.get("similarity_score").is_some());
+        assert!(
+            has_score,
+            "expected at least one entry with similarity_score"
+        );
+
+        accept_task.abort();
+        let _ = tokio::fs::remove_file(socket_path).await;
+    }
 }

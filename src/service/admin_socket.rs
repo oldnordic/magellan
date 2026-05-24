@@ -431,15 +431,34 @@ impl AdminSocket {
                     })
                     .unwrap_or_default();
 
-                // Resolve DB paths for the requested projects only
-                let db_entries: Vec<(String, std::path::PathBuf)> = {
+                // Resolve DB paths + pre-fetch cross-ref scores for the symbol
+                let (db_entries, score_map) = {
                     let meta = meta_db.lock().await;
-                    meta.list_projects()
+                    let entries = meta
+                        .list_projects()
                         .unwrap_or_default()
                         .into_iter()
                         .filter(|p| p.enabled && project_names.contains(&p.name))
                         .map(|p| (p.name.clone(), std::path::PathBuf::from(&p.db_path)))
-                        .collect()
+                        .collect::<Vec<_>>();
+                    // Build (proj_a, proj_b) -> similarity_score lookup from pattern_cross_refs
+                    let mut scores = std::collections::HashMap::new();
+                    for (proj, _) in &entries {
+                        for xref in meta
+                            .query_cross_refs_for_symbol(proj, &name)
+                            .unwrap_or_default()
+                        {
+                            scores.insert(
+                                (xref.project_a.clone(), xref.project_b.clone()),
+                                xref.similarity_score,
+                            );
+                            scores.insert(
+                                (xref.project_b.clone(), xref.project_a.clone()),
+                                xref.similarity_score,
+                            );
+                        }
+                    }
+                    (entries, scores)
                 };
 
                 let name_for_query = name.clone();
@@ -458,7 +477,15 @@ impl AdminSocket {
                             Ok(d) => d,
                             Err(_) => continue,
                         };
-                        arr.push(json!({
+                        // Find the best similarity score against any other requested project
+                        let best_score: Option<f64> = db_entries
+                            .iter()
+                            .filter(|(other, _)| other != project)
+                            .filter_map(|(other, _)| {
+                                score_map.get(&(project.clone(), other.clone())).copied()
+                            })
+                            .reduce(f64::max);
+                        let mut entry = json!({
                             "project": project,
                             "name": &detail.name,
                             "kind": &detail.kind,
@@ -470,7 +497,11 @@ impl AdminSocket {
                             "callees": detail.callees.iter().map(|c| json!({
                                 "name": &c.name, "file": &c.file, "line": c.line,
                             })).collect::<Vec<_>>(),
-                        }));
+                        });
+                        if let Some(score) = best_score {
+                            entry["similarity_score"] = serde_json::json!(score);
+                        }
+                        arr.push(entry);
                     }
                     Ok::<Vec<serde_json::Value>, anyhow::Error>(arr)
                 })
