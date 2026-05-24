@@ -1,6 +1,6 @@
 # Magellan
 
-**Version:** 3.3.9
+**Version:** 4.1.0
 
 Magellan is a deterministic codebase indexing tool. It watches or scans source
 trees, extracts symbols, references, calls, AST nodes, code chunks, CFG data, and
@@ -136,6 +136,17 @@ magellan source-inventory --db code.db --scan ./wiki markdown
 magellan source-inventory --db code.db --kind wiki
 magellan candidate-fact submit --db code.db --from-source 1 --subject-type Task --subject-key "task-1" --predicate assigned_to
 magellan candidate-fact list --db code.db --status pending
+
+# Natural language query routing (callers, CFG, cycles, impact, semantic search, find)
+magellan ask --db code.db "who calls index_file"
+magellan ask --db code.db "cfg for parse_watch_args"
+magellan ask --db code.db "blast zone of handle_request"
+magellan ask --all "who calls index_file"
+
+# Grounded investigation packet (term extraction → symbol find → callers/callees/impact/context)
+magellan navigate --db code.db "parse_watch_args error handling"
+magellan navigate --db code.db "handle_request" --concise
+magellan navigate --db code.db "CodeGraph open sync" --depth 3 --with-llmgrep --with-mirage
 ```
 
 ## External CFG Tools

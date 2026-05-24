@@ -39,6 +39,16 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - `project(&self, name)` — returns `ProjectHandle<'_>` scoped to one database
   - `ask(&self, query)` — intent-routed query returning a formatted `String`
   - `FrameworkSymbol`, `ProjectHandle` re-exported from crate root
+- **`magellan navigate <task>`** — Rust-native grounded investigation packet (`src/navigate_cmd.rs`):
+  - Extracts code terms from natural-language task description; resolves symbols in-process
+  - Normal mode: top 3 resolved symbols × callers + callees + impact + affected + context+source (+ optional mirage CFG)
+  - Concise mode (`--concise`): single bundled `get_symbol_detail` for top symbol (callers + callees + source), truncated to `--budget N` tokens (default 4000; 1 token ≈ 4 chars)
+  - `--depth N` — impact/affected traversal depth (default 2)
+  - `--limit N` — max symbols per extracted term (default 5)
+  - `--with-llmgrep` — append semantic search results via `llmgrep`
+  - `--with-mirage` — append CFG output via `mirage cfg` for top symbols
+  - Output: markdown investigation packet with token estimate
+  - `NavigateConfig` struct; `extract_terms()` and `truncate_to_budget()` are public for downstream use
 
 ### Fixed
 

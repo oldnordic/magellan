@@ -254,6 +254,31 @@ Detected intents and their routing:
 | `search`, `semantic`, `find code` | `llmgrep search` |
 | *(anything else)* | symbol find |
 
+### Navigate (Grounded Investigation Packet)
+
+`navigate` extracts code terms from a task description and runs a full investigation:
+symbol find → callers → callees → impact → affected → context with source.
+Optionally invokes `llmgrep` and `mirage` for deeper analysis.
+
+```bash
+magellan navigate --db code.db "who calls index_file"
+magellan navigate --db code.db "parse_watch_args error handling" --with-mirage
+magellan navigate --db code.db "search for retry logic" --with-llmgrep
+magellan navigate --db code.db "CodeGraph open_dual sync" --depth 3
+magellan navigate --db code.db "handle_request" --concise
+```
+
+| Flag | Meaning |
+|------|---------|
+| `<TASK>` | Natural-language task or question (required) |
+| `--depth <N>` | Impact/affected traversal depth (default: 2) |
+| `--limit <N>` | Max symbols per extracted term (default: 5) |
+| `--concise` | Only top symbol's context (faster, lower token cost) |
+| `--with-llmgrep` | Also run semantic search via `llmgrep` |
+| `--with-mirage` | Also run CFG analysis via `mirage` for top symbols |
+
+Output is a markdown investigation packet with a token estimate.
+
 ### Configuration
 
 ```bash

@@ -1,6 +1,6 @@
 # Magellan API Integration
 
-**Version:** 3.3.9
+**Version:** 4.1.0
 
 This guide is for downstream tools that use Magellan as a Rust library or invoke
 the CLI and parse JSON output.
@@ -95,9 +95,69 @@ magellan export --db code.db --format lsif --output graph.lsif
 magellan import-lsif --db code.db dependency.lsif
 ```
 
+## Framework API (v4.1.0+)
+
+`MagellanFramework` provides a single entry point for cross-project queries in
+downstream Rust tools:
+
+```rust
+use magellan::{MagellanFramework, FrameworkSymbol};
+
+// Open all projects from the user registry (~/.config/magellan/registry.toml)
+let fw = MagellanFramework::from_registry()?;
+
+// Cross-project symbol search
+let hits: Vec<FrameworkSymbol> = fw.find("parse_args")?;
+for hit in &hits {
+    println!("{} — {} ({}:{})", hit.name, hit.project, hit.file, hit.line);
+}
+
+// Intent-routed natural language query across all projects
+let output: String = fw.ask("who calls index_file")?;
+println!("{}", output);
+
+// Scope to one project
+let proj = fw.project("magellan")?;
+let syms = proj.graph().symbols_in_file("src/main.rs")?;
+```
+
+Constructors:
+
+| Method | Source |
+|--------|--------|
+| `MagellanFramework::from_registry()` | `~/.config/magellan/registry.toml` |
+| `MagellanFramework::from_registry_file(path)` | Explicit registry file |
+| `MagellanFramework::from_db_paths(entries)` | `Vec<(name, db_path)>` |
+
+`FrameworkSymbol` and `ProjectHandle` are re-exported from the crate root.
+
+## Navigate API (v4.1.0+)
+
+`navigate_cmd::run_navigate` generates grounded investigation packets in-process:
+
+```rust
+use magellan::navigate_cmd::{run_navigate, NavigateConfig};
+use std::path::PathBuf;
+
+run_navigate(NavigateConfig {
+    db_path: PathBuf::from(".magellan/code.db"),
+    task: "parse_watch_args error handling".into(),
+    depth: 2,
+    budget: 4000,
+    limit: 5,
+    concise: false,
+    with_llmgrep: false,
+    with_mirage: false,
+})?;
+```
+
+The packet is written to stdout as markdown. Use `--concise` + `--budget N` for
+token-constrained output (1 token ≈ 4 chars). `extract_terms()` and
+`truncate_to_budget()` are also public for reuse.
+
 ## Schema Versions
 
-- Magellan database schema: `14`
+- Magellan database schema: `16`
 - JSON response schema: `1.0.0`
 
 Consumers should treat both as compatibility boundaries.
