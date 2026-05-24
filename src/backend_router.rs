@@ -41,6 +41,8 @@ pub enum BackendType {
     SQLite,
     /// Geometric backend (spatial indexing)
     Geometric,
+    /// Dual backend: SQLite for precise queries + V3 for fast traversal
+    Dual,
 }
 
 /// Unified backend interface
@@ -51,17 +53,27 @@ pub enum MagellanBackend {
 }
 
 impl MagellanBackend {
-    /// Detect backend type from file extension
+    /// Detect backend type from file extension and companion file presence.
+    ///
+    /// Returns `Dual` when a `.db` file has a companion `.db.v3` file alongside it,
+    /// enabling the dual SQLite+V3 query routing path.
     pub fn detect_type(db_path: &Path) -> BackendType {
         match db_path.extension().and_then(|e| e.to_str()) {
             #[cfg(feature = "geometric-backend")]
             Some("geo") => BackendType::Geometric,
             #[cfg(not(feature = "geometric-backend"))]
-            Some("geo") => {
-                // Fallback to SQLite if geometric backend is not available
-                BackendType::SQLite
+            Some("geo") => BackendType::SQLite,
+            Some("db") | Some("sqlite") => {
+                let v3_companion = db_path.with_file_name(format!(
+                    "{}.v3",
+                    db_path.file_name().unwrap_or_default().to_string_lossy()
+                ));
+                if v3_companion.exists() {
+                    BackendType::Dual
+                } else {
+                    BackendType::SQLite
+                }
             }
-            Some("db") | Some("sqlite") | Some("v3") => BackendType::SQLite,
             _ => BackendType::SQLite,
         }
     }
@@ -80,7 +92,7 @@ impl MagellanBackend {
             BackendType::Geometric => Err(anyhow::anyhow!(
                 "Geometric backend requires 'geometric-backend' feature"
             )),
-            BackendType::SQLite => {
+            BackendType::SQLite | BackendType::Dual => {
                 let graph = CodeGraph::open(db_path).context("Failed to create SQLite database")?;
                 Ok(MagellanBackend::SQLite(graph))
             }
@@ -110,7 +122,7 @@ impl MagellanBackend {
             BackendType::Geometric => Err(anyhow::anyhow!(
                 "Geometric backend requires 'geometric-backend' feature"
             )),
-            BackendType::SQLite => {
+            BackendType::SQLite | BackendType::Dual => {
                 let graph = CodeGraph::open(db_path).context("Failed to open SQLite database")?;
                 Ok(MagellanBackend::SQLite(graph))
             }
@@ -859,5 +871,26 @@ mod tests {
             MagellanBackend::detect_type(Path::new("test.db")),
             BackendType::SQLite
         ));
+    }
+
+    #[test]
+    fn test_detect_type_dual() {
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("test.db");
+        let v3_path = temp.path().join("test.db.v3");
+
+        std::fs::File::create(&db_path).unwrap();
+        std::fs::File::create(&v3_path).unwrap();
+
+        assert_eq!(MagellanBackend::detect_type(&db_path), BackendType::Dual);
+    }
+
+    #[test]
+    fn test_detect_type_sqlite_without_v3() {
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("test.db");
+        std::fs::File::create(&db_path).unwrap();
+
+        assert_eq!(MagellanBackend::detect_type(&db_path), BackendType::SQLite);
     }
 }

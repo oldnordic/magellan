@@ -314,6 +314,10 @@ pub struct WatchPipelineConfig {
     pub include_patterns: Vec<String>,
     /// Exclude glob patterns
     pub exclude_patterns: Vec<String>,
+    /// Whether to sync indexed files into the V3 native engine after each batch.
+    pub enable_v3_sync: bool,
+    /// Path to the V3 native engine file (companion to db_path). Required when enable_v3_sync is true.
+    pub v3_path: Option<PathBuf>,
 }
 
 impl WatchPipelineConfig {
@@ -331,7 +335,16 @@ impl WatchPipelineConfig {
             scan_initial,
             include_patterns: Vec::new(),
             exclude_patterns: Vec::new(),
+            enable_v3_sync: false,
+            v3_path: None,
         }
+    }
+
+    /// Enable V3 sync with the given companion file path.
+    pub fn with_v3_sync(mut self, v3_path: PathBuf) -> Self {
+        self.enable_v3_sync = true;
+        self.v3_path = Some(v3_path);
+        self
     }
 }
 
@@ -522,7 +535,21 @@ pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>
     };
 
     // Open graph first so we can get the backend for pub/sub subscription
-    let mut graph = CodeGraph::open(&config.db_path)?;
+    let mut graph = if config.enable_v3_sync {
+        let v3_path = config.v3_path.as_ref().cloned().unwrap_or_else(|| {
+            let mut p = config.db_path.clone();
+            let name = p
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
+            p.set_file_name(format!("{}.v3", name));
+            p
+        });
+        CodeGraph::open_dual(&config.db_path, &v3_path)?
+    } else {
+        CodeGraph::open(&config.db_path)?
+    };
 
     // Parse Cargo.toml and store manifest metadata in magellan_meta
     if let Ok(manifest) = crate::project_config::CargoManifest::parse(&scan_root) {
@@ -870,6 +897,11 @@ fn process_dirty_paths_batched(graph: &mut CodeGraph, dirty_paths: &[PathBuf]) -
         // Uses the graph's side connection to avoid uncoordinated WAL access
         if let Err(e) = graph.rebuild_fts5() {
             eprintln!("Warning: FTS5 rebuild failed: {}", e);
+        }
+
+        // Sync newly indexed files into V3 engine (no-op when v3 is None)
+        if let Err(e) = graph.sync_to_v3(dirty_paths) {
+            eprintln!("Warning: V3 sync failed: {}", e);
         }
     }
 
@@ -1392,5 +1424,23 @@ mod tests {
                 i, integrity
             );
         }
+    }
+
+    #[test]
+    fn test_watch_pipeline_config_v3_sync() {
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("test.db");
+        let v3_path = temp.path().join("test.db.v3");
+
+        let config = WatchPipelineConfig::new(
+            temp.path().to_path_buf(),
+            db_path.clone(),
+            WatcherConfig::default(),
+            false,
+        )
+        .with_v3_sync(v3_path.clone());
+
+        assert!(config.enable_v3_sync, "enable_v3_sync should be true");
+        assert_eq!(config.v3_path, Some(v3_path));
     }
 }

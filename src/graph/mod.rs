@@ -227,6 +227,10 @@ pub struct CodeGraph {
 
     /// Database file path for re-opening connections
     db_path: PathBuf,
+
+    /// Optional V3 native traversal engine for fast BFS/SCC queries.
+    /// Present only when opened via `open_dual`. `None` in default SQLite mode.
+    pub(crate) v3: Option<Arc<sqlitegraph::NativeGraphBackend>>,
 }
 
 impl CodeGraph {
@@ -488,6 +492,7 @@ impl CodeGraph {
             side_conn,
             batch_mode: true,
             db_path: db_path_buf,
+            v3: None,
         };
 
         // Build module index for path resolution
@@ -507,6 +512,129 @@ impl CodeGraph {
         }
 
         Ok(graph)
+    }
+
+    /// Returns true if a V3 native traversal engine is attached.
+    ///
+    /// When true, callers can route BFS/SCC queries to V3 via `v3_node_for_symbol` +
+    /// the engine returned by the internal `v3` field.
+    pub fn has_v3(&self) -> bool {
+        self.v3.is_some()
+    }
+
+    /// Look up the V3 node ID for a symbol identified by file path and name.
+    ///
+    /// Returns `None` if the symbol has not been synced to V3 yet or if V3 is absent.
+    pub fn v3_node_for_symbol(&self, path: &str, name: &str) -> Result<Option<i64>> {
+        if self.v3.is_none() {
+            return Ok(None);
+        }
+        let conn = self
+            .side_conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Mutex poisoned: {}", e))?;
+        // v3_node_map may not exist yet if sync hasn't run
+        let exists: bool = conn
+            .query_row(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='v3_node_map'",
+                [],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+        if !exists {
+            return Ok(None);
+        }
+        use rusqlite::OptionalExtension;
+        let v3_id: Option<i64> = conn
+            .query_row(
+                "SELECT vm.v3_id
+                 FROM v3_node_map vm
+                 JOIN graph_entities ge ON ge.id = vm.sqlite_id
+                 WHERE ge.name = ?1 AND ge.file_path = ?2
+                 LIMIT 1",
+                rusqlite::params![name, path],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| anyhow::anyhow!("v3_node_for_symbol query failed: {}", e))?;
+        Ok(v3_id)
+    }
+
+    /// Open a CodeGraph with both SQLite and a V3 native traversal engine.
+    ///
+    /// The V3 file is created if it does not exist. The SQLite side is identical
+    /// to `open()`. Use `sync_to_v3` after indexing to populate the V3 engine.
+    pub fn open_dual<P: AsRef<Path>>(db_path: P, v3_path: P) -> Result<Self> {
+        let mut graph = Self::open(db_path)?;
+        let v3_path = v3_path.as_ref();
+        let v3 = if v3_path.exists() {
+            sqlitegraph::NativeGraphBackend::open(v3_path)
+                .map_err(|e| anyhow::anyhow!("V3 open failed: {}", e))?
+        } else {
+            sqlitegraph::NativeGraphBackend::create(v3_path)
+                .map_err(|e| anyhow::anyhow!("V3 create failed: {}", e))?
+        };
+        graph.v3 = Some(Arc::new(v3));
+        Ok(graph)
+    }
+
+    /// Sync symbols for the given file paths from SQLite into the V3 engine.
+    ///
+    /// Records the SQLite→V3 ID mapping in the `v3_node_map` side table so that
+    /// future traversal queries can translate between the two ID spaces.
+    /// No-op when the V3 engine is not present.
+    pub fn sync_to_v3(&mut self, paths: &[std::path::PathBuf]) -> Result<()> {
+        let v3 = match &self.v3 {
+            Some(v3) => Arc::clone(v3),
+            None => return Ok(()),
+        };
+
+        // Ensure mapping side table exists
+        {
+            let conn = self
+                .side_conn
+                .lock()
+                .map_err(|e| anyhow::anyhow!("Mutex poisoned: {}", e))?;
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS v3_node_map (
+                    sqlite_id INTEGER PRIMARY KEY,
+                    v3_id     INTEGER NOT NULL
+                )",
+            )
+            .map_err(|e| anyhow::anyhow!("Failed to create v3_node_map: {}", e))?;
+        }
+
+        let mut batch = v3.begin_batch();
+        for path in paths {
+            let path_str = path.to_string_lossy().into_owned();
+            let symbols = self.symbol_nodes_in_file(&path_str)?;
+            for (sqlite_id, fact) in symbols {
+                let name = fact.name.clone().unwrap_or_default();
+                let kind = format!("{:?}", fact.kind);
+                let node_spec = sqlitegraph::NodeSpec {
+                    kind,
+                    name: name.clone(),
+                    file_path: Some(path_str.clone()),
+                    data: serde_json::json!({ "name": name }),
+                };
+                let v3_id = batch
+                    .insert_node(node_spec)
+                    .map_err(|e| anyhow::anyhow!("V3 insert_node failed: {}", e))?;
+                let conn = self
+                    .side_conn
+                    .lock()
+                    .map_err(|e| anyhow::anyhow!("Mutex poisoned: {}", e))?;
+                conn.execute(
+                    "INSERT OR REPLACE INTO v3_node_map (sqlite_id, v3_id) VALUES (?1, ?2)",
+                    rusqlite::params![sqlite_id, v3_id],
+                )
+                .map_err(|e| anyhow::anyhow!("v3_node_map insert failed: {}", e))?;
+            }
+        }
+        batch
+            .commit()
+            .map_err(|e| anyhow::anyhow!("V3 batch commit failed: {}", e))?;
+        Ok(())
     }
 
     /// Checkpoint the SQLite WAL to prevent unbounded growth.

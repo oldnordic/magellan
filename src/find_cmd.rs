@@ -418,7 +418,7 @@ pub fn run_find(
             );
             result
         }
-        BackendType::SQLite => {
+        BackendType::SQLite | BackendType::Dual => {
             let results = match path.as_ref() {
                 Some(file_path) => {
                     let path_str = resolve_path(file_path, &root);
