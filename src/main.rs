@@ -31,6 +31,7 @@ mod ingest_coverage_cmd;
 mod init_cmd;
 mod label_cmd;
 mod migrate_cmd;
+mod navigate_cmd;
 mod path_enumeration_cmd;
 mod project_metadata_cmd;
 mod query_cmd;
@@ -1031,6 +1032,32 @@ fn main() -> ExitCode {
             all,
         }) => {
             if let Err(e) = ask_cmd::run_ask(question, db_path, all, output_format) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::Navigate {
+            task,
+            db_path,
+            depth,
+            budget,
+            limit,
+            concise,
+            with_llmgrep,
+            with_mirage,
+        }) => {
+            let cfg = navigate_cmd::NavigateConfig {
+                db_path,
+                task,
+                depth,
+                budget,
+                limit,
+                concise,
+                with_llmgrep,
+                with_mirage,
+            };
+            if let Err(e) = navigate_cmd::run_navigate(cfg) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }

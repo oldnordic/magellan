@@ -391,6 +391,16 @@ pub fn print_full_usage() {
     eprintln!("  --depth <N>         Max traversal depth (default: 3)");
     eprintln!("  --project <NAME>    Filter to single project (optional)");
     eprintln!("  --output <FORMAT>   Output format: human (default), json, or pretty");
+    eprintln!();
+    eprintln!("Navigate arguments:");
+    eprintln!("  <TASK>              Natural-language task or question (required)");
+    eprintln!("  --db <FILE>         Path to sqlitegraph database");
+    eprintln!("  --depth <N>         Impact/affected traversal depth (default: 2)");
+    eprintln!("  --budget <N>        Token budget for concise mode output (default: 4000)");
+    eprintln!("  --limit <N>         Max symbols per term (default: 5)");
+    eprintln!("  --concise           Single bundled context for top symbol, truncated to --budget");
+    eprintln!("  --with-llmgrep      Also run llmgrep semantic search");
+    eprintln!("  --with-mirage       Also run mirage CFG for top symbols");
 }
 
 /// Context subcommands
@@ -778,6 +788,17 @@ pub enum Command {
         db_path: PathBuf,
         output_format: OutputFormat,
         all: bool,
+    },
+    /// Navigate — grounded investigation packet (magellan + llmgrep + mirage)
+    Navigate {
+        task: String,
+        db_path: PathBuf,
+        depth: usize,
+        budget: usize,
+        limit: usize,
+        concise: bool,
+        with_llmgrep: bool,
+        with_mirage: bool,
     },
 }
 
@@ -2437,6 +2458,7 @@ where
         "hnsw-create" => parse_hnsw_create_args(&args[2..]),
         "hnsw-query" => parse_hnsw_query_args(&args[2..]),
         "ask" => parse_ask_args(&args[2..]),
+        "navigate" => parse_navigate_args(&args[2..]),
         "features" => parse_features_args(&args[2..]),
         _ => Err(anyhow::anyhow!("Unknown command: {}", command)),
     }
@@ -4342,6 +4364,79 @@ fn parse_ask_args(args: &[String]) -> Result<Command> {
         db_path,
         output_format,
         all,
+    })
+}
+
+/// Parse the `navigate` command arguments
+fn parse_navigate_args(args: &[String]) -> Result<Command> {
+    let mut db_path: Option<PathBuf> = None;
+    let mut task: Option<String> = None;
+    let mut depth = 2usize;
+    let mut budget = 4000usize;
+    let mut limit = 5usize;
+    let mut concise = false;
+    let mut with_llmgrep = false;
+    let mut with_mirage = false;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--db" => {
+                let value = parse_required_arg(args, &mut i, "--db")?;
+                db_path = Some(PathBuf::from(value));
+            }
+            "--depth" => {
+                let v = parse_required_arg(args, &mut i, "--depth")?;
+                depth = v
+                    .parse()
+                    .map_err(|_| anyhow::anyhow!("--depth must be a positive integer"))?;
+            }
+            "--budget" => {
+                let v = parse_required_arg(args, &mut i, "--budget")?;
+                budget = v
+                    .parse()
+                    .map_err(|_| anyhow::anyhow!("--budget must be a positive integer"))?;
+            }
+            "--limit" => {
+                let v = parse_required_arg(args, &mut i, "--limit")?;
+                limit = v
+                    .parse()
+                    .map_err(|_| anyhow::anyhow!("--limit must be a positive integer"))?;
+            }
+            "--concise" => {
+                concise = true;
+                i += 1;
+            }
+            "--with-llmgrep" => {
+                with_llmgrep = true;
+                i += 1;
+            }
+            "--with-mirage" => {
+                with_mirage = true;
+                i += 1;
+            }
+            _ => {
+                if !args[i].starts_with("--") && task.is_none() {
+                    task = Some(args[i].clone());
+                }
+                i += 1;
+            }
+        }
+    }
+    let task = task.ok_or_else(|| {
+        anyhow::anyhow!(
+            "navigate requires a task description. Example: magellan navigate \"who calls index_file\""
+        )
+    })?;
+    let db_path = resolve_db_path(db_path)?;
+    Ok(Command::Navigate {
+        task,
+        db_path,
+        depth,
+        budget,
+        limit,
+        concise,
+        with_llmgrep,
+        with_mirage,
     })
 }
 
