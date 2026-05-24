@@ -2,9 +2,12 @@
 //!
 //! Shows calls (incoming/outgoing) for a symbol.
 
+use crate::service::registry::Registry;
+use anyhow::Context;
 use anyhow::Result;
 use magellan::common::{detect_language_from_path, resolve_path};
 use magellan::graph::query;
+use magellan::graph::MultiDbContext;
 use magellan::output::rich::{SpanChecksums, SpanContext};
 use magellan::output::{
     output_json, JsonResponse, OutputFormat, ReferenceMatch, RefsResponse, Span,
@@ -77,7 +80,20 @@ pub fn run_refs(
     with_semantics: bool,
     with_checksums: bool,
     context_lines: usize,
+    all: bool,
 ) -> Result<()> {
+    if all {
+        return run_refs_all(
+            &name,
+            &direction,
+            output_format,
+            with_context,
+            with_semantics,
+            with_checksums,
+            context_lines,
+        );
+    }
+
     // Build args for execution tracking
     let mut args = vec!["refs".to_string()];
     args.push("--name".to_string());
@@ -481,6 +497,99 @@ fn output_json_mode(
 
     let json_response = JsonResponse::new(response, exec_id);
     output_json(&json_response, output_format)?;
+
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_refs_all(
+    _name: &str,
+    direction: &str,
+    output_format: OutputFormat,
+    _with_context: bool,
+    _with_semantics: bool,
+    _with_checksums: bool,
+    _context_lines: usize,
+) -> Result<()> {
+    let registry = Registry::load().with_context(|| "Failed to load project registry")?;
+    let enabled: Vec<_> = registry.projects.iter().filter(|p| p.enabled).collect();
+
+    if enabled.is_empty() {
+        println!("No enabled projects in registry.");
+        println!("Hint: use `magellan registry scan` to discover projects, then `magellan registry enable <name>` to activate.");
+        return Ok(());
+    }
+
+    let db_paths: Vec<PathBuf> = enabled.iter().map(|p| p.db.clone()).collect();
+    let mut mdb = MultiDbContext::from_paths(&db_paths)?;
+
+    let include_callers = direction == "in" || direction == "incoming";
+    let include_callees = direction == "out" || direction == "outgoing";
+    let matches = mdb.search_symbol(_name, None, Some(1), include_callers, include_callees);
+
+    if matches.is_empty() {
+        if include_callers {
+            println!(
+                "No incoming references to '{}' across {} project(s).",
+                _name,
+                enabled.len()
+            );
+        } else {
+            println!(
+                "No outgoing references from '{}' across {} project(s).",
+                _name,
+                enabled.len()
+            );
+        }
+        return Ok(());
+    }
+
+    match output_format {
+        OutputFormat::Json | OutputFormat::Pretty => {
+            let exec_id = magellan::output::generate_execution_id();
+            let response = JsonResponse::new(&matches, &exec_id);
+            if output_format == OutputFormat::Pretty {
+                println!("{}", serde_json::to_string_pretty(&response).unwrap());
+            } else {
+                println!("{}", serde_json::to_string(&response).unwrap());
+            }
+        }
+        OutputFormat::Human => {
+            if include_callers {
+                println!(
+                    "Incoming references for '{}' across {} project(s):",
+                    _name,
+                    enabled.len()
+                );
+                for m in matches {
+                    if let Some(ref callers) = m.callers {
+                        for caller in callers {
+                            println!(
+                                "  called by {} in {}:{}",
+                                caller.name, caller.file_path, caller.line
+                            );
+                        }
+                    }
+                }
+            } else {
+                println!(
+                    "Outgoing references for '{}' across {} project(s):",
+                    _name,
+                    enabled.len()
+                );
+                for m in matches {
+                    if let Some(ref callees) = m.callees {
+                        for callee in callees {
+                            println!(
+                                "  calls {} in {}:{}",
+                                callee.name, callee.file_path, callee.line
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     Ok(())
 }

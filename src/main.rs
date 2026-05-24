@@ -469,6 +469,7 @@ fn main() -> ExitCode {
             with_semantics,
             with_checksums,
             context_lines,
+            all,
         }) => {
             if let Err(e) = refs_cmd::run_refs(
                 db_path,
@@ -482,6 +483,7 @@ fn main() -> ExitCode {
                 with_semantics,
                 with_checksums,
                 context_lines,
+                all,
             ) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);

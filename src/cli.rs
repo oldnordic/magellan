@@ -580,6 +580,7 @@ pub enum Command {
         with_semantics: bool,
         with_checksums: bool,
         context_lines: usize,
+        all: bool,
     },
     Get {
         db_path: PathBuf,
@@ -2487,6 +2488,7 @@ fn parse_refs_args(args: &[String]) -> Result<Command> {
     let mut with_semantics = false;
     let mut with_checksums = false;
     let mut context_lines = 3;
+    let mut all = false;
 
     let mut i = 0;
     while i < args.len() {
@@ -2579,11 +2581,19 @@ fn parse_refs_args(args: &[String]) -> Result<Command> {
                 }
                 i += 2;
             }
+            "--all" => {
+                all = true;
+                i += 1;
+            }
             _ => return Err(anyhow::anyhow!("Unknown argument: {}", args[i])),
         }
     }
 
-    let db_path = db_path.ok_or_else(|| anyhow::anyhow!("--db is required"))?;
+    let db_path = if !all {
+        db_path.ok_or_else(|| anyhow::anyhow!("--db is required (or use --all)"))?
+    } else {
+        db_path.unwrap_or_default()
+    };
     let name = name.ok_or_else(|| anyhow::anyhow!("--name is required"))?;
     // path is now optional - if not provided, will search all symbols matching name
 
@@ -2599,6 +2609,7 @@ fn parse_refs_args(args: &[String]) -> Result<Command> {
         with_semantics,
         with_checksums,
         context_lines,
+        all,
     })
 }
 

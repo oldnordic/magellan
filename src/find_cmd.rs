@@ -12,7 +12,8 @@ use magellan::graph::query;
 use magellan::graph::MultiDbContext;
 use magellan::output::rich::{SpanChecksums, SpanContext};
 use magellan::output::{
-    output_json, CalleeInfo, CallerInfo, FindResponse, JsonResponse, OutputFormat, Span, SymbolMatch,
+    output_json, CalleeInfo, CallerInfo, FindResponse, JsonResponse, OutputFormat, Span,
+    SymbolMatch,
 };
 use magellan::{CodeGraph, SymbolKind};
 use std::path::PathBuf;
