@@ -28,6 +28,7 @@ use magellan::{FileSystemWatcher, WatcherConfig};
 mod admin_socket;
 mod meta_db;
 pub mod registry;
+pub mod structural;
 mod types;
 
 pub const SOCKET_PATH: &str = "/tmp/magellan.sock";

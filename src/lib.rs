@@ -101,6 +101,7 @@ pub use graph::source_inventory::{
 };
 pub use graph::test_helpers::{delete_file_facts_with_injection, FailPoint};
 pub use graph::CrossFileRef;
+pub use graph::{is_structural_kind, AstNode};
 pub use graph::{
     CodeGraph, CondensationGraph, CondensationResult, Cycle, CycleKind, CycleReport, DeadSymbol,
     DeleteResult, ExecutionPath, ExportConfig, ExportFormat, MultiDbContext, PathEnumerationResult,

@@ -9,6 +9,35 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const META_DB_DIR: &str = "/home/feanor/.magellan";
+
+fn now_secs() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64
+}
+
+/// Structural embedding record from `concept_embeddings`.
+#[derive(Debug, Clone)]
+pub struct EmbeddingRecord {
+    pub project: String,
+    pub symbol: String,
+    pub file: String,
+    pub hash: String,
+    pub vec: Vec<u8>, // packed little-endian f32 bytes
+}
+
+/// Cross-project similarity pair from `pattern_cross_refs`.
+#[derive(Debug, Clone)]
+pub struct CrossRefRecord {
+    pub project_a: String,
+    pub symbol_a: String,
+    pub file_a: String,
+    pub project_b: String,
+    pub symbol_b: String,
+    pub file_b: String,
+    pub similarity_score: f64,
+}
 const META_DB_NAME: &str = "meta.db";
 
 /// Daemon-level meta-index of all registered projects.
@@ -79,6 +108,48 @@ impl MetaDb {
              ON project_registry (enabled)",
             [],
         )?;
+        // Phase 4: structural analogy tables
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS concept_embeddings (
+                project    TEXT NOT NULL,
+                symbol     TEXT NOT NULL,
+                file       TEXT NOT NULL,
+                hash       TEXT NOT NULL,
+                vec        BLOB NOT NULL,
+                updated_at INTEGER NOT NULL,
+                PRIMARY KEY (project, symbol, file)
+            )",
+            [],
+        )?;
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_concept_embeddings_project
+             ON concept_embeddings (project)",
+            [],
+        )?;
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS pattern_cross_refs (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_a        TEXT NOT NULL,
+                symbol_a         TEXT NOT NULL,
+                file_a           TEXT NOT NULL,
+                project_b        TEXT NOT NULL,
+                symbol_b         TEXT NOT NULL,
+                file_b           TEXT NOT NULL,
+                similarity_score REAL NOT NULL,
+                updated_at       INTEGER NOT NULL
+            )",
+            [],
+        )?;
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_pattern_cross_refs_a
+             ON pattern_cross_refs (project_a, symbol_a)",
+            [],
+        )?;
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_pattern_cross_refs_score
+             ON pattern_cross_refs (similarity_score DESC)",
+            [],
+        )?;
         Ok(())
     }
 
@@ -115,10 +186,7 @@ impl MetaDb {
 
     /// Update last_reindexed to now.
     pub fn update_last_reindexed(&mut self, name: &str) -> Result<()> {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
+        let now = now_secs();
         self.conn.execute(
             "UPDATE project_registry SET last_reindexed = ?1 WHERE name = ?2",
             params![now, name],
@@ -179,6 +247,107 @@ impl MetaDb {
         Ok(rows.next().transpose()?)
     }
 
+    // ── Phase 4: concept_embeddings ──
+
+    /// Upsert a structural embedding for a symbol.
+    /// `vec` is stored as packed little-endian f32 bytes.
+    pub fn upsert_embedding(
+        &mut self,
+        project: &str,
+        symbol: &str,
+        file: &str,
+        hash: &str,
+        vec: &[f32],
+    ) -> Result<()> {
+        let blob: Vec<u8> = vec.iter().flat_map(|f| f.to_le_bytes()).collect();
+        let now = now_secs();
+        self.conn.execute(
+            "INSERT INTO concept_embeddings (project, symbol, file, hash, vec, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT (project, symbol, file) DO UPDATE SET
+               hash = excluded.hash,
+               vec  = excluded.vec,
+               updated_at = excluded.updated_at",
+            params![project, symbol, file, hash, blob, now],
+        )?;
+        Ok(())
+    }
+
+    /// List all concept embeddings. `vec` is raw bytes (packed f32 LE).
+    pub fn list_embeddings(&self) -> Result<Vec<EmbeddingRecord>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT project, symbol, file, hash, vec FROM concept_embeddings ORDER BY project, symbol",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(EmbeddingRecord {
+                project: row.get(0)?,
+                symbol: row.get(1)?,
+                file: row.get(2)?,
+                hash: row.get(3)?,
+                vec: row.get(4)?,
+            })
+        })?;
+        let mut records = Vec::new();
+        for row in rows {
+            records.push(row?);
+        }
+        Ok(records)
+    }
+
+    // ── Phase 4: pattern_cross_refs ──
+
+    /// Insert a cross-project similarity pair.
+    #[allow(clippy::too_many_arguments)]
+    pub fn insert_cross_ref(
+        &mut self,
+        project_a: &str,
+        symbol_a: &str,
+        file_a: &str,
+        project_b: &str,
+        symbol_b: &str,
+        file_b: &str,
+        similarity_score: f64,
+    ) -> Result<()> {
+        let now = now_secs();
+        self.conn.execute(
+            "INSERT INTO pattern_cross_refs
+             (project_a, symbol_a, file_a, project_b, symbol_b, file_b, similarity_score, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![project_a, symbol_a, file_a, project_b, symbol_b, file_b, similarity_score, now],
+        )?;
+        Ok(())
+    }
+
+    /// Query cross-refs where project_a + symbol_a match, ordered by similarity DESC.
+    pub fn query_cross_refs_for_symbol(
+        &self,
+        project: &str,
+        symbol: &str,
+    ) -> Result<Vec<CrossRefRecord>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT project_a, symbol_a, file_a, project_b, symbol_b, file_b, similarity_score
+             FROM pattern_cross_refs
+             WHERE project_a = ?1 AND symbol_a = ?2
+             ORDER BY similarity_score DESC",
+        )?;
+        let rows = stmt.query_map(params![project, symbol], |row| {
+            Ok(CrossRefRecord {
+                project_a: row.get(0)?,
+                symbol_a: row.get(1)?,
+                file_a: row.get(2)?,
+                project_b: row.get(3)?,
+                symbol_b: row.get(4)?,
+                file_b: row.get(5)?,
+                similarity_score: row.get(6)?,
+            })
+        })?;
+        let mut records = Vec::new();
+        for row in rows {
+            records.push(row?);
+        }
+        Ok(records)
+    }
+
     /// Close connection gracefully.
     pub fn close(self) -> Result<()> {
         self.conn
@@ -220,5 +389,81 @@ mod tests {
 
         db.remove_project("beta").unwrap();
         assert!(db.get_project("beta").unwrap().is_none());
+    }
+
+    // ── concept_embeddings ──
+
+    #[test]
+    fn test_upsert_and_list_embeddings() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = MetaDb::open_at(dir.path().join("meta.db")).unwrap();
+
+        let vec_a: Vec<f32> = vec![1.0, 0.0, 0.0];
+        db.upsert_embedding("proj_a", "greet", "src/lib.rs", "aabbcc", &vec_a)
+            .unwrap();
+
+        let vec_b: Vec<f32> = vec![0.0, 1.0, 0.0];
+        db.upsert_embedding("proj_b", "greet", "src/main.rs", "ddeeff", &vec_b)
+            .unwrap();
+
+        let rows = db.list_embeddings().unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].project, "proj_a");
+        assert_eq!(rows[0].symbol, "greet");
+        assert_eq!(rows[0].hash, "aabbcc");
+        assert_eq!(rows[0].vec.len(), 3 * 4, "3 f32s × 4 bytes");
+    }
+
+    #[test]
+    fn test_upsert_embedding_is_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = MetaDb::open_at(dir.path().join("meta.db")).unwrap();
+
+        let v: Vec<f32> = vec![0.5, 0.5];
+        db.upsert_embedding("p", "sym", "f.rs", "hash1", &v)
+            .unwrap();
+        db.upsert_embedding("p", "sym", "f.rs", "hash2", &v)
+            .unwrap(); // same PK, updated hash
+
+        let rows = db.list_embeddings().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].hash, "hash2", "second upsert should overwrite hash");
+    }
+
+    // ── pattern_cross_refs ──
+
+    #[test]
+    fn test_insert_and_query_cross_refs() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = MetaDb::open_at(dir.path().join("meta.db")).unwrap();
+
+        db.insert_cross_ref(
+            "proj_a", "greet", "src/a.rs", "proj_b", "hello", "src/b.rs", 0.92,
+        )
+        .unwrap();
+        db.insert_cross_ref(
+            "proj_a", "greet", "src/a.rs", "proj_c", "hi", "src/c.rs", 0.75,
+        )
+        .unwrap();
+
+        let refs = db.query_cross_refs_for_symbol("proj_a", "greet").unwrap();
+        assert_eq!(refs.len(), 2);
+        // Should be ordered by similarity DESC
+        assert!(
+            refs[0].similarity_score >= refs[1].similarity_score,
+            "expected descending order"
+        );
+        assert_eq!(refs[0].symbol_b, "hello");
+        assert_eq!(refs[0].project_b, "proj_b");
+    }
+
+    #[test]
+    fn test_query_cross_refs_empty_when_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = MetaDb::open_at(dir.path().join("meta.db")).unwrap();
+        let refs = db
+            .query_cross_refs_for_symbol("missing_proj", "sym")
+            .unwrap();
+        assert!(refs.is_empty());
     }
 }

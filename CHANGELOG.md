@@ -58,6 +58,18 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - JSON-RPC method returning per-project symbol matches with `callers`/`callees` arrays
   - Params: `name` (required), `file` (optional), `callers` (bool), `callees` (bool), `depth` (usize)
   - Reuses `MultiDbContext::search_symbol`; results include full caller/callee name+file+line
+- **P4-VEC: Bag-of-kinds vector + cosine similarity** (`src/service/structural.rs`):
+  - `KIND_VOCAB` — 20-element stable vocabulary of structural AST kinds
+  - `kind_vector(nodes, start, end) -> Vec<f32>` — L2-normalized histogram over `KIND_VOCAB`; zero vector when no structural nodes found
+  - `cosine_similarity(a, b) -> f32` — dot product of unit vectors; returns 0.0 on length mismatch
+- **P4-HASH: Structural fingerprint** (`src/service/structural.rs`):
+  - `structural_hash(nodes, start, end) -> String` — SHA-256 hex of `"|"`-joined structural kind sequence within byte range
+  - Filters to structural kinds via `is_structural_kind()`; sorts by `byte_start` before hashing
+- **P4-SCHEMA: meta.db schema extension** (`src/service/meta_db.rs`, `docs/SCHEMA_META_DB.md`):
+  - `concept_embeddings(project, symbol, file, hash, vec BLOB, updated_at)` — stores per-symbol structural embeddings as packed LE f32 bytes; PK `(project, symbol, file)`
+  - `pattern_cross_refs(id, project_a, symbol_a, file_a, project_b, symbol_b, file_b, similarity_score, updated_at)` — cross-project similarity pairs ordered by score
+  - `EmbeddingRecord`, `CrossRefRecord` structs; `upsert_embedding`, `list_embeddings`, `insert_cross_ref`, `query_cross_refs_for_symbol` methods
+  - `docs/SCHEMA_META_DB.md` — new schema reference doc with full DDL, two-DB architecture diagram, Rust API table
 - **P3-SORT: Relevance sorting for `--all` results** (`src/graph/multi_db.rs`):
   - `score_match(query, name) -> u32` — exact=100, prefix=75, substring=50, no match=0
   - `MultiDbContext::search_symbol` now sorts results by score descending, then by caller count descending as tiebreaker
