@@ -50,6 +50,10 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - Output: markdown investigation packet with token estimate
   - `NavigateConfig` struct; `extract_terms()` and `truncate_to_budget()` are public for downstream use
 
+- **P4-SUGGEST: `query.suggest` socket method** (`src/service/admin_socket.rs`):
+  - JSON-RPC method for analogous-symbol recommendations from cross-ref index
+  - Params: `from_project` (required), `name` (required), `to_project` (optional filter)
+  - Queries `pattern_cross_refs` ORDER BY similarity_score DESC; returns `suggestions` array with `project`, `symbol`, `file`, `similarity_score` per entry
 - **P4-COMPARE: `query.compare` enriched with `similarity_score`** (`src/service/admin_socket.rs`):
   - Each entry in the `comparisons` array now includes `"similarity_score"` when a cross-ref pair exists in `pattern_cross_refs`
   - Score is the best stored similarity across the requested project set for that symbol; field absent when no cross-ref has been indexed yet

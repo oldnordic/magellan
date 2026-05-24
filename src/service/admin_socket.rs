@@ -528,6 +528,49 @@ impl AdminSocket {
                 }
             }
 
+            "query.suggest" => {
+                // Params: from_project (required), name (required), to_project (optional filter)
+                let from_project = params
+                    .get("from_project")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let name = params
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let to_project: Option<String> = params
+                    .get("to_project")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+
+                let refs = {
+                    let meta = meta_db.lock().await;
+                    meta.query_cross_refs_for_symbol(&from_project, &name)
+                        .unwrap_or_default()
+                };
+
+                let suggestions: Vec<serde_json::Value> = refs
+                    .into_iter()
+                    .filter(|r| to_project.as_deref().is_none_or(|tp| r.project_b == tp))
+                    .map(|r| {
+                        json!({
+                            "project": r.project_b,
+                            "symbol": r.symbol_b,
+                            "file": r.file_b,
+                            "similarity_score": r.similarity_score,
+                        })
+                    })
+                    .collect();
+
+                Ok(super::types::ServiceResponse::ok(
+                    id,
+                    json!({ "from_project": from_project, "name": name, "suggestions": suggestions }),
+                )
+                .into_val())
+            }
+
             "query.build-index" => {
                 // Collect all enabled project (name, db_path) pairs from meta.db
                 let db_entries: Vec<(String, std::path::PathBuf)> = {
