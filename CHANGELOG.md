@@ -50,6 +50,10 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - Output: markdown investigation packet with token estimate
   - `NavigateConfig` struct; `extract_terms()` and `truncate_to_budget()` are public for downstream use
 
+- **P3-CTX: `query.context` socket method** (`src/service/admin_socket.rs`):
+  - JSON-RPC method returning per-project symbol matches with `callers`/`callees` arrays
+  - Params: `name` (required), `file` (optional), `callers` (bool), `callees` (bool), `depth` (usize)
+  - Reuses `MultiDbContext::search_symbol`; results include full caller/callee name+file+line
 - **P3-SORT: Relevance sorting for `--all` results** (`src/graph/multi_db.rs`):
   - `score_match(query, name) -> u32` — exact=100, prefix=75, substring=50, no match=0
   - `MultiDbContext::search_symbol` now sorts results by score descending, then by caller count descending as tiebreaker

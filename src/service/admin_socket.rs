@@ -296,6 +296,125 @@ impl AdminSocket {
                 }
             }
 
+            "query.context" => {
+                let name = params
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let file = params
+                    .get("file")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                let depth = params
+                    .get("depth")
+                    .and_then(|v| v.as_u64())
+                    .map(|d| d as usize);
+                let callers = params
+                    .get("callers")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let callees = params
+                    .get("callees")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+
+                let db_paths: Vec<std::path::PathBuf> = {
+                    let meta = meta_db.lock().await;
+                    meta.list_projects()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter(|p| p.enabled)
+                        .map(|p| std::path::PathBuf::from(&p.db_path))
+                        .collect()
+                };
+
+                let name_for_query = name.clone();
+                let json_matches = tokio::task::spawn_blocking(move || {
+                    let mut ctx = match magellan::MultiDbContext::from_paths(&db_paths) {
+                        Ok(c) => c,
+                        Err(e) => return Err(anyhow::anyhow!("multi_db open error: {}", e)),
+                    };
+                    let results = ctx.search_symbol(
+                        &name_for_query,
+                        file.as_deref(),
+                        depth,
+                        callers,
+                        callees,
+                    );
+                    let arr: Vec<serde_json::Value> = results
+                        .iter()
+                        .map(|m| {
+                            let caller_arr: serde_json::Value = m
+                                .callers
+                                .as_ref()
+                                .map(|cs| {
+                                    serde_json::Value::Array(
+                                        cs.iter()
+                                            .map(|c| {
+                                                json!({
+                                                    "name": &c.name,
+                                                    "file": &c.file_path,
+                                                    "line": c.line,
+                                                })
+                                            })
+                                            .collect(),
+                                    )
+                                })
+                                .unwrap_or(serde_json::Value::Null);
+                            let callee_arr: serde_json::Value = m
+                                .callees
+                                .as_ref()
+                                .map(|cs| {
+                                    serde_json::Value::Array(
+                                        cs.iter()
+                                            .map(|c| {
+                                                json!({
+                                                    "name": &c.name,
+                                                    "file": &c.file_path,
+                                                    "line": c.line,
+                                                })
+                                            })
+                                            .collect(),
+                                    )
+                                })
+                                .unwrap_or(serde_json::Value::Null);
+                            json!({
+                                "project": &m.project,
+                                "name": &m.name,
+                                "kind": &m.kind,
+                                "file_path": &m.span.file_path,
+                                "start_line": m.span.start_line,
+                                "callers": caller_arr,
+                                "callees": callee_arr,
+                            })
+                        })
+                        .collect();
+                    Ok(arr)
+                })
+                .await;
+
+                match json_matches {
+                    Ok(Ok(arr)) => Ok(super::types::ServiceResponse::ok(
+                        id,
+                        json!({ "query": name, "matches": arr }),
+                    )
+                    .into_val()),
+                    Ok(Err(e)) => Ok(super::types::ServiceResponse::err(
+                        id,
+                        -32003,
+                        format!("Query error: {}", e),
+                    )
+                    .into_val()),
+                    Err(e) => Ok(super::types::ServiceResponse::err(
+                        id,
+                        -32603,
+                        format!("Blocking task panic: {}", e),
+                    )
+                    .into_val()),
+                }
+            }
+
             _ => Ok(super::types::ServiceResponse::not_implemented(id, method).into_val()),
         }
     }

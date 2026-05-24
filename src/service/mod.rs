@@ -1103,4 +1103,121 @@ mod integration_tests {
         accept_task.abort();
         let _ = tokio::fs::remove_file(&socket).await;
     }
+
+    // P3-CTX RED: query.context returns symbol with callers/callees
+    #[tokio::test]
+    async fn test_admin_socket_query_context_returns_symbol() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+        use tokio::net::{UnixListener, UnixStream};
+
+        let socket_path = "/tmp/magellan_test_qctx.sock";
+        let _ = tokio::fs::remove_file(socket_path).await;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_path = temp_dir.path().to_path_buf();
+
+        let db_path_clone = temp_path.clone();
+        let db_path = tokio::task::spawn_blocking(move || {
+            let db_path = db_path_clone.join("ctx_proj.db");
+            let mut graph = magellan::CodeGraph::open(&db_path).unwrap();
+            graph
+                .index_file(
+                    "src/lib.rs",
+                    b"fn greet() { hello() }\nfn hello() { println!(\"hi\") }\n",
+                )
+                .unwrap();
+            graph.checkpoint_wal().unwrap();
+            db_path
+        })
+        .await
+        .unwrap();
+
+        let meta_db = std::sync::Arc::new(tokio::sync::Mutex::new(
+            super::meta_db::MetaDb::open_at(temp_dir.path().join("ctx_meta.db")).unwrap(),
+        ));
+        {
+            let mut meta = meta_db.lock().await;
+            meta.upsert_project(
+                "ctx_proj",
+                &temp_path.to_string_lossy(),
+                &db_path.to_string_lossy(),
+                true,
+            )
+            .unwrap();
+        }
+
+        let reg = std::sync::Arc::new(tokio::sync::Mutex::new(
+            super::registry::Registry::load_from(temp_dir.path().join("ctx_reg.toml")).unwrap(),
+        ));
+
+        let listener = UnixListener::bind(socket_path).unwrap();
+        let meta_clone = meta_db.clone();
+        let accept_task = tokio::spawn(async move {
+            loop {
+                let (stream, _) = listener.accept().await.unwrap();
+                let reg = reg.clone();
+                let meta = meta_clone.clone();
+                let (tx, _rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16);
+                tokio::spawn(async move {
+                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, meta, tx)
+                        .await;
+                });
+            }
+        });
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+        let mut stream = UnixStream::connect(socket_path)
+            .await
+            .expect("connect to socket");
+        let req = r#"{"id":"test-qctx-1","method":"query.context","name":"greet","callers":true,"callees":true}"#;
+        let (read_half, mut write_half) = stream.split();
+        write_half
+            .write_all((req.to_string() + "\n").as_bytes())
+            .await
+            .unwrap();
+        write_half.shutdown().await.unwrap();
+
+        let mut reader = tokio::io::BufReader::new(read_half);
+        let mut line = String::new();
+        reader.read_line(&mut line).await.unwrap();
+        let resp: serde_json::Value = serde_json::from_str(&line).unwrap();
+
+        // Must NOT return not_implemented
+        let error = resp.get("error");
+        assert!(
+            error.is_none(),
+            "query.context should be implemented, got error: {}",
+            line
+        );
+
+        let result = resp.get("result").expect("result missing");
+        let matches = result
+            .get("matches")
+            .and_then(|v| v.as_array())
+            .expect("matches array missing");
+        assert!(
+            !matches.is_empty(),
+            "expected at least 1 match for 'greet', got empty array"
+        );
+        let first = &matches[0];
+        assert_eq!(
+            first.get("name").and_then(|v| v.as_str()),
+            Some("greet"),
+            "first match name should be greet"
+        );
+        // callers field must be present (may be empty list)
+        assert!(
+            first.get("callers").is_some(),
+            "callers field must be present in context response"
+        );
+        // callees field must be present
+        assert!(
+            first.get("callees").is_some(),
+            "callees field must be present in context response"
+        );
+
+        accept_task.abort();
+        let _ = tokio::fs::remove_file(socket_path).await;
+    }
 }
