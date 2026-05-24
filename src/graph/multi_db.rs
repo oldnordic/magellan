@@ -176,6 +176,15 @@ impl MultiDbContext {
             });
         }
 
+        results.sort_by(|a, b| {
+            let score_a = score_match(name, &a.name);
+            let score_b = score_match(name, &b.name);
+            score_b.cmp(&score_a).then_with(|| {
+                let callers_a = a.callers.as_ref().map(|c| c.len()).unwrap_or(0);
+                let callers_b = b.callers.as_ref().map(|c| c.len()).unwrap_or(0);
+                callers_b.cmp(&callers_a)
+            })
+        });
         results
     }
 
@@ -265,6 +274,20 @@ impl MultiDbContext {
             }
         }
         results
+    }
+}
+
+/// Textual relevance score for a query against a symbol name.
+/// Returns 100 (exact), 75 (prefix), 50 (substring), or 0 (no match).
+fn score_match(query: &str, name: &str) -> u32 {
+    if name == query {
+        100
+    } else if name.starts_with(query) {
+        75
+    } else if name.contains(query) {
+        50
+    } else {
+        0
     }
 }
 
@@ -418,6 +441,70 @@ fn greet() { println!("hello from project_b") }"#;
         let mut ctx = MultiDbContext::from_paths(&[p1]).unwrap();
         let results = ctx.search_symbol("nonexistent_function_xyz", None, None, false, false);
         assert!(results.is_empty());
+    }
+
+    // ── score_match ──
+
+    #[test]
+    fn test_score_match_exact() {
+        assert_eq!(score_match("parse_args", "parse_args"), 100);
+        assert_eq!(score_match("greet", "greet"), 100);
+    }
+
+    #[test]
+    fn test_score_match_prefix() {
+        assert_eq!(score_match("parse", "parse_args"), 75);
+        assert_eq!(score_match("greet", "greet_user"), 75);
+    }
+
+    #[test]
+    fn test_score_match_substring() {
+        assert_eq!(score_match("args", "parse_args"), 50);
+        assert_eq!(score_match("user", "greet_user_admin"), 50);
+    }
+
+    #[test]
+    fn test_score_match_no_match() {
+        assert_eq!(score_match("xyz", "parse_args"), 0);
+    }
+
+    #[test]
+    fn test_search_symbol_sorted_by_caller_count() {
+        let dir = tempdir().unwrap();
+
+        // proj_a: "process" is called once (by greet)
+        let pa = dir.path().join("pa.db");
+        {
+            let mut g = CodeGraph::open(&pa).unwrap();
+            g.index_file("src/a.rs", b"fn greet() { process() } fn process() {}")
+                .unwrap();
+        }
+
+        // proj_b: "process" is called twice (by greet and parse)
+        let pb = dir.path().join("pb.db");
+        {
+            let mut g = CodeGraph::open(&pb).unwrap();
+            g.index_file(
+                "src/b.rs",
+                b"fn greet() { process() } fn parse() { process() } fn process() {}",
+            )
+            .unwrap();
+        }
+
+        let mut ctx = MultiDbContext::from_paths(&[pa, pb]).unwrap();
+        let results = ctx.search_symbol("process", None, None, true, false);
+
+        assert_eq!(results.len(), 2);
+        let caller_counts: Vec<usize> = results
+            .iter()
+            .map(|r| r.callers.as_ref().map(|c| c.len()).unwrap_or(0))
+            .collect();
+        // Should be sorted descending: pb (2 callers) before pa (1 caller)
+        assert!(
+            caller_counts[0] >= caller_counts[1],
+            "expected callers sorted descending, got {:?}",
+            caller_counts
+        );
     }
 
     // ── list_symbols ──
