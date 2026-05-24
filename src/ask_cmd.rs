@@ -2,6 +2,8 @@ use anyhow::{bail, Context, Result};
 use magellan::OutputFormat;
 use std::path::PathBuf;
 
+use crate::service::registry::Registry;
+
 /// Detected query intent for routing
 #[derive(Debug, PartialEq)]
 pub enum Intent {
@@ -63,7 +65,16 @@ pub fn detect_intent(q: &str) -> Intent {
 }
 
 /// Run the `magellan ask` intent-router command
-pub fn run_ask(question: String, db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
+pub fn run_ask(
+    question: String,
+    db_path: PathBuf,
+    all: bool,
+    output_format: OutputFormat,
+) -> Result<()> {
+    if all {
+        return run_ask_all(question, output_format);
+    }
+
     let q = question.to_lowercase();
     let intent = detect_intent(&q);
 
@@ -92,6 +103,31 @@ pub fn run_ask(question: String, db_path: PathBuf, output_format: OutputFormat) 
         Intent::Find => route_find(db_path, name, output_format),
         Intent::Cycles | Intent::Search | Intent::Complex => unreachable!(),
     }
+}
+
+fn run_ask_all(question: String, output_format: OutputFormat) -> Result<()> {
+    let registry = Registry::load()?;
+    let enabled: Vec<_> = registry.projects.iter().filter(|p| p.enabled).collect();
+
+    if enabled.is_empty() {
+        println!("No enabled projects in registry.");
+        println!("Hint: use `magellan registry scan` to discover projects.");
+        return Ok(());
+    }
+
+    for entry in &enabled {
+        println!("=== {} ===", entry.name);
+        if entry.db.exists() {
+            if let Err(e) = run_ask(question.clone(), entry.db.clone(), false, output_format) {
+                println!("  error: {}", e);
+            }
+        } else {
+            println!("  database not found: {}", entry.db.display());
+        }
+        println!();
+    }
+
+    Ok(())
 }
 
 /// Extract a single- or double-quoted symbol from a query string.

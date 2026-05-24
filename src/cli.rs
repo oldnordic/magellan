@@ -777,6 +777,7 @@ pub enum Command {
         question: String,
         db_path: PathBuf,
         output_format: OutputFormat,
+        all: bool,
     },
 }
 
@@ -4291,6 +4292,8 @@ fn parse_ask_args(args: &[String]) -> Result<Command> {
     let mut db_path: Option<PathBuf> = None;
     let mut output_format = OutputFormat::Human;
     let mut name: Option<String> = None;
+    let mut all = false;
+    let mut project: Option<String> = None;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -4305,6 +4308,13 @@ fn parse_ask_args(args: &[String]) -> Result<Command> {
             "--name" | "-n" => {
                 name = Some(parse_required_arg(args, &mut i, "--name")?);
             }
+            "--all" => {
+                all = true;
+                i += 1;
+            }
+            "--project" => {
+                project = Some(parse_required_arg(args, &mut i, "--project")?);
+            }
             _ => {
                 if !args[i].starts_with("--") && name.is_none() {
                     name = Some(args[i].clone());
@@ -4318,11 +4328,20 @@ fn parse_ask_args(args: &[String]) -> Result<Command> {
             "ask requires a question. Example: magellan ask \"who calls run_find\""
         ));
     };
+    if let Some(ref proj_name) = project {
+        let registry =
+            Registry::load().context("Failed to load project registry for --project resolution")?;
+        let entry = registry
+            .find(proj_name)
+            .ok_or_else(|| anyhow::anyhow!("project '{}' not found in registry", proj_name))?;
+        db_path = Some(entry.db.clone());
+    }
     let db_path = resolve_db_path(db_path)?;
     Ok(Command::Ask {
         question,
         db_path,
         output_format,
+        all,
     })
 }
 
@@ -6000,6 +6019,51 @@ mod tests {
             "__no_such_project_xyzzy__".to_string(),
         ];
         let err = parse_status_args(&args).unwrap_err();
+        assert!(
+            err.to_string().contains("not found in registry"),
+            "expected 'not found in registry', got: {}",
+            err
+        );
+    }
+
+    // Phase 3: ask --all / --project
+    #[test]
+    fn test_parse_ask_args_all_flag() {
+        let args = vec![
+            "--db".to_string(),
+            "test.db".to_string(),
+            "--all".to_string(),
+            "who calls run_find".to_string(),
+        ];
+        let result = parse_ask_args(&args).unwrap();
+        match result {
+            Command::Ask { all, .. } => assert!(all, "--all flag should set all=true"),
+            _ => panic!("Expected Ask command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_ask_args_all_false_by_default() {
+        let args = vec![
+            "--db".to_string(),
+            "test.db".to_string(),
+            "who calls run_find".to_string(),
+        ];
+        let result = parse_ask_args(&args).unwrap();
+        match result {
+            Command::Ask { all, .. } => assert!(!all, "all should be false when --all is absent"),
+            _ => panic!("Expected Ask command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_ask_args_project_flag_unknown() {
+        let args = vec![
+            "--project".to_string(),
+            "__no_such_project_xyzzy__".to_string(),
+            "who calls run_find".to_string(),
+        ];
+        let err = parse_ask_args(&args).unwrap_err();
         assert!(
             err.to_string().contains("not found in registry"),
             "expected 'not found in registry', got: {}",

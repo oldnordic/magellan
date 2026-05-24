@@ -1028,8 +1028,9 @@ fn main() -> ExitCode {
             question,
             db_path,
             output_format,
+            all,
         }) => {
-            if let Err(e) = ask_cmd::run_ask(question, db_path, output_format) {
+            if let Err(e) = ask_cmd::run_ask(question, db_path, all, output_format) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
