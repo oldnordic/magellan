@@ -228,7 +228,9 @@ mod pragma_tests {
         graph
             .index_file("src/test.rs", b"fn foo() {} fn bar() { foo(); }")
             .unwrap();
-        graph.sync_to_v3(&[std::path::PathBuf::from("src/test.rs")]).unwrap();
+        graph
+            .sync_to_v3(&[std::path::PathBuf::from("src/test.rs")])
+            .unwrap();
 
         assert!(v3_path.exists(), "V3 file should be created by open_dual");
     }

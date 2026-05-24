@@ -50,6 +50,7 @@ pub mod config;
 pub mod context;
 pub mod diagnostics;
 pub mod error_codes;
+pub mod framework;
 pub mod generation;
 pub mod geo_builder;
 pub mod geo_staleness;
@@ -81,6 +82,7 @@ pub use common::{
     extract_symbol_content_safe, format_symbol_kind, parse_symbol_kind, resolve_path,
 };
 pub use diagnostics::{DiagnosticStage, SkipReason, WatchDiagnostic};
+pub use framework::{FrameworkSymbol, MagellanFramework, ProjectHandle};
 pub use generation::{ChunkStore, CodeChunk};
 pub use graph::candidate_fact::{
     ensure_schema as ensure_candidate_fact_schema, find_by_id as find_candidate_fact_by_id,

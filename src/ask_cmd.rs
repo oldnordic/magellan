@@ -20,44 +20,72 @@ pub enum Intent {
 
 /// Classify a lowercased query string into a routing intent.
 pub fn detect_intent(q: &str) -> Intent {
-    if ["who calls", "who uses", "callers of", "who references", "who invokes",
-        "dependencies of", "dependents of", "who depends on"]
-        .iter().any(|p| q.contains(p))
+    if [
+        "who calls",
+        "who uses",
+        "callers of",
+        "who references",
+        "who invokes",
+        "dependencies of",
+        "dependents of",
+        "who depends on",
+    ]
+    .iter()
+    .any(|p| q.contains(p))
     {
         return Intent::Callers;
     }
-    if ["who is called by", "callees of", "calls from", "outgoing calls", "called by"]
-        .iter().any(|p| q.contains(p))
+    if [
+        "who is called by",
+        "callees of",
+        "calls from",
+        "outgoing calls",
+        "called by",
+    ]
+    .iter()
+    .any(|p| q.contains(p))
     {
         return Intent::Callees;
     }
     if ["cfg for", "control flow", "cfg of", "show cfg"]
-        .iter().any(|p| q.contains(p))
+        .iter()
+        .any(|p| q.contains(p))
     {
         return Intent::Cfg;
     }
-    if ["blast zone", "blast-zone", "hot paths", "hotpaths", "hot path"]
-        .iter().any(|p| q.contains(p))
+    if [
+        "blast zone",
+        "blast-zone",
+        "hot paths",
+        "hotpaths",
+        "hot path",
+    ]
+    .iter()
+    .any(|p| q.contains(p))
     {
         return Intent::BlastZone;
     }
     if ["cycles", "circular", "cyclic", "strongly connected"]
-        .iter().any(|p| q.contains(p))
+        .iter()
+        .any(|p| q.contains(p))
     {
         return Intent::Cycles;
     }
     if ["impact of", "affected by", "what breaks", "what changes"]
-        .iter().any(|p| q.contains(p))
+        .iter()
+        .any(|p| q.contains(p))
     {
         return Intent::Impact;
     }
     if ["complex", "high complexity", "most complex", "complicated"]
-        .iter().any(|p| q.contains(p))
+        .iter()
+        .any(|p| q.contains(p))
     {
         return Intent::Complex;
     }
     if ["search", "semantic", "find code", "look for"]
-        .iter().any(|p| q.contains(p))
+        .iter()
+        .any(|p| q.contains(p))
     {
         return Intent::Search;
     }
@@ -235,7 +263,15 @@ fn route_impact(db_path: PathBuf, name: String, output_format: OutputFormat) -> 
 fn route_complex(db_path: PathBuf, question: &str, _output_format: OutputFormat) -> Result<()> {
     let db = db_path.to_string_lossy();
     let status = std::process::Command::new("llmgrep")
-        .args(["--db", &db, "search", "--query", question, "--min-complexity", "10"])
+        .args([
+            "--db",
+            &db,
+            "search",
+            "--query",
+            question,
+            "--min-complexity",
+            "10",
+        ])
         .status()
         .with_context(|| "Ask → complex: failed to run llmgrep")?;
     if !status.success() {
@@ -271,19 +307,28 @@ mod tests {
     #[test]
     fn test_detect_intent_callees() {
         assert_eq!(detect_intent("callees of main"), Intent::Callees);
-        assert_eq!(detect_intent("outgoing calls from run_watch"), Intent::Callees);
+        assert_eq!(
+            detect_intent("outgoing calls from run_watch"),
+            Intent::Callees
+        );
     }
 
     #[test]
     fn test_detect_intent_cfg() {
         assert_eq!(detect_intent("cfg for run_status"), Intent::Cfg);
-        assert_eq!(detect_intent("control flow of parse_watch_args"), Intent::Cfg);
+        assert_eq!(
+            detect_intent("control flow of parse_watch_args"),
+            Intent::Cfg
+        );
         assert_eq!(detect_intent("show cfg of main"), Intent::Cfg);
     }
 
     #[test]
     fn test_detect_intent_blast_zone() {
-        assert_eq!(detect_intent("blast zone of handle_request"), Intent::BlastZone);
+        assert_eq!(
+            detect_intent("blast zone of handle_request"),
+            Intent::BlastZone
+        );
         assert_eq!(detect_intent("hot paths in run_find"), Intent::BlastZone);
         assert_eq!(detect_intent("blast-zone of foo"), Intent::BlastZone);
     }
@@ -292,7 +337,10 @@ mod tests {
     fn test_detect_intent_cycles() {
         assert_eq!(detect_intent("cycles in the call graph"), Intent::Cycles);
         assert_eq!(detect_intent("circular dependencies"), Intent::Cycles);
-        assert_eq!(detect_intent("strongly connected components"), Intent::Cycles);
+        assert_eq!(
+            detect_intent("strongly connected components"),
+            Intent::Cycles
+        );
     }
 
     #[test]
@@ -312,7 +360,10 @@ mod tests {
     #[test]
     fn test_detect_intent_search() {
         assert_eq!(detect_intent("search for error handling"), Intent::Search);
-        assert_eq!(detect_intent("semantic query about retry logic"), Intent::Search);
+        assert_eq!(
+            detect_intent("semantic query about retry logic"),
+            Intent::Search
+        );
         assert_eq!(detect_intent("find code that parses toml"), Intent::Search);
     }
 

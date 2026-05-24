@@ -2,13 +2,13 @@
 //!
 //! Provides status query functionality and execution tracking.
 
+use crate::service::registry::Registry;
 use anyhow::Result;
 use magellan::backend_router::{BackendType, MagellanBackend};
 use magellan::capabilities::{capabilities_for_path, BackendCapabilities};
 use magellan::output::{
     generate_execution_id, output_json, CoverageInfo, JsonResponse, StatusResponse,
 };
-use crate::service::registry::Registry;
 use magellan::{CodeGraph, OutputFormat};
 use std::path::PathBuf;
 
@@ -242,9 +242,7 @@ fn run_status_all(output_format: OutputFormat) -> Result<()> {
 
     if enabled.is_empty() {
         println!("No enabled projects in registry.");
-        println!(
-            "Hint: use `magellan registry scan` to discover projects."
-        );
+        println!("Hint: use `magellan registry scan` to discover projects.");
         return Ok(());
     }
 
