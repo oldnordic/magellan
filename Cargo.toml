@@ -154,6 +154,7 @@ llvm-sys = { version = "170", optional = true }
 
 # Async runtime for watcher (Phase 1)
 tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tokio = { version = "1", features = ["rt-multi-thread", "fs", "sync", "time", "macros", "net", "process", "io-util"] }
 tokio-stream = "0.1"
 async-channel = "2"

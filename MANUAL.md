@@ -374,6 +374,12 @@ magellan service resume --name myproject
 # Show daemon status (all projects with metadata)
 magellan service status
 magellan service stats
+
+# Query daemon event log (audit trail)
+magellan service events
+magellan service events --project myproject --limit 20
+magellan service events --type batch_received --json
+magellan service events --since 24
 ```
 
 ## Source Retrieval
