@@ -228,10 +228,14 @@ Wire format:
 | `ping` | `{}` | `{ "pong": true }` |
 | `list` | `{}` | `{ "projects": [...] }` |
 | `status` | `{ "name": "myproject" }` | project entry |
-| `register` | `{ "name", "root", "db_path" }` | `{ "registered": true }` |
+| `register` | `{ "name"`, `"root"`, `"source?"` } | `{ "registered": "name" }` |
 | `unregister` | `{ "name" }` | `{ "unregistered": true }` |
 | `pause` | `{ "name" }` | `{ "paused": true }` |
 | `resume` | `{ "name" }` | `{ "resumed": true }` |
+
+The `register` method stores the project's database at the canonical path
+`~/.magellan/<name>/<name>.db` (derived from the registry, not a param).
+`root` defaults to `"."` if omitted.
 
 ### Cross-Project Query Methods
 

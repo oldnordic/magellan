@@ -204,8 +204,28 @@ Query methods (cross-project): `query.find`, `query.context`, `query.compare`,
 Evolution loop methods: `evolve.analyze`, `evolve.retrieve`, `evolve.propose`,
 `evolve.candidates`, `evolve.verify`, `evolve.promote`, `evolve.reject`
 
-See `docs/SCHEMA_META_DB.md` for the two-database architecture (`project.db` +
-`meta.db`) and `docs/API_INTEGRATION.md` for the full socket method reference.
+**Registry structure:**
+
+```toml
+version = "1"
+
+[[project]]
+name = "myproject"
+root = "/home/user/Projects/myproject"
+db = "/home/user/Projects/myproject/.magellan/code.db"  # optional
+source = "manual"
+enabled = true
+```
+
+The `db` field is optional. When omitted, the framework resolves the database
+path via `Registry::canonical_db_path(name)`, which produces:
+
+```
+~/.magellan/<name>/<name>.db
+```
+
+For example, a project named `myproject` with no explicit `db` field stores
+its database at `~/.magellan/myproject/myproject.db`.
 
 ## Evolution Loop
 

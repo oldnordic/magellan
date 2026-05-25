@@ -1,6 +1,6 @@
 # Magellan Manual
 
-**Version:** 3.3.7
+**Version:** 4.1.0 (unreleased)
 
 This manual documents the current user-facing Magellan CLI. The supported normal
 workflow uses a SQLite `.db` database.
@@ -209,15 +209,52 @@ magellan cross-file-refs --db code.db --fqn crate::module::symbol --output prett
 
 ### Registry (Cross-Project Discovery)
 
+The registry lives at `~/.config/magellan/registry.toml`. Each entry maps a
+project name to a root directory and an optional database path.
+
+```toml
+version = "1"
+
+[[project]]
+name = "myproject"
+root = "/home/user/Projects/myproject"
+db = "/home/user/Projects/myproject/.magellan/code.db"   # optional; falls back to ~/.magellan
+source = "manual"
+enabled = true
+```
+
+If the `db` field is omitted, Magellan stores the database at:
+```
+~/.magellan/<name>/<name>.db
+```
+
+Register via CLI:
+
 ```bash
-# Populate the registry (run once, then --all flags work everywhere)
+# Register a project with an explicit db path
+magellan service register --root /path/to/project --name myproject
+
+# Register with the default db location (~/.magellan/myproject/myproject.db)
+magellan service register --root /path/to/project
+
+# List registered projects
+magellan service list
+
+# Remove a project from the registry
+magellan service unregister --name myproject
+
+# Pause / resume a project (disable / re-enable indexing)
+magellan service pause --name myproject
+magellan service resume --name myproject
+```
+
+For bulk discovery, the `magellan registry scan` command finds Git repositories:
+
+```bash
 magellan registry scan --root /home/feanor/Projects
 magellan registry scan --root . --output json
 
-# List registered projects
 magellan registry list
-
-# Add / remove a project explicitly
 magellan registry add --name myproject --root /path/to/project
 magellan registry remove --name myproject
 ```
@@ -291,6 +328,36 @@ magellan config init
 ```
 
 Config is stored in `~/.config/magellan/config.toml`.
+
+## Service Daemon
+
+The daemon provides a long-running indexer with per-project filesystem watchers
+and a JSON-RPC control socket at `/tmp/magellan.sock`.
+
+```bash
+# Start background daemon (spreads per-project watchers)
+magellan service start
+
+# Stop the daemon
+magellan service stop
+
+# List registered projects
+magellan service list
+
+# Register a new project for indexing (auto-assigns name if --name omitted)
+magellan service register --root /path/to/project --name myproject
+
+# Remove a project from indexing
+magellan service unregister --name myproject
+
+# Pause / resume indexing for a project
+magellan service pause --name myproject
+magellan service resume --name myproject
+
+# Show daemon status (all projects with metadata)
+magellan service status
+magellan service stats
+```
 
 ## Source Retrieval
 
