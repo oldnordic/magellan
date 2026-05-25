@@ -33,6 +33,16 @@ pub mod structural;
 mod types;
 mod verify;
 
+/// Return the socket path, respecting `XDG_RUNTIME_DIR` when present
+/// (systemd user-level services) with fallback to `/tmp/magellan.sock`.
+pub fn socket_path() -> &'static str {
+    std::env::var_os("XDG_RUNTIME_DIR")
+        .and_then(|p| p.into_string().ok())
+        .map(|d| format!("{}/magellan.sock", d))
+        .map(|s: String| -> &'static str { Box::leak(s.into_boxed_str()) })
+        .unwrap_or("/tmp/magellan.sock")
+}
+/// Deprecated constant — use [`socket_path()`] instead.
 pub const SOCKET_PATH: &str = "/tmp/magellan.sock";
 
 /// Service daemon state
@@ -185,7 +195,7 @@ impl Service {
     }
 
     async fn setup_socket(&self) -> Result<UnixListener> {
-        let path = PathBuf::from(SOCKET_PATH);
+        let path = PathBuf::from(socket_path());
         let _ = tokio::fs::remove_file(&path).await;
         let listener = UnixListener::bind(&path)
             .with_context(|| format!("Failed to bind admin socket at {}", path.display()))?;
@@ -193,7 +203,7 @@ impl Service {
     }
 
     async fn cleanup(&self) {
-        let _ = tokio::fs::remove_file(SOCKET_PATH).await;
+        let _ = tokio::fs::remove_file(socket_path()).await;
     }
 }
 
@@ -378,13 +388,16 @@ pub async fn send_request(req: serde_json::Value) -> Result<serde_json::Value> {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
     use tokio::net::UnixStream;
 
-    let mut stream = UnixStream::connect(SOCKET_PATH)
+    let mut stream = UnixStream::connect(socket_path())
         .await
         .context("Daemon does not appear to be running (socket not found)")?;
 
     let req_line = serde_json::to_string(&req)? + "\n";
     stream.write_all(req_line.as_bytes()).await?;
-    stream.shutdown().await.context("Failed to shutdown write half")?;
+    stream
+        .shutdown()
+        .await
+        .context("Failed to shutdown write half")?;
 
     let mut reader = tokio::io::BufReader::new(stream);
     let mut line = String::new();
@@ -406,7 +419,7 @@ pub fn is_daemon_running() -> bool {
     use std::os::unix::net::UnixStream;
     use std::time::Duration;
 
-    let path = std::path::PathBuf::from(SOCKET_PATH);
+    let path = std::path::PathBuf::from(socket_path());
     if !path.exists() {
         return false;
     }

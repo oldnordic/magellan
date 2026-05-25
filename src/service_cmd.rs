@@ -33,7 +33,7 @@ pub async fn run(action: ServiceAction, _output_format: OutputFormat) -> Result<
                 .context("Failed to start daemon process")?;
 
             // Wait briefly for socket to appear
-            let socket = PathBuf::from("/tmp/magellan.sock");
+            let socket = PathBuf::from(crate::service::socket_path());
             for _ in 0..50 {
                 if socket.exists() {
                     println!("Daemon started. Socket: {}", socket.display());

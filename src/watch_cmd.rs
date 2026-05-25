@@ -34,7 +34,7 @@ fn send_watch_request(req_line: &str, exec_id: &str) -> Result<()> {
     use std::os::unix::net::UnixStream;
     use std::time::Duration;
 
-    let socket_path = std::path::PathBuf::from(crate::service::SOCKET_PATH);
+    let socket_path = std::path::PathBuf::from(crate::service::socket_path());
     let mut stream = UnixStream::connect(&socket_path)
         .with_context(|| format!("Daemon socket unreachable at {}", socket_path.display()))?;
     let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
