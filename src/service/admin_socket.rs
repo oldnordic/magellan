@@ -21,9 +21,7 @@ impl AdminSocket {
         registry: Arc<Mutex<Registry>>,
         meta_db: Arc<Mutex<super::meta_db::MetaDb>>,
         batch_tx: mpsc::Sender<super::types::TaggedBatch>,
-        watcher_map: Option<
-            Arc<Mutex<std::collections::HashMap<String, tokio::sync::watch::Sender<bool>>>>,
-        >,
+        watcher_map: Option<WatcherMap>,
         _shutdown_rx: Option<tokio::sync::watch::Receiver<bool>>,
     ) -> Result<()> {
         let (read_half, mut write_half) = stream.into_split();
@@ -66,9 +64,7 @@ impl AdminSocket {
         registry: Arc<Mutex<Registry>>,
         meta_db: Arc<Mutex<super::meta_db::MetaDb>>,
         batch_tx: mpsc::Sender<super::types::TaggedBatch>,
-        watcher_map: Option<
-            Arc<Mutex<std::collections::HashMap<String, tokio::sync::watch::Sender<bool>>>>,
-        >,
+        watcher_map: Option<WatcherMap>,
         _shutdown_rx: Option<tokio::sync::watch::Receiver<bool>>,
     ) -> Result<serde_json::Value> {
         let req: super::types::ServiceRequest =
