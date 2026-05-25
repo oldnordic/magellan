@@ -170,7 +170,9 @@ impl Service {
                     let meta = self.meta_db.clone();
                     let tx = self.batch_tx.clone();
                     tokio::spawn(async move {
-                        if let Err(e) = AdminSocket::handle_client(stream, reg, meta, tx).await {
+                        if let Err(e) = AdminSocket::handle_client(
+                            stream, reg, meta, tx, None, None,
+                        ).await {
                             eprintln!("Admin socket handler error: {}", e);
                         }
                     });
@@ -514,8 +516,10 @@ mod integration_tests {
                 let meta = meta_ping.clone();
                 let (tx, _rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16); // dummy sender for ping test
                 tokio::spawn(async move {
-                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, meta, tx)
-                        .await;
+                    let _ = super::admin_socket::AdminSocket::handle_client(
+                        stream, reg, meta, tx, None, None,
+                    )
+                    .await;
                 });
             }
         });
@@ -603,8 +607,10 @@ mod integration_tests {
                 let meta = meta_db.clone();
                 let tx = tx.clone();
                 tokio::spawn(async move {
-                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, meta, tx)
-                        .await;
+                    let _ = super::admin_socket::AdminSocket::handle_client(
+                        stream, reg, meta, tx, None, None,
+                    )
+                    .await;
                 });
             }
         });
@@ -844,8 +850,10 @@ mod integration_tests {
                 let meta = meta_clone.clone();
                 let (tx, _rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16); // dummy for stats
                 tokio::spawn(async move {
-                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, meta, tx)
-                        .await;
+                    let _ = super::admin_socket::AdminSocket::handle_client(
+                        stream, reg, meta, tx, None, None,
+                    )
+                    .await;
                 });
             }
         });
@@ -925,8 +933,10 @@ mod integration_tests {
                 let meta = meta_clone.clone();
                 let (tx, _rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16);
                 tokio::spawn(async move {
-                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, meta, tx)
-                        .await;
+                    let _ = super::admin_socket::AdminSocket::handle_client(
+                        stream, reg, meta, tx, None, None,
+                    )
+                    .await;
                 });
             }
         });
@@ -1056,8 +1066,10 @@ mod integration_tests {
                 let meta = meta_clone.clone();
                 let (tx, _rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16);
                 tokio::spawn(async move {
-                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, meta, tx)
-                        .await;
+                    let _ = super::admin_socket::AdminSocket::handle_client(
+                        stream, reg, meta, tx, None, None,
+                    )
+                    .await;
                 });
             }
         });
@@ -1162,8 +1174,10 @@ mod integration_tests {
                 let meta = meta_clone.clone();
                 let (tx, _rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16);
                 tokio::spawn(async move {
-                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, meta, tx)
-                        .await;
+                    let _ = super::admin_socket::AdminSocket::handle_client(
+                        stream, reg, meta, tx, None, None,
+                    )
+                    .await;
                 });
             }
         });
@@ -1288,8 +1302,10 @@ mod integration_tests {
                 let meta = meta_clone.clone();
                 let (tx, _rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16);
                 tokio::spawn(async move {
-                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, meta, tx)
-                        .await;
+                    let _ = super::admin_socket::AdminSocket::handle_client(
+                        stream, reg, meta, tx, None, None,
+                    )
+                    .await;
                 });
             }
         });
@@ -1409,8 +1425,10 @@ mod integration_tests {
                 let meta = meta_clone.clone();
                 let (tx, _rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16);
                 tokio::spawn(async move {
-                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, meta, tx)
-                        .await;
+                    let _ = super::admin_socket::AdminSocket::handle_client(
+                        stream, reg, meta, tx, None, None,
+                    )
+                    .await;
                 });
             }
         });
@@ -1517,8 +1535,10 @@ mod integration_tests {
                 let meta = meta_clone.clone();
                 let (tx, _rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16);
                 tokio::spawn(async move {
-                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, meta, tx)
-                        .await;
+                    let _ = super::admin_socket::AdminSocket::handle_client(
+                        stream, reg, meta, tx, None, None,
+                    )
+                    .await;
                 });
             }
         });
@@ -1644,8 +1664,10 @@ mod integration_tests {
                 let meta = meta_clone.clone();
                 let (tx, _rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16);
                 tokio::spawn(async move {
-                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, meta, tx)
-                        .await;
+                    let _ = super::admin_socket::AdminSocket::handle_client(
+                        stream, reg, meta, tx, None, None,
+                    )
+                    .await;
                 });
             }
         });
@@ -1782,8 +1804,10 @@ mod integration_tests {
                 let meta = meta_clone.clone();
                 let (tx, _rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16);
                 tokio::spawn(async move {
-                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, meta, tx)
-                        .await;
+                    let _ = super::admin_socket::AdminSocket::handle_client(
+                        stream, reg, meta, tx, None, None,
+                    )
+                    .await;
                 });
             }
         });
@@ -1870,8 +1894,10 @@ mod integration_tests {
                 let meta = meta_clone.clone();
                 let (tx, _rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16);
                 tokio::spawn(async move {
-                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, meta, tx)
-                        .await;
+                    let _ = super::admin_socket::AdminSocket::handle_client(
+                        stream, reg, meta, tx, None, None,
+                    )
+                    .await;
                 });
             }
         });
@@ -1980,8 +2006,10 @@ mod integration_tests {
                 let meta = meta_clone.clone();
                 let (tx, _rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16);
                 tokio::spawn(async move {
-                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, meta, tx)
-                        .await;
+                    let _ = super::admin_socket::AdminSocket::handle_client(
+                        stream, reg, meta, tx, None, None,
+                    )
+                    .await;
                 });
             }
         });
@@ -2103,8 +2131,10 @@ mod integration_tests {
                 let meta = meta_clone.clone();
                 let (tx, _rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16);
                 tokio::spawn(async move {
-                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, meta, tx)
-                        .await;
+                    let _ = super::admin_socket::AdminSocket::handle_client(
+                        stream, reg, meta, tx, None, None,
+                    )
+                    .await;
                 });
             }
         });
@@ -2220,8 +2250,10 @@ mod integration_tests {
                 let meta = meta_clone.clone();
                 let (tx, _rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16);
                 tokio::spawn(async move {
-                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, meta, tx)
-                        .await;
+                    let _ = super::admin_socket::AdminSocket::handle_client(
+                        stream, reg, meta, tx, None, None,
+                    )
+                    .await;
                 });
             }
         });
@@ -2395,8 +2427,10 @@ edition = "2021"
                 let meta = meta_clone.clone();
                 let (tx, _rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16);
                 tokio::spawn(async move {
-                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, meta, tx)
-                        .await;
+                    let _ = super::admin_socket::AdminSocket::handle_client(
+                        stream, reg, meta, tx, None, None,
+                    )
+                    .await;
                 });
             }
         });
@@ -2565,8 +2599,10 @@ edition = "2021"
                 let reg = reg_clone.clone();
                 let (tx, _rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16);
                 tokio::spawn(async move {
-                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, meta, tx)
-                        .await;
+                    let _ = super::admin_socket::AdminSocket::handle_client(
+                        stream, reg, meta, tx, None, None,
+                    )
+                    .await;
                 });
             }
         });
@@ -2698,5 +2734,108 @@ edition = "2021"
 
         accept_task.abort();
         let _ = tokio::fs::remove_file(socket_path).await;
+    }
+
+    // Phase 6: Runtime watcher spawn — register via socket must start FileSystemWatcher
+    #[tokio::test]
+    async fn test_register_spawns_watcher_on_running_daemon() {
+        use std::fs::write;
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        write(root.join("init.rs"), "// init").unwrap();
+
+        let socket_path = "/tmp/magellan_test_reg_watch.sock";
+        let socket = std::path::PathBuf::from(socket_path);
+        let _ = tokio::fs::remove_file(&socket).await;
+
+        let listener = UnixListener::bind(socket_path).unwrap();
+        let reg_path = socket.with_extension("reg_watch.toml");
+        let reg = std::sync::Arc::new(tokio::sync::Mutex::new(
+            super::registry::Registry::load_from(reg_path.clone()).unwrap(),
+        ));
+        let (batch_tx, mut batch_rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16);
+        let meta_db = std::sync::Arc::new(tokio::sync::Mutex::new(
+            super::meta_db::MetaDb::open_at(socket.with_extension("meta_reg.db")).unwrap(),
+        ));
+
+        // Watcher map + shutdown channel (new API)
+        let watcher_map: std::sync::Arc<
+            tokio::sync::Mutex<std::collections::HashMap<String, tokio::sync::watch::Sender<bool>>>,
+        > = Default::default();
+        let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+
+        // Spawn accept loop with NEW signature (watcher_map, shutdown_rx)
+        let wm = watcher_map.clone();
+        let accept_task = tokio::spawn(async move {
+            loop {
+                let (stream, _) = listener.accept().await.unwrap();
+                let reg = reg.clone();
+                let meta = meta_db.clone();
+                let tx = batch_tx.clone();
+                let wm_inner = wm.clone();
+                let sr = shutdown_rx.clone();
+                tokio::spawn(async move {
+                    let _ = super::admin_socket::AdminSocket::handle_client(
+                        stream,
+                        reg,
+                        meta,
+                        tx,
+                        Some(wm_inner),
+                        Some(sr),
+                    )
+                    .await;
+                });
+            }
+        });
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+        // Send "register" request via socket
+        let mut stream = UnixStream::connect(socket_path)
+            .await
+            .expect("connect to socket");
+        let root_str = root.to_string_lossy();
+        let req = format!(
+            r#"{{"id":"reg1","method":"register","name":"testreg","root":"{}"}}"#,
+            root_str.clone().escape_default()
+        );
+        let (read_half, mut write_half) = stream.split();
+        write_half
+            .write_all((req.clone() + "\n").as_bytes())
+            .await
+            .unwrap();
+        write_half.shutdown().await.unwrap();
+
+        let mut reader = tokio::io::BufReader::new(read_half);
+        let mut line = String::new();
+        let n = reader.read_line(&mut line).await.unwrap();
+        assert!(n > 0, "expected register acknowledgment");
+        let resp: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert!(
+            resp.get("error").is_none(),
+            "register failed: {}",
+            serde_json::to_string(&resp).unwrap()
+        );
+        assert_eq!(resp["result"]["registered"].as_str(), Some("testreg"));
+
+        // Write a new file to trigger the watcher that should have been spawned
+        // Allow watcher ~2s to set up inotify before creating the file
+        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+        write(root.join("trigger.rs"), "// trigger file").unwrap();
+
+        // MUST receive a TaggedBatch from the watcher within 10s
+        let batch = tokio::time::timeout(tokio::time::Duration::from_secs(10), batch_rx.recv())
+            .await
+            .expect("timed out waiting for watcher batch — watcher was NOT spawned on register")
+            .expect("batch channel closed");
+
+        assert_eq!(batch.project_name, "testreg");
+        assert!(!batch.paths.is_empty(), "batch should contain dirty paths");
+
+        accept_task.abort();
+        let _ = tokio::fs::remove_file(&socket).await;
+        let _ = tokio::fs::remove_file(reg_path).await;
+        let _ = tokio::fs::remove_file(socket.with_extension("meta_reg.db")).await;
     }
 }

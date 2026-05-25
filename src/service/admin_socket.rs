@@ -9,15 +9,22 @@ use tokio::sync::{mpsc, Mutex};
 
 use super::registry::Registry;
 
+type WatcherMap = Arc<Mutex<std::collections::HashMap<String, tokio::sync::watch::Sender<bool>>>>;
+
 pub struct AdminSocket;
 
 impl AdminSocket {
     /// Handle a single client connection (one request per line)
+    /// Handle a single client connection (Phase 6: supports runtime watcher spawn)
     pub async fn handle_client(
         stream: UnixStream,
         registry: Arc<Mutex<Registry>>,
         meta_db: Arc<Mutex<super::meta_db::MetaDb>>,
         batch_tx: mpsc::Sender<super::types::TaggedBatch>,
+        watcher_map: Option<
+            Arc<Mutex<std::collections::HashMap<String, tokio::sync::watch::Sender<bool>>>>,
+        >,
+        _shutdown_rx: Option<tokio::sync::watch::Receiver<bool>>,
     ) -> Result<()> {
         let (read_half, mut write_half) = stream.into_split();
         let mut reader = BufReader::new(read_half).lines();
@@ -28,18 +35,24 @@ impl AdminSocket {
                 continue;
             }
 
-            let response =
-                match Self::dispatch(line, registry.clone(), meta_db.clone(), batch_tx.clone())
-                    .await
-                {
-                    Ok(resp) => resp,
-                    Err(e) => {
-                        json!({
-                            "id": null,
-                            "error": { "code": -32603, "message": format!("Internal error: {}", e) }
-                        })
-                    }
-                };
+            let response = match Self::dispatch(
+                line,
+                registry.clone(),
+                meta_db.clone(),
+                batch_tx.clone(),
+                watcher_map.clone(),
+                _shutdown_rx.clone(),
+            )
+            .await
+            {
+                Ok(resp) => resp,
+                Err(e) => {
+                    json!({
+                        "id": null,
+                        "error": { "code": -32603, "message": format!("Internal error: {}", e) }
+                    })
+                }
+            };
 
             let resp_line = serde_json::to_string(&response)? + "\n";
             write_half.write_all(resp_line.as_bytes()).await?;
@@ -53,6 +66,10 @@ impl AdminSocket {
         registry: Arc<Mutex<Registry>>,
         meta_db: Arc<Mutex<super::meta_db::MetaDb>>,
         batch_tx: mpsc::Sender<super::types::TaggedBatch>,
+        watcher_map: Option<
+            Arc<Mutex<std::collections::HashMap<String, tokio::sync::watch::Sender<bool>>>>,
+        >,
+        _shutdown_rx: Option<tokio::sync::watch::Receiver<bool>>,
     ) -> Result<serde_json::Value> {
         let req: super::types::ServiceRequest =
             serde_json::from_str(line).context("Invalid JSON-RPC request")?;
@@ -106,9 +123,24 @@ impl AdminSocket {
                     .to_string();
                 let db = super::registry::Registry::canonical_db_path(&name);
 
-                let entry = super::types::ProjectEntry::new(name.clone(), root, db, source);
+                let entry = super::types::ProjectEntry::new(name.clone(), root.clone(), db, source);
                 let mut reg = registry.lock().await;
                 reg.register(entry)?;
+                // Phase 6: spawn watcher if map / shutdown available and not already running
+                if let Some(wm) = watcher_map.clone() {
+                    let wm_guard = wm.lock().await;
+                    if !wm_guard.contains_key(&name) {
+                        drop(wm_guard);
+                        let tx = batch_tx.clone();
+                        let (local_tx, local_rx) = tokio::sync::watch::channel(false);
+                        let name_w = name.clone();
+                        tokio::spawn(async move {
+                            super::watcher_task(root, name_w, local_rx, tx).await;
+                        });
+                        let mut wm_guard = wm.lock().await;
+                        wm_guard.insert(name.clone(), local_tx);
+                    }
+                }
                 Ok(super::types::ServiceResponse::ok(id, json!({ "registered": name })).into_val())
             }
 
@@ -128,9 +160,30 @@ impl AdminSocket {
 
             "resume" => {
                 let name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                let mut reg = registry.lock().await;
-                let ok = reg.resume(name)?;
-                Ok(super::types::ServiceResponse::ok(id, json!({ "resumed": ok })).into_val())
+                let (root_opt, enabled) = {
+                    let mut reg = registry.lock().await;
+                    let ok = reg.resume(name)?;
+                    let root = reg.find(name).map(|e| e.root.clone());
+                    (root, ok)
+                };
+                // Phase 6: spawn watcher on resume if map / shutdown available
+                if let Some(root) = root_opt {
+                    if let Some(wm) = watcher_map.clone() {
+                        let wm_guard = wm.lock().await;
+                        if !wm_guard.contains_key(name) {
+                            drop(wm_guard);
+                            let tx = batch_tx.clone();
+                            let (local_tx, local_rx) = tokio::sync::watch::channel(false);
+                            let name_str = name.to_string();
+                            tokio::spawn(async move {
+                                super::watcher_task(root, name_str, local_rx, tx).await;
+                            });
+                            let mut wm_guard = wm.lock().await;
+                            wm_guard.insert(name.to_string(), local_tx);
+                        }
+                    }
+                }
+                Ok(super::types::ServiceResponse::ok(id, json!({ "resumed": enabled })).into_val())
             }
 
             "watch" => {
