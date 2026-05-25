@@ -2406,4 +2406,213 @@ edition = "2021"
         accept_task.abort();
         let _ = tokio::fs::remove_file(socket_path).await;
     }
+
+    // ------------------------------------------------------------------
+    // End-to-end P5 evolution chain: analyze -> propose -> verify -> promote
+    // ------------------------------------------------------------------
+    #[tokio::test]
+    async fn test_admin_socket_evolve_end_to_end_chain() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+        use tokio::net::{UnixListener, UnixStream};
+
+        let socket_path = "/tmp/magellan_test_e2e_chain.sock";
+        let _ = tokio::fs::remove_file(socket_path).await;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_path = temp_dir.path().to_path_buf();
+
+        // --- 1. Create a minimal Rust project for verify() ---
+        std::fs::create_dir(temp_path.join("src")).unwrap();
+        std::fs::write(
+            temp_path.join("Cargo.toml"),
+            r#"[package]
+name = "e2e_proj"
+version = "0.1.0"
+edition = "2021"
+"#,
+        ).unwrap();
+        std::fs::write(
+            temp_path.join("src/lib.rs"),
+            "pub fn greet() -> &'static str { \"hello\" }\n",
+        ).unwrap();
+
+        // --- 2. Shard DB with symbol_metrics (for analyze) + candidate_facts (for chain) ---
+        let shard_db = temp_path.join("e2e_shard.db");
+        {
+            let conn = rusqlite::Connection::open(&shard_db).unwrap();
+            conn.execute(
+                "CREATE TABLE symbol_metrics (
+                    symbol_id INTEGER PRIMARY KEY,
+                    symbol_name TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    file_path TEXT NOT NULL,
+                    loc INTEGER DEFAULT 0,
+                    estimated_loc REAL DEFAULT 0,
+                    fan_in INTEGER DEFAULT 0,
+                    fan_out INTEGER DEFAULT 0,
+                    cyclomatic_complexity INTEGER DEFAULT 0,
+                    last_updated INTEGER NOT NULL
+                )",
+                [],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO symbol_metrics
+                 (symbol_name, kind, file_path, loc, fan_in, cyclomatic_complexity, last_updated)
+                 VALUES ('greet', 'fn', 'src/lib.rs', 1, 0, 1, 0)",
+                [],
+            ).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS candidate_facts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    candidate_id TEXT UNIQUE NOT NULL,
+                    source_document_id INTEGER NOT NULL DEFAULT 0,
+                    subject_type TEXT NOT NULL,
+                    subject_key TEXT NOT NULL,
+                    predicate TEXT NOT NULL,
+                    object_type TEXT,
+                    object_key TEXT,
+                    properties_json TEXT,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    rejection_reason TEXT,
+                    created_at INTEGER,
+                    reviewed_at INTEGER
+                );",
+            ).unwrap();
+        }
+
+        // --- 3. Meta DB + Registry ---
+        let meta_db = std::sync::Arc::new(tokio::sync::Mutex::new(
+            super::meta_db::MetaDb::open_at(temp_path.join("e2e_meta.db")).unwrap(),
+        ));
+        {
+            let mut meta = meta_db.lock().await;
+            meta.upsert_project(
+                "e2e_proj",
+                &temp_path.to_string_lossy(),
+                &shard_db.to_string_lossy(),
+                true,
+            ).unwrap();
+        }
+
+        let reg = std::sync::Arc::new(tokio::sync::Mutex::new(
+            super::registry::Registry::load_from(temp_path.join("e2e_reg.toml")).unwrap(),
+        ));
+        {
+            let mut r = reg.lock().await;
+            let entry = super::types::ProjectEntry::new(
+                "e2e_proj".to_string(),
+                temp_path.clone(),
+                shard_db.clone(),
+                "manual".to_string(),
+            );
+            r.register(entry).unwrap();
+        }
+
+        // --- 4. Spawn socket ---
+        let listener = UnixListener::bind(socket_path).unwrap();
+        let meta_clone = meta_db.clone();
+        let reg_clone = reg.clone();
+        let accept_task = tokio::spawn(async move {
+            loop {
+                let (stream, _) = listener.accept().await.unwrap();
+                let meta = meta_clone.clone();
+                let reg = reg_clone.clone();
+                let (tx, _rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16);
+                tokio::spawn(async move {
+                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, meta, tx).await;
+                });
+            }
+        });
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+        // Helper: send one-shot JSON-RPC and return response
+        async fn rpc_call(socket_path: &str, req_json: &str) -> serde_json::Value {
+            let mut stream = UnixStream::connect(socket_path).await.expect("connect");
+            let (read_half, mut write_half) = stream.split();
+            write_half.write_all((req_json.to_string() + "\n").as_bytes()).await.unwrap();
+            write_half.shutdown().await.unwrap();
+
+            let mut reader = tokio::io::BufReader::new(read_half);
+            let mut line = String::new();
+            reader.read_line(&mut line).await.unwrap();
+            serde_json::from_str(&line).unwrap()
+        }
+
+        // --- 5. Step A: analyze -> get hotspot candidates ---
+        let resp_a = rpc_call(socket_path, r#"{"id":"e2e-1","method":"evolve.analyze","project":"e2e_proj","limit":5}"#).await;
+        assert!(resp_a.get("error").is_none(), "analyze failed: {}", serde_json::to_string(&resp_a).unwrap());
+        let result_a = resp_a.get("result").expect("result missing");
+        let candidates = result_a
+            .get("candidates")
+            .and_then(|v| v.as_array())
+            .expect("candidates array missing");
+        assert!(!candidates.is_empty(), "analyze should return at least 1 hotspot");
+        let top_symbol = candidates[0]
+            .get("symbol")
+            .and_then(|v| v.as_str())
+            .expect("symbol missing");
+        assert_eq!(top_symbol, "greet");
+
+        // --- 6. Step B: propose -> create candidate from the hotspot ---
+        let patch = r#"--- src/lib.rs
++++ src/lib.rs
+@@ -1 +1 @@
+-pub fn greet() -> &'static str { "hello" }
++pub fn greet() -> &'static str { "hello" } // evolved
+"#;
+        let req_propose_val = serde_json::json!({
+            "id": "e2e-2",
+            "method": "evolve.propose",
+            "project": "e2e_proj",
+            "symbol": top_symbol,
+            "patch_diff": patch,
+            "analogue": { "project": "other", "symbol": "other_sym" }
+        });
+        let resp_p = rpc_call(socket_path, &req_propose_val.to_string()).await;
+        assert!(resp_p.get("error").is_none(), "propose failed: {}", serde_json::to_string(&resp_p).unwrap());
+        let result_p = resp_p.get("result").expect("result missing");
+        let candidate_id = result_p
+            .get("candidate_id")
+            .and_then(|v| v.as_str())
+            .expect("candidate_id missing");
+        assert_eq!(result_p.get("status").and_then(|v| v.as_str()), Some("pending"));
+
+        // --- 7. Step C: verify -> apply patch and run tests ---
+        let req_verify = format!(
+            r#"{{"id":"e2e-3","method":"evolve.verify","project":"e2e_proj","candidate_id":"{}"}}"#,
+            candidate_id
+        );
+        let resp_v = rpc_call(socket_path, &req_verify).await;
+        assert!(resp_v.get("error").is_none(), "verify failed: {}", serde_json::to_string(&resp_v).unwrap());
+        let result_v = resp_v.get("result").expect("result missing");
+        assert_eq!(result_v.get("status").and_then(|v| v.as_str()), Some("verified"));
+        assert_eq!(result_v.get("passed").and_then(|v| v.as_bool()), Some(true));
+
+        // DB should reflect verified
+        let rec_v = super::candidates::get_candidate_by_id(&shard_db, candidate_id)
+            .unwrap()
+            .expect("candidate should exist after verify");
+        assert_eq!(rec_v.status, "verified");
+
+        // --- 8. Step D: promote -> transition verified -> promoted ---
+        let req_promote = format!(
+            r#"{{"id":"e2e-4","method":"evolve.promote","project":"e2e_proj","candidate_id":"{}"}}"#,
+            candidate_id
+        );
+        let resp_m = rpc_call(socket_path, &req_promote).await;
+        assert!(resp_m.get("error").is_none(), "promote failed: {}", serde_json::to_string(&resp_m).unwrap());
+        let result_m = resp_m.get("result").expect("result missing");
+        assert_eq!(result_m.get("status").and_then(|v| v.as_str()), Some("promoted"));
+        assert_eq!(result_m.get("candidate_id").and_then(|v| v.as_str()), Some(candidate_id));
+
+        // Final DB check
+        let rec_m = super::candidates::get_candidate_by_id(&shard_db, candidate_id)
+            .unwrap()
+            .expect("candidate should exist after promote");
+        assert_eq!(rec_m.status, "promoted");
+
+        accept_task.abort();
+        let _ = tokio::fs::remove_file(socket_path).await;
+    }
 }
+
