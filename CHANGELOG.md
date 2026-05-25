@@ -3,7 +3,47 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [4.1.0] - 2026-05-24
+## [4.1.0] - Unreleased
+
+### Added
+
+- **P5-ANALYZE: Hotspot candidate detection** (`src/service/meta_db.rs`, `src/service/admin_socket.rs`):
+  - `HotspotCandidate` struct with `symbol`, `file`, `project`, `rank_score`, `fan_in`, `complexity`
+  - `MetaDb::analyze_hotspots(project_filter, limit)` — aggregates `symbol_metrics` across enabled project shards; ranks by `fan_in * cyclomatic_complexity` DESC; respects optional per-project filter and result limit
+  - `evolve.analyze` JSON-RPC socket method — demand-triggered analysis returning ranked candidate array with metadata; params: `project` (optional), `limit` (optional)
+  - 3 unit tests + 1 integration test covering ranking formula, project filtering, disabled-project exclusion, and end-to-end socket dispatch
+- **P5-RETRIEVE: Analogue retrieval from cross-ref index** (`src/service/admin_socket.rs`):
+  - `evolve.retrieve` JSON-RPC socket method — queries `pattern_cross_refs` for analogues of a given `(project, symbol)` pair; supports `to_project` optional filter and `limit` truncation
+  - Falls back gracefully to empty `analogues` array when cross-ref index is unpopulated
+  - 2 unit tests + 1 integration test covering round-trip, empty match, and limit truncation
+- **P5-PROPOSE: Candidate patch persistence** (`src/service/admin_socket.rs`, `src/service/candidates.rs`):
+  - `evolve.propose` JSON-RPC socket method — persists a candidate improvement patch into the project's `candidate_facts` table (idempotent via optional `candidate_id`)
+  - `evolve.candidates` JSON-RPC socket method — lists persisted candidates by status, with optional `limit`
+  - `src/service/candidates.rs` — new module with `CandidateRecord`, `insert_candidate_fact`, `list_candidates`, `update_candidate_status`
+  - Auto-generates `candidate_id` from `{project}/{symbol}-{timestamp}` if not provided
+  - Stores `patch_diff` and analogue metadata as JSON in `properties_json`
+  - 2 integration tests covering propose round-trip and candidates listing with status filter
+- **P5-PROMOTE / P5-REJECT: Candidate status transitions** (`src/service/admin_socket.rs`, `src/service/candidates.rs`):
+  - `evolve.promote` JSON-RPC socket method — sets a candidate's status to `promoted` and records `reviewed_at`
+  - `evolve.reject` JSON-RPC socket method — sets a candidate's status to `rejected` with optional `rejection_reason`
+  - Returns `error:-32006` if candidate_id not found (zero rows affected)
+  - 3 unit tests + 1 integration test covering promote, reject with reason, and missing-candidate edge case
+- **P5-VERIFY: Temp worktree patch verification** (`src/service/admin_socket.rs`, `src/service/verify.rs`):
+  - `evolve.verify` JSON-RPC socket method — creates temp worktree copy, applies candidate's `patch_diff` via `patch -p0`, auto-detects test harness (`cargo test` / `pytest` / `npm test`), runs tests, and updates candidate status to `verified` (passing) or `rejected` (failing)
+  - `src/service/verify.rs` — new module with `verify_candidate()`, `detect_test_command()`, `copy_dir_all()` (pure-Rust recursive copy excluding destination)
+  - `get_candidate_by_id()` helper in `candidates.rs` to fetch candidate's stored `patch_diff`
+  - 1 integration test covering full round-trip: propose → verify on real Rust project with passing `cargo test`
+- **Phase 6: Runtime Watcher Auto-Spawn** (`src/service/admin_socket.rs`, `src/service/mod.rs`):
+  - `AdminSocket::handle_client` now accepts `WatcherMap` + `shutdown_rx` — `register` and `resume` socket handlers spawn `watcher_task` immediately without requiring a daemon restart
+  - `WatcherMap` tracks per-project shutdown senders for clean per-project lifecycle
+  - Backward-compat `handle_client_raw` wrappers preserve existing test call sites
+  - Integration test: `test_register_spawns_watcher_on_running_daemon`
+- **Service-daemon CLI wiring** (`src/cli.rs`, `src/main.rs`, `tests/daemon_argv_tests.rs`):
+  - `Command::ServiceDaemon` added to CLI enum — closes Phase 0 gap where `service_cmd.rs` spawned `service-daemon` but the CLI parser rejected it as unknown
+  - `main.rs` handler spawns `Service::new().await?.run().await`
+  - `tests/daemon_argv_tests.rs` — integration test catching unwired subcommand regression
+
+## [4.0.0] - 2026-05-24
 
 ### Added
 
@@ -90,37 +130,6 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `src/cli.rs` inline `service` block: `parse_required_arg`/`parse_path_arg` called with `&args` (Vec<String>) instead of `&args[..]` (slice), causing type mismatch
 - `src/main.rs` `Command::Service` match arm: destructured `db_path: _` which no longer exists on the enum variant
 - `BackendType::Dual` exhaustiveness: `find_cmd.rs` and `slice_cmd.rs` updated to match `SQLite | Dual` arm
-
-## [4.2.0] - Unreleased
-
-### Added
-
-- **P5-ANALYZE: Hotspot candidate detection** (`src/service/meta_db.rs`, `src/service/admin_socket.rs`):
-  - `HotspotCandidate` struct with `symbol`, `file`, `project`, `rank_score`, `fan_in`, `complexity`
-  - `MetaDb::analyze_hotspots(project_filter, limit)` — aggregates `symbol_metrics` across enabled project shards; ranks by `fan_in * cyclomatic_complexity` DESC; respects optional per-project filter and result limit
-  - `evolve.analyze` JSON-RPC socket method — demand-triggered analysis returning ranked candidate array with metadata; params: `project` (optional), `limit` (optional)
-  - 3 unit tests + 1 integration test covering ranking formula, project filtering, disabled-project exclusion, and end-to-end socket dispatch
-- **P5-RETRIEVE: Analogue retrieval from cross-ref index** (`src/service/admin_socket.rs`):
-  - `evolve.retrieve` JSON-RPC socket method — queries `pattern_cross_refs` for analogues of a given `(project, symbol)` pair; supports `to_project` optional filter and `limit` truncation
-  - Falls back gracefully to empty `analogues` array when cross-ref index is unpopulated
-  - 2 unit tests + 1 integration test covering round-trip, empty match, and limit truncation
-- **P5-PROPOSE: Candidate patch persistence** (`src/service/admin_socket.rs`, `src/service/candidates.rs`):
-  - `evolve.propose` JSON-RPC socket method — persists a candidate improvement patch into the project's `candidate_facts` table (idempotent via optional `candidate_id`)
-  - `evolve.candidates` JSON-RPC socket method — lists persisted candidates by status, with optional `limit`
-  - `src/service/candidates.rs` — new module with `CandidateRecord`, `insert_candidate_fact`, `list_candidates`, `update_candidate_status`
-  - Auto-generates `candidate_id` from `{project}/{symbol}-{timestamp}` if not provided
-  - Stores `patch_diff` and analogue metadata as JSON in `properties_json`
-  - 2 integration tests covering propose round-trip and candidates listing with status filter
-- **P5-PROMOTE / P5-REJECT: Candidate status transitions** (`src/service/admin_socket.rs`, `src/service/candidates.rs`):
-  - `evolve.promote` JSON-RPC socket method — sets a candidate's status to `promoted` and records `reviewed_at`
-  - `evolve.reject` JSON-RPC socket method — sets a candidate's status to `rejected` with optional `rejection_reason`
-  - Returns `error:-32006` if candidate_id not found (zero rows affected)
-  - 3 unit tests + 1 integration test covering promote, reject with reason, and missing-candidate edge case
-- **P5-VERIFY: Temp worktree patch verification** (`src/service/admin_socket.rs`, `src/service/verify.rs`):
-  - `evolve.verify` JSON-RPC socket method — creates temp worktree copy, applies candidate's `patch_diff` via `patch -p0`, auto-detects test harness (`cargo test` / `pytest` / `npm test`), runs tests, and updates candidate status to `verified` (passing) or `rejected` (failing)
-  - `src/service/verify.rs` — new module with `verify_candidate()`, `detect_test_command()`, `copy_dir_all()` (pure-Rust recursive copy excluding destination)
-  - `get_candidate_by_id()` helper in `candidates.rs` to fetch candidate's stored `patch_diff`
-  - 1 integration test covering full round-trip: propose → verify on real Rust project with passing `cargo test`
 
 ## [3.3.13] - 2026-05-21
 

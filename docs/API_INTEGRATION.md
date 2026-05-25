@@ -1,6 +1,6 @@
 # Magellan API Integration
 
-**Version:** 4.1.0
+**Version:** 4.1.0 (unreleased)
 
 This guide is for downstream tools that use Magellan as a Rust library or invoke
 the CLI and parse JSON output.
@@ -208,6 +208,63 @@ magellan candidate-fact review-queue --db code.db --limit 20
 
 Fact statuses: `pending` → `accepted` or `rejected`. Candidate IDs are
 auto-generated UUIDs when omitted.
+
+## Service Daemon Socket API (v4.1.0+)
+
+The daemon exposes a JSON-RPC API over a Unix domain socket at
+`/tmp/magellan.sock`. All messages are newline-delimited JSON. Start the daemon
+with `magellan service start` before connecting.
+
+Wire format:
+
+```json
+{ "method": "ping", "params": {} }
+```
+
+### Admin Methods
+
+| Method | Params | Returns |
+|--------|--------|---------|
+| `ping` | `{}` | `{ "pong": true }` |
+| `list` | `{}` | `{ "projects": [...] }` |
+| `status` | `{ "name": "myproject" }` | project entry |
+| `register` | `{ "name", "root", "db_path" }` | `{ "registered": true }` |
+| `unregister` | `{ "name" }` | `{ "unregistered": true }` |
+| `pause` | `{ "name" }` | `{ "paused": true }` |
+| `resume` | `{ "name" }` | `{ "resumed": true }` |
+
+### Cross-Project Query Methods
+
+| Method | Key Params | Returns |
+|--------|-----------|---------|
+| `query.find` | `name`, `file?`, `depth?`, `callers?`, `callees?` | `{ "results": [ProjectSymbolMatch] }` |
+| `query.context` | `name`, `file?`, `callers?`, `callees?`, `depth?` | per-project symbol match with caller/callee arrays |
+| `query.compare` | `name`, `projects: [string]` | `{ "comparisons": [..., "similarity_score"?] }` |
+| `query.build-index` | `{}` | `{ "pairs_inserted": N }` |
+| `query.suggest` | `from_project`, `name`, `to_project?` | `{ "suggestions": [{ project, symbol, file, similarity_score }] }` |
+
+`query.build-index` populates `pattern_cross_refs` via pairwise cosine
+similarity across all enabled registry projects (threshold 0.70).
+
+### Evolution Loop Methods
+
+| Method | Key Params | Returns |
+|--------|-----------|---------|
+| `evolve.analyze` | `project?`, `limit?` | `{ "candidates": [HotspotCandidate] }` |
+| `evolve.retrieve` | `project`, `symbol`, `to_project?`, `limit?` | `{ "analogues": [...] }` |
+| `evolve.propose` | `project`, `symbol`, `patch_diff`, `candidate_id?` | `{ "candidate_id": "..." }` |
+| `evolve.candidates` | `project?`, `status?`, `limit?` | `{ "candidates": [CandidateRecord] }` |
+| `evolve.verify` | `candidate_id`, `project_root` | `{ "status": "verified" \| "rejected" }` |
+| `evolve.promote` | `candidate_id` | `{ "promoted": true }` |
+| `evolve.reject` | `candidate_id`, `reason?` | `{ "rejected": true }` |
+
+`evolve.verify` creates a temp worktree copy of `project_root`, applies
+`patch_diff` via `patch -p0`, auto-detects the test harness (`cargo test` /
+`pytest` / `npm test`), runs tests, and updates candidate status.
+
+Error code `-32006` is returned when a `candidate_id` is not found.
+
+Candidate status lifecycle: `pending` → `verified` or `rejected` → `promoted`.
 
 ## Path Handling
 

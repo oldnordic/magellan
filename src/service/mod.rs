@@ -375,7 +375,7 @@ async fn watcher_task(
 
 /// Send a JSON-RPC request to the daemon via unix socket and return the response
 pub async fn send_request(req: serde_json::Value) -> Result<serde_json::Value> {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
     use tokio::net::UnixStream;
 
     let mut stream = UnixStream::connect(SOCKET_PATH)
@@ -384,12 +384,17 @@ pub async fn send_request(req: serde_json::Value) -> Result<serde_json::Value> {
 
     let req_line = serde_json::to_string(&req)? + "\n";
     stream.write_all(req_line.as_bytes()).await?;
+    stream.shutdown().await.context("Failed to shutdown write half")?;
 
-    let mut buf = Vec::new();
-    stream.read_to_end(&mut buf).await?;
+    let mut reader = tokio::io::BufReader::new(stream);
+    let mut line = String::new();
+    reader
+        .read_line(&mut line)
+        .await
+        .context("Failed to read daemon response")?;
 
     let resp: serde_json::Value =
-        serde_json::from_slice(&buf).context("Failed to parse daemon response")?;
+        serde_json::from_str(&line).context("Failed to parse daemon response")?;
     Ok(resp)
 }
 

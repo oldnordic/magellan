@@ -1,6 +1,6 @@
 # Magellan Architecture
 
-**Version:** 3.3.13
+**Version:** 4.1.0 (unreleased)
 
 This document describes the current public architecture. Magellan's supported
 user-facing storage path is a SQLite `.db` database.
@@ -132,6 +132,7 @@ Commands are organized around facts:
 - database health: `status`, `doctor`, `migrate`, `verify`
 - maintenance: `refresh`, `backfill`, `index`, `delete`
 - multi-project: `ask`, `find --all`, `status --all`, `find --project <name>`
+- investigation: `navigate`
 
 ## Coverage Data
 
@@ -160,6 +161,74 @@ Optional features:
 | `geometric-backend` | experimental geometric index code for source builds |
 
 The public command documentation assumes the default SQLite `.db` workflow.
+
+## Service Daemon
+
+`magellan service start` launches a long-running daemon that serves a JSON-RPC
+API over a Unix domain socket at `/tmp/magellan.sock`.
+
+```text
+magellan service start
+  -> Service::new() reads ~/.config/magellan/registry.toml
+  -> AdminSocket listens on /tmp/magellan.sock
+  -> WatcherMap spawns FileSystemWatcher per registered project
+  -> worker_loop indexes batched file changes into each project's CodeGraph
+  -> meta.db (~/.magellan/meta.db) tracks project registry + last_reindexed
+```
+
+### Components
+
+| Module | Role |
+|--------|------|
+| `src/service/mod.rs` | `Service` struct, signal handler, worker loop, `send_request()` client |
+| `src/service/admin_socket.rs` | JSON-RPC dispatch over UDS; `WatcherMap` for per-project watcher lifecycle |
+| `src/service/registry.rs` | `Registry` CRUD + TOML persistence at `~/.config/magellan/registry.toml` |
+| `src/service/meta_db.rs` | `MetaDb` — `project_registry` + `concept_embeddings` + `pattern_cross_refs` |
+| `src/service/types.rs` | `ProjectEntry`, `ServiceRequest`, `ServiceResponse`, `TaggedBatch` |
+| `src/service_cmd.rs` | Async CLI handlers for 9 subcommands (`start`, `stop`, `list`, `register`, `unregister`, `pause`, `resume`, `status`, `stats`) |
+| `src/watcher/mod.rs` | `FileSystemWatcher` — `notify`-based file change detection, `run_watcher()` |
+
+### Runtime Watcher Auto-Spawn (Phase 6)
+
+`register` and `resume` socket handlers spawn `watcher_task` immediately — no
+daemon restart required for new projects to be continuously monitored.
+`WatcherMap` tracks per-project `Sender<()>` shutdown handles.
+
+### JSON-RPC Socket Methods
+
+Admin methods: `ping`, `list`, `status`, `register`, `unregister`, `pause`, `resume`
+
+Query methods (cross-project): `query.find`, `query.context`, `query.compare`,
+`query.build-index`, `query.suggest`
+
+Evolution loop methods: `evolve.analyze`, `evolve.retrieve`, `evolve.propose`,
+`evolve.candidates`, `evolve.verify`, `evolve.promote`, `evolve.reject`
+
+See `docs/SCHEMA_META_DB.md` for the two-database architecture (`project.db` +
+`meta.db`) and `docs/API_INTEGRATION.md` for the full socket method reference.
+
+## Evolution Loop
+
+The evolution loop is a set of socket methods that automate code improvement
+discovery across registered projects.
+
+```text
+evolve.analyze   -> rank hotspot candidates by fan_in × complexity
+evolve.retrieve  -> find analogues from pattern_cross_refs
+evolve.propose   -> persist a candidate patch diff into candidate_facts
+evolve.verify    -> temp worktree copy → apply patch → run tests → update status
+evolve.promote   -> mark candidate as 'promoted' after human review
+evolve.reject    -> mark candidate as 'rejected' with optional reason
+```
+
+Candidate storage uses the project's `candidate_facts` table. Status lifecycle:
+`pending` → `verified` or `rejected` → `promoted`.
+
+The structural analogy engine (`src/service/structural.rs`) produces the
+similarity index: `structural_hash()` computes a SHA-256 fingerprint of the
+AST kind sequence; `kind_vector()` produces an L2-normalized 20-element
+bag-of-kinds vector; `build_cross_refs()` populates `pattern_cross_refs` via
+pairwise cosine similarity across project pairs (threshold default 0.70).
 
 ## Framework API
 
