@@ -20,13 +20,11 @@ pub fn verify_candidate(project_root: &Path, patch_diff: &str) -> Result<VerifyR
     std::fs::create_dir_all(&worktree)?;
 
     // Copy project into temp worktree
-    copy_dir_all(project_root, &worktree)
-        .context("copy project to temp worktree")?;
+    copy_dir_all(project_root, &worktree).context("copy project to temp worktree")?;
 
     // Write patch to temp file inside worktree
     let patch_file = worktree.join("candidate.patch");
-    std::fs::write(&patch_file, patch_diff)
-        .context("write patch file")?;
+    std::fs::write(&patch_file, patch_diff).context("write patch file")?;
 
     // Apply patch
     let patch_output = Command::new("patch")
@@ -70,7 +68,8 @@ fn test_output(worktree: &Path, cmd: &[String]) -> Result<VerifyResult> {
             passed: false,
             exit_code: 1,
             stdout: String::new(),
-            stderr: "No test harness detected (missing Cargo.toml / pyproject.toml / package.json)".into(),
+            stderr: "No test harness detected (missing Cargo.toml / pyproject.toml / package.json)"
+                .into(),
         });
     }
     let output = Command::new(&cmd[0])

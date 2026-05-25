@@ -896,7 +896,10 @@ impl AdminSocket {
                 };
 
                 match super::candidates::update_candidate_status(
-                    &db_path, &candidate_id, "promoted", None,
+                    &db_path,
+                    &candidate_id,
+                    "promoted",
+                    None,
                 ) {
                     Ok(0) => Ok(super::types::ServiceResponse::err(
                         id,
@@ -1016,8 +1019,7 @@ impl AdminSocket {
                     .into_val());
                 };
 
-                let rec = match super::candidates::get_candidate_by_id(&db_path, &candidate_id,
-                ) {
+                let rec = match super::candidates::get_candidate_by_id(&db_path, &candidate_id) {
                     Ok(Some(r)) => r,
                     Ok(None) => {
                         return Ok(super::types::ServiceResponse::err(
@@ -1038,11 +1040,14 @@ impl AdminSocket {
                 };
 
                 // Extract patch_diff from properties_json
-                let patch_diff = serde_json::from_str::<serde_json::Value>(&rec.properties_json
-                )
-                .ok()
-                .and_then(|v| v.get("patch_diff").and_then(|p| p.as_str()).map(|s| s.to_string()))
-                .unwrap_or_default();
+                let patch_diff = serde_json::from_str::<serde_json::Value>(&rec.properties_json)
+                    .ok()
+                    .and_then(|v| {
+                        v.get("patch_diff")
+                            .and_then(|p| p.as_str())
+                            .map(|s| s.to_string())
+                    })
+                    .unwrap_or_default();
 
                 if patch_diff.is_empty() {
                     return Ok(super::types::ServiceResponse::err(
@@ -1054,15 +1059,18 @@ impl AdminSocket {
                 }
 
                 let result = tokio::task::spawn_blocking(move || {
-                    super::verify::verify_candidate(&project_root, &patch_diff,
-                    )
-                }).await;
+                    super::verify::verify_candidate(&project_root, &patch_diff)
+                })
+                .await;
 
                 match result {
                     Ok(Ok(vr)) => {
                         let status = if vr.passed { "verified" } else { "rejected" };
                         let _ = super::candidates::update_candidate_status(
-                            &db_path, &candidate_id, status, None,
+                            &db_path,
+                            &candidate_id,
+                            status,
+                            None,
                         );
                         Ok(super::types::ServiceResponse::ok(
                             id,

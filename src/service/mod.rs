@@ -2180,8 +2180,9 @@ mod integration_tests {
                     rejection_reason TEXT,
                     created_at INTEGER,
                     reviewed_at INTEGER
-                );"
-            ).unwrap();
+                );",
+            )
+            .unwrap();
         }
 
         super::candidates::insert_candidate_fact(
@@ -2192,7 +2193,8 @@ mod integration_tests {
             "proposes-improvement",
             r#"{"patch_diff":"test"}"#,
             "pending",
-        ).unwrap();
+        )
+        .unwrap();
 
         let reg = std::sync::Arc::new(tokio::sync::Mutex::new(
             super::registry::Registry::load_from(temp_path.join("reg_pr.toml")).unwrap(),
@@ -2218,7 +2220,8 @@ mod integration_tests {
                 let meta = meta_clone.clone();
                 let (tx, _rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16);
                 tokio::spawn(async move {
-                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, meta, tx).await;
+                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, meta, tx)
+                        .await;
                 });
             }
         });
@@ -2226,19 +2229,31 @@ mod integration_tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
         // Promote
-        let mut stream = UnixStream::connect(socket_path).await.expect("connect to socket");
+        let mut stream = UnixStream::connect(socket_path)
+            .await
+            .expect("connect to socket");
         let req = r#"{"id":"evol-pr-1","method":"evolve.promote","project":"proj_epsilon","candidate_id":"promo-1"}"#;
         let (read_half, mut write_half) = stream.split();
-        write_half.write_all((req.to_string() + "\n").as_bytes()).await.unwrap();
+        write_half
+            .write_all((req.to_string() + "\n").as_bytes())
+            .await
+            .unwrap();
         write_half.shutdown().await.unwrap();
 
         let mut reader = tokio::io::BufReader::new(read_half);
         let mut line = String::new();
         reader.read_line(&mut line).await.unwrap();
         let resp: serde_json::Value = serde_json::from_str(&line).unwrap();
-        assert!(resp.get("error").is_none(), "evolve.promote should succeed, got: {}", line);
+        assert!(
+            resp.get("error").is_none(),
+            "evolve.promote should succeed, got: {}",
+            line
+        );
         let result = resp.get("result").expect("result missing");
-        assert_eq!(result.get("status").and_then(|v| v.as_str()), Some("promoted"));
+        assert_eq!(
+            result.get("status").and_then(|v| v.as_str()),
+            Some("promoted")
+        );
 
         // Reject (with reason)
         // seed another first because promo-1 already promoted
@@ -2250,21 +2265,34 @@ mod integration_tests {
             "proposes-improvement",
             r#"{"patch_diff":"bad"}"#,
             "pending",
-        ).unwrap();
+        )
+        .unwrap();
 
-        let mut stream = UnixStream::connect(socket_path).await.expect("connect to socket");
+        let mut stream = UnixStream::connect(socket_path)
+            .await
+            .expect("connect to socket");
         let req = r#"{"id":"evol-rj-1","method":"evolve.reject","project":"proj_epsilon","candidate_id":"promo-2","rejection_reason":"test fails"}"#;
         let (read_half, mut write_half) = stream.split();
-        write_half.write_all((req.to_string() + "\n").as_bytes()).await.unwrap();
+        write_half
+            .write_all((req.to_string() + "\n").as_bytes())
+            .await
+            .unwrap();
         write_half.shutdown().await.unwrap();
 
         let mut reader = tokio::io::BufReader::new(read_half);
         let mut line = String::new();
         reader.read_line(&mut line).await.unwrap();
         let resp: serde_json::Value = serde_json::from_str(&line).unwrap();
-        assert!(resp.get("error").is_none(), "evolve.reject should succeed, got: {}", line);
+        assert!(
+            resp.get("error").is_none(),
+            "evolve.reject should succeed, got: {}",
+            line
+        );
         let result = resp.get("result").expect("result missing");
-        assert_eq!(result.get("status").and_then(|v| v.as_str()), Some("rejected"));
+        assert_eq!(
+            result.get("status").and_then(|v| v.as_str()),
+            Some("rejected")
+        );
 
         accept_task.abort();
         let _ = tokio::fs::remove_file(socket_path).await;
@@ -2290,11 +2318,13 @@ name = "dummy_proj"
 version = "0.1.0"
 edition = "2021"
 "#,
-        ).unwrap();
+        )
+        .unwrap();
         std::fs::write(
             temp_path.join("src/lib.rs"),
             "pub fn hello() -> &'static str { \"world\" }\n",
-        ).unwrap();
+        )
+        .unwrap();
 
         let shard_db = temp_path.join("proj_verify.db");
         {
@@ -2314,8 +2344,9 @@ edition = "2021"
                     rejection_reason TEXT,
                     created_at INTEGER,
                     reviewed_at INTEGER
-                );"
-            ).unwrap();
+                );",
+            )
+            .unwrap();
         }
 
         // Patch using actual relative paths (no a/ b/ prefixes)
@@ -2334,7 +2365,8 @@ edition = "2021"
             "proposes-improvement",
             &properties,
             "pending",
-        ).unwrap();
+        )
+        .unwrap();
 
         let meta_db = std::sync::Arc::new(tokio::sync::Mutex::new(
             super::meta_db::MetaDb::open_at(temp_path.join("meta_v.db")).unwrap(),
@@ -2363,17 +2395,23 @@ edition = "2021"
                 let meta = meta_clone.clone();
                 let (tx, _rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16);
                 tokio::spawn(async move {
-                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, meta, tx).await;
+                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, meta, tx)
+                        .await;
                 });
             }
         });
 
         tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
-        let mut stream = UnixStream::connect(socket_path).await.expect("connect to socket");
+        let mut stream = UnixStream::connect(socket_path)
+            .await
+            .expect("connect to socket");
         let req = r#"{"id":"evol-v-1","method":"evolve.verify","project":"proj_verify","candidate_id":"verify-1"}"#;
         let (read_half, mut write_half) = stream.split();
-        write_half.write_all((req.to_string() + "\n").as_bytes()).await.unwrap();
+        write_half
+            .write_all((req.to_string() + "\n").as_bytes())
+            .await
+            .unwrap();
         write_half.shutdown().await.unwrap();
 
         let mut reader = tokio::io::BufReader::new(read_half);
@@ -2393,14 +2431,16 @@ edition = "2021"
         assert!(
             status == Some("verified"),
             "Expected verified, got {:?}. stdout: {}\nstderr: {}",
-            status, stdout, stderr
+            status,
+            stdout,
+            stderr
         );
         assert_eq!(result.get("passed").and_then(|v| v.as_bool()), Some(true));
 
         // Check candidate status updated in DB
-        let rec = super::candidates::get_candidate_by_id(&shard_db, "verify-1"
-        ).unwrap()
-        .expect("candidate should exist");
+        let rec = super::candidates::get_candidate_by_id(&shard_db, "verify-1")
+            .unwrap()
+            .expect("candidate should exist");
         assert_eq!(rec.status, "verified");
 
         accept_task.abort();
@@ -2430,11 +2470,13 @@ name = "e2e_proj"
 version = "0.1.0"
 edition = "2021"
 "#,
-        ).unwrap();
+        )
+        .unwrap();
         std::fs::write(
             temp_path.join("src/lib.rs"),
             "pub fn greet() -> &'static str { \"hello\" }\n",
-        ).unwrap();
+        )
+        .unwrap();
 
         // --- 2. Shard DB with symbol_metrics (for analyze) + candidate_facts (for chain) ---
         let shard_db = temp_path.join("e2e_shard.db");
@@ -2454,13 +2496,15 @@ edition = "2021"
                     last_updated INTEGER NOT NULL
                 )",
                 [],
-            ).unwrap();
+            )
+            .unwrap();
             conn.execute(
                 "INSERT INTO symbol_metrics
                  (symbol_name, kind, file_path, loc, fan_in, cyclomatic_complexity, last_updated)
                  VALUES ('greet', 'fn', 'src/lib.rs', 1, 0, 1, 0)",
                 [],
-            ).unwrap();
+            )
+            .unwrap();
             conn.execute_batch(
                 "CREATE TABLE IF NOT EXISTS candidate_facts (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2477,7 +2521,8 @@ edition = "2021"
                     created_at INTEGER,
                     reviewed_at INTEGER
                 );",
-            ).unwrap();
+            )
+            .unwrap();
         }
 
         // --- 3. Meta DB + Registry ---
@@ -2491,7 +2536,8 @@ edition = "2021"
                 &temp_path.to_string_lossy(),
                 &shard_db.to_string_lossy(),
                 true,
-            ).unwrap();
+            )
+            .unwrap();
         }
 
         let reg = std::sync::Arc::new(tokio::sync::Mutex::new(
@@ -2519,7 +2565,8 @@ edition = "2021"
                 let reg = reg_clone.clone();
                 let (tx, _rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16);
                 tokio::spawn(async move {
-                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, meta, tx).await;
+                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, meta, tx)
+                        .await;
                 });
             }
         });
@@ -2529,7 +2576,10 @@ edition = "2021"
         async fn rpc_call(socket_path: &str, req_json: &str) -> serde_json::Value {
             let mut stream = UnixStream::connect(socket_path).await.expect("connect");
             let (read_half, mut write_half) = stream.split();
-            write_half.write_all((req_json.to_string() + "\n").as_bytes()).await.unwrap();
+            write_half
+                .write_all((req_json.to_string() + "\n").as_bytes())
+                .await
+                .unwrap();
             write_half.shutdown().await.unwrap();
 
             let mut reader = tokio::io::BufReader::new(read_half);
@@ -2539,14 +2589,25 @@ edition = "2021"
         }
 
         // --- 5. Step A: analyze -> get hotspot candidates ---
-        let resp_a = rpc_call(socket_path, r#"{"id":"e2e-1","method":"evolve.analyze","project":"e2e_proj","limit":5}"#).await;
-        assert!(resp_a.get("error").is_none(), "analyze failed: {}", serde_json::to_string(&resp_a).unwrap());
+        let resp_a = rpc_call(
+            socket_path,
+            r#"{"id":"e2e-1","method":"evolve.analyze","project":"e2e_proj","limit":5}"#,
+        )
+        .await;
+        assert!(
+            resp_a.get("error").is_none(),
+            "analyze failed: {}",
+            serde_json::to_string(&resp_a).unwrap()
+        );
         let result_a = resp_a.get("result").expect("result missing");
         let candidates = result_a
             .get("candidates")
             .and_then(|v| v.as_array())
             .expect("candidates array missing");
-        assert!(!candidates.is_empty(), "analyze should return at least 1 hotspot");
+        assert!(
+            !candidates.is_empty(),
+            "analyze should return at least 1 hotspot"
+        );
         let top_symbol = candidates[0]
             .get("symbol")
             .and_then(|v| v.as_str())
@@ -2569,13 +2630,20 @@ edition = "2021"
             "analogue": { "project": "other", "symbol": "other_sym" }
         });
         let resp_p = rpc_call(socket_path, &req_propose_val.to_string()).await;
-        assert!(resp_p.get("error").is_none(), "propose failed: {}", serde_json::to_string(&resp_p).unwrap());
+        assert!(
+            resp_p.get("error").is_none(),
+            "propose failed: {}",
+            serde_json::to_string(&resp_p).unwrap()
+        );
         let result_p = resp_p.get("result").expect("result missing");
         let candidate_id = result_p
             .get("candidate_id")
             .and_then(|v| v.as_str())
             .expect("candidate_id missing");
-        assert_eq!(result_p.get("status").and_then(|v| v.as_str()), Some("pending"));
+        assert_eq!(
+            result_p.get("status").and_then(|v| v.as_str()),
+            Some("pending")
+        );
 
         // --- 7. Step C: verify -> apply patch and run tests ---
         let req_verify = format!(
@@ -2583,9 +2651,16 @@ edition = "2021"
             candidate_id
         );
         let resp_v = rpc_call(socket_path, &req_verify).await;
-        assert!(resp_v.get("error").is_none(), "verify failed: {}", serde_json::to_string(&resp_v).unwrap());
+        assert!(
+            resp_v.get("error").is_none(),
+            "verify failed: {}",
+            serde_json::to_string(&resp_v).unwrap()
+        );
         let result_v = resp_v.get("result").expect("result missing");
-        assert_eq!(result_v.get("status").and_then(|v| v.as_str()), Some("verified"));
+        assert_eq!(
+            result_v.get("status").and_then(|v| v.as_str()),
+            Some("verified")
+        );
         assert_eq!(result_v.get("passed").and_then(|v| v.as_bool()), Some(true));
 
         // DB should reflect verified
@@ -2600,10 +2675,20 @@ edition = "2021"
             candidate_id
         );
         let resp_m = rpc_call(socket_path, &req_promote).await;
-        assert!(resp_m.get("error").is_none(), "promote failed: {}", serde_json::to_string(&resp_m).unwrap());
+        assert!(
+            resp_m.get("error").is_none(),
+            "promote failed: {}",
+            serde_json::to_string(&resp_m).unwrap()
+        );
         let result_m = resp_m.get("result").expect("result missing");
-        assert_eq!(result_m.get("status").and_then(|v| v.as_str()), Some("promoted"));
-        assert_eq!(result_m.get("candidate_id").and_then(|v| v.as_str()), Some(candidate_id));
+        assert_eq!(
+            result_m.get("status").and_then(|v| v.as_str()),
+            Some("promoted")
+        );
+        assert_eq!(
+            result_m.get("candidate_id").and_then(|v| v.as_str()),
+            Some(candidate_id)
+        );
 
         // Final DB check
         let rec_m = super::candidates::get_candidate_by_id(&shard_db, candidate_id)
@@ -2615,4 +2700,3 @@ edition = "2021"
         let _ = tokio::fs::remove_file(socket_path).await;
     }
 }
-

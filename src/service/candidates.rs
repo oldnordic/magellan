@@ -77,16 +77,13 @@ fn now_secs() -> i64 {
 }
 
 /// Query a single candidate by its candidate_id.
-pub fn get_candidate_by_id(
-    db_path: &Path,
-    candidate_id: &str,
-) -> Result<Option<CandidateRecord>> {
+pub fn get_candidate_by_id(db_path: &Path, candidate_id: &str) -> Result<Option<CandidateRecord>> {
     let conn = rusqlite::Connection::open(db_path)
         .with_context(|| format!("open project db {}", db_path.display()))?;
     let mut stmt = conn.prepare(
         "SELECT candidate_id, status, properties_json, created_at
          FROM candidate_facts
-         WHERE candidate_id = ?1"
+         WHERE candidate_id = ?1",
     )?;
     let mut rows = stmt.query_map(params![candidate_id], map_row)?;
     if let Some(row) = rows.next() {
@@ -149,8 +146,9 @@ mod tests {
                 rejection_reason TEXT,
                 created_at INTEGER,
                 reviewed_at INTEGER
-            );"
-        ).unwrap();
+            );",
+        )
+        .unwrap();
         (dir, db)
     }
 
@@ -158,13 +156,25 @@ mod tests {
     fn test_insert_and_list_roundtrip() {
         let (_dir, db) = temp_db_with_schema();
         insert_candidate_fact(
-            &db, "c-1", "Symbol", "sym_a", "proposes-improvement",
-            r#"{"patch_diff":"@@ -1 +1 @@\n-a\n+b\n"}"#, "pending",
-        ).unwrap();
+            &db,
+            "c-1",
+            "Symbol",
+            "sym_a",
+            "proposes-improvement",
+            r#"{"patch_diff":"@@ -1 +1 @@\n-a\n+b\n"}"#,
+            "pending",
+        )
+        .unwrap();
         insert_candidate_fact(
-            &db, "c-2", "Symbol", "sym_b", "proposes-improvement",
-            r#"{"patch_diff":"@@ -1 +1 @@\n-c\n+d\n"}"#, "promoted",
-        ).unwrap();
+            &db,
+            "c-2",
+            "Symbol",
+            "sym_b",
+            "proposes-improvement",
+            r#"{"patch_diff":"@@ -1 +1 @@\n-c\n+d\n"}"#,
+            "promoted",
+        )
+        .unwrap();
 
         let recs = list_candidates(&db, None, None).unwrap();
         assert_eq!(recs.len(), 2);
@@ -184,9 +194,15 @@ mod tests {
     fn test_update_candidate_status_promote_and_reject() {
         let (_dir, db) = temp_db_with_schema();
         insert_candidate_fact(
-            &db, "c-10", "Symbol", "sym_x", "proposes-improvement",
-            r#"{"patch_diff":"x"}"#, "pending",
-        ).unwrap();
+            &db,
+            "c-10",
+            "Symbol",
+            "sym_x",
+            "proposes-improvement",
+            r#"{"patch_diff":"x"}"#,
+            "pending",
+        )
+        .unwrap();
 
         let updated = update_candidate_status(&db, "c-10", "promoted", None).unwrap();
         assert_eq!(updated, 1);
@@ -195,7 +211,8 @@ mod tests {
         assert_eq!(recs.len(), 1);
         assert_eq!(recs[0].status, "promoted");
 
-        let updated = update_candidate_status(&db, "c-10", "rejected", Some("broken tests")).unwrap();
+        let updated =
+            update_candidate_status(&db, "c-10", "rejected", Some("broken tests")).unwrap();
         assert_eq!(updated, 1);
 
         let recs = list_candidates(&db, Some("rejected"), None).unwrap();
@@ -206,8 +223,7 @@ mod tests {
     #[test]
     fn test_update_missing_candidate_returns_zero() {
         let (_dir, db) = temp_db_with_schema();
-        let updated = update_candidate_status(&db, "does-not-exist", "promoted", None
-        ).unwrap();
+        let updated = update_candidate_status(&db, "does-not-exist", "promoted", None).unwrap();
         assert_eq!(updated, 0);
     }
 
@@ -215,9 +231,15 @@ mod tests {
     fn test_get_candidate_by_id_found_and_not_found() {
         let (_dir, db) = temp_db_with_schema();
         insert_candidate_fact(
-            &db, "c-99", "Symbol", "sym_z", "proposes-improvement",
-            r#"{"patch_diff":"z"}"#, "pending",
-        ).unwrap();
+            &db,
+            "c-99",
+            "Symbol",
+            "sym_z",
+            "proposes-improvement",
+            r#"{"patch_diff":"z"}"#,
+            "pending",
+        )
+        .unwrap();
 
         let found = get_candidate_by_id(&db, "c-99").unwrap();
         assert!(found.is_some());
