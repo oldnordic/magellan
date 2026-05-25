@@ -47,7 +47,7 @@ pub fn list_candidates(
     let query = "SELECT candidate_id, status, properties_json, created_at
          FROM candidate_facts
          WHERE (?1 IS NULL OR status = ?1)
-         ORDER BY created_at DESC";
+         ORDER BY created_at DESC, id DESC";
     let mut stmt = conn.prepare(query)?;
     let rows = stmt.query_map(params![status_filter], map_row)?;
     let mut out = Vec::new();
@@ -103,4 +103,91 @@ pub fn update_candidate_status(
     }
     .with_context(|| "update candidate status")?;
     Ok(rows)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn temp_db_with_schema() -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("test.db");
+        let conn = rusqlite::Connection::open(&db).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS candidate_facts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                candidate_id TEXT UNIQUE NOT NULL,
+                source_document_id INTEGER NOT NULL DEFAULT 0,
+                subject_type TEXT NOT NULL,
+                subject_key TEXT NOT NULL,
+                predicate TEXT NOT NULL,
+                object_type TEXT,
+                object_key TEXT,
+                properties_json TEXT,
+                status TEXT NOT NULL DEFAULT 'pending',
+                rejection_reason TEXT,
+                created_at INTEGER,
+                reviewed_at INTEGER
+            );"
+        ).unwrap();
+        (dir, db)
+    }
+
+    #[test]
+    fn test_insert_and_list_roundtrip() {
+        let (_dir, db) = temp_db_with_schema();
+        insert_candidate_fact(
+            &db, "c-1", "Symbol", "sym_a", "proposes-improvement",
+            r#"{"patch_diff":"@@ -1 +1 @@\n-a\n+b\n"}"#, "pending",
+        ).unwrap();
+        insert_candidate_fact(
+            &db, "c-2", "Symbol", "sym_b", "proposes-improvement",
+            r#"{"patch_diff":"@@ -1 +1 @@\n-c\n+d\n"}"#, "promoted",
+        ).unwrap();
+
+        let recs = list_candidates(&db, None, None).unwrap();
+        assert_eq!(recs.len(), 2);
+        // Most recent first (c-2 inserted second)
+        assert_eq!(recs[0].candidate_id, "c-2");
+        assert_eq!(recs[1].candidate_id, "c-1");
+
+        let pending = list_candidates(&db, Some("pending"), None).unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].candidate_id, "c-1");
+
+        let limited = list_candidates(&db, None, Some(1)).unwrap();
+        assert_eq!(limited.len(), 1);
+    }
+
+    #[test]
+    fn test_update_candidate_status_promote_and_reject() {
+        let (_dir, db) = temp_db_with_schema();
+        insert_candidate_fact(
+            &db, "c-10", "Symbol", "sym_x", "proposes-improvement",
+            r#"{"patch_diff":"x"}"#, "pending",
+        ).unwrap();
+
+        let updated = update_candidate_status(&db, "c-10", "promoted", None).unwrap();
+        assert_eq!(updated, 1);
+
+        let recs = list_candidates(&db, Some("promoted"), None).unwrap();
+        assert_eq!(recs.len(), 1);
+        assert_eq!(recs[0].status, "promoted");
+
+        let updated = update_candidate_status(&db, "c-10", "rejected", Some("broken tests")).unwrap();
+        assert_eq!(updated, 1);
+
+        let recs = list_candidates(&db, Some("rejected"), None).unwrap();
+        assert_eq!(recs.len(), 1);
+        assert_eq!(recs[0].status, "rejected");
+    }
+
+    #[test]
+    fn test_update_missing_candidate_returns_zero() {
+        let (_dir, db) = temp_db_with_schema();
+        let updated = update_candidate_status(&db, "does-not-exist", "promoted", None
+        ).unwrap();
+        assert_eq!(updated, 0);
+    }
 }

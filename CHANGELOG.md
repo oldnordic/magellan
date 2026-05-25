@@ -111,6 +111,11 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - Auto-generates `candidate_id` from `{project}/{symbol}-{timestamp}` if not provided
   - Stores `patch_diff` and analogue metadata as JSON in `properties_json`
   - 2 integration tests covering propose round-trip and candidates listing with status filter
+- **P5-PROMOTE / P5-REJECT: Candidate status transitions** (`src/service/admin_socket.rs`, `src/service/candidates.rs`):
+  - `evolve.promote` JSON-RPC socket method — sets a candidate's status to `promoted` and records `reviewed_at`
+  - `evolve.reject` JSON-RPC socket method — sets a candidate's status to `rejected` with optional `rejection_reason`
+  - Returns  `error:-32006` if candidate_id not found (zero rows affected)
+  - 3 unit tests + 1 integration test covering promote, reject with reason, and missing-candidate edge case
 
 ## [3.3.13] - 2026-05-21
 

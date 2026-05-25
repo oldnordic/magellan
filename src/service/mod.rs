@@ -2145,4 +2145,127 @@ mod integration_tests {
         accept_task.abort();
         let _ = tokio::fs::remove_file(socket_path).await;
     }
+
+    #[tokio::test]
+    async fn test_admin_socket_evolve_promote_and_reject() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+        use tokio::net::{UnixListener, UnixStream};
+
+        let socket_path = "/tmp/magellan_test_promote.sock";
+        let _ = tokio::fs::remove_file(socket_path).await;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_path = temp_dir.path().to_path_buf();
+
+        let meta_db = std::sync::Arc::new(tokio::sync::Mutex::new(
+            super::meta_db::MetaDb::open_at(temp_path.join("meta_pr.db")).unwrap(),
+        ));
+
+        let shard_db = temp_path.join("proj_epsilon.db");
+        {
+            let conn = rusqlite::Connection::open(&shard_db).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS candidate_facts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    candidate_id TEXT UNIQUE NOT NULL,
+                    source_document_id INTEGER NOT NULL DEFAULT 0,
+                    subject_type TEXT NOT NULL,
+                    subject_key TEXT NOT NULL,
+                    predicate TEXT NOT NULL,
+                    object_type TEXT,
+                    object_key TEXT,
+                    properties_json TEXT,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    rejection_reason TEXT,
+                    created_at INTEGER,
+                    reviewed_at INTEGER
+                );"
+            ).unwrap();
+        }
+
+        super::candidates::insert_candidate_fact(
+            &shard_db,
+            "promo-1",
+            "Symbol",
+            "sym_e",
+            "proposes-improvement",
+            r#"{"patch_diff":"test"}"#,
+            "pending",
+        ).unwrap();
+
+        let reg = std::sync::Arc::new(tokio::sync::Mutex::new(
+            super::registry::Registry::load_from(temp_path.join("reg_pr.toml")).unwrap(),
+        ));
+        {
+            let mut r = reg.lock().await;
+            let entry = super::types::ProjectEntry::new(
+                "proj_epsilon".to_string(),
+                temp_path.clone(),
+                shard_db.clone(),
+                "manual".to_string(),
+            );
+            r.register(entry).unwrap();
+        }
+
+        let listener = UnixListener::bind(socket_path).unwrap();
+        let reg_clone = reg.clone();
+        let meta_clone = meta_db.clone();
+        let accept_task = tokio::spawn(async move {
+            loop {
+                let (stream, _) = listener.accept().await.unwrap();
+                let reg = reg_clone.clone();
+                let meta = meta_clone.clone();
+                let (tx, _rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16);
+                tokio::spawn(async move {
+                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, meta, tx).await;
+                });
+            }
+        });
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+        // Promote
+        let mut stream = UnixStream::connect(socket_path).await.expect("connect to socket");
+        let req = r#"{"id":"evol-pr-1","method":"evolve.promote","project":"proj_epsilon","candidate_id":"promo-1"}"#;
+        let (read_half, mut write_half) = stream.split();
+        write_half.write_all((req.to_string() + "\n").as_bytes()).await.unwrap();
+        write_half.shutdown().await.unwrap();
+
+        let mut reader = tokio::io::BufReader::new(read_half);
+        let mut line = String::new();
+        reader.read_line(&mut line).await.unwrap();
+        let resp: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert!(resp.get("error").is_none(), "evolve.promote should succeed, got: {}", line);
+        let result = resp.get("result").expect("result missing");
+        assert_eq!(result.get("status").and_then(|v| v.as_str()), Some("promoted"));
+
+        // Reject (with reason)
+        // seed another first because promo-1 already promoted
+        super::candidates::insert_candidate_fact(
+            &shard_db,
+            "promo-2",
+            "Symbol",
+            "sym_f",
+            "proposes-improvement",
+            r#"{"patch_diff":"bad"}"#,
+            "pending",
+        ).unwrap();
+
+        let mut stream = UnixStream::connect(socket_path).await.expect("connect to socket");
+        let req = r#"{"id":"evol-rj-1","method":"evolve.reject","project":"proj_epsilon","candidate_id":"promo-2","rejection_reason":"test fails"}"#;
+        let (read_half, mut write_half) = stream.split();
+        write_half.write_all((req.to_string() + "\n").as_bytes()).await.unwrap();
+        write_half.shutdown().await.unwrap();
+
+        let mut reader = tokio::io::BufReader::new(read_half);
+        let mut line = String::new();
+        reader.read_line(&mut line).await.unwrap();
+        let resp: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert!(resp.get("error").is_none(), "evolve.reject should succeed, got: {}", line);
+        let result = resp.get("result").expect("result missing");
+        assert_eq!(result.get("status").and_then(|v| v.as_str()), Some("rejected"));
+
+        accept_task.abort();
+        let _ = tokio::fs::remove_file(socket_path).await;
+    }
 }

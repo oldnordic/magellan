@@ -861,6 +861,127 @@ impl AdminSocket {
                 }
             }
 
+            "evolve.promote" => {
+                let project = params
+                    .get("project")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let candidate_id = params
+                    .get("candidate_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+
+                if project.is_empty() || candidate_id.is_empty() {
+                    return Ok(super::types::ServiceResponse::err(
+                        id,
+                        -32602,
+                        "Missing 'project' or 'candidate_id' param".to_string(),
+                    )
+                    .into_val());
+                }
+
+                let db_path = {
+                    let reg = registry.lock().await;
+                    reg.find(&project).map(|e| e.db.clone())
+                };
+                let Some(db_path) = db_path else {
+                    return Ok(super::types::ServiceResponse::err(
+                        id,
+                        -32005,
+                        format!("Project '{}' not found in registry", project),
+                    )
+                    .into_val());
+                };
+
+                match super::candidates::update_candidate_status(
+                    &db_path, &candidate_id, "promoted", None,
+                ) {
+                    Ok(0) => Ok(super::types::ServiceResponse::err(
+                        id,
+                        -32006,
+                        format!("Candidate '{}' not found", candidate_id),
+                    )
+                    .into_val()),
+                    Ok(_) => Ok(super::types::ServiceResponse::ok(
+                        id,
+                        json!({"candidate_id": candidate_id, "status": "promoted"}),
+                    )
+                    .into_val()),
+                    Err(e) => Ok(super::types::ServiceResponse::err(
+                        id,
+                        -32603,
+                        format!("Failed to promote candidate: {}", e),
+                    )
+                    .into_val()),
+                }
+            }
+
+            "evolve.reject" => {
+                let project = params
+                    .get("project")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let candidate_id = params
+                    .get("candidate_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let reason: Option<String> = params
+                    .get("rejection_reason")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+
+                if project.is_empty() || candidate_id.is_empty() {
+                    return Ok(super::types::ServiceResponse::err(
+                        id,
+                        -32602,
+                        "Missing 'project' or 'candidate_id' param".to_string(),
+                    )
+                    .into_val());
+                }
+
+                let db_path = {
+                    let reg = registry.lock().await;
+                    reg.find(&project).map(|e| e.db.clone())
+                };
+                let Some(db_path) = db_path else {
+                    return Ok(super::types::ServiceResponse::err(
+                        id,
+                        -32005,
+                        format!("Project '{}' not found in registry", project),
+                    )
+                    .into_val());
+                };
+
+                match super::candidates::update_candidate_status(
+                    &db_path,
+                    &candidate_id,
+                    "rejected",
+                    reason.as_deref(),
+                ) {
+                    Ok(0) => Ok(super::types::ServiceResponse::err(
+                        id,
+                        -32006,
+                        format!("Candidate '{}' not found", candidate_id),
+                    )
+                    .into_val()),
+                    Ok(_) => Ok(super::types::ServiceResponse::ok(
+                        id,
+                        json!({"candidate_id": candidate_id, "status": "rejected"}),
+                    )
+                    .into_val()),
+                    Err(e) => Ok(super::types::ServiceResponse::err(
+                        id,
+                        -32603,
+                        format!("Failed to reject candidate: {}", e),
+                    )
+                    .into_val()),
+                }
+            }
+
             _ => Ok(super::types::ServiceResponse::not_implemented(id, method).into_val()),
         }
     }
