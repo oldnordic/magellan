@@ -673,6 +673,38 @@ mod tests {
             "disabled project should yield no hotspots"
         );
     }
+
+    #[test]
+    fn test_query_cross_refs_for_symbol_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("meta.db");
+        let mut db = MetaDb::open_at(&db_path).unwrap();
+
+        db.insert_cross_ref("proj_a", "sym_a", "a.rs", "proj_b", "sym_b", "b.rs", 0.91)
+            .unwrap();
+        db.insert_cross_ref("proj_a", "sym_a", "a.rs", "proj_c", "sym_c", "c.rs", 0.82)
+            .unwrap();
+
+        let refs = db.query_cross_refs_for_symbol("proj_a", "sym_a").unwrap();
+        assert_eq!(refs.len(), 2);
+        assert_eq!(refs[0].similarity_score, 0.91);
+        assert_eq!(refs[0].project_b, "proj_b");
+        assert_eq!(refs[1].similarity_score, 0.82);
+        assert_eq!(refs[1].project_b, "proj_c");
+    }
+
+    #[test]
+    fn test_query_cross_refs_empty_match() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("meta.db");
+        let mut db = MetaDb::open_at(&db_path).unwrap();
+
+        db.insert_cross_ref("proj_a", "sym_a", "a.rs", "proj_b", "sym_b", "b.rs", 0.91)
+            .unwrap();
+
+        let refs = db.query_cross_refs_for_symbol("proj_a", "noexist").unwrap();
+        assert!(refs.is_empty());
+    }
 }
 
 // ── Hotspot analysis ──

@@ -100,6 +100,10 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - `MetaDb::analyze_hotspots(project_filter, limit)` — aggregates `symbol_metrics` across enabled project shards; ranks by `fan_in * cyclomatic_complexity` DESC; respects optional per-project filter and result limit
   - `evolve.analyze` JSON-RPC socket method — demand-triggered analysis returning ranked candidate array with metadata; params: `project` (optional), `limit` (optional)
   - 3 unit tests + 1 integration test covering ranking formula, project filtering, disabled-project exclusion, and end-to-end socket dispatch
+- **P5-RETRIEVE: Analogue retrieval from cross-ref index** (`src/service/admin_socket.rs`):
+  - `evolve.retrieve` JSON-RPC socket method — queries `pattern_cross_refs` for analogues of a given `(project, symbol)` pair; supports `to_project` optional filter and `limit` truncation
+  - Falls back gracefully to empty `analogues` array when cross-ref index is unpopulated
+  - 2 unit tests + 1 integration test covering round-trip, empty match, and limit truncation
 
 ## [3.3.13] - 2026-05-21
 

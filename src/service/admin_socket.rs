@@ -664,6 +664,56 @@ impl AdminSocket {
                 }
             }
 
+            "evolve.retrieve" => {
+                let project = params
+                    .get("project")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let symbol = params
+                    .get("symbol")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let to_project: Option<String> = params
+                    .get("to_project")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                let limit: Option<usize> = params
+                    .get("limit")
+                    .and_then(|v| v.as_u64())
+                    .map(|u| u as usize);
+
+                let refs = {
+                    let meta = meta_db.lock().await;
+                    meta.query_cross_refs_for_symbol(&project, &symbol)
+                        .unwrap_or_default()
+                };
+
+                let mut analogues: Vec<serde_json::Value> = refs
+                    .into_iter()
+                    .filter(|r| to_project.as_deref().is_none_or(|tp| r.project_b == tp))
+                    .map(|r| {
+                        json!({
+                            "project": r.project_b,
+                            "symbol": r.symbol_b,
+                            "file": r.file_b,
+                            "similarity_score": r.similarity_score,
+                        })
+                    })
+                    .collect();
+
+                if let Some(l) = limit {
+                    analogues.truncate(l);
+                }
+
+                Ok(super::types::ServiceResponse::ok(
+                    id,
+                    json!({ "project": project, "symbol": symbol, "analogues": analogues }),
+                )
+                .into_val())
+            }
+
             _ => Ok(super::types::ServiceResponse::not_implemented(id, method).into_val()),
         }
     }
