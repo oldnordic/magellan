@@ -15,6 +15,7 @@
 Thumbs.db
 
 # Build artifacts
+.magellan.toml
 *.db
 *.db-journal
 *.db-shm
