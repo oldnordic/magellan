@@ -7,6 +7,29 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **P7-TRACING: Structured logging with `tracing` crate** (`Cargo.toml`, `src/service/mod.rs`):
+  - Added `tracing = "0.1"` dependency
+  - Replaced all 7 `eprintln!` calls in `src/service/` with structured `tracing::info!`, `tracing::warn!`, `tracing::error!` macros with key-value fields (project, db, path, error)
+  - Zero `eprintln!` remaining in service daemon code
+- **P7-SCHEMA: `daemon_events` table and event logging API** (`src/service/meta_db.rs`):
+  - `daemon_events` SQLite table: `id`, `event_type`, `project_name`, `file_path`, `details` (JSON), `created_at`, `execution_id`
+  - Indexes on `(project_name, created_at DESC)` and `(event_type, created_at DESC)`
+  - `DaemonEvent` struct with full event representation
+  - `EventFilter` struct with project, event_type, since, until, limit fields (default limit 50)
+  - `MetaDb::log_event(&DaemonEvent) -> Result<i64>` — insert event, return rowid
+  - `MetaDb::list_events(&EventFilter) -> Result<Vec<DaemonEvent>>` — query with dynamic SQL builder
+  - 4 unit tests covering log+list, project filter, type filter, and limit
+- **P7-LOG: Event instrumentation in daemon loops** (`src/service/mod.rs`, `src/service/admin_socket.rs`):
+  - `worker_loop`: logs `batch_received` events with path count on each batch
+  - `worker_loop`: logs `reconcile_err` events per-file on reconcile failure
+  - `watcher_task`: logs watcher start with `tracing::info!`
+  - `AdminSocket::dispatch`: logs `admin_request` events for all methods, with project_name extracted for register/unregister/pause/resume
+- **P7-CLI: `magellan service events` subcommand** (`src/cli.rs`, `src/service_cmd.rs`, `src/service/admin_socket.rs`):
+  - `ServiceAction::Events` variant with `--project`, `--type`, `--since`, `--limit`, `--json` flags
+  - `events` JSON-RPC method in admin socket dispatch querying `daemon_events` via `EventFilter`
+  - Human-readable table output (default) or JSON array output (`--json`)
+  - `--since <hours>` converts to Unix timestamp for time-window filtering
+  - Integration test verifying end-to-end: pre-seed events → query via socket → assert response structure
 - **P5-ANALYZE: Hotspot candidate detection** (`src/service/meta_db.rs`, `src/service/admin_socket.rs`):
   - `HotspotCandidate` struct with `symbol`, `file`, `project`, `rank_score`, `fan_in`, `complexity`
   - `MetaDb::analyze_hotspots(project_filter, limit)` — aggregates `symbol_metrics` across enabled project shards; ranks by `fan_in * cyclomatic_complexity` DESC; respects optional per-project filter and result limit

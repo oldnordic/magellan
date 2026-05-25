@@ -2413,6 +2413,11 @@ where
             let mut output_format = OutputFormat::Human;
             let mut name: Option<String> = None;
             let mut root: Option<PathBuf> = None;
+            let mut event_type: Option<String> = None;
+            let mut event_project: Option<String> = None;
+            let mut since_hours: Option<u64> = None;
+            let mut event_limit: usize = 50;
+            let mut json_output = false;
             let mut i = 0;
             while i < args.len() {
                 match args[i].as_str() {
@@ -2425,6 +2430,28 @@ where
                     }
                     "--root" | "-r" => {
                         root = Some(parse_path_arg(&args[..], &mut i, "--root")?);
+                    }
+                    "--type" | "-t" => {
+                        event_type = Some(parse_required_arg(&args[..], &mut i, "--type")?);
+                    }
+                    "--project" | "-p" => {
+                        event_project = Some(parse_required_arg(&args[..], &mut i, "--project")?);
+                    }
+                    "--since" => {
+                        since_hours = Some(
+                            parse_required_arg(&args[..], &mut i, "--since")?
+                                .parse()
+                                .map_err(|_| anyhow::anyhow!("--since must be a number"))?,
+                        );
+                    }
+                    "--limit" | "-l" => {
+                        event_limit = parse_required_arg(&args[..], &mut i, "--limit")?
+                            .parse()
+                            .map_err(|_| anyhow::anyhow!("--limit must be a number"))?;
+                    }
+                    "--json" | "-j" => {
+                        json_output = true;
+                        i += 1;
                     }
                     _ => i += 1,
                 }
@@ -2448,6 +2475,13 @@ where
                 },
                 "status" => crate::service_cmd::ServiceAction::Status,
                 "stats" => crate::service_cmd::ServiceAction::Stats,
+                "events" => crate::service_cmd::ServiceAction::Events {
+                    project: event_project,
+                    event_type,
+                    since_hours,
+                    limit: event_limit,
+                    json_output,
+                },
                 _ => return Err(anyhow::anyhow!("Unknown service subcommand: {}", args[2])),
             };
             Ok(Command::Service {

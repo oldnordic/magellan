@@ -38,6 +38,38 @@ pub struct CrossRefRecord {
     pub file_b: String,
     pub similarity_score: f64,
 }
+
+#[derive(Debug, Clone)]
+pub struct DaemonEvent {
+    pub id: Option<i64>,
+    pub event_type: String,
+    pub project_name: Option<String>,
+    pub file_path: Option<String>,
+    pub details: Option<serde_json::Value>,
+    pub created_at: i64,
+    pub execution_id: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct EventFilter {
+    pub project: Option<String>,
+    pub event_type: Option<String>,
+    pub since: Option<i64>,
+    pub until: Option<i64>,
+    pub limit: usize,
+}
+
+impl Default for EventFilter {
+    fn default() -> Self {
+        Self {
+            project: None,
+            event_type: None,
+            since: None,
+            until: None,
+            limit: 50,
+        }
+    }
+}
 const META_DB_NAME: &str = "meta.db";
 
 /// Daemon-level meta-index of all registered projects.
@@ -148,6 +180,28 @@ impl MetaDb {
         self.conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_pattern_cross_refs_score
              ON pattern_cross_refs (similarity_score DESC)",
+            [],
+        )?;
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS daemon_events (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_type    TEXT NOT NULL,
+                project_name  TEXT,
+                file_path     TEXT,
+                details       TEXT,
+                created_at    INTEGER NOT NULL,
+                execution_id  TEXT
+            )",
+            [],
+        )?;
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_daemon_events_project
+             ON daemon_events (project_name, created_at DESC)",
+            [],
+        )?;
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_daemon_events_type
+             ON daemon_events (event_type, created_at DESC)",
             [],
         )?;
         Ok(())
@@ -354,6 +408,74 @@ impl MetaDb {
             .close()
             .map_err(|e| anyhow::anyhow!("MetaDb close error: {}", e.1))?;
         Ok(())
+    }
+
+    pub fn log_event(&mut self, event: &DaemonEvent) -> Result<i64> {
+        let details_str = event
+            .details
+            .as_ref()
+            .map(|v| serde_json::to_string(v).unwrap_or_default());
+        self.conn.execute(
+            "INSERT INTO daemon_events (event_type, project_name, file_path, details, created_at, execution_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                event.event_type,
+                event.project_name,
+                event.file_path,
+                details_str,
+                event.created_at,
+                event.execution_id,
+            ],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn list_events(&self, filter: &EventFilter) -> Result<Vec<DaemonEvent>> {
+        let mut sql = String::from(
+            "SELECT id, event_type, project_name, file_path, details, created_at, execution_id
+             FROM daemon_events WHERE 1=1",
+        );
+        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+        if let Some(ref project) = filter.project {
+            sql.push_str(" AND project_name = ?");
+            param_values.push(Box::new(project.clone()));
+        }
+        if let Some(ref event_type) = filter.event_type {
+            sql.push_str(" AND event_type = ?");
+            param_values.push(Box::new(event_type.clone()));
+        }
+        if let Some(since) = filter.since {
+            sql.push_str(" AND created_at >= ?");
+            param_values.push(Box::new(since));
+        }
+        if let Some(until) = filter.until {
+            sql.push_str(" AND created_at <= ?");
+            param_values.push(Box::new(until));
+        }
+        sql.push_str(" ORDER BY created_at DESC");
+        sql.push_str(&format!(" LIMIT {}", filter.limit));
+
+        let params: Vec<&dyn rusqlite::types::ToSql> =
+            param_values.iter().map(|p| p.as_ref()).collect();
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(params.as_slice(), |row| {
+            let details_str: Option<String> = row.get(4)?;
+            Ok(DaemonEvent {
+                id: Some(row.get(0)?),
+                event_type: row.get(1)?,
+                project_name: row.get(2)?,
+                file_path: row.get(3)?,
+                details: details_str.and_then(|s| serde_json::from_str(&s).ok()),
+                created_at: row.get(5)?,
+                execution_id: row.get(6)?,
+            })
+        })?;
+        let mut events = Vec::new();
+        for row in rows {
+            events.push(row?);
+        }
+        Ok(events)
     }
 }
 
@@ -704,6 +826,132 @@ mod tests {
 
         let refs = db.query_cross_refs_for_symbol("proj_a", "noexist").unwrap();
         assert!(refs.is_empty());
+    }
+
+    #[test]
+    fn test_log_and_list_events() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = MetaDb::open_at(dir.path().join("meta.db")).unwrap();
+
+        let now = now_secs();
+        let ev1 = DaemonEvent {
+            id: None,
+            event_type: "batch_received".to_string(),
+            project_name: Some("alpha".to_string()),
+            file_path: None,
+            details: Some(serde_json::json!({ "paths": 3 })),
+            created_at: now,
+            execution_id: None,
+        };
+        let row_id = db.log_event(&ev1).unwrap();
+        assert!(row_id > 0);
+
+        let ev2 = DaemonEvent {
+            id: None,
+            event_type: "reconcile_err".to_string(),
+            project_name: Some("alpha".to_string()),
+            file_path: Some("src/lib.rs".to_string()),
+            details: Some(serde_json::json!({ "error": "parse failed" })),
+            created_at: now + 1,
+            execution_id: None,
+        };
+        db.log_event(&ev2).unwrap();
+
+        let all = db.list_events(&EventFilter::default()).unwrap();
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].event_type, "reconcile_err");
+        assert_eq!(all[1].event_type, "batch_received");
+    }
+
+    #[test]
+    fn test_list_events_filter_by_project() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = MetaDb::open_at(dir.path().join("meta.db")).unwrap();
+
+        let now = now_secs();
+        for (proj, etype) in [("alpha", "batch_received"), ("beta", "batch_received")] {
+            db.log_event(&DaemonEvent {
+                id: None,
+                event_type: etype.to_string(),
+                project_name: Some(proj.to_string()),
+                file_path: None,
+                details: None,
+                created_at: now,
+                execution_id: None,
+            })
+            .unwrap();
+        }
+
+        let filter = EventFilter {
+            project: Some("alpha".to_string()),
+            ..Default::default()
+        };
+        let events = db.list_events(&filter).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].project_name.as_deref(), Some("alpha"));
+    }
+
+    #[test]
+    fn test_list_events_filter_by_type() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = MetaDb::open_at(dir.path().join("meta.db")).unwrap();
+
+        let now = now_secs();
+        db.log_event(&DaemonEvent {
+            id: None,
+            event_type: "batch_received".to_string(),
+            project_name: Some("p".to_string()),
+            file_path: None,
+            details: None,
+            created_at: now,
+            execution_id: None,
+        })
+        .unwrap();
+        db.log_event(&DaemonEvent {
+            id: None,
+            event_type: "checkpoint_ok".to_string(),
+            project_name: Some("p".to_string()),
+            file_path: None,
+            details: None,
+            created_at: now + 1,
+            execution_id: None,
+        })
+        .unwrap();
+
+        let filter = EventFilter {
+            event_type: Some("checkpoint_ok".to_string()),
+            ..Default::default()
+        };
+        let events = db.list_events(&filter).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, "checkpoint_ok");
+    }
+
+    #[test]
+    fn test_list_events_with_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = MetaDb::open_at(dir.path().join("meta.db")).unwrap();
+
+        let now = now_secs();
+        for i in 0..10 {
+            db.log_event(&DaemonEvent {
+                id: None,
+                event_type: "batch_received".to_string(),
+                project_name: Some("p".to_string()),
+                file_path: None,
+                details: None,
+                created_at: now + i,
+                execution_id: None,
+            })
+            .unwrap();
+        }
+
+        let filter = EventFilter {
+            limit: 3,
+            ..Default::default()
+        };
+        let events = db.list_events(&filter).unwrap();
+        assert_eq!(events.len(), 3);
     }
 }
 

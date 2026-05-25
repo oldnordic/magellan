@@ -76,7 +76,37 @@ impl AdminSocket {
 
         let id = req.id.clone();
         let method = req.method.clone();
-        let params = req.params; // moves params out
+        let params = req.params;
+
+        tracing::info!(method = %method, "Admin request received");
+
+        {
+            let mut meta = meta_db.lock().await;
+            let mut ev = super::meta_db::DaemonEvent {
+                id: None,
+                event_type: "admin_request".to_string(),
+                project_name: None,
+                file_path: None,
+                details: Some(serde_json::json!({ "method": &method })),
+                created_at: {
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs() as i64
+                },
+                execution_id: None,
+            };
+            if matches!(
+                method.as_str(),
+                "register" | "unregister" | "pause" | "resume"
+            ) {
+                ev.project_name = params
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+            }
+            let _ = meta.log_event(&ev);
+        }
 
         match method.as_str() {
             "ping" => Ok(super::types::ServiceResponse::ok(id, json!({"pong": true })).into_val()),
@@ -1148,6 +1178,67 @@ impl AdminSocket {
                         id,
                         -32603,
                         format!("Blocking task panic: {}", e),
+                    )
+                    .into_val()),
+                }
+            }
+
+            "events" => {
+                let project: Option<String> = params
+                    .get("project")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                let event_type: Option<String> = params
+                    .get("event_type")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                let since_hours: Option<i64> =
+                    params.get("since_hours").and_then(|v| v.as_u64()).map(|h| {
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs() as i64;
+                        now - (h as i64 * 3600)
+                    });
+                let limit: usize = params
+                    .get("limit")
+                    .and_then(|v| v.as_u64())
+                    .map(|u| u as usize)
+                    .unwrap_or(50);
+
+                let meta = meta_db.lock().await;
+                let filter = super::meta_db::EventFilter {
+                    project,
+                    event_type,
+                    since: since_hours,
+                    until: None,
+                    limit,
+                };
+                match meta.list_events(&filter) {
+                    Ok(events) => {
+                        let arr: Vec<serde_json::Value> = events
+                            .iter()
+                            .map(|e| {
+                                json!({
+                                    "id": e.id,
+                                    "event_type": e.event_type,
+                                    "project_name": e.project_name,
+                                    "file_path": e.file_path,
+                                    "details": e.details,
+                                    "created_at": e.created_at,
+                                    "execution_id": e.execution_id,
+                                })
+                            })
+                            .collect();
+                        Ok(
+                            super::types::ServiceResponse::ok(id, json!({ "events": arr }))
+                                .into_val(),
+                        )
+                    }
+                    Err(e) => Ok(super::types::ServiceResponse::err(
+                        id,
+                        -32003,
+                        format!("Events query error: {}", e),
                     )
                     .into_val()),
                 }

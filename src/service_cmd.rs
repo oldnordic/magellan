@@ -12,12 +12,28 @@ pub enum ServiceAction {
     Start,
     Stop,
     List,
-    Register { root: PathBuf, name: Option<String> },
-    Unregister { name: String },
-    Pause { name: String },
-    Resume { name: String },
+    Register {
+        root: PathBuf,
+        name: Option<String>,
+    },
+    Unregister {
+        name: String,
+    },
+    Pause {
+        name: String,
+    },
+    Resume {
+        name: String,
+    },
     Status,
     Stats,
+    Events {
+        project: Option<String>,
+        event_type: Option<String>,
+        since_hours: Option<u64>,
+        limit: usize,
+        json_output: bool,
+    },
 }
 
 /// Run a service action (CLI-side; talks to daemon via unix socket)
@@ -188,6 +204,60 @@ pub async fn run(action: ServiceAction, _output_format: OutputFormat) -> Result<
                 println!("{}", serde_json::to_string_pretty(result)?);
             } else if let Some(err) = resp.get("error") {
                 println!("Error: {}", err);
+            }
+            Ok(())
+        }
+
+        ServiceAction::Events {
+            project,
+            event_type,
+            since_hours,
+            limit,
+            json_output,
+        } => {
+            let req = json!({
+                "id": "events-1",
+                "method": "events",
+                "params": {
+                    "project": project,
+                    "event_type": event_type,
+                    "since_hours": since_hours,
+                    "limit": limit,
+                }
+            });
+            let resp = crate::service::send_request(req).await?;
+            if let Some(err) = resp.get("error") {
+                println!("Error: {}", err);
+                return Ok(());
+            }
+            let events = resp
+                .get("result")
+                .and_then(|r| r.get("events"))
+                .and_then(|v| v.as_array());
+            let Some(events) = events else {
+                println!("No events found.");
+                return Ok(());
+            };
+            if json_output {
+                println!("{}", serde_json::to_string_pretty(events)?);
+            } else {
+                if events.is_empty() {
+                    println!("No events found.");
+                    return Ok(());
+                }
+                println!("ID     TYPE                 PROJECT              FILE                                     TIME");
+                for ev in events {
+                    println!(
+                        "{:<6} {:<20} {:<20} {:<40} {}",
+                        ev.get("id").and_then(|v| v.as_i64()).unwrap_or(0),
+                        ev.get("event_type").and_then(|v| v.as_str()).unwrap_or("-"),
+                        ev.get("project_name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("-"),
+                        ev.get("file_path").and_then(|v| v.as_str()).unwrap_or("-"),
+                        ev.get("created_at").and_then(|v| v.as_i64()).unwrap_or(0),
+                    );
+                }
             }
             Ok(())
         }

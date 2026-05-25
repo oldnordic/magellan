@@ -25,6 +25,25 @@ use crate::service::registry::Registry;
 use crate::service::types::TaggedBatch;
 use magellan::{FileSystemWatcher, WatcherConfig};
 
+fn now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64
+}
+
+fn make_event(event_type: &str, project: Option<&str>) -> meta_db::DaemonEvent {
+    meta_db::DaemonEvent {
+        id: None,
+        event_type: event_type.to_string(),
+        project_name: project.map(|s| s.to_string()),
+        file_path: None,
+        details: None,
+        created_at: now_secs(),
+        execution_id: None,
+    }
+}
+
 mod admin_socket;
 mod candidates;
 mod meta_db;
@@ -95,7 +114,7 @@ impl Service {
                     &entry.db.to_string_lossy(),
                     entry.enabled,
                 ) {
-                    eprintln!("[daemon] meta.db upsert error for '{}': {}", entry.name, e);
+                    tracing::warn!(project = %entry.name, error = %e, "meta.db upsert error");
                 }
             }
         }
@@ -183,7 +202,7 @@ impl Service {
                         if let Err(e) = AdminSocket::handle_client(
                             stream, reg, meta, tx, None, None,
                         ).await {
-                            eprintln!("Admin socket handler error: {}", e);
+                            tracing::error!(error = %e, "Admin socket handler error");
                         }
                     });
                 }
@@ -223,6 +242,13 @@ fn worker_loop(
         }
         match rx.blocking_recv() {
             Some(batch) => {
+                let path_count = batch.paths.len();
+                tracing::info!(
+                    project = %batch.project_name,
+                    paths = path_count,
+                    "Batch received"
+                );
+
                 let (root, db) = project_map
                     .get(&batch.project_name)
                     .cloned()
@@ -239,11 +265,11 @@ fn worker_loop(
                             open_graphs.get_mut(&batch.project_name).unwrap()
                         }
                         Err(err) => {
-                            eprintln!(
-                                "[daemon] Failed to open DB {} for '{}': {}",
-                                db.display(),
-                                batch.project_name,
-                                err
+                            tracing::error!(
+                                db = %db.display(),
+                                project = %batch.project_name,
+                                error = %err,
+                                "Failed to open DB for project"
                             );
                             continue;
                         }
@@ -260,26 +286,35 @@ fn worker_loop(
                         .unwrap_or_else(|_| path.to_string_lossy().to_string());
 
                     if let Err(e) = graph.reconcile_file_path(&path, &path_key) {
-                        eprintln!(
-                            "[daemon] Reconcile error for {} in '{}': {}",
-                            path.display(),
-                            batch.project_name,
-                            e
+                        tracing::warn!(
+                            path = %path.display(),
+                            project = %batch.project_name,
+                            error = %e,
+                            "Reconcile error"
                         );
+                        if let Some(ref meta_path) = meta_db_path {
+                            if let Ok(mut meta) = meta_db::MetaDb::open_at(meta_path) {
+                                let mut ev = make_event("reconcile_err", Some(&batch.project_name));
+                                ev.file_path = Some(path.to_string_lossy().to_string());
+                                ev.details = Some(serde_json::json!({ "error": e.to_string() }));
+                                let _ = meta.log_event(&ev);
+                                let _ = meta.close();
+                            }
+                        }
                     }
                 }
 
                 if let Err(e) = graph.checkpoint_wal() {
-                    eprintln!(
-                        "[daemon] WAL checkpoint failed for '{}': {}",
-                        batch.project_name, e
+                    tracing::error!(
+                        project = %batch.project_name,
+                        error = %e,
+                        "WAL checkpoint failed"
                     );
                 }
 
-                // Update meta.db last_reindexed for this project
+                // Update meta.db last_reindexed + log events
                 if let Some(ref meta_path) = meta_db_path {
                     if let Ok(mut meta) = meta_db::MetaDb::open_at(meta_path) {
-                        // Ensure project entry exists before updating
                         if meta
                             .get_project(&batch.project_name)
                             .unwrap_or(None)
@@ -295,6 +330,9 @@ fn worker_loop(
                             }
                         }
                         let _ = meta.update_last_reindexed(&batch.project_name);
+                        let mut ev = make_event("batch_received", Some(&batch.project_name));
+                        ev.details = Some(serde_json::json!({ "paths": path_count }));
+                        let _ = meta.log_event(&ev);
                         let _ = meta.close();
                     }
                 }
@@ -306,10 +344,7 @@ fn worker_loop(
     // Flush remaining open graphs
     for (name, graph) in open_graphs {
         if let Err(e) = graph.checkpoint_wal() {
-            eprintln!(
-                "[daemon] WAL checkpoint failed on shutdown for '{}': {}",
-                name, e
-            );
+            tracing::error!(project = %name, error = %e, "WAL checkpoint failed on shutdown");
         }
     }
 }
@@ -328,6 +363,7 @@ async fn watcher_task(
     let (bridge_tx, mut bridge_rx) = tokio::sync::mpsc::channel::<magellan::WatcherBatch>(16);
 
     let name_for_blocking = project_name.clone();
+    let root_display = root.display().to_string();
 
     // Spawn the actual blocking filesystem watcher
     let _task = tokio::task::spawn_blocking(move || {
@@ -338,13 +374,11 @@ async fn watcher_task(
         let fw = match FileSystemWatcher::new(root, cfg, flag.clone()) {
             Ok(w) => w,
             Err(e) => {
-                eprintln!(
-                    "[daemon] Failed to start watcher for {}: {}",
-                    name_for_blocking, e
-                );
+                tracing::error!(project = %name_for_blocking, error = %e, "Failed to start watcher");
                 return;
             }
         };
+        tracing::info!(project = %name_for_blocking, root = %root_display, "Watcher started");
         loop {
             match fw.recv_batch_timeout(Duration::from_millis(500)) {
                 Ok(Some(batch)) => {
@@ -2855,5 +2889,108 @@ edition = "2021"
         let _ = tokio::fs::remove_file(&socket).await;
         let _ = tokio::fs::remove_file(reg_path).await;
         let _ = tokio::fs::remove_file(socket.with_extension("meta_reg.db")).await;
+    }
+
+    // P7: Admin socket "events" method returns logged daemon events
+    #[tokio::test]
+    async fn test_admin_socket_events_returns_logged_events() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+        use tokio::net::{UnixListener, UnixStream};
+
+        let socket_path = "/tmp/magellan_test_events.sock";
+        let socket = std::path::PathBuf::from(socket_path);
+        let _ = tokio::fs::remove_file(&socket).await;
+
+        let listener = UnixListener::bind(socket_path).unwrap();
+        let reg_path = socket.with_extension("toml");
+        let reg = std::sync::Arc::new(tokio::sync::Mutex::new(
+            super::registry::Registry::load_from(reg_path).unwrap(),
+        ));
+
+        let meta_path = socket.with_extension("meta_events.db");
+        let meta_db = std::sync::Arc::new(tokio::sync::Mutex::new(
+            super::meta_db::MetaDb::open_at(&meta_path).unwrap(),
+        ));
+
+        // Pre-seed some events directly
+        {
+            let mut meta = meta_db.lock().await;
+            meta.log_event(&super::meta_db::DaemonEvent {
+                id: None,
+                event_type: "batch_received".to_string(),
+                project_name: Some("testproj".to_string()),
+                file_path: None,
+                details: Some(serde_json::json!({ "paths": 2 })),
+                created_at: super::now_secs(),
+                execution_id: None,
+            })
+            .unwrap();
+            meta.log_event(&super::meta_db::DaemonEvent {
+                id: None,
+                event_type: "admin_request".to_string(),
+                project_name: None,
+                file_path: None,
+                details: Some(serde_json::json!({ "method": "ping" })),
+                created_at: super::now_secs(),
+                execution_id: None,
+            })
+            .unwrap();
+        }
+
+        let meta_clone = meta_db.clone();
+        let accept_task = tokio::spawn(async move {
+            loop {
+                let (stream, _) = listener.accept().await.unwrap();
+                let reg = reg.clone();
+                let meta = meta_clone.clone();
+                let (tx, _rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16);
+                tokio::spawn(async move {
+                    let _ = super::admin_socket::AdminSocket::handle_client(
+                        stream, reg, meta, tx, None, None,
+                    )
+                    .await;
+                });
+            }
+        });
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+        let mut stream = UnixStream::connect(socket_path)
+            .await
+            .expect("connect to socket");
+        let req = r#"{"id":"ev1","method":"events","params":{"limit":10}}"#;
+        let (read_half, mut write_half) = stream.split();
+        write_half
+            .write_all((req.to_string() + "\n").as_bytes())
+            .await
+            .unwrap();
+        write_half.shutdown().await.unwrap();
+
+        let mut reader = tokio::io::BufReader::new(read_half);
+        let mut line = String::new();
+        reader.read_line(&mut line).await.unwrap();
+        let resp: serde_json::Value = serde_json::from_str(&line).unwrap();
+
+        assert!(
+            resp.get("error").is_none(),
+            "events should succeed, got: {}",
+            line
+        );
+        let events = resp
+            .get("result")
+            .and_then(|r| r.get("events"))
+            .and_then(|v| v.as_array())
+            .expect("events array missing");
+        // Should have at least 2 pre-seeded + 1 admin_request from this connection
+        assert!(
+            events.len() >= 2,
+            "expected at least 2 events, got {}: {}",
+            events.len(),
+            line
+        );
+
+        accept_task.abort();
+        let _ = tokio::fs::remove_file(&socket).await;
+        let _ = tokio::fs::remove_file(&meta_path).await;
     }
 }
