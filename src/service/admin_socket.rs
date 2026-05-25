@@ -714,7 +714,161 @@ impl AdminSocket {
                 .into_val())
             }
 
+            "evolve.propose" => {
+                let project = params
+                    .get("project")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let symbol = params
+                    .get("symbol")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let candidate_id = params
+                    .get("candidate_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let patch_diff = params
+                    .get("patch_diff")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let analogue = params.get("analogue").cloned();
+
+                if project.is_empty() || symbol.is_empty() {
+                    return Ok(super::types::ServiceResponse::err(
+                        id,
+                        -32602,
+                        "Missing 'project' or 'symbol' param".to_string(),
+                    )
+                    .into_val());
+                }
+
+                let candidate_id = if candidate_id.is_empty() {
+                    format!("{}/{}-{}", project, symbol, now_secs())
+                } else {
+                    candidate_id
+                };
+
+                let db_path = {
+                    let reg = registry.lock().await;
+                    reg.find(&project).map(|e| e.db.clone())
+                };
+                let Some(db_path) = db_path else {
+                    return Ok(super::types::ServiceResponse::err(
+                        id,
+                        -32005,
+                        format!("Project '{}' not found in registry", project),
+                    )
+                    .into_val());
+                };
+
+                let properties = json!({"patch_diff": patch_diff, "analogue": analogue});
+                if let Err(e) = super::candidates::insert_candidate_fact(
+                    &db_path,
+                    &candidate_id,
+                    "Symbol",
+                    &symbol,
+                    "proposes-improvement",
+                    &properties.to_string(),
+                    "pending",
+                ) {
+                    return Ok(super::types::ServiceResponse::err(
+                        id,
+                        -32603,
+                        format!("Failed to persist candidate: {}", e),
+                    )
+                    .into_val());
+                }
+
+                Ok(super::types::ServiceResponse::ok(
+                    id,
+                    json!({
+                        "candidate_id": candidate_id,
+                        "status": "pending",
+                        "project": project,
+                        "symbol": symbol
+                    }),
+                )
+                .into_val())
+            }
+
+            "evolve.candidates" => {
+                let project = params
+                    .get("project")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let status_filter: Option<String> = params
+                    .get("status")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                let limit: Option<usize> = params
+                    .get("limit")
+                    .and_then(|v| v.as_u64())
+                    .map(|u| u as usize);
+
+                if project.is_empty() {
+                    return Ok(super::types::ServiceResponse::err(
+                        id,
+                        -32602,
+                        "Missing 'project' param".to_string(),
+                    )
+                    .into_val());
+                }
+
+                let db_path = {
+                    let reg = registry.lock().await;
+                    reg.find(&project).map(|e| e.db.clone())
+                };
+                let Some(db_path) = db_path else {
+                    return Ok(super::types::ServiceResponse::err(
+                        id,
+                        -32005,
+                        format!("Project '{}' not found in registry", project),
+                    )
+                    .into_val());
+                };
+
+                match super::candidates::list_candidates(&db_path, status_filter.as_deref(), limit)
+                {
+                    Ok(recs) => {
+                        let items: Vec<serde_json::Value> = recs
+                            .into_iter()
+                            .map(|r| {
+                                json!({
+                                    "candidate_id": r.candidate_id,
+                                    "status": r.status,
+                                    "properties": r.properties_json,
+                                    "created_at": r.created_at,
+                                })
+                            })
+                            .collect();
+                        Ok(super::types::ServiceResponse::ok(
+                            id,
+                            json!({ "project": project, "candidates": items }),
+                        )
+                        .into_val())
+                    }
+                    Err(e) => Ok(super::types::ServiceResponse::err(
+                        id,
+                        -32603,
+                        format!("Failed to list candidates: {}", e),
+                    )
+                    .into_val()),
+                }
+            }
+
             _ => Ok(super::types::ServiceResponse::not_implemented(id, method).into_val()),
         }
     }
+}
+
+fn now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64
 }

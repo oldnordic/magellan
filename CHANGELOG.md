@@ -104,6 +104,13 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - `evolve.retrieve` JSON-RPC socket method — queries `pattern_cross_refs` for analogues of a given `(project, symbol)` pair; supports `to_project` optional filter and `limit` truncation
   - Falls back gracefully to empty `analogues` array when cross-ref index is unpopulated
   - 2 unit tests + 1 integration test covering round-trip, empty match, and limit truncation
+- **P5-PROPOSE: Candidate patch persistence** (`src/service/admin_socket.rs`, `src/service/candidates.rs`):
+  - `evolve.propose` JSON-RPC socket method — persists a candidate improvement patch into the project's `candidate_facts` table (idempotent via optional `candidate_id`)
+  - `evolve.candidates` JSON-RPC socket method — lists persisted candidates by status, with optional `limit`
+  - `src/service/candidates.rs` — new module with `CandidateRecord`, `insert_candidate_fact`, `list_candidates`, `update_candidate_status`
+  - Auto-generates `candidate_id` from `{project}/{symbol}-{timestamp}` if not provided
+  - Stores `patch_diff` and analogue metadata as JSON in `properties_json`
+  - 2 integration tests covering propose round-trip and candidates listing with status filter
 
 ## [3.3.13] - 2026-05-21
 
