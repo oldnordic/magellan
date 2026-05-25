@@ -211,9 +211,14 @@ auto-generated UUIDs when omitted.
 
 ## Service Daemon Socket API (v4.1.0+)
 
-The daemon exposes a JSON-RPC API over a Unix domain socket at
-`/tmp/magellan.sock`. All messages are newline-delimited JSON. Start the daemon
-with `magellan service start` before connecting.
+The daemon exposes a JSON-RPC API over a Unix domain socket.  The socket path
+follows `XDG_RUNTIME_DIR` when the variable is set (e.g.
+`/run/user/1000/magellan.sock` under systemd user services); otherwise it falls
+back to `/tmp/magellan.sock`.  All callers use `socket_path()` for portability.
+
+All messages are newline-delimited JSON. Start the daemon with
+`magellan service start` (or `systemctl --user start magellan`) before
+connecting.
 
 Wire format:
 

@@ -1,0 +1,14 @@
+[Unit]
+Description=Magellan code intelligence service daemon
+Documentation=https://github.com/oldnordic/magellan/blob/main/MANUAL.md
+After=network.target
+
+[Service]
+Type=exec
+ExecStart=%h/.local/bin/magellan service-daemon
+Restart=on-failure
+RestartSec=5
+KillMode=process
+
+[Install]
+WantedBy=default.target

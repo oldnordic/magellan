@@ -332,11 +332,28 @@ Config is stored in `~/.config/magellan/config.toml`.
 ## Service Daemon
 
 The daemon provides a long-running indexer with per-project filesystem watchers
-and a JSON-RPC control socket at `/tmp/magellan.sock`.
+and a JSON-RPC control socket.
+
+Socket path follows the
+[XDG Base Directory](https://specifications.freedesktop.org/basedir-spec/latest/)
+spec:
+
+- **Default:** `$XDG_RUNTIME_DIR/magellan.sock` (created automatically by
+  `magellan service start` and under systemd user services)
+- **Fallback:** `/tmp/magellan.sock` when `XDG_RUNTIME_DIR` is unavailable
 
 ```bash
 # Start background daemon (spreads per-project watchers)
 magellan service start
+
+# Or run as a systemd user service (recommended for autostart)
+mkdir -p ~/.config/systemd/user
+cp /path/to/magellan/systemd/magellan.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now magellan
+# Check status
+systemctl --user status magellan
+```
 
 # Stop the daemon
 magellan service stop

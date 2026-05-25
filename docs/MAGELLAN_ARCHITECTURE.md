@@ -170,7 +170,7 @@ API over a Unix domain socket at `/tmp/magellan.sock`.
 ```text
 magellan service start
   -> Service::new() reads ~/.config/magellan/registry.toml
-  -> AdminSocket listens on /tmp/magellan.sock
+  -> AdminSocket listens on $XDG_RUNTIME_DIR/magellan.sock (fallback: /tmp/magellan.sock)
   -> WatcherMap spawns FileSystemWatcher per registered project
   -> worker_loop indexes batched file changes into each project's CodeGraph
   -> meta.db (~/.magellan/meta.db) tracks project registry + last_reindexed
@@ -180,7 +180,7 @@ magellan service start
 
 | Module | Role |
 |--------|------|
-| `src/service/mod.rs` | `Service` struct, signal handler, worker loop, `send_request()` client |
+| `src/service/mod.rs` | `Service` struct, signal handler, worker loop, `socket_path()` helper, `send_request()` client |
 | `src/service/admin_socket.rs` | JSON-RPC dispatch over UDS; `WatcherMap` for per-project watcher lifecycle |
 | `src/service/registry.rs` | `Registry` CRUD + TOML persistence at `~/.config/magellan/registry.toml` |
 | `src/service/meta_db.rs` | `MetaDb` — `project_registry` + `concept_embeddings` + `pattern_cross_refs` |

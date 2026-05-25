@@ -42,6 +42,12 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - `Command::ServiceDaemon` added to CLI enum — closes Phase 0 gap where `service_cmd.rs` spawned `service-daemon` but the CLI parser rejected it as unknown
   - `main.rs` handler spawns `Service::new().await?.run().await`
   - `tests/daemon_argv_tests.rs` — integration test catching unwired subcommand regression
+- **systemd user-level service support** (`src/service/mod.rs`, `src/service_cmd.rs`, `src/watch_cmd.rs`):
+  - Socket path moved from hardcoded `/tmp/magellan.sock` to `socket_path()` helper respecting `XDG_RUNTIME_DIR`
+  - When `XDG_RUNTIME_DIR` is set (true for systemd user services and most modern desktops) the daemon binds its UDS under `$XDG_RUNTIME_DIR/magellan.sock`
+  - All callers of `SOCKET_PATH` updated to use `socket_path()`: `setup_socket`, `cleanup`, `send_request`, `is_daemon_running`
+  - `~/.config/systemd/user/magellan.service` unit file added: `Type=exec`, `Restart=on-failure`
+  - Verified under systemd 260: service starts, socket created at `/run/user/UID/magellan.sock`, `magellan service status` / `service stats` communicate correctly
 
 ## [4.0.0] - 2026-05-24
 
