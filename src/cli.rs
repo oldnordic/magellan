@@ -758,6 +758,8 @@ pub enum Command {
         action: crate::service_cmd::ServiceAction,
         output_format: OutputFormat,
     },
+    /// Run the service daemon directly (used by `service start`)
+    ServiceDaemon,
     /// Cypher graph query (sqlitegraph 3.0)
     Cypher {
         db_path: PathBuf,
@@ -2460,6 +2462,7 @@ where
         "ask" => parse_ask_args(&args[2..]),
         "navigate" => parse_navigate_args(&args[2..]),
         "features" => parse_features_args(&args[2..]),
+        "service-daemon" => Ok(Command::ServiceDaemon),
         _ => Err(anyhow::anyhow!("Unknown command: {}", command)),
     }
 }

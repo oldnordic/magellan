@@ -978,6 +978,23 @@ fn main() -> ExitCode {
             }
             ExitCode::SUCCESS
         }
+        Ok(Command::ServiceDaemon) => {
+            let runtime = match tokio::runtime::Runtime::new() {
+                Ok(rt) => rt,
+                Err(e) => {
+                    eprintln!("Error: failed to create async runtime: {}", e);
+                    return ExitCode::from(1);
+                }
+            };
+            if let Err(e) = runtime.block_on(async {
+                let (svc, _shutdown_rx) = service::Service::new().await?;
+                svc.run().await
+            }) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
         Ok(Command::Cypher {
             db_path,
             query,
