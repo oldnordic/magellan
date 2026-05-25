@@ -982,6 +982,116 @@ impl AdminSocket {
                 }
             }
 
+            "evolve.verify" => {
+                let project = params
+                    .get("project")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let candidate_id = params
+                    .get("candidate_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+
+                if project.is_empty() || candidate_id.is_empty() {
+                    return Ok(super::types::ServiceResponse::err(
+                        id,
+                        -32602,
+                        "Missing 'project' or 'candidate_id' param".to_string(),
+                    )
+                    .into_val());
+                }
+
+                let pair = {
+                    let reg = registry.lock().await;
+                    reg.find(&project).map(|e| (e.db.clone(), e.root.clone()))
+                };
+                let Some((db_path, project_root)) = pair else {
+                    return Ok(super::types::ServiceResponse::err(
+                        id,
+                        -32005,
+                        format!("Project '{}' not found in registry", project),
+                    )
+                    .into_val());
+                };
+
+                let rec = match super::candidates::get_candidate_by_id(&db_path, &candidate_id,
+                ) {
+                    Ok(Some(r)) => r,
+                    Ok(None) => {
+                        return Ok(super::types::ServiceResponse::err(
+                            id,
+                            -32006,
+                            format!("Candidate '{}' not found", candidate_id),
+                        )
+                        .into_val());
+                    }
+                    Err(e) => {
+                        return Ok(super::types::ServiceResponse::err(
+                            id,
+                            -32603,
+                            format!("DB error: {}", e),
+                        )
+                        .into_val());
+                    }
+                };
+
+                // Extract patch_diff from properties_json
+                let patch_diff = serde_json::from_str::<serde_json::Value>(&rec.properties_json
+                )
+                .ok()
+                .and_then(|v| v.get("patch_diff").and_then(|p| p.as_str()).map(|s| s.to_string()))
+                .unwrap_or_default();
+
+                if patch_diff.is_empty() {
+                    return Ok(super::types::ServiceResponse::err(
+                        id,
+                        -32602,
+                        "Candidate has no patch_diff".to_string(),
+                    )
+                    .into_val());
+                }
+
+                let result = tokio::task::spawn_blocking(move || {
+                    super::verify::verify_candidate(&project_root, &patch_diff,
+                    )
+                }).await;
+
+                match result {
+                    Ok(Ok(vr)) => {
+                        let status = if vr.passed { "verified" } else { "rejected" };
+                        let _ = super::candidates::update_candidate_status(
+                            &db_path, &candidate_id, status, None,
+                        );
+                        Ok(super::types::ServiceResponse::ok(
+                            id,
+                            json!({
+                                "candidate_id": candidate_id,
+                                "status": status,
+                                "passed": vr.passed,
+                                "exit_code": vr.exit_code,
+                                "stdout": vr.stdout,
+                                "stderr": vr.stderr,
+                            }),
+                        )
+                        .into_val())
+                    }
+                    Ok(Err(e)) => Ok(super::types::ServiceResponse::err(
+                        id,
+                        -32603,
+                        format!("Verify error: {}", e),
+                    )
+                    .into_val()),
+                    Err(e) => Ok(super::types::ServiceResponse::err(
+                        id,
+                        -32603,
+                        format!("Blocking task panic: {}", e),
+                    )
+                    .into_val()),
+                }
+            }
+
             _ => Ok(super::types::ServiceResponse::not_implemented(id, method).into_val()),
         }
     }

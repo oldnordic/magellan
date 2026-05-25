@@ -31,6 +31,7 @@ mod meta_db;
 pub mod registry;
 pub mod structural;
 mod types;
+mod verify;
 
 pub const SOCKET_PATH: &str = "/tmp/magellan.sock";
 
@@ -2264,6 +2265,143 @@ mod integration_tests {
         assert!(resp.get("error").is_none(), "evolve.reject should succeed, got: {}", line);
         let result = resp.get("result").expect("result missing");
         assert_eq!(result.get("status").and_then(|v| v.as_str()), Some("rejected"));
+
+        accept_task.abort();
+        let _ = tokio::fs::remove_file(socket_path).await;
+    }
+
+    #[tokio::test]
+    async fn test_admin_socket_evolve_verify_applies_patch_and_runs_tests() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+        use tokio::net::{UnixListener, UnixStream};
+
+        let socket_path = "/tmp/magellan_test_verify.sock";
+        let _ = tokio::fs::remove_file(socket_path).await;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_path = temp_dir.path().to_path_buf();
+
+        // Create a minimal Rust project
+        std::fs::create_dir(temp_path.join("src")).unwrap();
+        std::fs::write(
+            temp_path.join("Cargo.toml"),
+            r#"[package]
+name = "dummy_proj"
+version = "0.1.0"
+edition = "2021"
+"#,
+        ).unwrap();
+        std::fs::write(
+            temp_path.join("src/lib.rs"),
+            "pub fn hello() -> &'static str { \"world\" }\n",
+        ).unwrap();
+
+        let shard_db = temp_path.join("proj_verify.db");
+        {
+            let conn = rusqlite::Connection::open(&shard_db).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS candidate_facts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    candidate_id TEXT UNIQUE NOT NULL,
+                    source_document_id INTEGER NOT NULL DEFAULT 0,
+                    subject_type TEXT NOT NULL,
+                    subject_key TEXT NOT NULL,
+                    predicate TEXT NOT NULL,
+                    object_type TEXT,
+                    object_key TEXT,
+                    properties_json TEXT,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    rejection_reason TEXT,
+                    created_at INTEGER,
+                    reviewed_at INTEGER
+                );"
+            ).unwrap();
+        }
+
+        // Patch using actual relative paths (no a/ b/ prefixes)
+        let patch = r#"--- src/lib.rs
++++ src/lib.rs
+@@ -1 +1 @@
+-pub fn hello() -> &'static str { "world" }
++pub fn hello() -> &'static str { "world" } // patched
+"#;
+        let properties = serde_json::json!({"patch_diff": patch}).to_string();
+        super::candidates::insert_candidate_fact(
+            &shard_db,
+            "verify-1",
+            "Symbol",
+            "hello",
+            "proposes-improvement",
+            &properties,
+            "pending",
+        ).unwrap();
+
+        let meta_db = std::sync::Arc::new(tokio::sync::Mutex::new(
+            super::meta_db::MetaDb::open_at(temp_path.join("meta_v.db")).unwrap(),
+        ));
+        let reg = std::sync::Arc::new(tokio::sync::Mutex::new(
+            super::registry::Registry::load_from(temp_path.join("reg_v.toml")).unwrap(),
+        ));
+        {
+            let mut r = reg.lock().await;
+            let entry = super::types::ProjectEntry::new(
+                "proj_verify".to_string(),
+                temp_path.clone(),
+                shard_db.clone(),
+                "manual".to_string(),
+            );
+            r.register(entry).unwrap();
+        }
+
+        let listener = UnixListener::bind(socket_path).unwrap();
+        let reg_clone = reg.clone();
+        let meta_clone = meta_db.clone();
+        let accept_task = tokio::spawn(async move {
+            loop {
+                let (stream, _) = listener.accept().await.unwrap();
+                let reg = reg_clone.clone();
+                let meta = meta_clone.clone();
+                let (tx, _rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16);
+                tokio::spawn(async move {
+                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, meta, tx).await;
+                });
+            }
+        });
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+        let mut stream = UnixStream::connect(socket_path).await.expect("connect to socket");
+        let req = r#"{"id":"evol-v-1","method":"evolve.verify","project":"proj_verify","candidate_id":"verify-1"}"#;
+        let (read_half, mut write_half) = stream.split();
+        write_half.write_all((req.to_string() + "\n").as_bytes()).await.unwrap();
+        write_half.shutdown().await.unwrap();
+
+        let mut reader = tokio::io::BufReader::new(read_half);
+        let mut line = String::new();
+        reader.read_line(&mut line).await.unwrap();
+        let resp: serde_json::Value = serde_json::from_str(&line).unwrap();
+
+        assert!(
+            resp.get("error").is_none(),
+            "evolve.verify should succeed, got: {}",
+            line
+        );
+        let result = resp.get("result").expect("result missing");
+        let status = result.get("status").and_then(|v| v.as_str());
+        let stdout = result.get("stdout").and_then(|v| v.as_str()).unwrap_or("");
+        let stderr = result.get("stderr").and_then(|v| v.as_str()).unwrap_or("");
+        assert!(
+            status == Some("verified"),
+            "Expected verified, got {:?}. stdout: {}\nstderr: {}",
+            status, stdout, stderr
+        );
+        assert_eq!(result.get("passed").and_then(|v| v.as_bool()), Some(true));
+
+        // Check candidate status updated in DB
+        let rec = super::candidates::get_candidate_by_id(&shard_db, "verify-1"
+        ).unwrap()
+        .expect("candidate should exist");
+        assert_eq!(rec.status, "verified");
 
         accept_task.abort();
         let _ = tokio::fs::remove_file(socket_path).await;

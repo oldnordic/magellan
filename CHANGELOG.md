@@ -114,8 +114,13 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **P5-PROMOTE / P5-REJECT: Candidate status transitions** (`src/service/admin_socket.rs`, `src/service/candidates.rs`):
   - `evolve.promote` JSON-RPC socket method — sets a candidate's status to `promoted` and records `reviewed_at`
   - `evolve.reject` JSON-RPC socket method — sets a candidate's status to `rejected` with optional `rejection_reason`
-  - Returns  `error:-32006` if candidate_id not found (zero rows affected)
+  - Returns `error:-32006` if candidate_id not found (zero rows affected)
   - 3 unit tests + 1 integration test covering promote, reject with reason, and missing-candidate edge case
+- **P5-VERIFY: Temp worktree patch verification** (`src/service/admin_socket.rs`, `src/service/verify.rs`):
+  - `evolve.verify` JSON-RPC socket method — creates temp worktree copy, applies candidate's `patch_diff` via `patch -p0`, auto-detects test harness (`cargo test` / `pytest` / `npm test`), runs tests, and updates candidate status to `verified` (passing) or `rejected` (failing)
+  - `src/service/verify.rs` — new module with `verify_candidate()`, `detect_test_command()`, `copy_dir_all()` (pure-Rust recursive copy excluding destination)
+  - `get_candidate_by_id()` helper in `candidates.rs` to fetch candidate's stored `patch_diff`
+  - 1 integration test covering full round-trip: propose → verify on real Rust project with passing `cargo test`
 
 ## [3.3.13] - 2026-05-21
 

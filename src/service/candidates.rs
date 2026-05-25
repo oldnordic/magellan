@@ -76,6 +76,26 @@ fn now_secs() -> i64 {
         .as_secs() as i64
 }
 
+/// Query a single candidate by its candidate_id.
+pub fn get_candidate_by_id(
+    db_path: &Path,
+    candidate_id: &str,
+) -> Result<Option<CandidateRecord>> {
+    let conn = rusqlite::Connection::open(db_path)
+        .with_context(|| format!("open project db {}", db_path.display()))?;
+    let mut stmt = conn.prepare(
+        "SELECT candidate_id, status, properties_json, created_at
+         FROM candidate_facts
+         WHERE candidate_id = ?1"
+    )?;
+    let mut rows = stmt.query_map(params![candidate_id], map_row)?;
+    if let Some(row) = rows.next() {
+        Ok(Some(row?))
+    } else {
+        Ok(None)
+    }
+}
+
 /// Update the status (and optionally rejection_reason) of an existing candidate.
 pub fn update_candidate_status(
     db_path: &Path,
@@ -189,5 +209,21 @@ mod tests {
         let updated = update_candidate_status(&db, "does-not-exist", "promoted", None
         ).unwrap();
         assert_eq!(updated, 0);
+    }
+
+    #[test]
+    fn test_get_candidate_by_id_found_and_not_found() {
+        let (_dir, db) = temp_db_with_schema();
+        insert_candidate_fact(
+            &db, "c-99", "Symbol", "sym_z", "proposes-improvement",
+            r#"{"patch_diff":"z"}"#, "pending",
+        ).unwrap();
+
+        let found = get_candidate_by_id(&db, "c-99").unwrap();
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().candidate_id, "c-99");
+
+        let not_found = get_candidate_by_id(&db, "no-such-id").unwrap();
+        assert!(not_found.is_none());
     }
 }
