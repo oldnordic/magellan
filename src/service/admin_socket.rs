@@ -611,6 +611,59 @@ impl AdminSocket {
                 }
             }
 
+            "evolve.analyze" => {
+                let project_filter: Option<String> = params
+                    .get("project")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                let limit: Option<usize> = params
+                    .get("limit")
+                    .and_then(|v| v.as_u64())
+                    .map(|u| u as usize);
+
+                let meta_db_clone = Arc::clone(&meta_db);
+                let result = tokio::task::spawn_blocking(move || {
+                    let meta = meta_db_clone.blocking_lock();
+                    meta.analyze_hotspots(project_filter.as_deref(), limit)
+                })
+                .await;
+
+                match result {
+                    Ok(Ok(candidates)) => {
+                        let items: Vec<serde_json::Value> = candidates
+                            .into_iter()
+                            .map(|c| {
+                                json!({
+                                    "project": c.project,
+                                    "symbol": c.symbol,
+                                    "file": c.file,
+                                    "rank_score": c.rank_score,
+                                    "loc": c.loc,
+                                    "fan_in": c.fan_in,
+                                    "complexity": c.cyclomatic_complexity,
+                                })
+                            })
+                            .collect();
+                        Ok(
+                            super::types::ServiceResponse::ok(id, json!({ "candidates": items }))
+                                .into_val(),
+                        )
+                    }
+                    Ok(Err(e)) => Ok(super::types::ServiceResponse::err(
+                        id,
+                        -32004,
+                        format!("Analyze error: {}", e),
+                    )
+                    .into_val()),
+                    Err(e) => Ok(super::types::ServiceResponse::err(
+                        id,
+                        -32603,
+                        format!("Blocking task panic: {}", e),
+                    )
+                    .into_val()),
+                }
+            }
+
             _ => Ok(super::types::ServiceResponse::not_implemented(id, method).into_val()),
         }
     }

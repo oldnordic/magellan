@@ -1705,4 +1705,131 @@ mod integration_tests {
         accept_task.abort();
         let _ = tokio::fs::remove_file(socket_path).await;
     }
+
+    #[tokio::test]
+    async fn test_admin_socket_evolve_analyze_returns_hotspots() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+        use tokio::net::{UnixListener, UnixStream};
+
+        let socket_path = "/tmp/magellan_test_evol.sock";
+        let _ = tokio::fs::remove_file(socket_path).await;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_path = temp_dir.path().to_path_buf();
+
+        // Create a shard with symbol_metrics
+        let db_a = temp_path.join("evol_shard.db");
+        {
+            let conn = rusqlite::Connection::open(&db_a).unwrap();
+            conn.execute(
+                "CREATE TABLE symbol_metrics (
+                    symbol_id INTEGER PRIMARY KEY,
+                    symbol_name TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    file_path TEXT NOT NULL,
+                    loc INTEGER DEFAULT 0,
+                    estimated_loc REAL DEFAULT 0,
+                    fan_in INTEGER DEFAULT 0,
+                    fan_out INTEGER DEFAULT 0,
+                    cyclomatic_complexity INTEGER DEFAULT 0,
+                    last_updated INTEGER NOT NULL
+                )",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO symbol_metrics
+                 (symbol_name, kind, file_path, loc, fan_in, cyclomatic_complexity, last_updated)
+                 VALUES ('heavy', 'fn', 'src/big.rs', 200, 30, 8, 0)",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO symbol_metrics
+                 (symbol_name, kind, file_path, loc, fan_in, cyclomatic_complexity, last_updated)
+                 VALUES ('light', 'fn', 'src/small.rs', 10, 2, 1, 0)",
+                [],
+            )
+            .unwrap();
+        }
+
+        let meta_db = std::sync::Arc::new(tokio::sync::Mutex::new(
+            super::meta_db::MetaDb::open_at(temp_path.join("evol_meta.db")).unwrap(),
+        ));
+        {
+            let mut meta = meta_db.lock().await;
+            meta.upsert_project(
+                "evol_a",
+                &temp_path.to_string_lossy(),
+                &db_a.to_string_lossy(),
+                true,
+            )
+            .unwrap();
+        }
+
+        let reg = std::sync::Arc::new(tokio::sync::Mutex::new(
+            super::registry::Registry::load_from(temp_path.join("evol_reg.toml")).unwrap(),
+        ));
+
+        let listener = UnixListener::bind(socket_path).unwrap();
+        let meta_clone = meta_db.clone();
+        let accept_task = tokio::spawn(async move {
+            loop {
+                let (stream, _) = listener.accept().await.unwrap();
+                let reg = reg.clone();
+                let meta = meta_clone.clone();
+                let (tx, _rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16);
+                tokio::spawn(async move {
+                    let _ = super::admin_socket::AdminSocket::handle_client(stream, reg, meta, tx)
+                        .await;
+                });
+            }
+        });
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+        let mut stream = UnixStream::connect(socket_path)
+            .await
+            .expect("connect to socket");
+        let req =
+            r#"{"id":"evol-1","method":"evolve.analyze","params":{"project":"evol_a","limit":2}}"#;
+        let (read_half, mut write_half) = stream.split();
+        write_half
+            .write_all((req.to_string() + "\n").as_bytes())
+            .await
+            .unwrap();
+        write_half.shutdown().await.unwrap();
+
+        let mut reader = tokio::io::BufReader::new(read_half);
+        let mut line = String::new();
+        reader.read_line(&mut line).await.unwrap();
+        let resp: serde_json::Value = serde_json::from_str(&line).unwrap();
+
+        assert!(
+            resp.get("error").is_none(),
+            "evolve.analyze should succeed, got: {}",
+            line
+        );
+
+        let result = resp.get("result").expect("result missing");
+        let candidates = result
+            .get("candidates")
+            .and_then(|v| v.as_array())
+            .expect("candidates array missing");
+        assert_eq!(candidates.len(), 2, "expected 2 hotspot candidates");
+
+        let first = &candidates[0];
+        assert_eq!(first.get("symbol").and_then(|v| v.as_str()), Some("heavy"));
+        assert_eq!(
+            first.get("project").and_then(|v| v.as_str()),
+            Some("evol_a")
+        );
+        assert!(first.get("rank_score").and_then(|v| v.as_f64()).unwrap() > 0.0);
+
+        let second = &candidates[1];
+        assert_eq!(second.get("symbol").and_then(|v| v.as_str()), Some("light"));
+
+        accept_task.abort();
+        let _ = tokio::fs::remove_file(socket_path).await;
+    }
 }

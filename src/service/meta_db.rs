@@ -466,4 +466,286 @@ mod tests {
             .unwrap();
         assert!(refs.is_empty());
     }
+
+    // ── Hotspot analysis tests ──
+
+    #[test]
+    fn test_analyze_hotspots_ranks_by_fan_in_times_complexity() {
+        let dir = tempfile::tempdir().unwrap();
+        let meta_path = dir.path().join("meta.db");
+        let mut meta = MetaDb::open_at(&meta_path).unwrap();
+
+        let proj_a_db = dir.path().join("proj_a_shard.db");
+        {
+            let conn = rusqlite::Connection::open(&proj_a_db).unwrap();
+            conn.execute(
+                "CREATE TABLE symbol_metrics (
+                    symbol_id INTEGER PRIMARY KEY,
+                    symbol_name TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    file_path TEXT NOT NULL,
+                    loc INTEGER DEFAULT 0,
+                    estimated_loc REAL DEFAULT 0,
+                    fan_in INTEGER DEFAULT 0,
+                    fan_out INTEGER DEFAULT 0,
+                    cyclomatic_complexity INTEGER DEFAULT 0,
+                    last_updated INTEGER NOT NULL
+                )",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO symbol_metrics
+                 (symbol_name, kind, file_path, loc, fan_in, fan_out, cyclomatic_complexity, last_updated)
+                 VALUES ('bigboss', 'fn', 'src/lib.rs', 100, 50, 5, 10, 0)",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO symbol_metrics
+                 (symbol_name, kind, file_path, loc, fan_in, fan_out, cyclomatic_complexity, last_updated)
+                 VALUES ('smallfry', 'fn', 'src/lib.rs', 20, 2, 1, 1, 0)",
+                [],
+            )
+            .unwrap();
+        }
+
+        let proj_b_db = dir.path().join("proj_b_shard.db");
+        {
+            let conn = rusqlite::Connection::open(&proj_b_db).unwrap();
+            conn.execute(
+                "CREATE TABLE symbol_metrics (
+                    symbol_id INTEGER PRIMARY KEY,
+                    symbol_name TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    file_path TEXT NOT NULL,
+                    loc INTEGER DEFAULT 0,
+                    estimated_loc REAL DEFAULT 0,
+                    fan_in INTEGER DEFAULT 0,
+                    fan_out INTEGER DEFAULT 0,
+                    cyclomatic_complexity INTEGER DEFAULT 0,
+                    last_updated INTEGER NOT NULL
+                )",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO symbol_metrics
+                 (symbol_name, kind, file_path, loc, fan_in, fan_out, cyclomatic_complexity, last_updated)
+                 VALUES ('midtier', 'fn', 'src/main.rs', 50, 10, 3, 5, 0)",
+                [],
+            )
+            .unwrap();
+        }
+
+        meta.upsert_project("proj_a", "/tmp/a", &proj_a_db.to_string_lossy(), true)
+            .unwrap();
+        meta.upsert_project("proj_b", "/tmp/b", &proj_b_db.to_string_lossy(), true)
+            .unwrap();
+
+        let candidates = meta.analyze_hotspots(None, None).unwrap();
+        assert_eq!(candidates.len(), 3, "expected 3 hotspot candidates total");
+
+        assert_eq!(candidates[0].symbol, "bigboss");
+        assert!((candidates[0].rank_score - 500.0).abs() < 0.01);
+        assert_eq!(candidates[1].symbol, "midtier");
+        assert!((candidates[1].rank_score - 50.0).abs() < 0.01);
+        assert_eq!(candidates[2].symbol, "smallfry");
+        assert!((candidates[2].rank_score - 2.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_analyze_hotspots_project_filter_and_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut meta = MetaDb::open_at(dir.path().join("meta.db")).unwrap();
+
+        let db_a = dir.path().join("a_shard.db");
+        {
+            let conn = rusqlite::Connection::open(&db_a).unwrap();
+            conn.execute(
+                "CREATE TABLE symbol_metrics (
+                    symbol_id INTEGER PRIMARY KEY,
+                    symbol_name TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    file_path TEXT NOT NULL,
+                    loc INTEGER DEFAULT 0,
+                    estimated_loc REAL DEFAULT 0,
+                    fan_in INTEGER DEFAULT 0,
+                    fan_out INTEGER DEFAULT 0,
+                    cyclomatic_complexity INTEGER DEFAULT 0,
+                    last_updated INTEGER NOT NULL
+                )",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO symbol_metrics
+                 (symbol_name, kind, file_path, loc, fan_in, cyclomatic_complexity, last_updated)
+                 VALUES ('alpha', 'fn', 'a.rs', 10, 5, 5, 0)",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO symbol_metrics
+                 (symbol_name, kind, file_path, loc, fan_in, cyclomatic_complexity, last_updated)
+                 VALUES ('beta', 'fn', 'a.rs', 10, 3, 3, 0)",
+                [],
+            )
+            .unwrap();
+        }
+        let db_b = dir.path().join("b_shard.db");
+        {
+            let conn = rusqlite::Connection::open(&db_b).unwrap();
+            conn.execute(
+                "CREATE TABLE symbol_metrics (
+                    symbol_id INTEGER PRIMARY KEY,
+                    symbol_name TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    file_path TEXT NOT NULL,
+                    loc INTEGER DEFAULT 0,
+                    estimated_loc REAL DEFAULT 0,
+                    fan_in INTEGER DEFAULT 0,
+                    fan_out INTEGER DEFAULT 0,
+                    cyclomatic_complexity INTEGER DEFAULT 0,
+                    last_updated INTEGER NOT NULL
+                )",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO symbol_metrics
+                 (symbol_name, kind, file_path, loc, fan_in, cyclomatic_complexity, last_updated)
+                 VALUES ('gamma', 'fn', 'b.rs', 10, 20, 10, 0)",
+                [],
+            )
+            .unwrap();
+        }
+
+        meta.upsert_project("a", "/tmp/a", &db_a.to_string_lossy(), true)
+            .unwrap();
+        meta.upsert_project("b", "/tmp/b", &db_b.to_string_lossy(), true)
+            .unwrap();
+
+        let candidates = meta.analyze_hotspots(Some("a"), Some(1)).unwrap();
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].symbol, "alpha");
+        assert_eq!(candidates[0].project, "a");
+    }
+
+    #[test]
+    fn test_analyze_hotspots_disabled_project_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut meta = MetaDb::open_at(dir.path().join("meta.db")).unwrap();
+
+        let db = dir.path().join("disabled_shard.db");
+        {
+            let conn = rusqlite::Connection::open(&db).unwrap();
+            conn.execute(
+                "CREATE TABLE symbol_metrics (
+                    symbol_id INTEGER PRIMARY KEY,
+                    symbol_name TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    file_path TEXT NOT NULL,
+                    loc INTEGER DEFAULT 0,
+                    estimated_loc REAL DEFAULT 0,
+                    fan_in INTEGER DEFAULT 0,
+                    fan_out INTEGER DEFAULT 0,
+                    cyclomatic_complexity INTEGER DEFAULT 0,
+                    last_updated INTEGER NOT NULL
+                )",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO symbol_metrics
+                 (symbol_name, kind, file_path, loc, fan_in, cyclomatic_complexity, last_updated)
+                 VALUES ('hidden', 'fn', 'x.rs', 10, 5, 5, 0)",
+                [],
+            )
+            .unwrap();
+        }
+
+        meta.upsert_project("off", "/tmp/off", &db.to_string_lossy(), false)
+            .unwrap();
+        let candidates = meta.analyze_hotspots(None, None).unwrap();
+        assert!(
+            candidates.is_empty(),
+            "disabled project should yield no hotspots"
+        );
+    }
+}
+
+// ── Hotspot analysis ──
+/// Symbol-level hotspot candidate from metrics tables.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HotspotCandidate {
+    pub project: String,
+    pub symbol: String,
+    pub file: String,
+    pub rank_score: f64,
+    pub loc: i64,
+    pub fan_in: i64,
+    pub cyclomatic_complexity: i64,
+}
+
+impl MetaDb {
+    /// Analyze hotspot candidates across enabled project shards.
+    ///
+    /// For each enabled project, opens its shard DB and queries `symbol_metrics`.
+    /// Ranks symbols by `fan_in * cyclomatic_complexity` DESC.
+    pub fn analyze_hotspots(
+        &self,
+        project_filter: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<Vec<HotspotCandidate>> {
+        let mut candidates = Vec::new();
+        for project in self.list_projects()? {
+            if !project.enabled {
+                continue;
+            }
+            if let Some(filter) = project_filter {
+                if project.name != filter {
+                    continue;
+                }
+            }
+            let shard = std::path::Path::new(&project.db_path);
+            if !shard.exists() {
+                continue;
+            }
+            let conn = rusqlite::Connection::open(shard)
+                .with_context(|| format!("open shard {}", project.db_path))?;
+            let mut stmt = conn.prepare(
+                "SELECT symbol_name, file_path, loc, fan_in, cyclomatic_complexity
+                 FROM symbol_metrics
+                 ORDER BY (fan_in * cyclomatic_complexity) DESC",
+            )?;
+            let rows = stmt.query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, i64>(4)?,
+                ))
+            })?;
+            for row in rows {
+                let (symbol, file, loc, fan_in, cc) = row?;
+                let rank_score = (fan_in as f64) * (cc as f64);
+                candidates.push(HotspotCandidate {
+                    project: project.name.clone(),
+                    symbol,
+                    file,
+                    rank_score,
+                    loc,
+                    fan_in,
+                    cyclomatic_complexity: cc,
+                });
+            }
+        }
+        candidates.sort_by(|a, b| b.rank_score.partial_cmp(&a.rank_score).unwrap());
+        if let Some(l) = limit {
+            candidates.truncate(l);
+        }
+        Ok(candidates)
+    }
 }

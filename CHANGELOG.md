@@ -91,6 +91,16 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `src/main.rs` `Command::Service` match arm: destructured `db_path: _` which no longer exists on the enum variant
 - `BackendType::Dual` exhaustiveness: `find_cmd.rs` and `slice_cmd.rs` updated to match `SQLite | Dual` arm
 
+## [4.2.0] - Unreleased
+
+### Added
+
+- **P5-ANALYZE: Hotspot candidate detection** (`src/service/meta_db.rs`, `src/service/admin_socket.rs`):
+  - `HotspotCandidate` struct with `symbol`, `file`, `project`, `rank_score`, `fan_in`, `complexity`
+  - `MetaDb::analyze_hotspots(project_filter, limit)` — aggregates `symbol_metrics` across enabled project shards; ranks by `fan_in * cyclomatic_complexity` DESC; respects optional per-project filter and result limit
+  - `evolve.analyze` JSON-RPC socket method — demand-triggered analysis returning ranked candidate array with metadata; params: `project` (optional), `limit` (optional)
+  - 3 unit tests + 1 integration test covering ranking formula, project filtering, disabled-project exclusion, and end-to-end socket dispatch
+
 ## [3.3.13] - 2026-05-21
 
 ### Changed
