@@ -264,7 +264,7 @@ impl ImportExtractor {
 
         // Check for braced list: foo::{bar, baz as qux}
         if path.contains('{') {
-            let base_end = path.find('{').unwrap(); // M-UNWRAP: checked path.contains('{') above
+            let base_end = path.find('{').expect("invariant: path contains '{' per check above");
             let base_path = path[..base_end].trim();
             let list_str = &path[base_end + 1..];
             let list_end = list_str.rfind('}').unwrap_or(list_str.len());
@@ -284,7 +284,7 @@ impl ImportExtractor {
                     s.trim()
                         .split(" as ")
                         .next()
-                        .unwrap() // M-UNWRAP: split on non-empty string always yields at least one element
+                        .expect("invariant: split on non-empty string always yields at least one element")
                         .trim()
                         .to_string()
                 })

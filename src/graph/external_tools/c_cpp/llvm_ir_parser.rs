@@ -112,7 +112,7 @@ pub fn extract_cfg_from_llvm_ir(ll_content: &str) -> Result<HashMap<String, CfgW
                     // Look for terminators in current block
                     if !blocks.is_empty() && brace_count == 1 {
                         if let Some(terminator) = parse_terminator(func_line) {
-                            blocks.last_mut().unwrap().terminator = terminator; // M-UNWRAP: checked !blocks.is_empty() above
+                            blocks.last_mut().expect("invariant: blocks is not empty, checked above").terminator = terminator;
                         }
                     }
 

@@ -262,7 +262,7 @@ fn worker_loop(
                     None => match magellan::CodeGraph::open(&db) {
                         Ok(g) => {
                             open_graphs.insert(batch.project_name.clone(), g);
-                            open_graphs.get_mut(&batch.project_name).unwrap()
+                            open_graphs.get_mut(&batch.project_name).expect("invariant: just inserted project into open_graphs")
                         }
                         Err(err) => {
                             tracing::error!(

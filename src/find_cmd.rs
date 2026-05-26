@@ -901,9 +901,9 @@ fn run_find_all(
             let exec_id = magellan::output::generate_execution_id();
             let response = JsonResponse::new(matches, &exec_id);
             if output_format == OutputFormat::Pretty {
-                println!("{}", serde_json::to_string_pretty(&response).unwrap());
+                println!("{}", serde_json::to_string_pretty(&response).expect("invariant: JsonResponse serialization is infallible"));
             } else {
-                println!("{}", serde_json::to_string(&response).unwrap());
+                println!("{}", serde_json::to_string(&response).expect("invariant: JsonResponse serialization is infallible"));
             }
         }
         OutputFormat::Human => {

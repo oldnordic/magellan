@@ -607,7 +607,7 @@ pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>
                     pb.set_style(
                         ProgressStyle::default_bar()
                             .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({percent}%) ETA: {eta}\n{msg}")
-                            .unwrap() // M-UNWRAP: hardcoded template string, infallible
+                            .expect("invariant: hardcoded ProgressStyle template string is valid")
                             .progress_chars("=>-"),
                     );
                     pb
@@ -978,7 +978,7 @@ pub fn run_watch_pipeline_geometric(
                     pb.set_style(
                         ProgressStyle::default_bar()
                             .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({percent}%) ETA: {eta}\n{msg}")
-                            .unwrap() // M-UNWRAP: hardcoded template string, infallible
+                            .expect("invariant: hardcoded ProgressStyle template string is valid")
                             .progress_chars("=>-"),
                     );
                     pb
