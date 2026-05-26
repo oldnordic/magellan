@@ -10,13 +10,12 @@ use std::path::{Path, PathBuf};
 
 use crate::CodeGraph;
 
-/// Coverage data extracted from a single LCOV file.
 #[derive(Debug, Default)]
-struct LcovData {
+pub struct LcovData {
     /// (file_path, line_number) -> hit_count
-    line_hits: HashMap<(String, u32), u64>,
+    pub line_hits: HashMap<(String, u32), u64>,
     /// (file_path, line_number) -> max branch taken count
-    branch_hits: HashMap<(String, u32), u64>,
+    pub branch_hits: HashMap<(String, u32), u64>,
 }
 
 /// Run the ingest-coverage command.
@@ -150,37 +149,7 @@ fn normalize_paths(
 
 /// Parse an LCOV tracefile into line and branch hit maps.
 fn parse_lcov_file(path: &Path) -> Result<LcovData> {
-    use lcov::{Reader, Record};
-
-    let mut data = LcovData::default();
-    let reader =
-        Reader::open_file(path).with_context(|| format!("Failed to open LCOV file: {:?}", path))?;
-
-    let mut current_file = String::new();
-
-    for record in reader {
-        let record = record.with_context(|| "Failed to read LCOV record")?;
-        match record {
-            Record::SourceFile { path, .. } => {
-                current_file = path.to_string_lossy().to_string();
-            }
-            Record::LineData { line, count, .. } if !current_file.is_empty() => {
-                let key = (current_file.clone(), line);
-                data.line_hits.insert(key, count);
-            }
-            Record::BranchData { line, taken, .. } if !current_file.is_empty() => {
-                let key = (current_file.clone(), line);
-                let taken_val = taken.unwrap_or(0);
-                data.branch_hits
-                    .entry(key)
-                    .and_modify(|v| *v = (*v).max(taken_val))
-                    .or_insert(taken_val);
-            }
-            _ => {}
-        }
-    }
-
-    Ok(data)
+    crate::ingest_coverage::lcov_parser::parse_lcov_file(path)
 }
 
 /// Insert block coverage by mapping LCOV line hits to cfg_blocks.

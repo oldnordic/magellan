@@ -28,6 +28,7 @@ mod hnsw_cmd;
 mod import_lsif_cmd;
 mod index_cmd;
 mod ingest_coverage_cmd;
+mod ingest_coverage;
 mod init_cmd;
 mod label_cmd;
 mod migrate_cmd;

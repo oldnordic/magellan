@@ -63,6 +63,7 @@ pub mod lsp;
 pub mod web_ui;
 
 pub mod ingest_coverage_cmd;
+pub mod ingest_coverage;
 pub mod migrate_backend_cmd;
 pub mod migrate_cmd;
 
