@@ -217,41 +217,4 @@ mod pragma_tests {
             );
         }
     }
-
-    #[test]
-    fn test_sync_to_v3_inserts_nodes() {
-        let temp = tempfile::tempdir().unwrap();
-        let db_path = temp.path().join("test.db");
-        let v3_path = temp.path().join("test.db.v3");
-
-        let mut graph = crate::CodeGraph::open_dual(&db_path, &v3_path).unwrap();
-        graph
-            .index_file("src/test.rs", b"fn foo() {} fn bar() { foo(); }")
-            .unwrap();
-        graph
-            .sync_to_v3(&[std::path::PathBuf::from("src/test.rs")])
-            .unwrap();
-
-        assert!(v3_path.exists(), "V3 file should be created by open_dual");
-    }
-
-    #[test]
-    fn test_impact_routes_to_v3() {
-        let temp = tempfile::tempdir().unwrap();
-        let db_path = temp.path().join("test.db");
-        let v3_path = temp.path().join("test.db.v3");
-
-        let mut graph = crate::CodeGraph::open_dual(&db_path, &v3_path).unwrap();
-        graph
-            .index_file("src/test.rs", b"fn foo() {} fn bar() { foo(); }")
-            .unwrap();
-        graph
-            .sync_to_v3(&[std::path::PathBuf::from("src/test.rs")])
-            .unwrap();
-
-        // V3 should be present and the symbol should have a V3 node ID
-        assert!(graph.has_v3(), "V3 should be present after open_dual");
-        let v3_id = graph.v3_node_for_symbol("src/test.rs", "bar").unwrap();
-        assert!(v3_id.is_some(), "bar should have a V3 node after sync");
-    }
 }

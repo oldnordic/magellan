@@ -579,20 +579,18 @@ mod tests {
     }
 
     #[test]
-    fn test_watch_pipeline_config_v3_sync() {
+    fn test_watch_pipeline_config_basic() {
         let temp = tempfile::tempdir().unwrap();
         let db_path = temp.path().join("test.db");
-        let v3_path = temp.path().join("test.db.v3");
 
         let config = WatchPipelineConfig::new(
             temp.path().to_path_buf(),
             db_path.clone(),
             WatcherConfig::default(),
             false,
-        )
-        .with_v3_sync(v3_path.clone());
+        );
 
-        assert!(config.enable_v3_sync, "enable_v3_sync should be true");
-        assert_eq!(config.v3_path, Some(v3_path));
+        assert_eq!(config.db_path, db_path);
+        assert_eq!(config.root_path, temp.path().to_path_buf());
     }
 }

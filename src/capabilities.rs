@@ -16,8 +16,6 @@ pub enum BackendType {
     SQLite,
     /// Geometric backend (GeoGraphDB with 3D spatial indexing)
     Geometric,
-    /// Dual backend: SQLite for precise queries + V3 for fast traversal
-    Dual,
 }
 
 impl BackendType {
@@ -26,7 +24,6 @@ impl BackendType {
         match self {
             Self::SQLite => "db",
             Self::Geometric => "geo",
-            Self::Dual => "db",
         }
     }
 
@@ -35,7 +32,6 @@ impl BackendType {
         match self {
             Self::SQLite => "SQLite",
             Self::Geometric => "Geometric",
-            Self::Dual => "Dual (SQLite+V3)",
         }
     }
 
@@ -49,11 +45,6 @@ impl BackendType {
             Some("db") | Some("sqlite") | Some(_) => Some(Self::SQLite),
             None => Some(Self::SQLite), // Default
         }
-    }
-
-    /// Whether this backend includes V3 traversal engine
-    pub fn has_v3(&self) -> bool {
-        matches!(self, Self::Dual)
     }
 }
 
@@ -187,33 +178,6 @@ impl BackendCapabilities {
             BackendType::Geometric => Self::geometric(),
             #[cfg(not(feature = "geometric-backend"))]
             BackendType::Geometric => Self::_not_built(BackendType::Geometric, "geometric-backend"),
-            BackendType::Dual => Self::dual(),
-        }
-    }
-
-    /// Get capabilities for Dual backend (SQLite + V3 traversal)
-    fn dual() -> Self {
-        Self {
-            backend_type: BackendType::Dual,
-            supports_symbol_queries: true,
-            supports_call_graph: true,
-            supports_cfg_analysis: true,
-            supports_chunks: true,
-            supports_cycles: true,
-            supports_paths: false,
-            supports_slice: true,
-            supports_historical_snapshot: false,
-            supports_vacuum_maintenance: true,
-            supports_dead_code: true,
-            supports_reachability: true,
-            supports_export: true,
-            supports_ast: true,
-            supports_labels: true,
-            database_extension_hint: "db".to_string(),
-            format_hint: "SQLite + V3 native traversal engine".to_string(),
-            build_enabled: true,
-            required_feature: Some("native-v3".to_string()),
-            cfg_feature: Some("native-v3".to_string()),
         }
     }
 
@@ -362,7 +326,6 @@ pub fn all_capabilities() -> Vec<BackendCapabilities> {
     vec![
         BackendCapabilities::for_backend(BackendType::SQLite),
         BackendCapabilities::for_backend(BackendType::Geometric),
-        BackendCapabilities::for_backend(BackendType::Dual),
     ]
 }
 
