@@ -1,7 +1,8 @@
 //! Watch pipeline for geometric and non-geometric backends.
 
 use crate::indexer::{
-    compute_l3_cache_batches, read_batch_sources, DEFAULT_L3_CACHE_SIZE, TARGET_CACHE_USAGE,
+    compute_l3_cache_batch_indices, compute_l3_cache_batches, read_batch_sources,
+    DEFAULT_L3_CACHE_SIZE, TARGET_CACHE_USAGE,
 };
 use crate::project_config::ProjectConfig;
 use crate::{CodeGraph, FileEvent, FileSystemWatcher, WatcherConfig};
@@ -172,6 +173,110 @@ impl PipelineSharedState {
     }
 }
 
+/// Merge include/exclude patterns from .magellan.toml, Cargo.toml targets, and CLI overrides.
+///
+/// # Priority Order
+/// 1. CLI `--include` / `--exclude` (highest priority, override everything)
+/// 2. `.magellan.toml` index section (if CLI is empty)
+/// 3. `Cargo.toml` target dirs (auto-inferred when no config set)
+///
+/// Auto-include is skipped when `--root` is already a subdirectory (e.g. `./src`)
+/// because relative glob patterns like `"src/"` won't match.
+fn merge_scan_config(
+    scan_root: &std::path::Path,
+    config: &WatchPipelineConfig,
+) -> Result<crate::project_config::ProjectConfig> {
+    let project_config = ProjectConfig::load(scan_root).context("Failed to load .magellan.toml")?;
+
+    // Parse Cargo.toml for auto-include targets (tests/, benches/, examples/)
+    let cargo_targets = crate::project_config::CargoManifest::parse(scan_root)
+        .ok()
+        .filter(|_| project_config.index.include.is_empty())
+        .map(|m| {
+            m.targets
+                .iter()
+                .filter_map(|p| {
+                    Path::new(p).parent().map(|d| {
+                        let mut s = d.to_string_lossy().to_string();
+                        if !s.ends_with('/') {
+                            s.push('/');
+                        }
+                        s
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    let root_is_subdir = scan_root
+        .file_name()
+        .is_some_and(|n| matches!(n.to_str(), Some("src") | Some("tests") | Some("benches")));
+
+    let merged_include = if config.include_patterns.is_empty() {
+        if root_is_subdir {
+            vec![]
+        } else if project_config.index.include.is_empty() && !cargo_targets.is_empty() {
+            let mut auto = vec!["src/".to_string()];
+            auto.extend(
+                cargo_targets
+                    .into_iter()
+                    .collect::<std::collections::HashSet<_>>(),
+            );
+            auto
+        } else {
+            project_config.index.include.clone()
+        }
+    } else {
+        config.include_patterns.clone()
+    };
+
+    Ok(crate::project_config::ProjectConfig {
+        index: crate::project_config::IndexSection {
+            include: merged_include,
+            exclude: if config.exclude_patterns.is_empty() {
+                project_config.index.exclude.clone()
+            } else {
+                config.exclude_patterns.clone()
+            },
+        },
+        ..project_config
+    })
+}
+
+/// Wait for the watcher thread to finish with a timeout.
+///
+/// Returns early if the thread times out without joining (avoids hang).
+/// On clean exit, joins the thread and logs any panic payload.
+fn wait_for_watcher_thread(thread: std::thread::JoinHandle<()>, timeout: Duration) {
+    let start = Instant::now();
+    while !thread.is_finished() {
+        if start.elapsed() >= timeout {
+            eprintln!(
+                "Warning: Watcher thread did not finish within {:?}, forcing shutdown",
+                timeout
+            );
+            eprintln!(
+                "Note: Data may not be flushed. Use Ctrl+C (not timeout) for clean shutdown."
+            );
+            return;
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    // Thread finished naturally — join and log any panic payload
+    match thread.join() {
+        Ok(()) => {}
+        Err(payload) => {
+            if let Some(msg) = payload.downcast_ref::<&str>() {
+                eprintln!("Watcher thread panicked: {}", msg);
+            } else if let Some(msg) = payload.downcast_ref::<String>() {
+                eprintln!("Watcher thread panicked: {}", msg);
+            } else {
+                eprintln!("Watcher thread panicked with unknown payload");
+            }
+        }
+    }
+}
+
 /// Run the deterministic watch pipeline with buffering.
 ///
 /// # Phase 2 Pipeline Behavior
@@ -204,70 +309,8 @@ pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>
     let scan_root =
         std::fs::canonicalize(&config.root_path).unwrap_or_else(|_| config.root_path.clone());
 
-    // Load .magellan.toml if present (read-only, no DB access)
-    let project_config =
-        ProjectConfig::load(&scan_root).context("Failed to load .magellan.toml")?;
-
-    // Parse Cargo.toml for auto-include targets (tests/, benches/, examples/)
-    let cargo_targets = crate::project_config::CargoManifest::parse(&scan_root)
-        .ok()
-        .filter(|_| project_config.index.include.is_empty()) // only when user hasn't set include
-        .map(|m| {
-            m.targets
-                .iter()
-                .filter_map(|p| {
-                    // Extract directory from path: "tests/integration.rs" → "tests/"
-                    Path::new(p).parent().map(|d| {
-                        let mut s = d.to_string_lossy().to_string();
-                        if !s.ends_with('/') {
-                            s.push('/');
-                        }
-                        s
-                    })
-                })
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-
-    // Merge include/exclude: CLI patterns override config patterns when non-empty
-    // Auto-include patterns are relative to the project root (e.g. "src/", "tests/").
-    // When --root points to a subdirectory (e.g. ./src), these patterns break because
-    // relative paths no longer have the "src/" prefix. Skip auto-include in that case.
-    let root_is_subdir = scan_root
-        .file_name()
-        .is_some_and(|n| matches!(n.to_str(), Some("src") | Some("tests") | Some("benches")));
-
-    let merged_include = if config.include_patterns.is_empty() {
-        if root_is_subdir {
-            // Root is already a source subdirectory — no include patterns needed
-            vec![]
-        } else if project_config.index.include.is_empty() && !cargo_targets.is_empty() {
-            // User has no .magellan.toml include AND Cargo.toml has targets → auto-include
-            let mut auto = vec!["src/".to_string()];
-            auto.extend(
-                cargo_targets
-                    .into_iter()
-                    .collect::<std::collections::HashSet<_>>(),
-            );
-            auto
-        } else {
-            project_config.index.include.clone()
-        }
-    } else {
-        config.include_patterns.clone()
-    };
-
-    let merged_config = crate::project_config::ProjectConfig {
-        index: crate::project_config::IndexSection {
-            include: merged_include,
-            exclude: if config.exclude_patterns.is_empty() {
-                project_config.index.exclude.clone()
-            } else {
-                config.exclude_patterns.clone()
-            },
-        },
-        ..project_config
-    };
+    // Merge include/exclude patterns from .magellan.toml, Cargo.toml targets, and CLI overrides.
+    let merged_config = merge_scan_config(&scan_root, &config)?;
 
     // Open graph first so we can get the backend for pub/sub subscription
     let mut graph = if config.enable_v3_sync {
@@ -410,46 +453,7 @@ pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>
 
     // Wait for watcher thread to finish with extended timeout
     // Signal handler gives us 30 seconds, so we should have time to clean up
-    let timeout = Duration::from_secs(25);
-    let start = Instant::now();
-    let mut finished = false;
-
-    while !watcher_thread.is_finished() {
-        if start.elapsed() >= timeout {
-            eprintln!(
-                "Warning: Watcher thread did not finish within {:?}, forcing shutdown",
-                timeout
-            );
-            eprintln!(
-                "Note: Data may not be flushed. Use Ctrl+C (not timeout) for clean shutdown."
-            );
-            break;
-        }
-        thread::sleep(Duration::from_millis(100));
-    }
-
-    // Only call join() if the thread finished (avoid hang on timeout)
-    if watcher_thread.is_finished() {
-        finished = true;
-    }
-
-    if finished {
-        match watcher_thread.join() {
-            Ok(_) => {
-                // Clean exit
-            }
-            Err(panic_payload) => {
-                // Extract and log panic information
-                if let Some(msg) = panic_payload.downcast_ref::<&str>() {
-                    eprintln!("Watcher thread panicked: {}", msg);
-                } else if let Some(msg) = panic_payload.downcast_ref::<String>() {
-                    eprintln!("Watcher thread panicked: {}", msg);
-                } else {
-                    eprintln!("Watcher thread panicked with unknown payload");
-                }
-            }
-        }
-    }
+    wait_for_watcher_thread(watcher_thread, Duration::from_secs(25));
 
     // Clean up main thread parsers before returning to prevent tcache_thread_shutdown crash
     crate::ingest::pool::cleanup_parsers();
@@ -508,26 +512,21 @@ fn process_dirty_paths_batched(graph: &mut CodeGraph, dirty_paths: &[PathBuf]) -
     }
 
     let batch_start = Instant::now();
-    let _total_files = dirty_paths.len(); // Only for debugging/logging if needed
 
     // Step 1: Get file sizes for batch calculation (only for existing files)
     let size_start = Instant::now();
-    let paths_with_sizes: Vec<(PathBuf, usize)> = dirty_paths
+    let sizes: Vec<usize> = dirty_paths
         .iter()
-        .filter_map(|path| {
-            std::fs::metadata(path)
-                .ok()
-                .map(|meta| (path.clone(), meta.len() as usize))
-        })
+        .filter_map(|path| std::fs::metadata(path).ok().map(|meta| meta.len() as usize))
         .collect();
     let size_time = size_start.elapsed();
 
     // Step 2: Calculate target cache size (50% of L3)
     let target_cache_bytes = (DEFAULT_L3_CACHE_SIZE as f64 * TARGET_CACHE_USAGE) as usize;
 
-    // Step 3: Group into L3 cache-sized batches
+    // Step 3: Group into L3 cache-sized batches (index-based, zero path clones)
     let batch_start_compute = Instant::now();
-    let batches = compute_l3_cache_batches(&paths_with_sizes, target_cache_bytes);
+    let batches = compute_l3_cache_batch_indices(&sizes, target_cache_bytes);
     let batch_count = batches.len();
     let batch_compute_time = batch_start_compute.elapsed();
 
@@ -536,8 +535,9 @@ fn process_dirty_paths_batched(graph: &mut CodeGraph, dirty_paths: &[PathBuf]) -
     let mut total_reconcile_time = std::time::Duration::ZERO;
 
     // Step 4: Process each batch
-    for batch in batches {
-        let batch_paths: Vec<PathBuf> = batch.iter().map(|(p, _)| p.clone()).collect();
+    for batch in &batches {
+        // Index into dirty_paths directly — no intermediate path clones
+        let batch_paths: Vec<&PathBuf> = batch.iter().map(|&idx| &dirty_paths[idx]).collect();
 
         // Pre-read all sources in batch to warm OS cache (data stays in L3)
         let read_start = Instant::now();
@@ -551,7 +551,7 @@ fn process_dirty_paths_batched(graph: &mut CodeGraph, dirty_paths: &[PathBuf]) -
             .collect();
 
         // Now process each file - use pre-read source when available
-        for path in &batch_paths {
+        for &path in &batch_paths {
             let path_key = crate::validation::normalize_path(path)
                 .unwrap_or_else(|_| path.to_string_lossy().to_string());
 

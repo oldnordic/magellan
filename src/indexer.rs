@@ -52,29 +52,30 @@ pub struct FileBatchResult {
 
 /// Compute optimal batch size based on file sizes.
 ///
-/// Groups files into batches that fit within L3 cache target.
-/// Each batch contains paths whose total size <= target_cache_bytes.
-pub fn compute_l3_cache_batches(
-    paths_with_sizes: &[(PathBuf, usize)],
+/// Groups file *indices* into batches that fit within L3 cache target.
+///
+/// Returns `Vec<Vec<usize>>` where each inner Vec contains indices into the input
+/// sizes slice. Zero-allocation batching: only `usize` sizes are read, no paths cloned.
+pub fn compute_l3_cache_batch_indices(
+    sizes: &[usize],
     target_cache_bytes: usize,
-) -> Vec<Vec<(PathBuf, usize)>> {
-    if paths_with_sizes.is_empty() {
+) -> Vec<Vec<usize>> {
+    if sizes.is_empty() {
         return Vec::new();
     }
 
-    let mut batches: Vec<Vec<(PathBuf, usize)>> = Vec::new();
-    let mut current_batch: Vec<(PathBuf, usize)> = Vec::new();
+    let mut batches: Vec<Vec<usize>> = Vec::new();
+    let mut current_batch: Vec<usize> = Vec::new();
     let mut current_batch_size: usize = 0;
 
-    for (path, size) in paths_with_sizes {
-        // If current batch is empty or adding this file fits within target, add to current batch
+    for (idx, size) in sizes.iter().enumerate() {
         if current_batch.is_empty() || current_batch_size + size <= target_cache_bytes {
-            current_batch.push((path.clone(), *size));
+            current_batch.push(idx);
             current_batch_size += size;
         } else {
             // Start new batch with this file
             batches.push(std::mem::take(&mut current_batch));
-            current_batch.push((path.clone(), *size));
+            current_batch.push(idx);
             current_batch_size = *size;
         }
     }
@@ -87,17 +88,42 @@ pub fn compute_l3_cache_batches(
     batches
 }
 
+/// Groups files into batches that fit within L3 cache target.
+/// Each batch contains paths whose total size <= target_cache_bytes.
+pub fn compute_l3_cache_batches(
+    paths_with_sizes: &[(PathBuf, usize)],
+    target_cache_bytes: usize,
+) -> Vec<Vec<(PathBuf, usize)>> {
+    let sizes: Vec<usize> = paths_with_sizes.iter().map(|(_, s)| *s).collect();
+    let indices = compute_l3_cache_batch_indices(&sizes, target_cache_bytes);
+    indices
+        .into_iter()
+        .map(|batch| {
+            batch
+                .into_iter()
+                .map(|i| {
+                    let (path, size) = &paths_with_sizes[i];
+                    (path.clone(), *size)
+                })
+                .collect()
+        })
+        .collect()
+}
+
 /// Read source files for a batch of paths.
 ///
 /// Returns a map from path to (source bytes, file size) for files that exist.
 /// Missing files are not included in the result.
-pub fn read_batch_sources(paths: &[PathBuf]) -> Vec<(PathBuf, Vec<u8>, usize)> {
+pub fn read_batch_sources<P: AsRef<std::path::Path>>(
+    paths: &[P],
+) -> Vec<(PathBuf, Vec<u8>, usize)> {
     paths
         .iter()
         .filter_map(|path| {
+            let path = path.as_ref();
             std::fs::read(path).ok().map(|source| {
                 let len = source.len();
-                (path.clone(), source, len)
+                (path.to_path_buf(), source, len)
             })
         })
         .collect()

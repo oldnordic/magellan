@@ -91,6 +91,13 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - Constants `DEFAULT_L3_CACHE_SIZE` and `TARGET_CACHE_USAGE` set to `pub(crate)` to share with submodule
   - Call site in `src/watch_cmd.rs` updated to `magellan::indexer::watch::run_watch_pipeline_geometric`
   - All 691 tests pass, zero functional change
+- **SM-2-OPT: Zero-clone batch processing + function extraction** (`src/indexer.rs`, `src/indexer/watch.rs`):
+  - Added `compute_l3_cache_batch_indices(sizes: &[usize], ...) -> Vec<Vec<usize>>` — index-based batching that never clones paths
+  - `read_batch_sources` made generic over `AsRef<Path>` (saves `PathBuf` clones when called from index-lookup loops)
+  - `process_dirty_paths_batched` refactored to use index lookups (`&dirty_paths[idx]`) instead of cloning paths into batches — eliminates ~2 clones per file in the hot loop
+  - Extracted `merge_scan_config()` (~64 lines) and `wait_for_watcher_thread()` (~54 lines) from `run_watch_pipeline` — shrunk from ~261 → ~203 lines
+  - `process_dirty_paths_batched` shrank from ~145 → ~140 lines (index-based batching is shorter and clearer)
+  - All 691 tests pass, clippy zero warnings
 
 ### Fixed
 
