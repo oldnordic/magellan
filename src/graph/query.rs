@@ -1258,30 +1258,7 @@ fn test_function() -> i32 {
         graph.index_file(&path1, &source1).unwrap();
         graph.index_file(&path2, &source2).unwrap();
 
-        // Debug: list all symbols and their canonical_fqn
-        let entity_ids = graph.files.backend.entity_ids().unwrap();
-        let snapshot = SnapshotId::current();
-        eprintln!("DEBUG: Total entities: {}", entity_ids.len());
-
-        for entity_id in entity_ids {
-            if let Ok(node) = graph.files.backend.get_node(snapshot, entity_id) {
-                if node.kind == "Symbol" {
-                    if let Ok(symbol_node) = serde_json::from_value::<SymbolNode>(node.data.clone())
-                    {
-                        eprintln!(
-                            "DEBUG: Symbol: name={:?}, canonical_fqn={:?}, display_fqn={:?}",
-                            symbol_node.name, symbol_node.canonical_fqn, symbol_node.display_fqn
-                        );
-                    }
-                }
-            }
-        }
-
         let groups = collision_groups(&mut graph, CollisionField::Fqn, 10).unwrap();
-        eprintln!("DEBUG: Found {} collision groups", groups.len());
-        for group in &groups {
-            eprintln!("DEBUG: Group: value={}, count={}", group.value, group.count);
-        }
 
         let collide_group = groups
             .iter()

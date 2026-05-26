@@ -457,7 +457,8 @@ pub fn scan_directory_with_progress(
                 }
             }
             Err(e) => {
-                eprintln!("ERROR: {}: {}", path.display(), e);
+                // Best-effort error logging for indexing failures
+                eprintln!("Warning: Failed to index {}: {}", path.display(), e);
             }
         }
     }

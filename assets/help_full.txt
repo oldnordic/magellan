@@ -1,0 +1,291 @@
+Magellan - Multi-language codebase mapping tool
+
+Usage:
+  magellan <command> [arguments]
+  magellan --help
+  magellan --backends    Show available storage backends and features
+
+  magellan watch --root <DIR> --db <FILE> [--debounce-ms <N>] [--scan-initial] [--watch-only] [--validate] [--validate-only]
+  magellan export --db <FILE> [--format json|jsonl|csv|scip|dot|lsif] [--output <PATH>] [--minify] [--cluster]
+  magellan backfill --db <FILE>
+  magellan index --db <FILE> --file <PATH> [--root <DIR>]
+  magellan delete --db <FILE> --file <PATH> [--root <DIR>]
+  magellan cross-file-refs --db <FILE> --fqn <FQN> [--output <FORMAT>]
+  magellan status --db <FILE>
+  magellan query --db <FILE> --file <PATH> [--kind <KIND>]
+  magellan find --db <FILE> (--name <NAME> | --symbol-id <ID> | --ambiguous <NAME>) [--path <PATH>] [--first]
+  magellan refs --db <FILE> --name <NAME> [--path <PATH>] [--direction <in|out>] [--output <FORMAT>]
+  magellan get --db <FILE> --file <PATH> --symbol <NAME>
+  magellan get-file --db <FILE> --file <PATH>
+  magellan chunks --db <FILE> [--limit N] [--file PATTERN] [--kind KIND] [--output FORMAT]
+  magellan chunk-by-span --db <FILE> --file <PATH> --start <N> --end <N> [--output FORMAT]
+  magellan chunk-by-symbol --db <FILE> --symbol <NAME> [--file PATTERN] [--output FORMAT]
+  magellan files --db <FILE> [--symbols] [--output <FORMAT>]
+  magellan label --db <FILE> [--label <LABEL>]... [--list] [--count] [--show-code]
+  magellan collisions --db <FILE> [--field <fqn|display_fqn|canonical_fqn>] [--limit <N>] [--output <FORMAT>]
+  magellan migrate --db <FILE> [--dry-run] [--no-backup] [--output <FORMAT>]
+  magellan migrate-backend --input <DB> --output <DB> [--export-dir <DIR>] [--dry-run] [--output <FORMAT>]
+  magellan verify --root <DIR> --db <FILE>
+  magellan refresh --db <FILE> [--dry-run] [--include-untracked] [--staged] [--unstaged] [--force] [--output <FORMAT>]
+  magellan ast --db <FILE> --file <PATH> [--position <OFFSET>] [--output <FORMAT>]
+  magellan find-ast --db <FILE> --kind <KIND> [--output <FORMAT>]
+  magellan reachable --db <FILE> --symbol <SYMBOL_ID> [--reverse] [--output <FORMAT>]
+  magellan dead-code --db <FILE> --entry <SYMBOL_ID> [--output <FORMAT>]
+  magellan cycles --db <FILE> [--symbol <SYMBOL_ID>] [--output <FORMAT>]
+  magellan condense --db <FILE> [--members] [--output <FORMAT>]
+  magellan paths --db <FILE> --start <SYMBOL_ID> [--end <SYMBOL_ID>] [--max-depth <N>] [--max-paths <N>] [--output <FORMAT>]
+  magellan slice --db <FILE> --target <SYMBOL_ID> [--direction <backward|forward>] [--verbose] [--output <FORMAT>]
+  magellan source-inventory --db <FILE> [--scan <DIR> <KIND>] [--kind <KIND>] [--list] [--stale] [--output <FORMAT>]
+  magellan candidate-fact submit --db <FILE> --from-source <ID> --subject-type <TYPE> --subject-key <KEY> --predicate <PRED> [--object-type <TYPE>] [--object-key <KEY>] [--properties <JSON>] [--output <FORMAT>]
+  magellan candidate-fact validate --db <FILE> --candidate-id <ID> [--output <FORMAT>]
+  magellan candidate-fact list --db <FILE> [--status <STATUS>] [--limit <N>] [--output <FORMAT>]
+  magellan candidate-fact review-queue --db <FILE> [--limit <N>] [--output <FORMAT>]
+  magellan context build --db <FILE>
+  magellan context summary --db <FILE>
+  magellan context list --db <FILE> [--kind <KIND>] [--page <N>] [--project <NAME>] [--output <FORMAT>]
+  magellan context symbol --db <FILE> --name <NAME> [--callers] [--callees] [--with-source] [--depth <N>] [--output <FORMAT>]
+  magellan context file --db <FILE> --path <PATH>
+  magellan context impact --db <FILE> --name <NAME> [--file <PATH>] [--depth <N>] [--output <FORMAT>]
+  magellan context affected --db <FILE> --name <NAME> [--file <PATH>] [--depth <N>] [--output <FORMAT>]
+
+Commands:
+  watch           Watch directory and index changes
+  backfill        Recompute all metrics and derived data
+  index           Index a single source file
+  delete          Remove a file from the index
+  cross-file-refs Show references to a symbol from other files
+  registry        Discover and list Magellan databases (scan, list)
+  export          Export graph data to JSON/JSONL/CSV/SCIP
+  status          Show database statistics
+  features        Show active Cargo features from project metadata
+  query           List symbols in a file
+  find            Find a symbol by name
+  refs            Show calls for a symbol
+  get             Get source code for a specific symbol
+  get-file        Get all source code chunks for a file
+  chunks          List all code chunks in database
+  chunk-by-span   Get chunk by file path and byte range
+  chunk-by-symbol Get all chunks for a symbol name
+  files           List all indexed files
+  label           Query symbols by label (language, kind, etc.)
+  collisions      List ambiguous symbol groups for a chosen field
+  migrate         Upgrade database to current schema version
+  migrate-backend Migrate database between SQLite backends
+  verify          Verify database vs filesystem
+  refresh         Refresh index from git changes
+  ast             Query AST nodes for a file
+  find-ast        Find AST nodes by kind
+  reachable       Show symbols reachable from a given symbol
+  dead-code       Find dead code unreachable from an entry point
+  cycles          Detect strongly connected components (cycles) in the call graph
+  condense        Show call graph condensation (SCCs collapsed into supernodes)
+  paths           Enumerate execution paths between symbols
+  slice           Program slicing (backward/forward) from a target symbol
+  source-inventory Scan wiki/message files for graph memory source inventory
+  candidate-fact  Submit, validate, and manage candidate facts for graph memory
+  context         Code context queries for LLM consumption (build, summary, list, symbol, file, impact, affected)
+
+Global arguments:
+  --output <FORMAT>   Output format: human (default), json (compact), or pretty (formatted)
+
+Watch arguments:
+  --root <DIR>        Directory to watch recursively
+  --db <FILE>         Path to sqlitegraph database
+  --debounce-ms <N>   Debounce delay in milliseconds (default: 500)
+  --watch-only        Watch for changes only; skip initial directory scan baseline
+  --scan-initial      Scan directory for source files on startup (default: true; disabled by --watch-only)
+  --gitignore-aware   Enable .gitignore filtering (default: true)
+  --no-gitignore      Disable .gitignore filtering (index all files)
+  --validate          Enable pre-run and post-run validation checks
+  --validate-only     Run validation without indexing (pre + post validation, no watch)
+
+Export arguments:
+  --db <FILE>         Path to sqlitegraph database
+  --format <FORMAT>   Export format: json (default), jsonl, csv, scip, dot, or lsif
+  --output <PATH>     Write to file instead of stdout
+  --minify            Use compact JSON (no pretty-printing)
+  --no-symbols        Exclude symbols from export
+  --no-references     Exclude references from export
+  --no-calls          Exclude calls from export
+  --include-collisions Include collision groups (JSON only)
+  --collisions-field <FIELD>  Collision field: fqn, display_fqn, canonical_fqn (default: fqn)
+
+Status arguments:
+  --db <FILE>         Path to sqlitegraph database
+
+Backfill arguments:
+  --db <FILE>         Path to sqlitegraph database
+
+Index arguments:
+  --db <FILE>         Path to sqlitegraph database
+  --file <PATH>       File path to index (alias: --path)
+  --root <DIR>        Project root directory (optional)
+
+Delete arguments:
+  --db <FILE>         Path to sqlitegraph database
+  --file <PATH>       File path to delete from index (alias: --path)
+  --root <DIR>        Project root directory (optional)
+
+Cross-file-refs arguments:
+  --db <FILE>         Path to sqlitegraph database
+  --fqn <FQN>         Fully qualified symbol name
+  --output <FORMAT>   Output format: human (default), json, or pretty
+
+Query arguments:
+  --db <FILE>         Path to sqlitegraph database
+  --file <PATH>       File path to query (alias: --path)
+  --kind <KIND>       Filter by symbol kind (optional)
+  --with-context      Include source code context lines
+  --with-callers      Include caller references
+  --with-callees      Include callee references
+  --with-semantics    Include symbol kind and language
+  --with-checksums    Include content checksums
+  --context-lines <N> Number of context lines (default: 3, max: 100)
+
+Find arguments:
+  --db <FILE>         Path to sqlitegraph database
+  --name <NAME>       Symbol name to find
+  --symbol-id <ID>    Stable SymbolId for precise lookup
+  --ambiguous <NAME>  Show all candidates for ambiguous display name
+  --first             Use first match when ambiguous (deprecated)
+  --path <PATH>       Limit search to specific file (optional)
+
+Refs arguments:
+  --db <FILE>         Path to sqlitegraph database
+  --name <NAME>       Symbol name to query
+  --symbol-id <ID>    Use SymbolId instead of name for precise lookup
+  --path <PATH>       File path containing the symbol
+  --direction <in|out> Show incoming (in) or outgoing (out) calls (default: in)
+  --with-context      Include source code context lines
+  --with-semantics    Include symbol kind and language
+  --with-checksums    Include content checksums
+  --context-lines <N> Number of context lines (default: 3, max: 100)
+
+Get arguments:
+  --db <FILE>         Path to sqlitegraph database
+  --file <PATH>       File path containing the symbol (alias: --path)
+  --symbol <NAME>     Symbol name to retrieve
+  --with-context      Include source code context lines
+  --with-semantics    Include symbol kind and language
+  --with-checksums    Include content checksums
+  --context-lines <N> Number of context lines (default: 3, max: 100)
+
+Get-file arguments:
+  --db <FILE>         Path to sqlitegraph database
+  --file <PATH>       File path to retrieve code for (alias: --path)
+
+Chunks arguments:
+  --db <FILE>         Path to sqlitegraph database
+  --limit N           Limit number of chunks returned
+  --file PATTERN      Filter by file path pattern (substring match, alias: --path)
+  --kind KIND         Filter by symbol kind (fn, struct, method, class, etc.)
+
+Chunk-by-span arguments:
+  --db <FILE>         Path to sqlitegraph database
+  --file <PATH>       File path containing the chunk (required, alias: --path)
+  --start N           Byte offset where chunk starts (required)
+  --end N             Byte offset where chunk ends (required)
+
+Chunk-by-symbol arguments:
+  --db <FILE>         Path to sqlitegraph database
+  --symbol <NAME>     Symbol name to find (required)
+  --file PATTERN      Filter by file path pattern (optional, alias: --path)
+
+Files arguments:
+  --db <FILE>         Path to sqlitegraph database
+  --symbols           Show symbol count per file
+
+Label arguments:
+  --db <FILE>         Path to sqlitegraph database
+  --label <LABEL>     Label to query (can specify multiple for AND semantics)
+  --list             List all available labels with counts
+  --count            Count entities with specified label(s)
+  --show-code        Show source code for each matching symbol
+
+Migrate arguments:
+  --db <FILE>         Path to sqlitegraph database
+  --dry-run           Check version without migrating
+  --no-backup         Skip backup creation
+  --output <FORMAT>   Output format: human (default), json (compact), or pretty (formatted)
+
+Backend migration arguments:
+  --input <DB>        Path to input database (SQLite)
+  --output <DB>       Path to output database (SQLite)
+  --export-dir <DIR>  Directory for snapshot files (default: temp dir)
+  --dry-run           Show what would be migrated without doing it
+
+Verify arguments:
+  --root <DIR>        Directory to verify against
+  --db <FILE>         Path to sqlitegraph database
+
+Refresh arguments:
+  --db <FILE>         Path to sqlitegraph database
+  --dry-run           Preview changes without applying them
+  --include-untracked Include untracked files in the refresh
+  --staged            Only process staged changes
+  --unstaged          Only process unstaged changes
+  --force             Force re-index all tracked files
+  --output <FORMAT>   Output format: human (default), json, or pretty
+
+Slice arguments:
+  --db <FILE>         Path to sqlitegraph database
+  --target <ID>       Target symbol ID to slice from
+  --direction <DIR>   Slice direction: backward (default) or forward
+  --verbose           Show detailed statistics
+
+Context arguments:
+  --db <FILE>         Path to sqlitegraph database (or directory for multi-DB)
+
+Context build arguments:
+  --db <FILE>         Path to sqlitegraph database
+
+Context summary arguments:
+  --db <FILE>         Path to sqlitegraph database
+
+Context list arguments:
+  --db <FILE>         Path to sqlitegraph database
+  --kind <KIND>       Filter by symbol kind (optional)
+  --page <N>          Page number (default: 1)
+  --project <NAME>    Filter to single project (optional)
+  --output <FORMAT>   Output format: human (default), json, or pretty
+
+Context symbol arguments:
+  --db <FILE>         Path to sqlitegraph database
+  --name <NAME>       Symbol name to look up (required)
+  --file <PATH>       Limit to specific file (optional)
+  --callers           Include caller references
+  --callees           Include callee references
+  --with-source       Include source code snippet
+  --depth <N>         Recursive lookup depth (default: 1)
+  --project <NAME>    Filter to single project (optional)
+  --output <FORMAT>   Output format: human (default), json, or pretty
+
+Context file arguments:
+  --db <FILE>         Path to sqlitegraph database
+  --path <PATH>       File path to analyze (required)
+
+Context impact arguments:
+  --db <FILE>         Path to sqlitegraph database
+  --name <NAME>       Symbol name to analyze (required)
+  --file <PATH>       Limit to specific file (optional)
+  --depth <N>         Max traversal depth (default: 3)
+  --project <NAME>    Filter to single project (optional)
+  --output <FORMAT>   Output format: human (default), json, or pretty
+
+Context affected arguments:
+  --db <FILE>         Path to sqlitegraph database
+  --name <NAME>       Symbol name to analyze (required)
+  --file <PATH>       Limit to specific file (optional)
+  --depth <N>         Max traversal depth (default: 3)
+  --project <NAME>    Filter to single project (optional)
+  --output <FORMAT>   Output format: human (default), json, or pretty
+
+Navigate arguments:
+  <TASK>              Natural-language task or question (required)
+  --db <FILE>         Path to sqlitegraph database
+  --depth <N>         Impact/affected traversal depth (default: 2)
+  --budget <N>        Token budget for concise mode output (default: 4000)
+  --limit <N>         Max symbols per term (default: 5)
+  --concise           Single bundled context for top symbol, truncated to --budget
+  --with-llmgrep      Also run llmgrep semantic search
+  --with-mirage       Also run mirage CFG for top symbols

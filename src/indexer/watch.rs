@@ -1,8 +1,7 @@
 //! Watch pipeline for geometric and non-geometric backends.
 
 use crate::indexer::{
-    compute_l3_cache_batch_indices, read_batch_sources,
-    DEFAULT_L3_CACHE_SIZE, TARGET_CACHE_USAGE,
+    compute_l3_cache_batch_indices, read_batch_sources, DEFAULT_L3_CACHE_SIZE, TARGET_CACHE_USAGE,
 };
 use crate::project_config::ProjectConfig;
 use crate::{CodeGraph, FileEvent, FileSystemWatcher, WatcherConfig};
