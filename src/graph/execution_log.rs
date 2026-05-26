@@ -88,7 +88,7 @@ impl ExecutionLog {
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .expect("SystemTime before UNIX_EPOCH — this should not happen")
                 .as_nanos()
         );
         let db_path = temp_dir.join(format!("magellan_execution_log_stub_{}.db", unique_id));

@@ -237,8 +237,8 @@ pub fn parse_frontmatter(yaml: &str) -> Option<serde_json::Value> {
                     key,
                     serde_json::Value::String(value_str[1..value_str.len() - 1].to_string()),
                 );
-            } else if value_str.parse::<i64>().is_ok() {
-                map.insert(key, serde_json::Value::Number(value_str.parse().unwrap()));
+            } else if let Ok(iv) = value_str.parse::<i64>() {
+                map.insert(key, serde_json::Value::Number(serde_json::Number::from(iv)));
             } else if let Ok(fv) = value_str.parse::<f64>() {
                 if let Some(n) = serde_json::Number::from_f64(fv) {
                     map.insert(key, serde_json::Value::Number(n));
