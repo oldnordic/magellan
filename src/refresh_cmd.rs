@@ -25,8 +25,8 @@ pub struct RefreshArgs {
     pub staged: bool,
     /// If true, only process unstaged changes
     pub unstaged: bool,
-    #[allow(dead_code, reason = "TODO: wire up force refresh logic")]
-    /// If true, force refresh even if no changes detected
+    /// If true, force refresh even if no changes detected.
+    /// Force mode re-indexes all tracked files regardless of git status.
     pub force: bool,
     /// Output format (Human, Json, or Pretty)
     pub output_format: OutputFormat,
@@ -359,6 +359,19 @@ fn compute_delta(
     } else {
         HashSet::new()
     };
+
+    // If force is set, re-index all tracked files regardless of git status
+    if args.force {
+        let all_tracked: Vec<String> = db_files.iter().cloned().collect();
+        let mut sorted = all_tracked;
+        sorted.sort();
+        return Ok(FileDelta {
+            to_update: sorted,
+            to_delete: Vec::new(),
+            to_add: Vec::new(),
+            unchanged: 0,
+        });
+    }
 
     // Files to update: modified in git AND exist in database
     for path in &modified_files {
