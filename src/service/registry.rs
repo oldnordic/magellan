@@ -85,6 +85,7 @@ impl Registry {
     }
 
     /// All unique project names
+    #[allow(dead_code, reason = "Phase 7: used in tests")]
     pub fn names(&self) -> Vec<String> {
         self.projects.iter().map(|p| p.name.clone()).collect()
     }

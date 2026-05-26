@@ -23,6 +23,7 @@ pub struct EmbeddingRecord {
     pub project: String,
     pub symbol: String,
     pub file: String,
+    #[allow(dead_code, reason = "Phase 2: structural embeddings WIP")]
     pub hash: String,
     pub vec: Vec<u8>, // packed little-endian f32 bytes
 }
@@ -31,7 +32,9 @@ pub struct EmbeddingRecord {
 #[derive(Debug, Clone)]
 pub struct CrossRefRecord {
     pub project_a: String,
+    #[allow(dead_code, reason = "Phase 2: structural embeddings WIP")]
     pub symbol_a: String,
+    #[allow(dead_code, reason = "Phase 2: structural embeddings WIP")]
     pub file_a: String,
     pub project_b: String,
     pub symbol_b: String,
@@ -75,6 +78,7 @@ const META_DB_NAME: &str = "meta.db";
 /// Daemon-level meta-index of all registered projects.
 pub struct MetaDb {
     conn: Connection,
+    #[allow(dead_code, reason = "Phase 7: field reserved for future diagnostics")]
     path: PathBuf,
 }
 
@@ -228,6 +232,7 @@ impl MetaDb {
     }
 
     /// Remove a project entry.
+    #[allow(dead_code, reason = "Phase 7: used in tests")]
     pub fn remove_project(&mut self, name: &str) -> Result<()> {
         self.conn
             .execute(
@@ -249,6 +254,7 @@ impl MetaDb {
     }
 
     /// Update file and symbol counts for a project.
+    #[allow(dead_code, reason = "Phase 7: used in tests")]
     pub fn update_counts(&mut self, name: &str, file_count: i64, symbol_count: i64) -> Result<()> {
         self.conn.execute(
             "UPDATE project_registry SET file_count = ?1, symbol_count = ?2 WHERE name = ?3",

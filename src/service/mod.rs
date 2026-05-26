@@ -8,7 +8,6 @@
 //! - Shutdown: signal_hook + tokio::sync::watch
 //!
 //! Phase 1: worker_loop -> CodeGraph reconcile. TODO: remove allow(dead_code) when stable.
-#![allow(dead_code)]
 
 use anyhow::{Context, Result};
 use signal_hook::{consts::SIGTERM, iterator::Signals};
@@ -61,9 +60,6 @@ pub fn socket_path() -> &'static str {
         .map(|s: String| -> &'static str { Box::leak(s.into_boxed_str()) })
         .unwrap_or("/tmp/magellan.sock")
 }
-/// Deprecated constant — use [`socket_path()`] instead.
-pub const SOCKET_PATH: &str = "/tmp/magellan.sock";
-
 /// Service daemon state
 pub struct Service {
     registry: Arc<tokio::sync::Mutex<Registry>>,
@@ -158,12 +154,6 @@ impl Service {
         };
 
         Ok((svc, shutdown_rx))
-    }
-
-    /// Graceful shutdown
-    pub fn shutdown(&self) {
-        self.worker_shutdown.store(true, Ordering::SeqCst);
-        let _ = self.shutdown.send(true);
     }
 
     /// Run the main event loop: signal handler + admin socket
