@@ -107,7 +107,7 @@ impl ProjectConfig {
                 name: Some(name.to_string()),
             },
             index: IndexSection {
-                include: vec!["src/".into()],
+                include: vec!["src/".into(), "tests/".into(), "benches/".into()],
                 exclude: Vec::new(),
             },
             ..Self::default()
@@ -318,13 +318,13 @@ scan_initial = false
 
         let content = fs::read_to_string(&path).unwrap();
         assert!(content.contains("name = \"my-project\""));
-        // init writes a starting config with src/ as include
-        assert!(content.contains("include = [\"src/\"]"));
 
         // Round-trip: load what we just wrote
         let cfg = ProjectConfig::load(dir.path()).unwrap();
         assert_eq!(cfg.project.name.as_deref(), Some("my-project"));
         assert!(cfg.index.include.contains(&"src/".to_string()));
+        assert!(cfg.index.include.contains(&"tests/".to_string()));
+        assert!(cfg.index.include.contains(&"benches/".to_string()));
     }
 
     #[test]
