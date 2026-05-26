@@ -253,6 +253,7 @@ fn parse_symbol_kind(kind_str: &str) -> SymbolKind {
     }
 }
 
+#[cfg(feature = "geometric-backend")]
 fn compute_checksum(path: &Path) -> Result<String> {
     use sha2::{Digest, Sha256};
     use std::io::Read;

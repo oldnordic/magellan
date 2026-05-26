@@ -58,13 +58,13 @@ harness = false
 path = "benches/kv_metadata_bench.rs"
 
 [features]
-# Default: Hybrid SQLite + Geometric backend
-default = ["sqlite-backend", "geometric-backend"]
+# Default: SQLite backend only (geometric-backend removed — unused, see CHANGELOG)
+default = ["sqlite-backend"]
 # SQLite backend (stable, uses SQLite for storage)
 # Use this for compatibility and stability
 sqlite-backend = ["sqlitegraph/sqlite-backend"]
 
-# GeoGraphDB backend for 3D spatial indexing of CFG data
+# GeoGraphDB backend for 3D spatial indexing of CFG data (experimental, not in default builds)
 geometric-backend = ["dep:geographdb-core"]
 
 # Java bytecode CFG (placeholder for future ASM integration)
