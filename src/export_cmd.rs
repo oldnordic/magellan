@@ -92,11 +92,6 @@ pub fn run_export(
     collisions_field: CollisionField,
     filters: ExportFilters,
 ) -> Result<()> {
-    // Check if this is a geometric database and route accordingly
-    if MagellanBackend::detect_type(&db_path) == BackendType::Geometric {
-        return run_export_geometric(db_path, format, output);
-    }
-
     let mut graph = CodeGraph::open(&db_path)?;
     let exec_id = generate_execution_id();
 
@@ -343,47 +338,4 @@ fn detect_package_info(db_path: &std::path::Path) -> (String, String) {
         .to_string();
 
     (dir_name, "0.1.0".to_string())
-}
-
-/// Export geometric database to JSON format
-fn run_export_geometric(
-    db_path: PathBuf,
-    format: ExportFormat,
-    output: Option<PathBuf>,
-) -> Result<()> {
-    use magellan::backend_router::MagellanBackend;
-
-    let backend = MagellanBackend::open(&db_path)?;
-
-    // Get export data from geometric backend
-    let json_output = match format {
-        ExportFormat::Json => backend.export_json()?,
-        ExportFormat::JsonL => backend.export_jsonl()?,
-        ExportFormat::Csv => backend.export_csv()?,
-        _ => {
-            return Err(anyhow::anyhow!(
-                "Format {:?} not supported for geometric databases. Use json, jsonl, or csv.",
-                format
-            ));
-        }
-    };
-
-    // Output to file or stdout
-    if let Some(output_path) = output {
-        let mut file = File::create(&output_path)?;
-        file.write_all(json_output.as_bytes())?;
-
-        // Print summary for geometric export
-        let metadata = std::fs::metadata(&output_path)?;
-        let size = format_file_size(metadata.len());
-        eprintln!("Export complete: {}", output_path.display());
-        eprintln!("  Format: {}", format_name(format));
-        eprintln!("  Size: {}", size);
-        // Note: Geometric backend doesn't expose count methods directly
-        // The export contains the data, but counts would need to be parsed from the output
-    } else {
-        println!("{}", json_output);
-    }
-
-    Ok(())
 }

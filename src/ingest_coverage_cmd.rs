@@ -217,7 +217,7 @@ fn insert_edge_coverage(
     source_revision: &str,
     ingested_at: i64,
 ) -> Result<i64> {
-    // Check if cfg_edges table exists (geometric backend only)
+    // Check if cfg_edges table exists
     let edge_table_exists = match tx.query_row(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='cfg_edges'",
         [],

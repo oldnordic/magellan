@@ -20,15 +20,12 @@ pub fn version() -> String {
 
 /// Get the list of compiled backend features
 ///
-/// Returns a comma-separated list like "sqlite" or "sqlite,geometric"
+/// Returns a comma-separated list like "sqlite"
 fn compiled_backends() -> String {
     let mut backends = Vec::new();
 
     #[cfg(feature = "sqlite-backend")]
     backends.push("sqlite");
-
-    #[cfg(feature = "geometric-backend")]
-    backends.push("geometric");
 
     if backends.is_empty() {
         // Fallback - at least sqlite should be available

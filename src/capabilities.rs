@@ -1,11 +1,6 @@
 //! Backend capability model
 //!
-//! Provides compile-time and runtime capability queries for each Magellan backend.
-//! This enables:
-//! - Backend-aware help/usage messaging
-//! - Command validation based on backend capabilities
-//! - Build feature detection for frontend UI
-//! - Operational status reporting
+//! Provides compile-time and runtime capability queries for Magellan backend.
 
 use std::collections::HashSet;
 
@@ -14,8 +9,6 @@ use std::collections::HashSet;
 pub enum BackendType {
     /// SQLite-based backend (CodeGraph with sqlitegraph)
     SQLite,
-    /// Geometric backend (GeoGraphDB with 3D spatial indexing)
-    Geometric,
 }
 
 impl BackendType {
@@ -23,7 +16,6 @@ impl BackendType {
     pub fn extension(&self) -> &'static str {
         match self {
             Self::SQLite => "db",
-            Self::Geometric => "geo",
         }
     }
 
@@ -31,24 +23,19 @@ impl BackendType {
     pub fn display_name(&self) -> &'static str {
         match self {
             Self::SQLite => "SQLite",
-            Self::Geometric => "Geometric",
         }
     }
 
     /// Detect backend type from file extension
     pub fn from_extension(ext: Option<&str>) -> Option<Self> {
         match ext {
-            #[cfg(feature = "geometric-backend")]
-            Some("geo") => Some(Self::Geometric),
-            #[cfg(not(feature = "geometric-backend"))]
-            Some("geo") => None, // Geo not built
             Some("db") | Some("sqlite") | Some(_) => Some(Self::SQLite),
-            None => Some(Self::SQLite), // Default
+            None => Some(Self::SQLite),
         }
     }
 }
 
-/// Capability flags for a backend
+/// Capability flags for the SQLite backend
 #[derive(Debug, Clone)]
 pub struct BackendCapabilities {
     /// Backend type
@@ -114,7 +101,6 @@ pub struct BackendCapabilities {
 
 impl BackendCapabilities {
     /// Get capabilities for SQLite backend
-    #[cfg(feature = "sqlite-backend")]
     fn sqlite() -> Self {
         Self {
             backend_type: BackendType::SQLite,
@@ -123,7 +109,7 @@ impl BackendCapabilities {
             supports_cfg_analysis: true,
             supports_chunks: true,
             supports_cycles: true,
-            supports_paths: false, // CFG-based paths not in SQLite
+            supports_paths: false,
             supports_slice: true,
             supports_historical_snapshot: false,
             supports_vacuum_maintenance: true,
@@ -140,104 +126,24 @@ impl BackendCapabilities {
         }
     }
 
-    /// Get capabilities for Geometric backend
-    #[cfg(feature = "geometric-backend")]
-    fn geometric() -> Self {
-        Self {
-            backend_type: BackendType::Geometric,
-            supports_symbol_queries: true,
-            supports_call_graph: true,
-            supports_cfg_analysis: true,
-            supports_chunks: true,
-            supports_cycles: true,
-            supports_paths: true, // Geo supports path enumeration
-            supports_slice: true,
-            supports_historical_snapshot: false,
-            supports_vacuum_maintenance: true, // CFG vacuum
-            supports_dead_code: true,
-            supports_reachability: true,
-            supports_export: true,
-            supports_ast: false,    // Not yet implemented in Geo
-            supports_labels: false, // Not yet implemented in Geo
-            database_extension_hint: "geo".to_string(),
-            format_hint: "GeoGraphDB single-file bundle with spatial indexing".to_string(),
-            build_enabled: true,
-            required_feature: Some("geometric-backend".to_string()),
-            cfg_feature: Some("geometric-backend".to_string()),
-        }
-    }
-
-    /// Get capabilities for a backend type (returns empty if not built)
+    /// Get capabilities for a backend type
     pub fn for_backend(backend_type: BackendType) -> Self {
         match backend_type {
-            #[cfg(feature = "sqlite-backend")]
             BackendType::SQLite => Self::sqlite(),
-            #[cfg(not(feature = "sqlite-backend"))]
-            BackendType::SQLite => Self::_not_built(BackendType::SQLite, "sqlite-backend"),
-            #[cfg(feature = "geometric-backend")]
-            BackendType::Geometric => Self::geometric(),
-            #[cfg(not(feature = "geometric-backend"))]
-            BackendType::Geometric => Self::_not_built(BackendType::Geometric, "geometric-backend"),
-        }
-    }
-
-    /// Create a "not built" capability set
-    fn _not_built(backend_type: BackendType, feature: &str) -> Self {
-        Self {
-            backend_type,
-            supports_symbol_queries: false,
-            supports_call_graph: false,
-            supports_cfg_analysis: false,
-            supports_chunks: false,
-            supports_cycles: false,
-            supports_paths: false,
-            supports_slice: false,
-            supports_historical_snapshot: false,
-            supports_vacuum_maintenance: false,
-            supports_dead_code: false,
-            supports_reachability: false,
-            supports_export: false,
-            supports_ast: false,
-            supports_labels: false,
-            database_extension_hint: backend_type.extension().to_string(),
-            format_hint: format!("Not built (requires `--features {}`)", feature),
-            build_enabled: false,
-            required_feature: Some(feature.to_string()),
-            cfg_feature: Some(feature.to_string()),
         }
     }
 
     /// Get all backends that are enabled in this build
-    #[allow(
-        clippy::vec_init_then_push,
-        reason = "conditional compilation makes vec![] macro awkward"
-    )]
     pub fn enabled_backends() -> Vec<BackendType> {
-        let mut backends = Vec::new();
-
-        #[cfg(feature = "sqlite-backend")]
-        backends.push(BackendType::SQLite);
-
-        #[cfg(feature = "geometric-backend")]
-        backends.push(BackendType::Geometric);
-
-        backends
+        vec![BackendType::SQLite]
     }
 
     /// Get the default backend for this build
     pub fn default_backend() -> BackendType {
-        // Priority order: SQLite > Geometric
-        #[cfg(feature = "sqlite-backend")]
-        return BackendType::SQLite;
-
-        #[cfg(all(not(feature = "sqlite-backend"), feature = "geometric-backend"))]
-        return BackendType::Geometric;
-
-        #[cfg(all(not(feature = "sqlite-backend"), not(feature = "geometric-backend")))]
-        compile_error!("Either 'sqlite-backend' or 'geometric-backend' feature must be enabled");
+        BackendType::SQLite
     }
 
-    /// Check if a specific command is supported by this backend
+    /// Check if a specific command is supported
     pub fn supports_command(&self, command: &str) -> bool {
         match command {
             "find" | "query" | "refs" | "get" => self.supports_symbol_queries,
@@ -249,8 +155,8 @@ impl BackendCapabilities {
             "label" => self.supports_labels,
             "ast" => self.supports_ast,
             "cfg" => self.supports_cfg_analysis,
-            "doctor" | "status" | "watch" => true, // Operational commands always work
-            _ => true,                             // Allow unknown commands through
+            "doctor" | "status" | "watch" => true,
+            _ => true,
         }
     }
 
@@ -321,12 +227,9 @@ impl BackendCapabilities {
     }
 }
 
-/// Get all available backend capabilities (including disabled ones)
+/// Get all available backend capabilities
 pub fn all_capabilities() -> Vec<BackendCapabilities> {
-    vec![
-        BackendCapabilities::for_backend(BackendType::SQLite),
-        BackendCapabilities::for_backend(BackendType::Geometric),
-    ]
+    vec![BackendCapabilities::for_backend(BackendType::SQLite)]
 }
 
 /// Get capabilities for a specific file path
@@ -386,7 +289,7 @@ pub fn command_metadata() -> Vec<CommandMetadata> {
             name: "find",
             description: "Find symbols by name or pattern",
             required_capability: Capability::SymbolQuery,
-            supported_backends: None, // All backends
+            supported_backends: None,
         },
         CommandMetadata {
             name: "query",
@@ -428,7 +331,7 @@ pub fn command_metadata() -> Vec<CommandMetadata> {
             name: "paths",
             description: "Enumerate execution paths (CFG-based)",
             required_capability: Capability::Paths,
-            supported_backends: Some(vec![BackendType::Geometric]),
+            supported_backends: None,
         },
         CommandMetadata {
             name: "export",
@@ -440,13 +343,13 @@ pub fn command_metadata() -> Vec<CommandMetadata> {
             name: "ast",
             description: "Query AST nodes",
             required_capability: Capability::Ast,
-            supported_backends: Some(vec![BackendType::SQLite]),
+            supported_backends: None,
         },
         CommandMetadata {
             name: "label",
             description: "Manage symbol labels",
             required_capability: Capability::Labels,
-            supported_backends: Some(vec![BackendType::SQLite]),
+            supported_backends: None,
         },
         CommandMetadata {
             name: "get",
@@ -478,13 +381,10 @@ pub fn command_metadata() -> Vec<CommandMetadata> {
             required_capability: Capability::CfgAnalysis,
             supported_backends: None,
         },
-        // Add more commands as needed
     ]
 }
 
 /// Validate a command against backend capabilities
-///
-/// Returns Ok(()) if the command is supported, or Err with explanation
 pub fn validate_command(
     command: &str,
     backend_caps: &BackendCapabilities,
@@ -496,22 +396,15 @@ pub fn validate_command(
         },
     )?;
 
-    // Check if backend supports this command
     if let Some(supported) = &metadata.supported_backends {
         if !supported.contains(&backend_caps.backend_type) {
             return Err(CommandValidationError::UnsupportedBackend {
                 command: command.to_string(),
                 backend: backend_caps.backend_type.display_name().to_string(),
-                supported_backends: supported
-                    .iter()
-                    .map(|b| b.display_name().to_string())
-                    .collect::<Vec<_>>()
-                    .join(", "),
             });
         }
     }
 
-    // Check capability requirements
     let capability_met = match metadata.required_capability {
         Capability::None => true,
         Capability::SymbolQuery => backend_caps.supports_symbol_queries,
@@ -524,236 +417,50 @@ pub fn validate_command(
         Capability::Export => backend_caps.supports_export,
         Capability::Ast => backend_caps.supports_ast,
         Capability::Labels => backend_caps.supports_labels,
-        Capability::Watch => true, // All backends support watching
+        Capability::Watch => true,
     };
 
     if !capability_met {
         return Err(CommandValidationError::MissingCapability {
             command: command.to_string(),
-            backend: backend_caps.backend_type.display_name().to_string(),
             capability: format!("{:?}", metadata.required_capability),
-        });
-    }
-
-    // Check if backend is built
-    if !backend_caps.build_enabled {
-        return Err(CommandValidationError::BackendNotBuilt {
-            backend: backend_caps.backend_type.display_name().to_string(),
-            feature: backend_caps.required_feature.clone().unwrap_or_default(),
         });
     }
 
     Ok(())
 }
 
-/// Validation errors for commands
-#[derive(Debug, Clone, thiserror::Error)]
+/// Error type for command validation
+#[derive(Debug, Clone)]
 pub enum CommandValidationError {
-    #[error("Unknown command: '{command}'")]
     UnknownCommand { command: String },
-
-    #[error("Command '{command}' is not supported by {backend} backend (supported: {supported_backends})")]
-    UnsupportedBackend {
-        command: String,
-        backend: String,
-        supported_backends: String,
-    },
-
-    #[error(
-        "Command '{command}' requires {:?} capability, not available in {backend} backend",
-        capability
-    )]
-    MissingCapability {
-        command: String,
-        backend: String,
-        capability: String,
-    },
-
-    #[error("Backend {backend} is not enabled in this build. Rebuild with --features {feature}")]
-    BackendNotBuilt { backend: String, feature: String },
+    UnsupportedBackend { command: String, backend: String },
+    MissingCapability { command: String, capability: String },
 }
 
-/// Get all available commands for a backend
-pub fn available_commands(backend_caps: &BackendCapabilities) -> Vec<&'static str> {
-    command_metadata()
-        .iter()
-        .filter_map(|cmd| {
-            if validate_command(cmd.name, backend_caps).is_ok() {
-                Some(cmd.name)
-            } else {
-                None
+impl std::fmt::Display for CommandValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownCommand { command } => write!(f, "Unknown command: {}", command),
+            Self::UnsupportedBackend { command, backend } => {
+                write!(
+                    f,
+                    "Command '{}' not supported on {} backend",
+                    command, backend
+                )
             }
-        })
-        .collect()
-}
-
-/// Get unsupported commands for a backend
-pub fn unsupported_commands(backend_caps: &BackendCapabilities) -> Vec<&'static str> {
-    command_metadata()
-        .iter()
-        .filter_map(|cmd| {
-            if validate_command(cmd.name, backend_caps).is_err() {
-                Some(cmd.name)
-            } else {
-                None
-            }
-        })
-        .collect()
-}
-
-/// Format command availability for display
-pub fn format_command_availability(backend_caps: &BackendCapabilities) -> String {
-    let available = available_commands(backend_caps);
-    let unsupported = unsupported_commands(backend_caps);
-
-    let mut output = String::new();
-
-    output.push_str(&format!(
-        "Backend: {} ({})\n",
-        backend_caps.backend_type.display_name(),
-        backend_caps.database_extension_hint
-    ));
-
-    if !backend_caps.build_enabled {
-        output.push_str(&format!(
-            "Status: Not built (requires --features {})\n",
-            backend_caps
-                .required_feature
-                .as_deref()
-                .unwrap_or("unknown")
-        ));
-        return output;
-    }
-
-    output.push_str("Status: Enabled\n\n");
-
-    output.push_str(&format!("Available commands ({}):\n", available.len()));
-    for cmd in &available {
-        if let Some(meta) = command_metadata().iter().find(|m| m.name == *cmd) {
-            output.push_str(&format!("  {} - {}\n", cmd, meta.description));
-        }
-    }
-
-    if !unsupported.is_empty() {
-        output.push_str(&format!(
-            "\nUnsupported commands ({}):\n",
-            unsupported.len()
-        ));
-        for cmd in &unsupported {
-            if let Some(meta) = command_metadata().iter().find(|m| m.name == *cmd) {
-                let reason = if let Some(supported) = &meta.supported_backends {
-                    if !supported.contains(&backend_caps.backend_type) {
-                        format!(
-                            "(only: {})",
-                            supported
-                                .iter()
-                                .map(|b| b.display_name().to_string())
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        )
-                    } else {
-                        "(capability not available)".to_string()
-                    }
-                } else {
-                    "(capability not available)".to_string()
-                };
-                output.push_str(&format!("  {} - {} {}\n", cmd, meta.description, reason));
+            Self::MissingCapability {
+                command,
+                capability,
+            } => {
+                write!(
+                    f,
+                    "Command '{}' requires {} capability (not available on this backend)",
+                    command, capability
+                )
             }
         }
     }
-
-    output
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_backend_type_extension() {
-        assert_eq!(BackendType::SQLite.extension(), "db");
-        assert_eq!(BackendType::Geometric.extension(), "geo");
-    }
-
-    #[test]
-    fn test_from_extension() {
-        assert_eq!(
-            BackendType::from_extension(Some("db")),
-            Some(BackendType::SQLite)
-        );
-        assert_eq!(
-            BackendType::from_extension(Some("sqlite")),
-            Some(BackendType::SQLite)
-        );
-        // Geo depends on feature flag
-    }
-
-    #[test]
-    fn test_default_backend_exists() {
-        let default = BackendCapabilities::default_backend();
-        let _caps = BackendCapabilities::for_backend(default);
-        // At least one backend should always be built
-        let enabled = BackendCapabilities::enabled_backends();
-        assert!(!enabled.is_empty(), "At least one backend must be enabled");
-    }
-
-    #[test]
-    fn test_command_support() {
-        let caps = BackendCapabilities::for_backend(BackendType::SQLite);
-        assert!(caps.supports_command("status"));
-        assert!(caps.supports_command("find"));
-    }
-
-    #[test]
-    fn test_validate_command_basic() {
-        let sqlite_caps = BackendCapabilities::for_backend(BackendType::SQLite);
-        // Operational commands always work
-        assert!(validate_command("status", &sqlite_caps).is_ok());
-        assert!(validate_command("doctor", &sqlite_caps).is_ok());
-
-        // SQLite should support find, cycles, etc.
-        assert!(validate_command("find", &sqlite_caps).is_ok());
-        assert!(validate_command("cycles", &sqlite_caps).is_ok());
-        assert!(validate_command("slice", &sqlite_caps).is_ok());
-    }
-
-    #[test]
-    fn test_validate_unknown_command() {
-        let caps = BackendCapabilities::for_backend(BackendType::SQLite);
-        let result = validate_command("not_a_real_command", &caps);
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            CommandValidationError::UnknownCommand { command } => {
-                assert_eq!(command, "not_a_real_command");
-            }
-            _ => panic!("Expected UnknownCommand error"),
-        }
-    }
-
-    #[test]
-    fn test_available_commands() {
-        let caps = BackendCapabilities::for_backend(BackendType::SQLite);
-        let available = available_commands(&caps);
-        assert!(!available.is_empty());
-        assert!(available.contains(&"status"));
-        assert!(available.contains(&"find"));
-    }
-
-    #[test]
-    fn test_format_command_availability() {
-        let caps = BackendCapabilities::for_backend(BackendType::SQLite);
-        let output = format_command_availability(&caps);
-        assert!(output.contains("SQLite"));
-        assert!(output.contains("Available commands"));
-    }
-
-    #[cfg(feature = "geometric-backend")]
-    #[test]
-    fn test_paths_command_geo_only() {
-        let geo_caps = BackendCapabilities::for_backend(BackendType::Geometric);
-        assert!(validate_command("paths", &geo_caps).is_ok());
-
-        let sqlite_caps = BackendCapabilities::for_backend(BackendType::SQLite);
-        assert!(validate_command("paths", &sqlite_caps).is_err());
-    }
-}
+impl std::error::Error for CommandValidationError {}

@@ -95,30 +95,6 @@ fn test_status_shows_backend_type_sqlite() {
 
 /// Test status command on geometric database
 #[test]
-#[cfg(feature = "geometric-backend")]
-fn test_status_shows_backend_type_geometric() {
-    use magellan::backend_router::MagellanBackend;
-
-    let temp_dir = TempDir::new().expect("Failed to create temp dir");
-    let db_path = temp_dir.path().join("test_status.geo");
-
-    // Create a geometric database
-    let backend = MagellanBackend::create(&db_path).expect("Failed to create geometric db");
-
-    // Verify we can get stats
-    let stats = backend.get_stats();
-    assert!(
-        stats.is_ok(),
-        "Should be able to get geometric backend stats"
-    );
-
-    // Stats should show zero content (new database)
-    assert_eq!(
-        stats.unwrap().file_count,
-        0,
-        "New database should have 0 files"
-    );
-}
 
 /// Test backend type detection for different file extensions
 #[test]
@@ -134,15 +110,6 @@ fn test_backend_detection_by_extension() {
     );
 
     // Geometric detection - only if feature is enabled
-    #[cfg(feature = "geometric-backend")]
-    {
-        let geo_type = BackendType::from_extension(Some("geo"));
-        assert_eq!(
-            geo_type,
-            Some(BackendType::Geometric),
-            "Should detect .geo as Geometric"
-        );
-    }
 
     // Unknown extensions map to SQLite.
     let v3_type = BackendType::from_extension(Some("bin"));
@@ -176,7 +143,4 @@ fn test_backend_type_properties() {
 
     assert_eq!(BackendType::SQLite.extension(), "db");
     assert_eq!(BackendType::SQLite.display_name(), "SQLite");
-
-    assert_eq!(BackendType::Geometric.extension(), "geo");
-    assert_eq!(BackendType::Geometric.display_name(), "Geometric");
 }

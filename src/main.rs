@@ -49,9 +49,6 @@ mod verify_cmd;
 mod version;
 mod watch_cmd;
 
-#[cfg(feature = "web-ui")]
-mod web_ui_cmd;
-
 use magellan::output::{output_json, JsonResponse, MigrateResponse, OutputFormat};
 use magellan::CodeGraph;
 use std::process::ExitCode;
@@ -369,18 +366,6 @@ fn main() -> ExitCode {
             output_format,
         }) => {
             if let Err(e) = doctor_cmd::run_doctor(db_path, fix, output_format) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
-        #[cfg(feature = "web-ui")]
-        Ok(Command::WebUi {
-            db_path,
-            host,
-            port,
-        }) => {
-            if let Err(e) = web_ui_cmd::run_web_ui(db_path, host, port) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }

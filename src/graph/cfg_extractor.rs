@@ -7,7 +7,6 @@
 //! - Better coverage of Rust control-flow constructs
 //!
 //! NOTE: This module will be removed once the remaining caller in
-//! geometric_backend.rs (behind the broken `geometric-backend` feature flag)
 //! is migrated.
 
 //! AST-based CFG extraction for Rust

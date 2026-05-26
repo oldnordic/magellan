@@ -66,8 +66,6 @@ where
         "project-metadata" => parse_project_metadata_args(&args[2..]),
         "context" => parse_context_args(&args[2..]),
         "doctor" => parse_doctor_args(&args[2..]),
-        #[cfg(feature = "web-ui")]
-        "web-ui" => parse_web_ui_args(&args[2..]),
         "query" => parse_query_args(&args[2..]),
         "find" => parse_find_args(&args[2..]),
         "refs" => parse_refs_args(&args[2..]),

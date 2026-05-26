@@ -122,14 +122,8 @@ pub fn run_watch(
         db_path
     );
 
-    // For Geometric backend, the pipeline manages its own backend instance.
-    // For SQLite, we need the backend here for execution logging.
-    let mut backend = if matches!(backend_type, BackendType::Geometric) {
-        // For geometric, we don't create a backend here - the pipeline will manage it
-        None
-    } else {
-        Some(MagellanBackend::open_or_create(&db_path)?)
-    };
+    // Open the backend for execution logging
+    let mut backend = Some(MagellanBackend::open_or_create(&db_path)?);
 
     // Start execution log if supported (SQLite only)
     if let Some(MagellanBackend::SQLite(ref mut graph)) = &mut backend {
@@ -192,13 +186,8 @@ pub fn run_watch(
     let pipeline_config =
         WatchPipelineConfig::new(root_path, db_path.clone(), config, scan_initial);
 
-    // Run the deterministic watch pipeline based on backend type
-    let result = match backend_type {
-        BackendType::Geometric => {
-            magellan::indexer::watch::run_watch_pipeline_geometric(pipeline_config, shutdown)
-        }
-        _ => magellan::run_watch_pipeline(pipeline_config, shutdown),
-    };
+    // Run the deterministic watch pipeline
+    let result = magellan::run_watch_pipeline(pipeline_config, shutdown);
 
     // Record execution completion (SQLite only)
     if let Some(MagellanBackend::SQLite(ref mut graph)) = &mut backend {

@@ -81,17 +81,6 @@ pub fn run_query(
         args.push("--show-extent".to_string());
     }
 
-    // Check if this is a geometric database and route accordingly
-    if MagellanBackend::detect_type(&db_path) == BackendType::Geometric {
-        return run_query_geometric(
-            &db_path,
-            file_path.as_deref().and_then(|p| p.to_str()),
-            symbol.as_deref(),
-            explain,
-            show_extent,
-        );
-    }
-
     let mut graph = CodeGraph::open(&db_path)?;
     let exec_id = magellan::output::generate_execution_id();
     let root_str = root.as_ref().map(|p| p.to_string_lossy().to_string());
@@ -446,81 +435,4 @@ fn print_extent_block(node_id: i64, symbol: &magellan::SymbolFact) {
         "    Line Range: {}:{} -> {}:{}",
         symbol.start_line, symbol.start_col, symbol.end_line, symbol.end_col
     );
-}
-
-/// Query command for geometric backend databases
-fn run_query_geometric(
-    db_path: &std::path::Path,
-    file_path: Option<&str>,
-    symbol: Option<&str>,
-    explain: bool,
-    show_extent: bool,
-) -> Result<()> {
-    let backend = MagellanBackend::open(db_path)?;
-
-    if explain {
-        println!("{}", QUERY_EXPLAIN_TEXT);
-        return Ok(());
-    }
-
-    if show_extent && symbol.is_none() {
-        anyhow::bail!("--show-extent requires --symbol <name>");
-    }
-
-    // Get stats to show available symbols
-    let stats = backend.get_stats()?;
-    println!("Geometric Database Statistics:");
-    println!("  Symbols: {}", stats.symbol_count);
-    println!("  CFG Blocks: {}", stats.cfg_block_count);
-
-    if let Some(sym_name) = symbol {
-        // Look up specific symbol
-        match backend.find_symbol_by_fqn(sym_name) {
-            Ok(Some(info)) => {
-                println!("\nFound symbol: {}", info.fqn);
-                println!("  Name:     {}", info.name);
-                println!("  Kind:     {:?}", info.kind);
-                println!("  File:     {}", info.file_path);
-                println!(
-                    "  Location: Line {}, Column {}",
-                    info.start_line, info.start_col
-                );
-                Ok(())
-            }
-            Ok(None) => {
-                println!("\nSymbol '{}' not found", sym_name);
-                Ok(())
-            }
-            Err(e) => {
-                eprintln!("Error: {}", e);
-                Err(e)
-            }
-        }?;
-    } else if let Some(fp) = file_path {
-        println!("\nQuerying file: {}", fp);
-
-        // Query symbols in file using the backend
-        match backend.symbols_in_file(fp) {
-            Ok(symbols) => {
-                if symbols.is_empty() {
-                    println!("No symbols found in file");
-                } else {
-                    println!("Found {} symbol(s):\n", symbols.len());
-                    for (i, info) in symbols.iter().enumerate() {
-                        println!("  [{}] {}", i + 1, info.fqn);
-                        println!("      Kind: {:?}", info.kind);
-                        println!("      Lines: {}-{}", info.start_line, info.end_line);
-                        println!();
-                    }
-                }
-                Ok(())
-            }
-            Err(e) => Err(e).context("Error querying symbols in file"),
-        }?;
-    } else {
-        println!("\nUse --symbol <fqn> to query specific symbols");
-        println!("Use --file <path> to query by file");
-    }
-
-    Ok(())
 }

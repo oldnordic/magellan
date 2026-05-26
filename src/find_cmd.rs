@@ -217,12 +217,6 @@ pub fn run_find(
     context_lines: usize,
     all: bool,
 ) -> Result<()> {
-    // Check if this is a geometric database and route accordingly
-    if MagellanBackend::detect_type(&db_path) == BackendType::Geometric {
-        // For geometric databases, use the geometric backend directly
-        return run_find_geometric(db_path, name, output_format);
-    }
-
     if all {
         return run_find_all(
             &name,
@@ -384,40 +378,6 @@ pub fn run_find(
     let backend_type = MagellanBackend::detect_type(&db_path);
 
     match backend_type {
-        BackendType::Geometric => {
-            let backend = MagellanBackend::open(&db_path)?;
-            let result = match backend.find_symbol_by_fqn(&name) {
-                Ok(Some(info)) => {
-                    println!("Found symbol: {}", info.fqn);
-                    println!("  Name:     {}", info.name);
-                    println!("  Kind:     {:?}", info.kind);
-                    println!("  File:     {}", info.file_path);
-                    println!(
-                        "  Location: Line {}, Column {}",
-                        info.start_line, info.start_col
-                    );
-                    Ok(())
-                }
-                Ok(None) => {
-                    eprintln!("Symbol '{}' not found", name);
-                    Ok(())
-                }
-                Err(e) => Err(e),
-            };
-            let _ = graph.execution_log().finish_execution(
-                &exec_id,
-                if result.is_ok() { "success" } else { "error" },
-                result
-                    .as_ref()
-                    .err()
-                    .map(|e: &anyhow::Error| e.to_string())
-                    .as_deref(),
-                0,
-                0,
-                0,
-            );
-            result
-        }
         BackendType::SQLite => {
             let results = match path.as_ref() {
                 Some(file_path) => {

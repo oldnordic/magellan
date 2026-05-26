@@ -63,21 +63,10 @@ default = ["sqlite-backend"]
 # SQLite backend (stable, uses SQLite for storage)
 # Use this for compatibility and stability
 sqlite-backend = ["sqlitegraph/sqlite-backend"]
+# Enable with: cargo build --features debug-prints
+debug-prints = []
 
 # GeoGraphDB backend for 3D spatial indexing of CFG data (experimental, not in default builds)
-geometric-backend = ["dep:geographdb-core"]
-
-# Java bytecode CFG (placeholder for future ASM integration)
-bytecode-cfg = []
-
-# External tools CFG extraction (C/C++ via clang/LLVM IR text, Java via javac/bytecode)
-# Uses external tools (clang, javac) and parses their output files directly
-# No LLVM/ASM library dependencies needed - we parse text/binary formats ourselves
-# Works on LLVM 22+ and all Java versions, cross-platform compatible
-external-tools-cfg = []
-
-# Telemetry for race condition and loop detection
-telemetry = []
 
 # LLVM IR CFG for C/C++ (stable, uses LLVM)
 llvm-cfg = ["dep:llvm-sys"]
@@ -87,11 +76,9 @@ llvm-cfg = ["dep:llvm-sys"]
 windows = []
 
 # Web UI server (optional)
-web-ui = ["dep:axum", "dep:tower", "dep:tower-http"]
 
 # Debug instrumentation (disabled by default for performance)
 # Enable with: cargo build --features debug-prints
-debug-prints = ["geographdb-core/debug-prints"]
 
 # Optional LLVM IR-based CFG extraction for C/C++ (requires clang)
 [dependencies]
@@ -139,7 +126,6 @@ tempfile = "3.10"
 glam = { version = "0.27", features = ["serde"] }
 
 # GeoGraphDB spatial indexing (optional - for geometric-backend feature)
-geographdb-core = { version = "0.1.0", optional = true }
 
 # External tools CFG extraction (C/C++ via clang/LLVM IR text, Java via javac/bytecode)
 # Uses external tools (clang, javac) and parses their output files directly
@@ -158,10 +144,6 @@ tokio = { version = "1", features = ["rt-multi-thread", "fs", "sync", "time", "m
 tokio-stream = "0.1"
 async-channel = "2"
 
-# Web UI server dependencies (optional, enabled by web-ui feature)
-axum = { version = "0.7", optional = true }
-tower = { version = "0.4", optional = true }
-tower-http = { version = "0.5", features = ["fs", "cors"], optional = true }
 
 # LSP support (Phase 3) - optional dependencies
 tower-lsp = { version = "0.20", optional = true }

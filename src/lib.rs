@@ -52,15 +52,11 @@ pub mod diagnostics;
 pub mod error_codes;
 pub mod framework;
 pub mod generation;
-pub mod geo_builder;
-pub mod geo_staleness;
 pub mod graph;
 pub mod indexer;
 pub mod ingest;
 pub mod lsif;
 pub mod lsp;
-#[cfg(feature = "web-ui")]
-pub mod web_ui;
 
 pub mod ingest_coverage;
 pub mod ingest_coverage_cmd;

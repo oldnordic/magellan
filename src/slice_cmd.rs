@@ -60,10 +60,6 @@ fn resolve_target(
     let backend_type = MagellanBackend::detect_type(db_path);
 
     match backend_type {
-        BackendType::Geometric => {
-            // For geometric backend, try numeric ID first, then FQN, then name
-            resolve_target_geometric(backend, target)
-        }
         BackendType::SQLite => {
             // For SQLite backend, try symbol ID (BLAKE3 hash) first, then FQN
             resolve_target_sqlite(graph, target)
@@ -324,26 +320,6 @@ pub fn run_slice(
 
     // Compute slice using call-graph reachability
     let included_symbols = match backend_type {
-        BackendType::Geometric => {
-            // For geometric backend, use numeric IDs
-            let included_ids = match direction {
-                CliSliceDirection::Backward => backend.reverse_reachable_from(resolved.numeric_id),
-                CliSliceDirection::Forward => backend.reachable_from(resolved.numeric_id),
-            };
-
-            let mut symbols = Vec::new();
-            for id in &included_ids {
-                if let Some(info) = backend.find_symbol_by_id(*id) {
-                    symbols.push(magellan::graph::SymbolInfo {
-                        symbol_id: Some(id.to_string()),
-                        fqn: Some(info.fqn.clone()),
-                        kind: format!("{:?}", info.kind),
-                        file_path: info.file_path.clone(),
-                    });
-                }
-            }
-            symbols
-        }
         BackendType::SQLite => {
             // For SQLite backend, use symbol-based reachability
             let symbols_result = match direction {

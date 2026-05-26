@@ -96,10 +96,6 @@ pub fn run_status(db_path: PathBuf, output_format: OutputFormat, all: bool) -> R
 
     let backend_caps = capabilities_for_path(&db_path);
 
-    if MagellanBackend::detect_type(&db_path) == BackendType::Geometric {
-        return run_status_geometric(db_path, output_format, backend_caps);
-    }
-
     let graph = CodeGraph::open(&db_path)?;
     let tracker = ExecutionTracker::new(
         vec!["status".to_string()],

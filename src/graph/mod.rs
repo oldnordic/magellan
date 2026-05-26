@@ -26,9 +26,6 @@ pub mod ontology;
 pub mod source_inventory;
 // pub mod memory_graph;
 
-#[cfg(feature = "external-tools-cfg")]
-pub mod external_tools;
-
 // Re-export MemoryGraph types for public API
 // Note: GraphStats is not re-exported here due to name collision with CodeGraph's GraphStats
 // Access via graph::memory_graph::GraphStats if needed
@@ -37,15 +34,6 @@ mod ast_extractor;
 
 mod ast_node;
 mod ast_ops;
-#[cfg(feature = "geometric-backend")]
-pub mod geo_index;
-#[cfg(feature = "geometric-backend")]
-pub mod geometric_backend;
-#[cfg(feature = "geometric-backend")]
-pub mod geometric_calls;
-
-#[cfg(feature = "bytecode-cfg")]
-mod bytecode_cfg;
 
 mod cache;
 mod call_ops;
@@ -120,8 +108,6 @@ pub use cfg_extractor::{BlockKind, CfgExtractor, TerminatorKind};
 pub use cfg_ops::CfgOps;
 pub use multi_db::MultiDbContext;
 
-#[cfg(feature = "bytecode-cfg")]
-pub use bytecode_cfg::JavaBytecodeCfgExtractor;
 pub use cache::CacheStats;
 pub use db_compat::MAGELLAN_SCHEMA_VERSION;
 pub use db_compat::{
@@ -133,10 +119,6 @@ pub use export::{ExportConfig, ExportFormat};
 pub use freshness::{check_freshness, FreshnessStatus, STALE_THRESHOLD_SECS};
 pub use metrics::MetricsOps;
 pub use schema::{CallNode, CfgBlock, CfgEdge, CrossFileRef, FileNode, ReferenceNode, SymbolNode};
-
-// Re-export geometric backend types when feature is enabled
-#[cfg(feature = "geometric-backend")]
-pub use geometric_backend::GeometricBackend;
 
 /// Statistics for a CodeGraph database
 ///
@@ -729,11 +711,8 @@ impl CodeGraph {
 
     /// Count total number of CFG blocks in the graph
     ///
-    /// Note: Returns 0 for SQLite backend. CFG blocks are only stored
-    /// in geometric backend databases.
+    /// Note: Returns 0 for SQLite backend.
     pub fn count_cfg_blocks(&self) -> Result<usize> {
-        // CFG blocks not tracked in SQLite backend
-        // Geometric backend has its own implementation
         Ok(0)
     }
 

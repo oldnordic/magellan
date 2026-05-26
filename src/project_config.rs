@@ -363,9 +363,8 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-default = ["sqlite-backend", "geometric-backend"]
+default = ["sqlite-backend"]
 sqlite-backend = []
-geometric-backend = ["dep:geographdb-core"]
 llvm-cfg = ["dep:llvm-sys"]
 
 [dependencies]
@@ -386,7 +385,6 @@ path = "tests/integration.rs"
 
         assert_eq!(manifest.package_name, Some("test-crate".to_string()));
         assert!(manifest.features.contains_key("sqlite-backend"));
-        assert!(manifest.features.contains_key("geometric-backend"));
         assert!(manifest.features.contains_key("llvm-cfg"));
         assert!(!manifest.features.contains_key("default")); // default is a meta-feature, skip
 

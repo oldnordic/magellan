@@ -1,18 +1,15 @@
 // Platform detection and feature flags
-//
-// Windows support is opt-in and explicit. This avoids silent behavior changes,
-// bug reports from unsupported paths, and keeps trust with existing users.
 
-#[cfg(feature = "windows")]
+#[cfg(windows)]
 pub const IS_WINDOWS: bool = true;
 
-#[cfg(not(feature = "windows"))]
+#[cfg(not(windows))]
 pub const IS_WINDOWS: bool = false;
 
-#[cfg(feature = "unix")]
+#[cfg(unix)]
 pub const IS_UNIX: bool = true;
 
-#[cfg(not(feature = "unix"))]
+#[cfg(not(unix))]
 pub const IS_UNIX: bool = false;
 
 /// Warn users about Windows limitations on first run
@@ -34,7 +31,6 @@ pub fn check_platform_support() {
 /// Check if watch mode is supported on this platform
 pub fn watch_mode_supported() -> bool {
     if IS_WINDOWS {
-        // File watching works but has limitations
         eprintln!("Warning: Watch mode on Windows may have reduced performance.");
         eprintln!("         Use manual reindex for large codebases.");
         true

@@ -494,7 +494,7 @@ pub fn ensure_4d_coordinates_columns(conn: &rusqlite::Connection) -> Result<(), 
     Ok(())
 }
 
-/// Add geo_index_meta table for lazy geometric index tracking
+/// Add geo_index_meta table for lazy index tracking
 ///
 /// This table records when a .geo file was built from the SQLite database
 /// and is used for staleness detection.

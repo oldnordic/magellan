@@ -413,7 +413,7 @@ pub fn delete_edges_touching_entities(
     Ok(affected)
 }
 
-/// Metadata about a lazy-built geometric index (.geo file)
+/// Metadata about a lazy-built index
 ///
 /// Stored in the `geo_index_meta` table to track when the .geo file
 /// was last built from the SQLite database and whether it needs rebuilding.
