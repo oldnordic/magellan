@@ -3,7 +3,35 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.1.1] - 2026-05-26
+
+### Changed
+
+- **Removed `geometric-backend` from default features** (`Cargo.toml`, `src/geo_builder.rs`):
+  - Default features changed from `["sqlite-backend", "geometric-backend"]` to `["sqlite-backend"]`
+  - The geometric backend (`.geo` files) has been unused since March 2026; all production workflows use SQLite (`.db`)
+  - `geometric-backend` remains available as an opt-in feature: `--features geometric-backend`
+  - `src/geo_builder.rs`: `compute_checksum` now gated behind `#[cfg(feature = "geometric-backend")]`
+
+### Compatibility Notice
+
+- **Mirage compatibility**: Mirage will be upgraded to work with this schema correction. Users of mirage should update to the upcoming mirage release after upgrading magellan.
+- **Splice compatibility**: SPL-E091 schema mismatch errors are expected until splice updates its magellan dependency to 4.1.1+. The workaround is to re-index with `magellan watch --root ./src --db .magellan/<project>.db --scan-initial`.
+
 ## [4.1.0] - Unreleased
+
+### Changed
+
+- **Removed `geometric-backend` from default features** (`Cargo.toml`, `src/geo_builder.rs`):
+  - Default features changed from `["sqlite-backend", "geometric-backend"]` to `["sqlite-backend"]`
+  - The geometric backend (`.geo` files) has been unused since March 2026; all production workflows use SQLite (`.db`)
+  - `geometric-backend` remains available as an opt-in feature: `--features geometric-backend`
+  - `src/geo_builder.rs`: `compute_checksum` now gated behind `#[cfg(feature = "geometric-backend")]`
+
+### Compatibility Notice
+
+- **Mirage compatibility**: Mirage will be upgraded to work with this schema correction. Users of mirage should update to the upcoming mirage release after upgrading magellan.
+- **Splice compatibility**: SPL-E091 schema mismatch errors are expected until splice updates its magellan dependency to 4.1.0+. The workaround is to re-index with `magellan watch --root ./src --db .magellan/<project>.db --scan-initial`.
 
 ### Added
 
