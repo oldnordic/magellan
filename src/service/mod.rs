@@ -278,6 +278,7 @@ fn worker_loop(
                     },
                 };
 
+                let mut reconcile_errors: Vec<String> = Vec::new();
                 for raw_path in &batch.paths {
                     let path = if raw_path.is_absolute() {
                         raw_path.clone()
@@ -294,6 +295,7 @@ fn worker_loop(
                             error = %e,
                             "Reconcile error"
                         );
+                        reconcile_errors.push(format!("{}: {}", path.display(), e));
                         if let Some(ref meta_path) = meta_db_path {
                             if let Ok(mut meta) = meta_db::MetaDb::open_at(meta_path) {
                                 let mut ev = make_event("reconcile_err", Some(&batch.project_name));
@@ -306,12 +308,40 @@ fn worker_loop(
                     }
                 }
 
+                if reconcile_errors.is_empty() {
+                    if let Some(ref meta_path) = meta_db_path {
+                        if let Ok(mut meta) = meta_db::MetaDb::open_at(meta_path) {
+                            let mut ev = make_event("reconcile_ok", Some(&batch.project_name));
+                            ev.details = Some(serde_json::json!({"paths": path_count}));
+                            let _ = meta.log_event(&ev);
+                            let _ = meta.close();
+                        }
+                    }
+                }
+
                 if let Err(e) = graph.checkpoint_wal() {
                     tracing::error!(
                         project = %batch.project_name,
                         error = %e,
                         "WAL checkpoint failed"
                     );
+                    if let Some(ref meta_path) = meta_db_path {
+                        if let Ok(mut meta) = meta_db::MetaDb::open_at(meta_path) {
+                            let ev = make_event("checkpoint_err", Some(&batch.project_name));
+                            let mut ev = ev;
+                            ev.details = Some(serde_json::json!({"error": e.to_string()}));
+                            let _ = meta.log_event(&ev);
+                            let _ = meta.close();
+                        }
+                    }
+                } else {
+                    if let Some(ref meta_path) = meta_db_path {
+                        if let Ok(mut meta) = meta_db::MetaDb::open_at(meta_path) {
+                            let ev = make_event("checkpoint_ok", Some(&batch.project_name));
+                            let _ = meta.log_event(&ev);
+                            let _ = meta.close();
+                        }
+                    }
                 }
 
                 // Update meta.db last_reindexed + log events

@@ -45,6 +45,17 @@ impl AdminSocket {
             {
                 Ok(resp) => resp,
                 Err(e) => {
+                    let mut meta = meta_db.lock().await;
+                    let ev = super::meta_db::DaemonEvent {
+                        id: None,
+                        event_type: "admin_err".to_string(),
+                        project_name: None,
+                        file_path: None,
+                        details: Some(serde_json::json!({ "error": e.to_string() })),
+                        created_at: now_secs(),
+                        execution_id: None,
+                    };
+                    let _ = meta.log_event(&ev);
                     json!({
                         "id": null,
                         "error": { "code": -32603, "message": format!("Internal error: {}", e) }
