@@ -90,26 +90,6 @@ pub fn compute_l3_cache_batch_indices(
 
 /// Groups files into batches that fit within L3 cache target.
 /// Each batch contains paths whose total size <= target_cache_bytes.
-pub fn compute_l3_cache_batches(
-    paths_with_sizes: &[(PathBuf, usize)],
-    target_cache_bytes: usize,
-) -> Vec<Vec<(PathBuf, usize)>> {
-    let sizes: Vec<usize> = paths_with_sizes.iter().map(|(_, s)| *s).collect();
-    let indices = compute_l3_cache_batch_indices(&sizes, target_cache_bytes);
-    indices
-        .into_iter()
-        .map(|batch| {
-            batch
-                .into_iter()
-                .map(|i| {
-                    let (path, size) = &paths_with_sizes[i];
-                    (path.clone(), *size)
-                })
-                .collect()
-        })
-        .collect()
-}
-
 /// Read source files for a batch of paths.
 ///
 /// Returns a map from path to (source bytes, file size) for files that exist.
@@ -330,64 +310,51 @@ mod tests {
 
     #[test]
     fn test_compute_l3_cache_batches_empty() {
-        let paths: Vec<(PathBuf, usize)> = Vec::new();
-        let batches = compute_l3_cache_batches(&paths, 1024);
+        let sizes: Vec<usize> = Vec::new();
+        let batches = compute_l3_cache_batch_indices(&sizes, 1024);
         assert!(batches.is_empty());
     }
 
     #[test]
     fn test_compute_l3_cache_batches_single_file() {
-        let paths = vec![(PathBuf::from("test.rs"), 100)];
-        let batches = compute_l3_cache_batches(&paths, 1024);
+        let sizes = vec![100usize];
+        let batches = compute_l3_cache_batch_indices(&sizes, 1024);
         assert_eq!(batches.len(), 1);
         assert_eq!(batches[0].len(), 1);
-        assert_eq!(batches[0][0].0, PathBuf::from("test.rs"));
-        assert_eq!(batches[0][0].1, 100);
+        assert_eq!(batches[0][0], 0);
     }
 
     #[test]
     fn test_compute_l3_cache_batches_fits_in_one_batch() {
-        let paths = vec![
-            (PathBuf::from("a.rs"), 100),
-            (PathBuf::from("b.rs"), 200),
-            (PathBuf::from("c.rs"), 300),
-        ];
-        let batches = compute_l3_cache_batches(&paths, 1000);
+        let sizes = vec![100usize, 200, 300];
+        let batches = compute_l3_cache_batch_indices(&sizes, 1000);
         assert_eq!(batches.len(), 1);
         assert_eq!(batches[0].len(), 3);
     }
 
     #[test]
     fn test_compute_l3_cache_batches_splits_on_limit() {
-        let paths = vec![
-            (PathBuf::from("a.rs"), 500),
-            (PathBuf::from("b.rs"), 600), // Total: 1100 > 1000, new batch
-            (PathBuf::from("c.rs"), 300),
-        ];
-        let batches = compute_l3_cache_batches(&paths, 1000);
+        let sizes = vec![500usize, 600, 300];
+        let batches = compute_l3_cache_batch_indices(&sizes, 1000);
         assert_eq!(batches.len(), 2);
-        assert_eq!(batches[0].len(), 1); // a.rs only
-        assert_eq!(batches[1].len(), 2); // b.rs, c.rs
+        assert_eq!(batches[0].len(), 1); // 500 only
+        assert_eq!(batches[1].len(), 2); // 600,300
     }
 
     #[test]
     fn test_compute_l3_cache_batches_large_file() {
         // Large file that exceeds target gets its own batch,
         // and subsequent files that don't fit with it also get new batches
-        let paths = vec![
-            (PathBuf::from("small.rs"), 100),
-            (PathBuf::from("huge.rs"), 2000), // Exceeds target, starts batch 1
-            (PathBuf::from("tiny.rs"), 50),   // Doesn't fit with huge (2050 > 1000), starts batch 2
-        ];
-        let batches = compute_l3_cache_batches(&paths, 1000);
+        let sizes = vec![100usize, 2000, 50];
+        let batches = compute_l3_cache_batch_indices(&sizes, 1000);
         // Each file ends up in its own batch because:
-        // - small.rs: batch 0 (100 bytes)
-        // - huge.rs: doesn't fit with small (100+2000 > 1000), batch 1 (2000 bytes)
-        // - tiny.rs: doesn't fit with huge (2000+50 > 1000), batch 2 (50 bytes)
+        // - index 0 (100 bytes): batch 0
+        // - index 1 (2000 bytes): doesn't fit with 0 (100+2000 > 1000), batch 1
+        // - index 2 (50 bytes): doesn't fit with 1 (2000+50 > 1000), batch 2
         assert_eq!(batches.len(), 3);
-        assert_eq!(batches[0].len(), 1); // small.rs
-        assert_eq!(batches[1].len(), 1); // huge.rs
-        assert_eq!(batches[2].len(), 1); // tiny.rs
+        assert_eq!(batches[0].len(), 1); // [0]
+        assert_eq!(batches[1].len(), 1); // [1]
+        assert_eq!(batches[2].len(), 1); // [2]
     }
 
     #[test]
