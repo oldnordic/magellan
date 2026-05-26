@@ -1022,7 +1022,11 @@ impl MetaDb {
                 });
             }
         }
-        candidates.sort_by(|a, b| b.rank_score.partial_cmp(&a.rank_score).expect("invariant: rank_score is non-negative finite product of positive integers"));
+        candidates.sort_by(|a, b| {
+            b.rank_score
+                .partial_cmp(&a.rank_score)
+                .expect("invariant: rank_score is non-negative finite product of positive integers")
+        });
         if let Some(l) = limit {
             candidates.truncate(l);
         }
