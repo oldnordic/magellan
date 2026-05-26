@@ -1,0 +1,28 @@
+Magellan - Multi-language codebase mapping tool
+
+Usage: magellan <command> [arguments]
+
+Common commands:
+  watch       Index codebase: magellan watch --root . --db code.db
+  init        Create .magellan.toml: magellan init [--path dir]
+  status      Show database stats: magellan status --db code.db
+  features    Show active Cargo features: magellan features --db code.db
+  doctor      Diagnose issues: magellan doctor --db code.db [--fix]
+  refresh     Refresh from git: magellan refresh --db code.db
+  web-ui      Start web interface: magellan web-ui --db code.db [--port 8080]
+  find        Find symbols: magellan find --db code.db --name main
+  refs        Show references: magellan refs --db code.db --name foo
+  query       List file symbols: magellan query --db code.db --file src/lib.rs
+  backfill    Recompute metrics: magellan backfill --db code.db
+  delete      Remove file from index: magellan delete --db code.db --file src/lib.rs
+  dead-code   Find unused code: magellan dead-code --db code.db --entry <id>
+  export      Export to JSON: magellan export --db code.db --format json
+  index       Index single file: magellan index --db code.db --file src/lib.rs
+  cross-file-refs  Cross-file refs: magellan cross-file-refs --db code.db --fqn foo::bar
+  context     Symbol context: magellan context symbol --db code.db --name main
+
+Global: --output <human|json|pretty>
+
+Backends: magellan --backends
+
+Full help: magellan --help-full | man magellan
