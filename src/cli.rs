@@ -1,13 +1,13 @@
 //! CLI argument parsing for Magellan
 //!
-//! Defines the Command enum and parse_args() function for all CLI commands.
+//! Defines the `Command` enum and related types. See `src/cli/parsers.rs`
+//! for the actual `parse_args()` implementation.
 
 use magellan::capabilities::BackendCapabilities;
 use magellan::graph::export::ExportFilters;
 use magellan::graph::query::CollisionField;
 use magellan::{ExportFormat, OutputFormat, WatcherConfig};
 use std::path::PathBuf;
-
 
 /// Print short usage (≤25 lines) for quick reference
 pub fn print_short_usage() {
@@ -464,7 +464,6 @@ pub enum Command {
         with_mirage: bool,
     },
 }
-
 
 // ============================================================================
 // Command Parsers — See src/cli/parsers.rs

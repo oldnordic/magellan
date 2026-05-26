@@ -1,6 +1,5 @@
 use super::{Command, ContextSubcommand};
 use anyhow::{Context, Result};
-use magellan::capabilities::BackendCapabilities;
 use magellan::graph::export::ExportFilters;
 use magellan::graph::query::CollisionField;
 use magellan::{detect_project_root, ExportFormat, OutputFormat, WatcherConfig};
@@ -41,7 +40,7 @@ pub fn parse_output_format(value: &str) -> Result<OutputFormat> {
     }
 }
 
-/// Helper to parse a PathBuf argument
+/// Helper to parse a `PathBuf` argument
 pub fn parse_path_arg(args: &[String], i: &mut usize, flag: &str) -> Result<PathBuf> {
     let value = parse_required_arg(args, i, flag)?;
     Ok(PathBuf::from(value))
@@ -589,7 +588,7 @@ pub fn parse_import_lsif_args(args: &[String]) -> Result<Command> {
 
 /// Parse the `ingest-coverage` command arguments
 ///
-/// Usage: magellan ingest-coverage --db <FILE> --lcov <FILE>
+/// Usage: `magellan ingest-coverage --db <FILE> --lcov <FILE>`
 pub fn parse_ingest_coverage_args(args: &[String]) -> Result<Command> {
     let mut db_path: Option<PathBuf> = None;
     let mut lcov_path: Option<PathBuf> = None;
@@ -708,7 +707,7 @@ pub fn parse_context_args(args: &[String]) -> Result<Command> {
 
     // Slice args so subcommand is at index 0, flags start at index 1
     let args = &args[i..];
-    let subcommand_name = args.first().map(|s| s.as_str()).unwrap_or("");
+    let subcommand_name = args.first().map_or("", |s| s.as_str());
     let subcommand = match subcommand_name {
         "build" => ContextSubcommand::Build,
         "summary" => ContextSubcommand::Summary,
@@ -3491,7 +3490,7 @@ pub fn parse_candidate_fact_args(args: &[String]) -> Result<Command> {
     })
 }
 
-/// Convenience wrapper around parse_args_impl that uses the version module
+/// Convenience wrapper around `parse_args_impl` that uses the version module
 pub fn parse_args() -> Result<Command> {
     parse_args_impl(|| {
         println!("{}", crate::version::version());
@@ -3845,4 +3844,3 @@ pub fn parse_hnsw_query_args(args: &[String]) -> Result<Command> {
         output_format,
     })
 }
-
