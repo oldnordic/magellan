@@ -746,7 +746,7 @@ impl CodeGraph {
     /// * `name` - Symbol name
     ///
     /// # Returns
-    /// Option<i64> - Some(node_id) if found, None if not found
+    /// `Option<i64>` - Some(node_id) if found, None if not found
     ///
     /// # Note
     /// This is a minimal query helper for testing. It reuses existing graph queries
@@ -1013,7 +1013,7 @@ impl CodeGraph {
     /// * `path` - File path to query
     ///
     /// # Returns
-    /// Option<FileNode> with file metadata including timestamps, or None if not found
+    /// `Option<FileNode>` with file metadata including timestamps, or None if not found
     pub fn get_file_node(&mut self, path: &str) -> Result<Option<FileNode>> {
         // Check cache first
         if let Some(node) = self.file_node_cache.get(&path.to_string()) {
@@ -1082,7 +1082,7 @@ impl CodeGraph {
     /// * `byte_end` - Ending byte offset
     ///
     /// # Returns
-    /// Option<CodeChunk> if found, None otherwise
+    /// `Option<CodeChunk>` if found, None otherwise
     pub fn get_code_chunk_by_span(
         &self,
         file_path: &str,

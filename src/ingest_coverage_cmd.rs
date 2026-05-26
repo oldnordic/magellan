@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 
 use crate::CodeGraph;
 
+/// Coverage data extracted from a single LCOV file.
 #[derive(Debug, Default)]
 pub struct LcovData {
     /// (file_path, line_number) -> hit_count

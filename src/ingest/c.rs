@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 /// Parser that extracts symbol facts from C source code.
 ///
-/// Pure function: Input (path, contents) → Output Vec<SymbolFact>
+/// Pure function: Input (path, contents) → Output `Vec<SymbolFact>`
 /// No filesystem access. No global state. No caching.
 pub struct CParser {
     pub(crate) parser: tree_sitter::Parser,

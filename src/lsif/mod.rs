@@ -5,7 +5,7 @@
 //! - Dependency tracking
 //! - Code intelligence across project boundaries
 //!
-//! See: https://lsif.dev/
+//! See: <https://lsif.dev/>
 
 pub mod export;
 pub mod import;

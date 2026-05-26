@@ -106,10 +106,10 @@ pub struct FileSystemWatcher {
     _watcher_thread: ManuallyDrop<thread::JoinHandle<()>>,
     batch_receiver: Receiver<WatcherBatch>,
     /// Legacy compatibility: pending batch to emit one path at a time
-    /// Thread-safe: wrapped in Arc<Mutex<T>> for concurrent access
+    /// Thread-safe: wrapped in `Arc<Mutex<T>>` for concurrent access
     legacy_pending_batch: Arc<Mutex<Option<WatcherBatch>>>,
     /// Legacy compatibility: current index into pending batch
-    /// Thread-safe: wrapped in Arc<Mutex<T>> for concurrent access
+    /// Thread-safe: wrapped in `Arc<Mutex<T>>` for concurrent access
     legacy_pending_index: Arc<Mutex<usize>>,
 }
 

@@ -99,7 +99,7 @@ impl ChunkStore {
     /// entirely for side tables.
     ///
     /// # Arguments
-    /// * `side_tables` - Arc<dyn SideTables> implementation
+    /// * `side_tables` - `Arc<dyn SideTables>` implementation
     pub fn with_side_tables(side_tables: Arc<dyn crate::graph::side_tables::SideTables>) -> Self {
         Self {
             backend: ChunkStoreBackend::SideTables(side_tables),

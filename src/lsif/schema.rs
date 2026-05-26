@@ -1,7 +1,7 @@
 //! LSIF schema definitions
 //!
 //! LSIF uses a graph structure with vertices and edges.
-//! See: https://microsoft.github.io/language-server-protocol/specifications/lsif/0.6.0/specification/
+//! See: <https://microsoft.github.io/language-server-protocol/specifications/lsif/0.6.0/specification/>
 
 use serde::{Deserialize, Serialize};
 

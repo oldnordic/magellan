@@ -52,7 +52,7 @@ impl CodeGraph {
     /// * `position` - Byte offset in the file
     ///
     /// # Returns
-    /// Option<AstNode> if a node is found at the position
+    /// `Option<AstNode>` if a node is found at the position
     pub fn get_ast_node_at_position(
         &self,
         _file_path: &str,

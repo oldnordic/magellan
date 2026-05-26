@@ -62,8 +62,8 @@ pub struct CallEdgeData {
 
 impl CallEdgeData {
     /// Serialize to bytes
-    /// Format: [count: u64][edges...]
-    /// Each edge: [src: u64][dst: u64][path_len: u32][path bytes...][byte_start: u64][byte_end: u64][line: u64][col: u64]
+    /// Format: `[count: u64][edges...]`
+    /// Each edge: `[src: u64][dst: u64][path_len: u32][path bytes...][byte_start: u64][byte_end: u64][line: u64][col: u64]`
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
 
@@ -160,8 +160,8 @@ pub struct LabelData {
 
 impl LabelData {
     /// Serialize to bytes
-    /// Format: [count: u64][associations...]
-    /// Each association: [entity_id: u64][label_len: u32][label bytes...]
+    /// Format: `[count: u64][associations...]`
+    /// Each association: `[entity_id: u64][label_len: u32][label bytes...]`
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
 

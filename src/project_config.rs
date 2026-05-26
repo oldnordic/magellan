@@ -137,14 +137,14 @@ impl ProjectConfig {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CargoManifest {
     pub package_name: Option<String>,
-    /// Feature flags from [features] section.
+    /// `[features]` config section.
     /// `default` feature is excluded — it's a meta-feature listing defaults.
     #[serde(default)]
     pub features: std::collections::HashMap<String, Vec<String>>,
-    /// Crate names from [dependencies] section (dev-dependencies excluded).
+    /// `[dependencies]` config section (dev-dependencies excluded).
     #[serde(default)]
     pub dependencies: Vec<String>,
-    /// Target paths extracted from [[bin]], [[test]], [[bench]] arrays.
+    /// Target paths extracted from `[[bin]]`, `[[test]]`, `[[bench]]` arrays.
     #[serde(default)]
     pub targets: Vec<String>,
 }

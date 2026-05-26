@@ -452,7 +452,7 @@ impl PipelineSharedState {
 /// - BTreeSet ensures deterministic ordering regardless of event arrival
 ///
 /// # Buffering Model
-/// - BTreeSet<PathBuf> for dirty path collection (sorted, deduplicated)
+/// - `BTreeSet<PathBuf>` for dirty path collection (sorted, deduplicated)
 /// - Bounded sync_channel(1) for wakeup ticks (non-blocking insertion)
 /// - Snapshot+clear drain semantics for deterministic processing
 ///

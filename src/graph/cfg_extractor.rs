@@ -33,7 +33,7 @@
 //! ## Reference
 //!
 //! - Research: docs/MIR_EXTRACTION_RESEARCH.md
-//! - stable_mir tracking: https://rust-lang.github.io/rust-project-goals/2025h1/stable-mir.html
+//! - stable_mir tracking: <https://rust-lang.github.io/rust-project-goals/2025h1/stable-mir.html>
 
 use crate::graph::cfg_edges_extract::extract_cfg_condition;
 use crate::graph::schema::CfgBlock;

@@ -234,7 +234,7 @@ pub fn symbol_extents(
 /// * `name` - Symbol name
 ///
 /// # Returns
-/// Option<i64> - Some(node_id) if found, None if not found
+/// `Option<i64>` - Some(node_id) if found, None if not found
 ///
 /// # Note
 /// This is a minimal query helper for testing. It reuses existing graph queries
@@ -284,7 +284,7 @@ pub fn symbol_id_by_name(graph: &mut CodeGraph, path: &str, name: &str) -> Resul
 /// * `symbol_id` - Stable symbol identifier (32-char BLAKE3 hash)
 ///
 /// # Returns
-/// Option<SymbolNode> if found, None if not found
+/// `Option<SymbolNode>` if found, None if not found
 ///
 /// # Note
 /// SymbolId is the primary key for symbol identity. This function uses

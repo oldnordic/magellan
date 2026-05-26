@@ -499,7 +499,7 @@ pub struct SymbolMatch {
     ///
     /// Generated from language, fully-qualified name, and defining span.
     /// Corresponds to the symbol's stable identifier across runs.
-    /// This ID is computed by [`crate::graph::schema::generate_symbol_id`]
+    /// This ID is computed by crate::graph::schema::generate_symbol_id
     /// and stored in the graph's SymbolNode data.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub symbol_id: Option<String>,
@@ -619,7 +619,7 @@ impl SymbolMatch {
     /// - Fully-qualified name (FQN)
     /// - Span ID (stable position-based identifier)
     ///
-    /// See [`crate::graph::schema::generate_symbol_id`] for details.
+    /// See crate::graph::schema::generate_symbol_id for details.
     pub fn new(
         name: String,
         kind: String,

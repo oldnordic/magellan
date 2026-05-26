@@ -32,42 +32,35 @@ pub fn parse_lcov_file(path: &Path) -> Result<LcovData> {
             continue;
         }
 
-        if line.starts_with("SF:") {
-            current_file = line[3..].to_string();
+        if let Some(val) = line.strip_prefix("SF:") {
+            current_file = val.to_string();
             continue;
         }
 
-        if line.starts_with("DA:") {
-            let rest = &line[3..];
+        if let Some(rest) = line.strip_prefix("DA:") {
             let mut parts = rest.splitn(2, ',');
             let line_num: u32 = parts
                 .next()
                 .and_then(|s| s.parse().ok())
                 .ok_or_else(|| anyhow::anyhow!("Invalid DA line: {}", line))?;
-            let count: u64 = parts
-                .next()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(0);
+            let count: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
 
             if !current_file.is_empty() {
-                data.line_hits.insert((current_file.clone(), line_num), count);
+                data.line_hits
+                    .insert((current_file.clone(), line_num), count);
             }
             continue;
         }
 
-        if line.starts_with("BRDA:") {
-            let rest = &line[5..];
+        if let Some(rest) = line.strip_prefix("BRDA:") {
             let mut parts = rest.splitn(4, ',');
             let line_num: u32 = parts
                 .next()
                 .and_then(|s| s.parse().ok())
                 .ok_or_else(|| anyhow::anyhow!("Invalid BRDA line: {}", line))?;
-            let _block = parts.next();   // ignored
-            let _branch = parts.next();  // ignored
-            let taken: i64 = parts
-                .next()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(0);
+            let _block = parts.next(); // ignored
+            let _branch = parts.next(); // ignored
+            let taken: i64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
             let taken_val = if taken < 0 { 0 } else { taken as u64 };
 
             if !current_file.is_empty() {
@@ -116,14 +109,34 @@ end_of_record
         let data = parse_lcov_file(&tmp_path).unwrap();
 
         assert_eq!(data.line_hits.len(), 4);
-        assert_eq!(data.line_hits.get(&("/home/user/project/src/main.rs".to_string(), 1u32)), Some(&1));
-        assert_eq!(data.line_hits.get(&("/home/user/project/src/main.rs".to_string(), 2u32)), Some(&0));
-        assert_eq!(data.line_hits.get(&("/home/user/project/src/main.rs".to_string(), 10u32)), Some(&5));
-        assert_eq!(data.line_hits.get(&("/home/user/project/src/lib.rs".to_string(), 3u32)), Some(&2));
+        assert_eq!(
+            data.line_hits
+                .get(&("/home/user/project/src/main.rs".to_string(), 1u32)),
+            Some(&1)
+        );
+        assert_eq!(
+            data.line_hits
+                .get(&("/home/user/project/src/main.rs".to_string(), 2u32)),
+            Some(&0)
+        );
+        assert_eq!(
+            data.line_hits
+                .get(&("/home/user/project/src/main.rs".to_string(), 10u32)),
+            Some(&5)
+        );
+        assert_eq!(
+            data.line_hits
+                .get(&("/home/user/project/src/lib.rs".to_string(), 3u32)),
+            Some(&2)
+        );
 
         assert_eq!(data.branch_hits.len(), 1);
         // Branch 0 had taken=1 and Branch 1 had taken=0; max should be 1
-        assert_eq!(data.branch_hits.get(&("/home/user/project/src/lib.rs".to_string(), 3u32)), Some(&1));
+        assert_eq!(
+            data.branch_hits
+                .get(&("/home/user/project/src/lib.rs".to_string(), 3u32)),
+            Some(&1)
+        );
     }
 
     #[test]
@@ -149,7 +162,10 @@ end_of_record
         tmp.write_all(content.as_bytes()).unwrap();
         let tmp_path = tmp.into_temp_path();
         let data = parse_lcov_file(&tmp_path).unwrap();
-        assert_eq!(data.line_hits.get(&("/src/a.rs".to_string(), 1u32)), Some(&1));
+        assert_eq!(
+            data.line_hits.get(&("/src/a.rs".to_string(), 1u32)),
+            Some(&1)
+        );
         assert!(data.branch_hits.is_empty());
     }
 }

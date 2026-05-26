@@ -303,7 +303,7 @@ pub struct SymbolFact {
 
 /// Parser that extracts symbol facts from Rust source code
 ///
-/// Pure function: Input (path, contents) → Output Vec<SymbolFact>
+/// Pure function: Input (path, contents) → Output `Vec<SymbolFact>`
 /// No filesystem access. No global state. No caching.
 pub struct Parser {
     /// tree-sitter parser for Rust grammar

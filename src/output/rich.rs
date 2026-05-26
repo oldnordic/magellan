@@ -71,8 +71,8 @@ pub struct SpanRelationships {
 /// Semantic information about a span
 ///
 /// Groups symbol kind and programming language together.
-/// This keeps the Span struct clean by using a single Option<SpanSemantics>
-/// instead of separate Option<String> fields for kind and language.
+/// This keeps the Span struct clean by using a single `Option<SpanSemantics>`
+/// instead of separate `Option<String>` fields for kind and language.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SpanSemantics {
     /// Symbol kind (function, variable, type, etc.)
