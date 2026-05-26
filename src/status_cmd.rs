@@ -4,8 +4,7 @@
 
 use crate::service::registry::Registry;
 use anyhow::Result;
-use magellan::backend_router::{BackendType, MagellanBackend};
-use magellan::capabilities::{capabilities_for_path, BackendCapabilities};
+use magellan::capabilities::capabilities_for_path;
 use magellan::output::{
     generate_execution_id, output_json, CoverageInfo, JsonResponse, StatusResponse,
 };
@@ -252,66 +251,6 @@ fn run_status_all(output_format: OutputFormat) -> Result<()> {
             println!("  database not found: {}", entry.db.display());
         }
         println!();
-    }
-
-    Ok(())
-}
-
-/// Run status for geometric backend databases
-fn run_status_geometric(
-    db_path: PathBuf,
-    output_format: OutputFormat,
-    backend_caps: BackendCapabilities,
-) -> Result<()> {
-    use magellan::backend_router::MagellanBackend;
-
-    let backend = MagellanBackend::open(&db_path)?;
-    let stats = backend.get_stats()?;
-
-    let coverage = CoverageInfo {
-        available: false,
-        covered_blocks: 0,
-        covered_edges: 0,
-        source: None,
-        revision: None,
-        ingested_at: None,
-    };
-
-    match output_format {
-        OutputFormat::Json | OutputFormat::Pretty => {
-            let response = StatusResponse {
-                files: stats.file_count,
-                symbols: stats.symbol_count,
-                references: 0,
-                calls: 0,
-                code_chunks: stats.cfg_block_count,
-                coverage,
-            };
-            let exec_id = generate_execution_id();
-            let json_response = JsonResponse::new(response, &exec_id);
-            output_json(&json_response, output_format)?;
-        }
-        OutputFormat::Human => {
-            println!(
-                "Backend: {} ({})",
-                backend_caps.backend_type.display_name(),
-                backend_caps.database_extension_hint
-            );
-            println!("Format: {}", backend_caps.format_hint);
-
-            if backend_caps.supports_vacuum_maintenance {
-                println!("Maintenance: CFG vacuum available");
-            } else {
-                println!("Maintenance: not available");
-            }
-
-            println!();
-            println!("Database contents:");
-            println!("  files: {}", stats.file_count);
-            println!("  symbols: {}", stats.symbol_count);
-            println!("  cfg_blocks: {}", stats.cfg_block_count);
-            println!("  (Call graph tracked separately in memory)");
-        }
     }
 
     Ok(())

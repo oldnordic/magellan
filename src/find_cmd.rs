@@ -6,7 +6,6 @@
 use crate::service::registry::Registry;
 use anyhow::{Context, Result};
 use globset::GlobBuilder;
-use magellan::backend_router::{BackendType, MagellanBackend};
 use magellan::common::{detect_language_from_path, format_symbol_kind, resolve_path};
 use magellan::graph::query;
 use magellan::graph::MultiDbContext;
@@ -374,133 +373,122 @@ pub fn run_find(
         )
     })?;
 
-    // Detect backend type and route accordingly
-    let backend_type = MagellanBackend::detect_type(&db_path);
+    let results = match path.as_ref() {
+        Some(file_path) => {
+            let path_str = resolve_path(file_path, &root);
+            match find_in_file(&mut graph, &path_str, &name)? {
+                Some(symbol) => vec![symbol],
+                None => vec![],
+            }
+        }
+        None => find_all_files(&mut graph, &name)?,
+    };
 
-    match backend_type {
-        BackendType::SQLite => {
-            let results = match path.as_ref() {
-                Some(file_path) => {
-                    let path_str = resolve_path(file_path, &root);
-                    match find_in_file(&mut graph, &path_str, &name)? {
-                        Some(symbol) => vec![symbol],
-                        None => vec![],
-                    }
-                }
-                None => find_all_files(&mut graph, &name)?,
-            };
+    if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
+        let result = output_json_mode(
+            &mut graph,
+            &name,
+            results,
+            path.as_ref().map(|p| resolve_path(p, &root)),
+            &exec_id,
+            output_format,
+            with_context,
+            with_callers,
+            with_callees,
+            with_semantics,
+            with_checksums,
+            context_lines,
+        );
+        let _ = graph.execution_log().finish_execution(
+            &exec_id,
+            if result.is_ok() { "success" } else { "error" },
+            result
+                .as_ref()
+                .err()
+                .map(|e: &anyhow::Error| e.to_string())
+                .as_deref(),
+            0,
+            0,
+            0,
+        );
+        return result;
+    }
 
-            if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
-                let result = output_json_mode(
-                    &mut graph,
-                    &name,
-                    results,
-                    path.as_ref().map(|p| resolve_path(p, &root)),
-                    &exec_id,
-                    output_format,
-                    with_context,
-                    with_callers,
-                    with_callees,
-                    with_semantics,
-                    with_checksums,
-                    context_lines,
+    if results.is_empty() {
+        println!("Symbol '{}' not found", name);
+        println!(
+            "Hint: use `magellan find --list-glob \"{}\"` to preview name variants.",
+            name
+        );
+    } else if results.len() == 1 {
+        let symbol = &results[0];
+        println!("Found \"{}\":", name);
+        println!("  File:     {}", symbol.file);
+        println!(
+            "  Kind:     {} [{}]",
+            format_symbol_kind(&symbol.kind),
+            symbol.kind_normalized
+        );
+        println!("  Location: Line {}, Column {}", symbol.line, symbol.col);
+        println!("  Node ID:  {}", symbol.node_id);
+    } else {
+        if first {
+            eprintln!("WARNING: --first is deprecated. Use --symbol-id for precise lookups.");
+            let symbol = &results[0];
+            println!("Found \"{}\" (using first match):", name);
+            println!("  File:     {}", symbol.file);
+            println!(
+                "  Kind:     {} [{}]",
+                format_symbol_kind(&symbol.kind),
+                symbol.kind_normalized
+            );
+            println!("  Location: Line {}, Column {}", symbol.line, symbol.col);
+            println!("  Node ID:  {}", symbol.node_id);
+        } else {
+            eprintln!(
+                "Ambiguous symbol name '{}': found {} candidates",
+                name,
+                results.len()
+            );
+            eprintln!();
+            eprintln!("Top matches:");
+
+            let display_count = results.len().min(10);
+            for (i, symbol) in results.iter().take(display_count).enumerate() {
+                let fqn = symbol
+                    .display_fqn
+                    .as_ref()
+                    .or(symbol.canonical_fqn.as_ref())
+                    .map(|s| s.as_str())
+                    .unwrap_or("<unknown>");
+                let sid = symbol.symbol_id.as_deref().unwrap_or("<none>");
+
+                eprintln!(
+                    "  [{}] {} ({}) in {}:{}",
+                    i + 1,
+                    symbol.name,
+                    symbol.kind_normalized,
+                    symbol.file,
+                    symbol.line
                 );
-                let _ = graph.execution_log().finish_execution(
-                    &exec_id,
-                    if result.is_ok() { "success" } else { "error" },
-                    result
-                        .as_ref()
-                        .err()
-                        .map(|e: &anyhow::Error| e.to_string())
-                        .as_deref(),
-                    0,
-                    0,
-                    0,
-                );
-                return result;
+                eprintln!("      Symbol ID: {}", sid);
+                eprintln!("      FQN: {}", fqn);
             }
 
-            if results.is_empty() {
-                println!("Symbol '{}' not found", name);
-                println!(
-                    "Hint: use `magellan find --list-glob \"{}\"` to preview name variants.",
-                    name
-                );
-            } else if results.len() == 1 {
-                let symbol = &results[0];
-                println!("Found \"{}\":", name);
-                println!("  File:     {}", symbol.file);
-                println!(
-                    "  Kind:     {} [{}]",
-                    format_symbol_kind(&symbol.kind),
-                    symbol.kind_normalized
-                );
-                println!("  Location: Line {}, Column {}", symbol.line, symbol.col);
-                println!("  Node ID:  {}", symbol.node_id);
-            } else {
-                if first {
-                    eprintln!(
-                        "WARNING: --first is deprecated. Use --symbol-id for precise lookups."
-                    );
-                    let symbol = &results[0];
-                    println!("Found \"{}\" (using first match):", name);
-                    println!("  File:     {}", symbol.file);
-                    println!(
-                        "  Kind:     {} [{}]",
-                        format_symbol_kind(&symbol.kind),
-                        symbol.kind_normalized
-                    );
-                    println!("  Location: Line {}, Column {}", symbol.line, symbol.col);
-                    println!("  Node ID:  {}", symbol.node_id);
-                } else {
-                    eprintln!(
-                        "Ambiguous symbol name '{}': found {} candidates",
-                        name,
-                        results.len()
-                    );
-                    eprintln!();
-                    eprintln!("Top matches:");
-
-                    let display_count = results.len().min(10);
-                    for (i, symbol) in results.iter().take(display_count).enumerate() {
-                        let fqn = symbol
-                            .display_fqn
-                            .as_ref()
-                            .or(symbol.canonical_fqn.as_ref())
-                            .map(|s| s.as_str())
-                            .unwrap_or("<unknown>");
-                        let sid = symbol.symbol_id.as_deref().unwrap_or("<none>");
-
-                        eprintln!(
-                            "  [{}] {} ({}) in {}:{}",
-                            i + 1,
-                            symbol.name,
-                            symbol.kind_normalized,
-                            symbol.file,
-                            symbol.line
-                        );
-                        eprintln!("      Symbol ID: {}", sid);
-                        eprintln!("      FQN: {}", fqn);
-                    }
-
-                    if results.len() > 10 {
-                        eprintln!();
-                        eprintln!("  ... and {} more", results.len() - 10);
-                    }
-
-                    eprintln!();
-                    eprintln!(
-                        "Use --path <file> to disambiguate, or --symbol-id <id> for precise lookup"
-                    );
-                }
+            if results.len() > 10 {
+                eprintln!();
+                eprintln!("  ... and {} more", results.len() - 10);
             }
 
-            let _ = graph
-                .execution_log()
-                .finish_execution(&exec_id, "success", None, 0, 0, 0);
-            Ok(())
+            eprintln!();
+            eprintln!("Use --path <file> to disambiguate, or --symbol-id <id> for precise lookup");
         }
     }
+
+    let _ = graph
+        .execution_log()
+        .finish_execution(&exec_id, "success", None, 0, 0, 0);
+    Ok(())
 }
 
 /// Find command for geometric backend databases

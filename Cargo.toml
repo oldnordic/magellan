@@ -76,6 +76,7 @@ llvm-cfg = ["dep:llvm-sys"]
 windows = []
 
 # Web UI server (optional)
+web-ui = []
 
 # Debug instrumentation (disabled by default for performance)
 # Enable with: cargo build --features debug-prints

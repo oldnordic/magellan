@@ -94,8 +94,6 @@ fn test_status_shows_backend_type_sqlite() {
 }
 
 /// Test status command on geometric database
-#[test]
-
 /// Test backend type detection for different file extensions
 #[test]
 fn test_backend_detection_by_extension() {

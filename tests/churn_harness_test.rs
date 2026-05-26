@@ -153,8 +153,16 @@ mod tests {
     }
 }
 
-/// Geometric backend churn test
-#[test]
+/// Churn measurement for a single cycle
+#[derive(Debug)]
+struct ChurnMeasurement {
+    cycle: usize,
+    symbol_count: usize,
+    file_count: usize,
+    cfg_block_count: usize,
+    db_size_bytes: u64,
+    elapsed_ms: u128,
+}
 
 /// Index and measure for SQLite backend using CodeGraph reconcile
 fn index_and_measure_sqlite(

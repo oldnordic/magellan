@@ -2,8 +2,7 @@
 //!
 //! Lists symbols in a file, optionally filtered by kind.
 
-use anyhow::{Context, Result};
-use magellan::backend_router::{BackendType, MagellanBackend};
+use anyhow::Result;
 use magellan::common::{
     detect_language_from_path, format_symbol_kind, parse_symbol_kind, resolve_path,
 };

@@ -9,6 +9,7 @@ macro_rules! debug_print {
 }
 
 #[cfg(not(feature = "debug-prints"))]
+#[allow(unused_macros)]
 macro_rules! debug_print {
     ($($arg:tt)*) => {
         ()
@@ -22,7 +23,7 @@ use std::sync::Arc;
 
 use crate::{generate_execution_id, OutputFormat};
 
-use magellan::backend_router::{BackendType, MagellanBackend};
+use magellan::backend_router::MagellanBackend;
 use magellan::graph::validation;
 use magellan::WatchPipelineConfig;
 use magellan::WatcherConfig;
@@ -113,14 +114,6 @@ pub fn run_watch(
 
     let root_str = root_path.to_string_lossy().to_string();
     let db_path_str = db_path.to_string_lossy().to_string();
-
-    // Detect backend type early to determine if we need a backend reference
-    let backend_type = MagellanBackend::detect_type(&db_path);
-    debug_print!(
-        "[WATCH_DEBUG] Detected backend type: {:?} for db_path: {:?}",
-        backend_type,
-        db_path
-    );
 
     // Open the backend for execution logging
     let mut backend = Some(MagellanBackend::open_or_create(&db_path)?);

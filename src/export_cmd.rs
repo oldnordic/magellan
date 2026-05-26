@@ -3,7 +3,6 @@
 //! Exports graph data to JSON/JSONL/CSV/DOT/SCIP formats with stable IDs.
 
 use anyhow::Result;
-use magellan::backend_router::{BackendType, MagellanBackend};
 use magellan::graph::export::{
     export_graph, scip, stream_json, stream_json_minified, stream_ndjson, ExportConfig,
     ExportFilters, ExportFormat,

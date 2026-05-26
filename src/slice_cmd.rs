@@ -3,7 +3,6 @@
 //! Shows program slices (backward/forward) for bug isolation and refactoring safety.
 
 use anyhow::Result;
-use magellan::backend_router::{BackendType, MagellanBackend};
 use magellan::output::command::{SliceResponse, SliceStats, Span, SymbolMatch};
 use magellan::output::{output_json, JsonResponse, OutputFormat};
 use magellan::CodeGraph;
@@ -51,100 +50,16 @@ impl CliSliceDirection {
 ///
 /// First tries to interpret as a symbol ID (BLAKE3 hash or numeric ID).
 /// If not found, searches by name/FQN and shows ranked results if multiple matches.
-fn resolve_target(
-    backend: &MagellanBackend,
-    graph: &mut CodeGraph,
-    db_path: &Path,
-    target: &str,
-) -> Result<ResolvedTarget> {
-    let backend_type = MagellanBackend::detect_type(db_path);
-
-    match backend_type {
-        BackendType::SQLite => {
-            // For SQLite backend, try symbol ID (BLAKE3 hash) first, then FQN
-            resolve_target_sqlite(graph, target)
-        }
-    }
+fn resolve_target(graph: &mut CodeGraph, _db_path: &Path, target: &str) -> Result<ResolvedTarget> {
+    resolve_target_sqlite(graph, target)
 }
 
 /// Resolve target for geometric backend
-fn resolve_target_geometric(backend: &MagellanBackend, target: &str) -> Result<ResolvedTarget> {
-    // First try numeric ID
-    if let Ok(id) = target.parse::<u64>() {
-        if let Some(info) = backend.find_symbol_by_id(id) {
-            return Ok(ResolvedTarget {
-                numeric_id: id,
-                symbol_id: id.to_string(),
-                fqn: info.fqn.clone(),
-                file_path: info.file_path.clone(),
-                kind: format!("{:?}", info.kind),
-            });
-        }
-    }
-
-    // Try FQN lookup
-    if let Ok(Some(info)) = backend.find_symbol_by_fqn(target) {
-        return Ok(ResolvedTarget {
-            numeric_id: info.id,
-            symbol_id: info.id.to_string(),
-            fqn: info.fqn.clone(),
-            file_path: info.file_path.clone(),
-            kind: format!("{:?}", info.kind),
-        });
-    }
-
-    // Try name lookup
-    let symbols = backend.find_symbols_by_name(target)?;
-    if symbols.is_empty() {
-        return Err(anyhow::anyhow!(
-            "Target symbol '{}' not found (tried ID, FQN, and name)",
-            target
-        ));
-    }
-
-    if symbols.len() == 1 {
-        let info = &symbols[0];
-        return Ok(ResolvedTarget {
-            numeric_id: info.id,
-            symbol_id: info.id.to_string(),
-            fqn: info.fqn.clone(),
-            file_path: info.file_path.clone(),
-            kind: format!("{:?}", info.kind),
-        });
-    }
-
-    // Multiple matches - show ranked list
-    eprintln!(
-        "Ambiguous target '{}': found {} candidates",
-        target,
-        symbols.len()
-    );
-    eprintln!();
-    eprintln!("Top matches:");
-
-    for (i, info) in symbols.iter().take(10).enumerate() {
-        eprintln!(
-            "  [{}] {} ({:?}) in {}:{}",
-            i + 1,
-            info.fqn,
-            info.kind,
-            info.file_path,
-            info.start_line
-        );
-        eprintln!("      ID: {}", info.id);
-    }
-
-    if symbols.len() > 10 {
-        eprintln!("  ... and {} more", symbols.len() - 10);
-    }
-
-    eprintln!();
-    eprintln!("Use the numeric ID for precise lookup (e.g., --target <ID>)");
-
+#[allow(dead_code)]
+fn resolve_target_geometric(_backend: &(), target: &str) -> Result<ResolvedTarget> {
     Err(anyhow::anyhow!(
-        "Target '{}' is ambiguous ({} matches)",
-        target,
-        symbols.len()
+        "Geometric backend removed: target '{}'",
+        target
     ))
 }
 
@@ -294,12 +209,11 @@ pub fn run_slice(
         args.push("--verbose".to_string());
     }
 
-    let backend = MagellanBackend::open(&db_path)?;
     let mut graph = CodeGraph::open(&db_path)?;
     let exec_id = magellan::output::generate_execution_id();
     let db_path_str = db_path.to_string_lossy().to_string();
 
-    backend.start_execution(
+    graph.execution_log().start_execution(
         &exec_id,
         env!("CARGO_PKG_VERSION"),
         &args,
@@ -308,33 +222,43 @@ pub fn run_slice(
     )?;
 
     // Resolve target to symbol
-    let resolved = match resolve_target(&backend, &mut graph, &db_path, &target) {
+    let resolved = match resolve_target(&mut graph, &db_path, &target) {
         Ok(r) => r,
         Err(e) => {
-            backend.finish_execution(&exec_id, "error", Some(&e.to_string()), 0, 0, 0)?;
+            graph.execution_log().finish_execution(
+                &exec_id,
+                "error",
+                Some(&e.to_string()),
+                0,
+                0,
+                0,
+            )?;
             return Err(e);
         }
     };
 
-    let backend_type = MagellanBackend::detect_type(&db_path);
-
     // Compute slice using call-graph reachability
-    let included_symbols = match backend_type {
-        BackendType::SQLite => {
-            // For SQLite backend, use symbol-based reachability
-            let symbols_result = match direction {
-                CliSliceDirection::Backward => {
-                    graph.reverse_reachable_symbols(&resolved.symbol_id, None)
-                }
-                CliSliceDirection::Forward => graph.reachable_symbols(&resolved.symbol_id, None),
-            };
+    let included_symbols = {
+        // For SQLite backend, use symbol-based reachability
+        let symbols_result = match direction {
+            CliSliceDirection::Backward => {
+                graph.reverse_reachable_symbols(&resolved.symbol_id, None)
+            }
+            CliSliceDirection::Forward => graph.reachable_symbols(&resolved.symbol_id, None),
+        };
 
-            match symbols_result {
-                Ok(symbols) => symbols,
-                Err(e) => {
-                    backend.finish_execution(&exec_id, "error", Some(&e.to_string()), 0, 0, 0)?;
-                    return Err(e);
-                }
+        match symbols_result {
+            Ok(symbols) => symbols,
+            Err(e) => {
+                graph.execution_log().finish_execution(
+                    &exec_id,
+                    "error",
+                    Some(&e.to_string()),
+                    0,
+                    0,
+                    0,
+                )?;
+                return Err(e);
             }
         }
     };
@@ -364,7 +288,9 @@ pub fn run_slice(
     };
 
     if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
-        backend.finish_execution(&exec_id, "success", None, 0, 0, 0)?;
+        graph
+            .execution_log()
+            .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
         return output_json_mode(
             &resolved.fqn,
             slice_result,
@@ -417,7 +343,9 @@ pub fn run_slice(
         println!("\n  Note: Current implementation uses call-graph reachability.");
     }
 
-    backend.finish_execution(&exec_id, "success", None, 0, 0, 0)?;
+    graph
+        .execution_log()
+        .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
     Ok(())
 }
 
