@@ -72,6 +72,44 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - `~/.config/systemd/user/magellan.service` unit file added: `Type=exec`, `Restart=on-failure`
   - Verified under systemd 260: service starts, socket created at `/run/user/UID/magellan.sock`, `magellan service status` / `service stats` communicate correctly
 
+### Changed
+
+- **CLI parser architecture** (`src/cli/parsers.rs` → `src/cli/parsers/`):
+  - Extracted ~3,800-line monolith into 8 categorized submodules: `core`, `index`, `query`, `graph`, `semantic`, `registry`, `config_project`, `system`
+  - `core.rs` holds shared helpers (`parse_required_arg`, `parse_output_format`, `parse_path_arg`, `parse_db_paths`)
+  - `mod.rs` re-exports all via `pub use ::*` for backward compatibility
+  - Zero functional change; all 858 tests pass
+- **`lcov` dependency removed** (`Cargo.toml`, `src/ingest_coverage/mod.rs`, `src/lcov_parser.rs`):
+  - Replaced with hand-rolled 47-line LCOV text parser (3 unit tests: branch info, function coverage, missing file)
+  - Eliminates duplicate `thiserror` versions in dependency tree; single `thiserror 1.0.69` remains
+- **CLI help text extraction** (`src/cli/`):
+  - Help text strings moved to `src/cli/help_text.rs` and `src/cli/tests.rs` (1,562-line test extraction)
+  - Keeps `src/cli.rs` focused on enum definitions and dispatch logic
+
+### Fixed
+
+- **P7-DEBT: Codebase quality audit — A+ grade** (2026-05-26):
+  - `cargo deny check` — pruned 2 stale advisory IDs, removed 1 redundant `[bans]` entry
+  - `cargo clippy --all-targets -- -D warnings` — 4 residual warnings fixed; zero warnings cold rebuild
+  - `cargo doc --no-deps` — 27 rustdoc backtick formatting errors corrected
+  - `cargo fmt --all -- --check` — clean
+  - `test_compute_delta_with_untracked` — removed CWD dependency via explicit `project_root` parameter
+  - `test_parse_frontmatter_float` — replaced PI/EPSILON with exact `2.5` to avoid flakiness
+  - All 691 lib tests + 167 bin tests pass; zero compiler, clippy, rustdoc, fmt, or deny warnings
+- **`refresh_cmd.rs::force` field wired** (`src/refresh_cmd.rs`):
+  - `RefreshArgs::force` was `#[allow(dead_code)]`; `compute_delta()` now returns all DB-tracked files as `to_update` (empty `to_delete`/`to_add`) when `force` is true, bypassing git comparison entirely
+  - Preserves existing `--force` CLI flag and help text
+- **`service/` blanket `#![allow(dead_code)]` removed** (`src/service/mod.rs`, `src/service/meta_db.rs`, `src/service/registry.rs`):
+  - Removed `#![allow(dead_code)]` module-level pragma from `service/mod.rs`
+  - Removed unused `SOCKET_PATH` constant (all callers already use `socket_path()`)
+  - Removed unused `Service::shutdown()` method (zero production callers; all `.shutdown()` calls are on `tokio::net::UnixStream` write halves)
+  - Added 6 targeted `#[allow(dead_code, reason = "...")]` annotations: `MetaDb.path` (future diagnostics), `EmbeddingRecord.hash`/`CrossRefRecord.symbol_a/file_a` (Phase 2 structural embeddings WIP), `MetaDb::remove_project`/`update_counts` and `Registry::names` (test-only)
+- **`P7-LOG-BATCH` completion** (`src/service/mod.rs`, `src/service/admin_socket.rs`):
+  - `worker_loop` logs `reconcile_ok` per-file on successful reconcile (was `reconcile_err` only)
+  - `worker_loop` logs `checkpoint_ok`/`checkpoint_err` per batch
+- **`P7-LOG-ADMIN` completion** (`src/service/admin_socket.rs`):
+  - `AdminSocket::dispatch` logs `admin_err` events with method name and error details on JSON dispatch failure
+
 ## [4.0.0] - 2026-05-24
 
 ### Added
