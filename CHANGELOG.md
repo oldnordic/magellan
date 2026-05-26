@@ -85,6 +85,12 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **CLI help text extraction** (`src/cli/`):
   - Help text strings moved to `src/cli/help_text.rs` and `src/cli/tests.rs` (1,562-line test extraction)
   - Keeps `src/cli.rs` focused on enum definitions and dispatch logic
+- **SM-2: Modularize `src/indexer.rs` — Phase 2 watch pipeline extracted** (`src/indexer.rs`, `src/indexer/watch.rs`):
+  - Moved `run_watch_pipeline` and the `WatchPipelineConfig`/`WatchPipelineState`/`PipelineSharedState` machinery from `src/indexer.rs` (1,446 lines → 609 lines)
+  - Created `src/indexer/watch.rs` (876 lines) as a standalone submodule; `pub mod watch;` + `pub use watch::{run_watch_pipeline, WatchPipelineConfig};` preserved public API
+  - Constants `DEFAULT_L3_CACHE_SIZE` and `TARGET_CACHE_USAGE` set to `pub(crate)` to share with submodule
+  - Call site in `src/watch_cmd.rs` updated to `magellan::indexer::watch::run_watch_pipeline_geometric`
+  - All 691 tests pass, zero functional change
 
 ### Fixed
 

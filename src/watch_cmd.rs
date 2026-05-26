@@ -195,7 +195,7 @@ pub fn run_watch(
     // Run the deterministic watch pipeline based on backend type
     let result = match backend_type {
         BackendType::Geometric => {
-            magellan::indexer::run_watch_pipeline_geometric(pipeline_config, shutdown)
+            magellan::indexer::watch::run_watch_pipeline_geometric(pipeline_config, shutdown)
         }
         _ => magellan::run_watch_pipeline(pipeline_config, shutdown),
     };
