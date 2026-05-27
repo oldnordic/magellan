@@ -259,6 +259,9 @@ pub trait SideTables: Send + Sync {
     fn as_any(&self) -> &dyn std::any::Any;
 }
 
+// Re-export telemetry types for SideTables integration
+pub use crate::graph::telemetry::{TelemetryEvent, TelemetryEventType};
+
 // =============================================================================
 // SQLite Implementation
 // =============================================================================
