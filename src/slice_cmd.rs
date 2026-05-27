@@ -10,8 +10,6 @@ use std::path::{Path, PathBuf};
 
 /// Resolved target information
 struct ResolvedTarget {
-    /// The numeric ID for geometric backend
-    pub numeric_id: u64,
     /// The symbol ID (BLAKE3 hash) for SQLite backend
     pub symbol_id: String,
     /// The FQN of the symbol
@@ -76,7 +74,6 @@ fn resolve_target_sqlite(graph: &mut CodeGraph, target: &str) -> Result<Resolved
                 // Get full symbol info for file path
                 if let Ok(info) = graph.symbol_by_entity_id(entity_id) {
                     return Ok(ResolvedTarget {
-                        numeric_id: entity_id as u64,
                         symbol_id: target.to_string(),
                         fqn: info.fqn.unwrap_or_else(|| target.to_string()),
                         file_path: info.file_path,
@@ -93,7 +90,6 @@ fn resolve_target_sqlite(graph: &mut CodeGraph, target: &str) -> Result<Resolved
             // Found by FQN or symbol_id, get symbol info
             if let Ok(info) = graph.symbol_by_entity_id(entity_id) {
                 return Ok(ResolvedTarget {
-                    numeric_id: entity_id as u64,
                     symbol_id: info.symbol_id.unwrap_or_default(),
                     fqn: info.fqn.unwrap_or_else(|| target.to_string()),
                     file_path: info.file_path,
@@ -129,7 +125,7 @@ fn resolve_target_sqlite(graph: &mut CodeGraph, target: &str) -> Result<Resolved
     }
 
     if matches.len() == 1 {
-        let (node_id, symbol, symbol_id) = &matches[0];
+        let (_node_id, symbol, symbol_id) = &matches[0];
         let fqn = symbol
             .canonical_fqn
             .as_ref()
@@ -137,7 +133,6 @@ fn resolve_target_sqlite(graph: &mut CodeGraph, target: &str) -> Result<Resolved
             .map(|s| s.as_str())
             .unwrap_or_else(|| symbol.name.as_deref().unwrap_or("<unknown>"));
         return Ok(ResolvedTarget {
-            numeric_id: *node_id as u64,
             symbol_id: symbol_id.clone().unwrap_or_default(),
             fqn: fqn.to_string(),
             file_path: symbol.file_path.to_string_lossy().to_string(),
