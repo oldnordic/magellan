@@ -93,6 +93,11 @@ pub fn run_query(
         &db_path_str,
     )?;
 
+    // Phase: validate_args
+    graph
+        .telemetry()
+        .record_phase_start(&exec_id, "validate_args")?;
+
     if explain {
         println!("{}", QUERY_EXPLAIN_TEXT);
         let _ = graph
@@ -143,6 +148,12 @@ pub fn run_query(
 
     let path_str = resolve_path(&file_path, &root);
 
+    // End validate_args phase, start query phase
+    graph
+        .telemetry()
+        .record_phase_end(&exec_id, "validate_args")?;
+    graph.telemetry().record_phase_start(&exec_id, "query")?;
+
     // Handle JSON output mode - use symbol_nodes_in_file_with_ids for symbol_id propagation
     if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
         let mut symbols_with_ids =
@@ -167,6 +178,11 @@ pub fn run_query(
         let _ = graph
             .execution_log()
             .finish_execution(&exec_id, "success", None, 0, 0, 0);
+        // End query phase, start build_response phase
+        graph.telemetry().record_phase_end(&exec_id, "query")?;
+        graph
+            .telemetry()
+            .record_phase_start(&exec_id, "build_response")?;
         return output_json_mode(
             &path_str,
             symbols_with_ids,
@@ -186,6 +202,9 @@ pub fn run_query(
     }
 
     // Human mode - use existing flow
+    // End query phase for human output
+    graph.telemetry().record_phase_end(&exec_id, "query")?;
+
     let mut symbols = graph.symbols_in_file_with_kind(&path_str, kind_filter)?;
 
     if let Some(ref symbol_name) = symbol {
@@ -276,6 +295,11 @@ pub fn run_query(
     let _ = graph
         .execution_log()
         .finish_execution(&exec_id, "success", None, 0, 0, 0);
+
+    // Record output phase
+    graph.telemetry().record_phase_start(&exec_id, "output")?;
+    graph.telemetry().record_phase_end(&exec_id, "output")?;
+
     Ok(())
 }
 

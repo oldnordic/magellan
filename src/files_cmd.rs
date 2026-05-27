@@ -36,6 +36,11 @@ pub fn run_files(db_path: PathBuf, with_symbols: bool, output_format: OutputForm
         &db_path.to_string_lossy(),
     )?;
 
+    // Phase: query_files
+    graph
+        .telemetry()
+        .record_phase_start(&exec_id, "query_files")?;
+
     let file_nodes = graph.all_file_nodes()?;
 
     // Build symbol counts map if requested
@@ -57,6 +62,11 @@ pub fn run_files(db_path: PathBuf, with_symbols: bool, output_format: OutputForm
     let mut files: Vec<String> = file_nodes.keys().cloned().collect();
     files.sort();
 
+    // End query_files phase
+    graph
+        .telemetry()
+        .record_phase_end(&exec_id, "query_files")?;
+
     // Get counts for execution tracking before moving
     let file_count = files.len();
     let symbol_count = symbol_counts
@@ -67,6 +77,11 @@ pub fn run_files(db_path: PathBuf, with_symbols: bool, output_format: OutputForm
     // Handle output based on format
     match output_format {
         OutputFormat::Json | OutputFormat::Pretty => {
+            // Phase: build_response
+            graph
+                .telemetry()
+                .record_phase_start(&exec_id, "build_response")?;
+
             let response = FilesResponse {
                 files,
                 symbol_counts,
@@ -74,8 +89,15 @@ pub fn run_files(db_path: PathBuf, with_symbols: bool, output_format: OutputForm
 
             let json_response = JsonResponse::new(response, &exec_id);
             output_json(&json_response, output_format)?;
+
+            graph
+                .telemetry()
+                .record_phase_end(&exec_id, "build_response")?;
         }
         OutputFormat::Human => {
+            // Phase: output
+            graph.telemetry().record_phase_start(&exec_id, "output")?;
+
             if files.is_empty() {
                 println!("0 indexed files");
             } else {
@@ -89,6 +111,8 @@ pub fn run_files(db_path: PathBuf, with_symbols: bool, output_format: OutputForm
                     }
                 }
             }
+
+            graph.telemetry().record_phase_end(&exec_id, "output")?;
         }
     }
 

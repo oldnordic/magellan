@@ -150,6 +150,9 @@ pub fn run_export(
         &db_path.to_string_lossy(),
     )?;
 
+    // Phase: export
+    graph.telemetry().record_phase_start(&exec_id, "export")?;
+
     // Handle SCIP format specially (binary output)
     if format == ExportFormat::Scip {
         let scip_config = scip::ScipExportConfig {
@@ -275,6 +278,7 @@ pub fn run_export(
     }
 
     // Finish execution tracking
+    graph.telemetry().record_phase_end(&exec_id, "export")?;
     graph.execution_log().finish_execution(
         &exec_id, "success", None, 0, // files_indexed
         0, // symbols_indexed

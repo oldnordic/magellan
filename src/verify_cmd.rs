@@ -29,8 +29,15 @@ pub fn run_verify(root_path: PathBuf, db_path: PathBuf, output_format: OutputFor
         &db_path_str,
     )?;
 
+    // Phase: verify_graph
+    graph
+        .telemetry()
+        .record_phase_start(&exec_id, "verify_graph")?;
     let mut graph_mut = CodeGraph::open(&db_path)?;
     let report = magellan::verify::verify_graph(&mut graph_mut, &root_path)?;
+    graph
+        .telemetry()
+        .record_phase_end(&exec_id, "verify_graph")?;
 
     match output_format {
         OutputFormat::Json | OutputFormat::Pretty => {

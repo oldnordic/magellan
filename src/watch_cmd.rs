@@ -1,5 +1,5 @@
 //! Watch command implementation
-
+//
 // Debug macro - only compiles in when debug-prints feature is enabled
 #[cfg(feature = "debug-prints")]
 macro_rules! debug_print {
@@ -132,11 +132,18 @@ pub fn run_watch(
     // Pre-run validation if enabled (SQLite only)
     if validate || validate_only {
         if let Some(MagellanBackend::SQLite(ref mut graph)) = &mut backend {
+            // Phase: pre_validation
+            graph
+                .telemetry()
+                .record_phase_start(&exec_id, "pre_validation")?;
             let input_paths = vec![root_path.clone()];
             match validation::pre_run_validate(&db_path, &root_path, &input_paths) {
                 Ok(report) if !report.passed => {
                     let error_count = report.errors.len();
                     let error_msg = format!("Pre-validation failed: {} errors", error_count);
+                    graph
+                        .telemetry()
+                        .record_phase_end(&exec_id, "pre_validation")?;
                     graph.execution_log().finish_execution(
                         &exec_id,
                         "error",
@@ -150,6 +157,9 @@ pub fn run_watch(
                 Ok(_) => {}
                 Err(e) => return Err(e),
             }
+            graph
+                .telemetry()
+                .record_phase_end(&exec_id, "pre_validation")?;
             if validate_only {
                 graph
                     .execution_log()

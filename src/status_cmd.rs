@@ -103,13 +103,23 @@ pub fn run_status(db_path: PathBuf, output_format: OutputFormat, all: bool) -> R
     );
     tracker.start(&graph)?;
 
+    // Phase: query_counts
+    graph
+        .telemetry()
+        .record_phase_start(tracker.exec_id(), "query_counts")?;
     let file_count = graph.count_files()?;
     let symbol_count = graph.count_symbols()?;
     let reference_count = graph.count_references()?;
     let call_count = graph.count_calls()?;
     let chunk_count = graph.count_chunks()?;
+    graph
+        .telemetry()
+        .record_phase_end(tracker.exec_id(), "query_counts")?;
 
-    // Query coverage data directly from side tables
+    // Phase: query_coverage
+    graph
+        .telemetry()
+        .record_phase_start(tracker.exec_id(), "query_coverage")?;
     let (coverage_blocks, coverage_edges, coverage_meta) = match rusqlite::Connection::open(
         &db_path,
     ) {
@@ -137,7 +147,14 @@ pub fn run_status(db_path: PathBuf, output_format: OutputFormat, all: bool) -> R
             (0, 0, None)
         }
     };
+    graph
+        .telemetry()
+        .record_phase_end(tracker.exec_id(), "query_coverage")?;
 
+    // Phase: build_response
+    graph
+        .telemetry()
+        .record_phase_start(tracker.exec_id(), "build_response")?;
     let has_coverage = coverage_blocks > 0 || coverage_meta.is_some();
     let coverage = if has_coverage {
         let (source, revision, ingested_at) = match coverage_meta {
@@ -170,7 +187,14 @@ pub fn run_status(db_path: PathBuf, output_format: OutputFormat, all: bool) -> R
             ingested_at: None,
         }
     };
+    graph
+        .telemetry()
+        .record_phase_end(tracker.exec_id(), "build_response")?;
 
+    // Phase: output
+    graph
+        .telemetry()
+        .record_phase_start(tracker.exec_id(), "output")?;
     match output_format {
         OutputFormat::Json | OutputFormat::Pretty => {
             let response = StatusResponse {
@@ -225,6 +249,9 @@ pub fn run_status(db_path: PathBuf, output_format: OutputFormat, all: bool) -> R
             }
         }
     }
+    graph
+        .telemetry()
+        .record_phase_end(tracker.exec_id(), "output")?;
 
     tracker.finish(&graph)?;
     Ok(())

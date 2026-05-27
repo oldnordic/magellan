@@ -126,6 +126,11 @@ pub fn run_refs(
         &db_path_str,
     )?;
 
+    // Phase: resolve_target
+    graph
+        .telemetry()
+        .record_phase_start(&exec_id, "resolve_target")?;
+
     // Handle --symbol-id alternative
     if let Some(sid) = symbol_id {
         let mut graph_mut = CodeGraph::open(&db_path)?;
@@ -271,6 +276,12 @@ pub fn run_refs(
             resolve_path(&p, &root)
         }
         None => {
+            // End resolve_target phase, start search phase
+            graph
+                .telemetry()
+                .record_phase_end(&exec_id, "resolve_target")?;
+            graph.telemetry().record_phase_start(&exec_id, "search")?;
+
             // No path provided - search all files for the symbol
             let mut graph_mut = CodeGraph::open(&db_path)?;
             let matches = find_symbol_all_files(&mut graph_mut, &name)?;
@@ -319,6 +330,14 @@ pub fn run_refs(
 
     let calls: Vec<CallFact> = match direction.as_str() {
         "in" | "incoming" => {
+            // End resolve_target phase, start query phase
+            graph
+                .telemetry()
+                .record_phase_end(&exec_id, "resolve_target")?;
+            graph
+                .telemetry()
+                .record_phase_start(&exec_id, "query_refs")?;
+
             // Get callers of this symbol
             {
                 let mut graph_mut = CodeGraph::open(&db_path)?;
@@ -326,6 +345,14 @@ pub fn run_refs(
             }
         }
         "out" | "outgoing" => {
+            // End resolve_target phase, start query phase
+            graph
+                .telemetry()
+                .record_phase_end(&exec_id, "resolve_target")?;
+            graph
+                .telemetry()
+                .record_phase_start(&exec_id, "query_refs")?;
+
             // Get calls from this symbol
             {
                 let mut graph_mut = CodeGraph::open(&db_path)?;
@@ -348,6 +375,12 @@ pub fn run_refs(
 
     // Handle JSON output mode
     if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
+        // End query phase, start build_response phase
+        graph.telemetry().record_phase_end(&exec_id, "query_refs")?;
+        graph
+            .telemetry()
+            .record_phase_start(&exec_id, "build_response")?;
+
         graph
             .execution_log()
             .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
@@ -368,6 +401,8 @@ pub fn run_refs(
 
     // Human mode (existing behavior)
     if direction == "in" || direction == "incoming" {
+        // End query phase for human output
+        graph.telemetry().record_phase_end(&exec_id, "query_refs")?;
         if calls.is_empty() {
             println!("No incoming calls to \"{}\"", name);
         } else {
@@ -398,6 +433,11 @@ pub fn run_refs(
     graph
         .execution_log()
         .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
+
+    // Record output phase
+    graph.telemetry().record_phase_start(&exec_id, "output")?;
+    graph.telemetry().record_phase_end(&exec_id, "output")?;
+
     Ok(())
 }
 

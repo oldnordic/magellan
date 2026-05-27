@@ -711,3 +711,68 @@ pub fn parse_hnsw_query_args(args: &[String]) -> Result<Command> {
         output_format,
     })
 }
+
+/// Parse the `telemetry` command arguments
+pub fn parse_telemetry_args(args: &[String]) -> Result<Command> {
+    let mut db_path: Option<PathBuf> = None;
+    let mut recent = false;
+    let mut phases: Option<String> = None;
+    let mut limit = 20usize;
+    let mut output_format = OutputFormat::Human;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--db" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--db requires an argument"));
+                }
+                db_path = Some(PathBuf::from(&args[i + 1]));
+                i += 2;
+            }
+            "--recent" => {
+                recent = true;
+                i += 1;
+            }
+            "--phases" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--phases requires an execution ID"));
+                }
+                phases = Some(args[i + 1].clone());
+                i += 2;
+            }
+            "--limit" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--limit requires an argument"));
+                }
+                limit = args[i + 1]
+                    .parse()
+                    .map_err(|_| anyhow::anyhow!("--limit must be a number"))?;
+                i += 2;
+            }
+            "--output" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--output requires an argument"));
+                }
+                output_format = match args[i + 1].as_str() {
+                    "human" => OutputFormat::Human,
+                    "json" => OutputFormat::Json,
+                    "pretty" => OutputFormat::Pretty,
+                    _ => return Err(anyhow::anyhow!("Invalid output format: {}", args[i + 1])),
+                };
+                i += 2;
+            }
+            _ => i += 1,
+        }
+    }
+
+    let db_path = resolve_db_path(db_path)?;
+
+    Ok(Command::Telemetry {
+        db_path,
+        recent,
+        phases,
+        limit,
+        output_format,
+    })
+}

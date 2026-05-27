@@ -216,10 +216,16 @@ pub fn run_slice(
         &db_path_str,
     )?;
 
-    // Resolve target to symbol
+    // Phase: resolve_target
+    graph
+        .telemetry()
+        .record_phase_start(&exec_id, "resolve_target")?;
     let resolved = match resolve_target(&mut graph, &db_path, &target) {
         Ok(r) => r,
         Err(e) => {
+            graph
+                .telemetry()
+                .record_phase_end(&exec_id, "resolve_target")?;
             graph.execution_log().finish_execution(
                 &exec_id,
                 "error",
@@ -231,8 +237,14 @@ pub fn run_slice(
             return Err(e);
         }
     };
+    graph
+        .telemetry()
+        .record_phase_end(&exec_id, "resolve_target")?;
 
-    // Compute slice using call-graph reachability
+    // Phase: compute_slice
+    graph
+        .telemetry()
+        .record_phase_start(&exec_id, "compute_slice")?;
     let included_symbols = {
         // For SQLite backend, use symbol-based reachability
         let symbols_result = match direction {
@@ -245,6 +257,9 @@ pub fn run_slice(
         match symbols_result {
             Ok(symbols) => symbols,
             Err(e) => {
+                graph
+                    .telemetry()
+                    .record_phase_end(&exec_id, "compute_slice")?;
                 graph.execution_log().finish_execution(
                     &exec_id,
                     "error",
@@ -257,6 +272,9 @@ pub fn run_slice(
             }
         }
     };
+    graph
+        .telemetry()
+        .record_phase_end(&exec_id, "compute_slice")?;
 
     let target_info = magellan::graph::SymbolInfo {
         symbol_id: Some(resolved.symbol_id.clone()),

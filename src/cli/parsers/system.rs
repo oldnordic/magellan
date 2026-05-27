@@ -202,6 +202,7 @@ where
         "hnsw-query" => parse_hnsw_query_args(&args[2..]),
         "ask" => parse_ask_args(&args[2..]),
         "navigate" => parse_navigate_args(&args[2..]),
+        "telemetry" => parse_telemetry_args(&args[2..]),
         "features" => parse_features_args(&args[2..]),
         "service-daemon" => Ok(Command::ServiceDaemon),
         _ => Err(anyhow::anyhow!("Unknown command: {}", command)),

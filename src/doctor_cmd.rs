@@ -36,6 +36,14 @@ pub fn run_doctor(db_path: PathBuf, fix: bool, output_format: OutputFormat) -> R
     let mut issues_found = 0;
     let mut issues_fixed = 0;
 
+    let exec_id = generate_execution_id();
+
+    // Phase: open_graph
+    let mut graph = CodeGraph::open(&db_path)?;
+    graph
+        .telemetry()
+        .record_phase_start(&exec_id, "open_graph")?;
+
     // Check 1: Database file exists
     if db_path.exists() {
         checks.push(CheckResult {
@@ -60,6 +68,10 @@ pub fn run_doctor(db_path: PathBuf, fix: bool, output_format: OutputFormat) -> R
     // Check 2: Database is readable
     match CodeGraph::open(&db_path) {
         Ok(mut graph) => {
+            // End open_graph phase, start diagnose phase
+            graph.telemetry().record_phase_end(&exec_id, "open_graph")?;
+            graph.telemetry().record_phase_start(&exec_id, "diagnose")?;
+
             checks.push(CheckResult {
                 name: "Database readability".to_string(),
                 status: "ok".to_string(),
@@ -433,6 +445,10 @@ pub fn run_doctor(db_path: PathBuf, fix: bool, output_format: OutputFormat) -> R
         checks,
     };
 
+    // End diagnose phase, start output phase
+    graph.telemetry().record_phase_end(&exec_id, "diagnose")?;
+    graph.telemetry().record_phase_start(&exec_id, "output")?;
+
     match output_format {
         OutputFormat::Json => {
             println!("{}", serde_json::to_string(&report)?);
@@ -487,6 +503,9 @@ pub fn run_doctor(db_path: PathBuf, fix: bool, output_format: OutputFormat) -> R
 
     // Track execution
     let _exec_id = generate_execution_id();
+
+    // End output phase
+    graph.telemetry().record_phase_end(&exec_id, "output")?;
 
     Ok(())
 }

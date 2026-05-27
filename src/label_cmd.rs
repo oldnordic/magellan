@@ -56,11 +56,25 @@ pub fn run_label(
     let tracker = ExecutionTracker::new(args, None, db_path.to_string_lossy().to_string());
     tracker.start(&graph)?;
 
+    // Phase: query_labels
+    graph
+        .telemetry()
+        .record_phase_start(tracker.exec_id(), "query_labels")?;
+
     // List all labels mode
     if list {
         let all_labels = graph.get_all_labels()?;
 
+        // End query_labels phase, start build_response phase
+        graph
+            .telemetry()
+            .record_phase_end(tracker.exec_id(), "query_labels")?;
+
         if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
+            // Phase: build_response
+            graph
+                .telemetry()
+                .record_phase_start(tracker.exec_id(), "build_response")?;
             let labels_info: Vec<LabelInfo> = all_labels
                 .iter()
                 .map(|label| {
@@ -73,15 +87,27 @@ pub fn run_label(
                 .collect();
             let json_response = JsonResponse::new(labels_info, "");
             output_json(&json_response, output_format)?;
+
+            graph
+                .telemetry()
+                .record_phase_end(tracker.exec_id(), "build_response")?;
             tracker.finish(&graph)?;
             return Ok(());
         }
+
+        // Phase: output for human mode
+        graph
+            .telemetry()
+            .record_phase_start(tracker.exec_id(), "output")?;
 
         println!("{} labels in use:", all_labels.len());
         for label in all_labels {
             let count = graph.count_entities_by_label(&label)?;
             println!("  {} ({})", label, count);
         }
+        graph
+            .telemetry()
+            .record_phase_end(tracker.exec_id(), "output")?;
         tracker.finish(&graph)?;
         return Ok(());
     }
@@ -89,9 +115,17 @@ pub fn run_label(
     // Count mode
     if count {
         if labels.is_empty() {
+            graph
+                .telemetry()
+                .record_phase_end(tracker.exec_id(), "query_labels")?;
             tracker.finish(&graph)?;
             return Err(anyhow::anyhow!("--count requires --label"));
         }
+
+        // End query_labels phase
+        graph
+            .telemetry()
+            .record_phase_end(tracker.exec_id(), "query_labels")?;
 
         if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
             let labels_info: Vec<LabelInfo> = labels
@@ -106,20 +140,35 @@ pub fn run_label(
                 .collect();
             let json_response = JsonResponse::new(labels_info, "");
             output_json(&json_response, output_format)?;
+
+            graph
+                .telemetry()
+                .record_phase_end(tracker.exec_id(), "build_response")?;
             tracker.finish(&graph)?;
             return Ok(());
         }
+
+        // Phase: output for human count mode
+        graph
+            .telemetry()
+            .record_phase_start(tracker.exec_id(), "output")?;
 
         for label in &labels {
             let entity_count = graph.count_entities_by_label(label)?;
             println!("{}: {} entities", label, entity_count);
         }
+        graph
+            .telemetry()
+            .record_phase_end(tracker.exec_id(), "output")?;
         tracker.finish(&graph)?;
         return Ok(());
     }
 
     // Query mode - get symbols by label(s)
     if labels.is_empty() {
+        graph
+            .telemetry()
+            .record_phase_end(tracker.exec_id(), "query_labels")?;
         tracker.finish(&graph)?;
         return Err(anyhow::anyhow!(
             "No labels specified. Use --label <LABEL> or --list to see all labels"
@@ -133,7 +182,17 @@ pub fn run_label(
         graph.get_symbols_by_labels(&labels_ref)?
     };
 
+    // End query_labels phase
+    graph
+        .telemetry()
+        .record_phase_end(tracker.exec_id(), "query_labels")?;
+
     if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
+        // Phase: build_response
+        graph
+            .telemetry()
+            .record_phase_start(tracker.exec_id(), "build_response")?;
+
         let symbols: Vec<SymbolByLabel> = results
             .iter()
             .map(|result| {
@@ -162,9 +221,18 @@ pub fn run_label(
             .collect();
         let json_response = JsonResponse::new(symbols, "");
         output_json(&json_response, output_format)?;
+
+        graph
+            .telemetry()
+            .record_phase_end(tracker.exec_id(), "build_response")?;
         tracker.finish(&graph)?;
         return Ok(());
     }
+
+    // Phase: output for human query mode
+    graph
+        .telemetry()
+        .record_phase_start(tracker.exec_id(), "output")?;
 
     if results.is_empty() {
         if labels.len() == 1 {
@@ -206,6 +274,11 @@ pub fn run_label(
             }
         }
     }
+
+    // End output phase
+    graph
+        .telemetry()
+        .record_phase_end(tracker.exec_id(), "output")?;
 
     tracker.finish(&graph)?;
     Ok(())

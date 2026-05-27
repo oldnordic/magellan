@@ -39,10 +39,24 @@ pub fn run_collisions(
         &db_path.to_string_lossy(),
     )?;
 
+    // Phase: query_collisions
+    graph
+        .telemetry()
+        .record_phase_start(&exec_id, "query_collisions")?;
+
     let groups = collision_groups(&mut graph, field, limit)?;
+
+    graph
+        .telemetry()
+        .record_phase_end(&exec_id, "query_collisions")?;
 
     match output_format {
         OutputFormat::Json | OutputFormat::Pretty => {
+            // Phase: build_response
+            graph
+                .telemetry()
+                .record_phase_start(&exec_id, "build_response")?;
+
             let response = CollisionsResponse {
                 field: field.as_str().to_string(),
                 groups: groups
@@ -69,8 +83,15 @@ pub fn run_collisions(
 
             let json_response = JsonResponse::new(response, &exec_id);
             output_json(&json_response, output_format)?;
+
+            graph
+                .telemetry()
+                .record_phase_end(&exec_id, "build_response")?;
         }
         OutputFormat::Human => {
+            // Phase: output
+            graph.telemetry().record_phase_start(&exec_id, "output")?;
+
             if groups.is_empty() {
                 println!("No collisions found for {}", field.as_str());
             } else {
@@ -88,6 +109,9 @@ pub fn run_collisions(
                     }
                 }
             }
+
+            // End output phase
+            graph.telemetry().record_phase_end(&exec_id, "output")?;
         }
     }
 

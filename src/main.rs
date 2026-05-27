@@ -45,6 +45,7 @@ mod service_cmd;
 mod slice_cmd;
 mod source_inventory_cmd;
 mod status_cmd;
+mod telemetry_cmd;
 mod verify_cmd;
 mod version;
 mod watch_cmd;
@@ -1068,6 +1069,21 @@ fn main() -> ExitCode {
                 with_mirage,
             };
             if let Err(e) = navigate_cmd::run_navigate(cfg) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::Telemetry {
+            db_path,
+            recent,
+            phases,
+            limit,
+            output_format,
+        }) => {
+            if let Err(e) =
+                telemetry_cmd::run_telemetry(db_path, recent, phases, limit, output_format)
+            {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }

@@ -272,6 +272,11 @@ pub fn run_find(
         &db_path_str,
     )?;
 
+    // Phase: resolve_target
+    graph
+        .telemetry()
+        .record_phase_start(&exec_id, "resolve_target")?;
+
     if let Some(pattern) = glob_pattern {
         let result = run_glob_listing(&mut graph, &pattern, output_format, &exec_id);
         let _ = graph.execution_log().finish_execution(
@@ -373,6 +378,12 @@ pub fn run_find(
         )
     })?;
 
+    // End resolve_target phase, start search phase
+    graph
+        .telemetry()
+        .record_phase_end(&exec_id, "resolve_target")?;
+    graph.telemetry().record_phase_start(&exec_id, "search")?;
+
     let results = match path.as_ref() {
         Some(file_path) => {
             let path_str = resolve_path(file_path, &root);
@@ -385,6 +396,12 @@ pub fn run_find(
     };
 
     if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
+        // End search phase, start build_response phase
+        graph.telemetry().record_phase_end(&exec_id, "search")?;
+        graph
+            .telemetry()
+            .record_phase_start(&exec_id, "build_response")?;
+
         let result = output_json_mode(
             &mut graph,
             &name,
@@ -413,6 +430,9 @@ pub fn run_find(
         );
         return result;
     }
+
+    // End search phase for human output
+    graph.telemetry().record_phase_end(&exec_id, "search")?;
 
     if results.is_empty() {
         println!("Symbol '{}' not found", name);
@@ -488,6 +508,11 @@ pub fn run_find(
     let _ = graph
         .execution_log()
         .finish_execution(&exec_id, "success", None, 0, 0, 0);
+
+    // Record output phase for human output
+    graph.telemetry().record_phase_start(&exec_id, "output")?;
+    graph.telemetry().record_phase_end(&exec_id, "output")?;
+
     Ok(())
 }
 

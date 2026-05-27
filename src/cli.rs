@@ -463,6 +463,17 @@ pub enum Command {
         with_llmgrep: bool,
         with_mirage: bool,
     },
+    /// Telemetry — query performance telemetry events
+    Telemetry {
+        db_path: PathBuf,
+        /// Show recent events
+        recent: bool,
+        /// Show phase durations for an execution
+        phases: Option<String>,
+        /// Limit number of results
+        limit: usize,
+        output_format: OutputFormat,
+    },
 }
 
 // ============================================================================

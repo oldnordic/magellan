@@ -275,6 +275,11 @@ impl MultiDbContext {
         }
         results
     }
+
+    /// Access telemetry for the first project's graph (for instrumentation)
+    pub fn telemetry(&self) -> &crate::graph::telemetry::TelemetryOps {
+        &self.projects[0].graph.telemetry()
+    }
 }
 
 /// Textual relevance score for a query against a symbol name.

@@ -11,9 +11,14 @@ use std::path::PathBuf;
 
 /// Run the context build command (multi-DB)
 pub fn run_context_build(db_paths: Vec<PathBuf>) -> Result<()> {
+    let exec_id = generate_execution_id();
+
     for db_path in &db_paths {
         match CodeGraph::open(db_path) {
             Ok(mut graph) => {
+                graph
+                    .telemetry()
+                    .record_phase_start(&exec_id, "build_context")?;
                 if let Err(e) = build_context_index(&mut graph, db_path) {
                     eprintln!(
                         "Warning: failed to build index for {}: {}",
@@ -21,6 +26,9 @@ pub fn run_context_build(db_paths: Vec<PathBuf>) -> Result<()> {
                         e
                     );
                 }
+                let _ = graph
+                    .telemetry()
+                    .record_phase_end(&exec_id, "build_context");
             }
             Err(e) => {
                 eprintln!("Warning: skipping {}: {}", db_path.display(), e);
@@ -32,8 +40,18 @@ pub fn run_context_build(db_paths: Vec<PathBuf>) -> Result<()> {
 
 /// Run the context summary command (multi-DB)
 pub fn run_context_summary(db_paths: Vec<PathBuf>) -> Result<()> {
+    let exec_id = generate_execution_id();
     let mut mdb = MultiDbContext::from_paths(&db_paths)?;
+
+    // Phase: query_summary
+    mdb.telemetry()
+        .record_phase_start(&exec_id, "query_summary")?;
     let summaries = mdb.summaries();
+    mdb.telemetry()
+        .record_phase_end(&exec_id, "query_summary")?;
+
+    // Phase: output
+    mdb.telemetry().record_phase_start(&exec_id, "output")?;
 
     for (project, summary) in &summaries {
         println!("Project: {} {}", summary.name, summary.version);
@@ -61,6 +79,9 @@ pub fn run_context_summary(db_paths: Vec<PathBuf>) -> Result<()> {
         println!("---");
     }
 
+    // End output phase
+    mdb.telemetry().record_phase_end(&exec_id, "output")?;
+
     Ok(())
 }
 
@@ -78,6 +99,7 @@ pub fn run_context_list(
         anyhow::bail!("No database paths provided. Use --db <path> to specify.");
     }
 
+    let exec_id = generate_execution_id();
     let query = ListQuery {
         kind,
         page: None,
@@ -87,7 +109,11 @@ pub fn run_context_list(
     };
 
     let mut mdb = MultiDbContext::from_paths(&db_paths)?;
+
+    // Phase: query_list
+    mdb.telemetry().record_phase_start(&exec_id, "query_list")?;
     let mut all_items = mdb.list_symbols(&query);
+    mdb.telemetry().record_phase_end(&exec_id, "query_list")?;
 
     // Post-filter by --project
     if let Some(ref filter) = project_filter {
@@ -109,6 +135,10 @@ pub fn run_context_list(
     // Output
     match output_format {
         OutputFormat::Json | OutputFormat::Pretty => {
+            // Phase: build_response
+            mdb.telemetry()
+                .record_phase_start(&exec_id, "build_response")?;
+
             let items_json: Vec<serde_json::Value> = page_items
                 .iter()
                 .map(|(proj, item)| {
@@ -139,8 +169,14 @@ pub fn run_context_list(
                 serde_json::to_string(&response)?
             };
             println!("{}", formatted);
+
+            mdb.telemetry()
+                .record_phase_end(&exec_id, "build_response")?;
         }
         OutputFormat::Human => {
+            // Phase: output
+            mdb.telemetry().record_phase_start(&exec_id, "output")?;
+
             println!(
                 "Page {} of {} ({} total symbols across {} projects)",
                 page_num,
@@ -169,6 +205,9 @@ pub fn run_context_list(
                 println!();
                 println!("Next page: --page {}", page_num + 1);
             }
+
+            // End output phase
+            mdb.telemetry().record_phase_end(&exec_id, "output")?;
         }
     }
 
@@ -195,7 +234,12 @@ pub fn run_context_symbol(
         anyhow::bail!("No database paths provided. Use --db <path> to specify.");
     }
 
+    let exec_id = generate_execution_id();
     let mut mdb = MultiDbContext::from_paths(&db_paths)?;
+
+    // Phase: search_symbol
+    mdb.telemetry()
+        .record_phase_start(&exec_id, "search_symbol")?;
     let mut all_matches = mdb.search_symbol(
         &name,
         file.as_deref(),
@@ -203,6 +247,8 @@ pub fn run_context_symbol(
         include_callers,
         include_callees,
     );
+    mdb.telemetry()
+        .record_phase_end(&exec_id, "search_symbol")?;
 
     // Post-filter by --project
     if let Some(ref filter) = project_filter {
@@ -241,6 +287,10 @@ pub fn run_context_symbol(
     // Output results
     match output_format {
         OutputFormat::Json | OutputFormat::Pretty => {
+            // Phase: build_response
+            mdb.telemetry()
+                .record_phase_start(&exec_id, "build_response")?;
+
             let response = ContextResponse {
                 query: name.clone(),
                 projects: project_names,
@@ -249,8 +299,14 @@ pub fn run_context_symbol(
             let exec_id = generate_execution_id();
             let json_response = magellan::output::JsonResponse::new(response, &exec_id);
             magellan::output::output_json(&json_response, output_format)?;
+
+            mdb.telemetry()
+                .record_phase_end(&exec_id, "build_response")?;
         }
         OutputFormat::Human => {
+            // Phase: output
+            mdb.telemetry().record_phase_start(&exec_id, "output")?;
+
             for (i, m) in all_matches.iter().enumerate() {
                 if i > 0 {
                     println!();
@@ -296,6 +352,9 @@ pub fn run_context_symbol(
                     }
                 }
             }
+
+            // End output phase
+            mdb.telemetry().record_phase_end(&exec_id, "output")?;
         }
     }
 
@@ -304,8 +363,16 @@ pub fn run_context_symbol(
 
 /// Run the context file command
 pub fn run_context_file(db_paths: Vec<PathBuf>, path: String) -> Result<()> {
+    let exec_id = generate_execution_id();
     let mut mdb = MultiDbContext::from_paths(&db_paths)?;
+
+    // Phase: query_file
+    mdb.telemetry().record_phase_start(&exec_id, "query_file")?;
     let results = mdb.file_context(&path);
+    mdb.telemetry().record_phase_end(&exec_id, "query_file")?;
+
+    // Phase: output
+    mdb.telemetry().record_phase_start(&exec_id, "output")?;
 
     if results.is_empty() {
         println!("File '{}' not found in any project.", path);
@@ -339,6 +406,9 @@ pub fn run_context_file(db_paths: Vec<PathBuf>, path: String) -> Result<()> {
         }
         println!("---");
     }
+
+    // End output phase
+    mdb.telemetry().record_phase_end(&exec_id, "output")?;
 
     Ok(())
 }
@@ -381,8 +451,14 @@ pub fn run_context_impact(
         anyhow::bail!("No database paths provided. Use --db <path> to specify.");
     }
 
+    let exec_id = generate_execution_id();
     let mut mdb = MultiDbContext::from_paths(&db_paths)?;
+
+    // Phase: query_impact
+    mdb.telemetry()
+        .record_phase_start(&exec_id, "query_impact")?;
     let mut all_impacted = mdb.impact(&symbol_name, file.as_deref(), depth);
+    mdb.telemetry().record_phase_end(&exec_id, "query_impact")?;
 
     if let Some(ref filter) = project_filter {
         all_impacted.retain(|(proj, _)| proj == filter);
@@ -436,6 +512,10 @@ pub fn run_context_impact(
 
     match output_format {
         OutputFormat::Json | OutputFormat::Pretty => {
+            // Phase: build_response
+            mdb.telemetry()
+                .record_phase_start(&exec_id, "build_response")?;
+
             let impacted_json: Vec<serde_json::Value> = all_impacted
                 .iter()
                 .map(|(proj, r)| {
@@ -465,8 +545,14 @@ pub fn run_context_impact(
                 serde_json::to_string(&response)?
             };
             println!("{}", formatted);
+
+            mdb.telemetry()
+                .record_phase_end(&exec_id, "build_response")?;
         }
         OutputFormat::Human => {
+            // Phase: output
+            mdb.telemetry().record_phase_start(&exec_id, "output")?;
+
             println!("Impact analysis: {} (depth limit: {})", target, depth);
             println!(
                 "{} symbol(s) affected across {} DB(s)\n",
@@ -486,6 +572,9 @@ pub fn run_context_impact(
                 let depth_str = r.depth.map_or(String::new(), |d| format!(" [depth={}]", d));
                 println!("  {} ({}:{}){}", r.name, r.file, r.line, depth_str);
             }
+
+            // End output phase
+            mdb.telemetry().record_phase_end(&exec_id, "output")?;
         }
     }
 
@@ -506,8 +595,15 @@ pub fn run_context_affected(
         anyhow::bail!("No database paths provided. Use --db <path> to specify.");
     }
 
+    let exec_id = generate_execution_id();
     let mut mdb = MultiDbContext::from_paths(&db_paths)?;
+
+    // Phase: query_affected
+    mdb.telemetry()
+        .record_phase_start(&exec_id, "query_affected")?;
     let mut all_affected = mdb.affected(&symbol_name, file.as_deref(), depth);
+    mdb.telemetry()
+        .record_phase_end(&exec_id, "query_affected")?;
 
     if let Some(ref filter) = project_filter {
         all_affected.retain(|(proj, _)| proj == filter);
@@ -551,6 +647,10 @@ pub fn run_context_affected(
 
     match output_format {
         OutputFormat::Json | OutputFormat::Pretty => {
+            // Phase: build_response
+            mdb.telemetry()
+                .record_phase_start(&exec_id, "build_response")?;
+
             let affected_json: Vec<serde_json::Value> = all_affected
                 .iter()
                 .map(|(proj, r)| {
@@ -580,8 +680,14 @@ pub fn run_context_affected(
                 serde_json::to_string(&response)?
             };
             println!("{}", formatted);
+
+            mdb.telemetry()
+                .record_phase_end(&exec_id, "build_response")?;
         }
         OutputFormat::Human => {
+            // Phase: output
+            mdb.telemetry().record_phase_start(&exec_id, "output")?;
+
             println!("Affected analysis: {} (depth limit: {})", target, depth);
             println!(
                 "{} symbol(s) reached across {} DB(s)\n",
@@ -601,6 +707,9 @@ pub fn run_context_affected(
                 let depth_str = r.depth.map_or(String::new(), |d| format!(" [depth={}]", d));
                 println!("  {} ({}:{}){}", r.name, r.file, r.line, depth_str);
             }
+
+            // End output phase
+            mdb.telemetry().record_phase_end(&exec_id, "output")?;
         }
     }
 

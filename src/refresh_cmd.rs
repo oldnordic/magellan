@@ -156,19 +156,35 @@ pub fn run_refresh(args: &RefreshArgs) -> Result<RefreshReport> {
         &args.db_path.to_string_lossy(),
     )?;
 
-    // Get git status
+    // Phase: get_git_status
+    graph
+        .telemetry()
+        .record_phase_start(&exec_id, "get_git_status")?;
     let git_status = get_git_status(&repo, args)?;
+    graph
+        .telemetry()
+        .record_phase_end(&exec_id, "get_git_status")?;
 
-    // Get all files from database
+    // Phase: compute_delta
+    graph
+        .telemetry()
+        .record_phase_start(&exec_id, "compute_delta")?;
     let db_files = graph.all_file_nodes()?;
     let db_file_paths: HashSet<String> = db_files.keys().cloned().collect();
-
-    // Compute delta between git and database
     let delta = compute_delta(&git_status, &db_file_paths, args, repo_root)?;
+    graph
+        .telemetry()
+        .record_phase_end(&exec_id, "compute_delta")?;
 
-    // Apply changes if not dry-run (before moving fields from delta)
+    // Phase: apply_changes
     if !args.dry_run {
+        graph
+            .telemetry()
+            .record_phase_start(&exec_id, "apply_changes")?;
         apply_changes(&mut graph, &delta)?;
+        graph
+            .telemetry()
+            .record_phase_end(&exec_id, "apply_changes")?;
 
         // Rebuild FTS5 index so symbol search stays synchronized
         if let Err(e) = CodeGraph::rebuild_fts5_index(&args.db_path) {
