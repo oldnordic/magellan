@@ -142,6 +142,10 @@ pub fn ensure_magellan_meta(
                             ensure_cfg_condition_column(conn)?;
                             current_version = 16;
                         }
+                        16 => {
+                            ensure_telemetry_schema(conn)?;
+                            current_version = 17;
+                        }
                         _ => {
                             return Err(DbCompatError::MagellanSchemaMismatch {
                                 path: db_path.to_path_buf(),
@@ -401,6 +405,48 @@ pub fn ensure_cfg_condition_column(conn: &rusqlite::Connection) -> Result<(), Db
         conn.execute("ALTER TABLE cfg_blocks ADD COLUMN cfg_condition TEXT", [])
             .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
     }
+    Ok(())
+}
+
+/// Create telemetry_events table (v17).
+pub fn ensure_telemetry_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS telemetry_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            execution_id TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            event_name TEXT NOT NULL,
+            timestamp_ns INTEGER NOT NULL,
+            duration_ns INTEGER,
+            value REAL,
+            unit TEXT,
+            metadata TEXT
+        )",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_telemetry_events_execution
+         ON telemetry_events(execution_id)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_telemetry_events_type_name
+         ON telemetry_events(event_type, event_name)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_telemetry_events_timestamp
+         ON telemetry_events(timestamp_ns)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
     Ok(())
 }
 

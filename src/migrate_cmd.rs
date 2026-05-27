@@ -25,7 +25,8 @@ use std::path::{Path, PathBuf};
 /// v14: candidate_facts table for graph memory candidate staging
 /// v15: magellan_meta.project_name and project_metadata columns
 /// v16: cfg_blocks.cfg_condition column for feature-gated blocks
-pub const MAGELLAN_SCHEMA_VERSION: i64 = 16;
+/// v17: telemetry_events table for performance telemetry
+pub const MAGELLAN_SCHEMA_VERSION: i64 = 17;
 
 /// Migration result summary
 #[derive(Debug, Clone)]

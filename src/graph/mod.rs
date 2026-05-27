@@ -63,6 +63,7 @@ pub mod side_tables;
 mod symbol_index;
 mod symbol_lookup;
 mod symbols;
+pub mod telemetry;
 pub mod validation;
 pub mod wal;
 
@@ -183,6 +184,9 @@ pub struct CodeGraph {
 
     /// Metrics module for pre-computed file and symbol metrics
     metrics: metrics::MetricsOps,
+
+    /// Telemetry module for performance metrics
+    telemetry: telemetry::TelemetryOps,
 
     /// File node cache for frequently accessed files
     file_node_cache: cache::FileNodeCache,
@@ -316,7 +320,7 @@ impl CodeGraph {
         files.rebuild_file_index()?;
 
         // Phase 3: SQLite-specific side-table initialization
-        let (side_tables, chunks, execution_log, metrics, needs_backfill, side_conn) = {
+        let (side_tables, chunks, execution_log, metrics, telemetry, needs_backfill, side_conn) = {
             // Open ONE shared connection for all Magellan side-table operations.
             // Previously each subsystem opened its own connection (~10 total).
             let side_conn = rusqlite::Connection::open(&db_path_buf).map_err(|e| {
@@ -361,6 +365,9 @@ impl CodeGraph {
 
             // Initialize MetricsOps reusing the shared connection
             let metrics = metrics::MetricsOps::with_connection(Arc::clone(&side_conn_arc));
+
+            // Initialize TelemetryOps reusing the shared connection
+            let telemetry = telemetry::TelemetryOps::with_connection(Arc::clone(&side_conn_arc));
 
             // Only run AST / CFG / coverage DDL when the schema is new or was upgraded.
             // On warm opens this skips ~6 redundant CREATE TABLE IF NOT EXISTS calls.
@@ -423,6 +430,7 @@ impl CodeGraph {
                 chunks,
                 execution_log,
                 metrics,
+                telemetry,
                 needs_backfill,
                 side_conn_arc,
             )
@@ -464,6 +472,7 @@ impl CodeGraph {
             chunks: chunks.clone(),
             execution_log,
             metrics,
+            telemetry,
             file_node_cache,
             cfg_ops: cfg_ops::CfgOps::new(chunks),
             side_tables,
@@ -968,6 +977,11 @@ impl CodeGraph {
     /// Get the metrics operations module
     pub fn metrics(&self) -> &metrics::MetricsOps {
         &self.metrics
+    }
+
+    /// Get the telemetry operations module
+    pub fn telemetry(&self) -> &telemetry::TelemetryOps {
+        &self.telemetry
     }
 
     /// Validate graph invariants post-run
