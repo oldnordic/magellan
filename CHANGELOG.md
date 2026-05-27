@@ -7,6 +7,16 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **CFG extraction for Go and CUDA** (`src/graph/cfg_edges_extract.rs`):
+  - Extended `find_function_node` to recognize Go `function_declaration` and `method_declaration`
+  - Changed if-block extraction from positional child indexing to kind-based discovery — fixes Go `if_statement` where `block` is at variable child index due to optional init statement
+  - Added `statement_list` as recognized block container — Go wraps `block` bodies in `statement_list`
+  - Separated `"statement"` handler from general statement catch-all to unwrap Go control flow (`if_statement`, `for_statement`, `return_statement`, etc.) instead of treating it as a plain statement
+  - Added `expression_switch_statement`, `type_switch_statement` to match/switch dispatch
+  - Added Go case node kinds (`expression_case`, `default_case`, `type_case`) to arm discovery in `extract_match_blocks_with_fallthrough`
+  - 6 new tests: Go function/method/for-loop/switch CFG extraction, CUDA kernel/device-function CFG extraction
+  - CUDA `__global__` and `__device__` functions already worked via C++ `function_definition` node kind
+
 - **Language support: Go, CUDA, and HIP** (`Cargo.toml`, `src/ingest/`):
   - Added `tree-sitter-go = "0.25.0"` and `tree-sitter-cuda = "0.21.1"` dependencies
   - New `src/ingest/go.rs` — symbol extraction for Go: functions, methods, structs, interfaces, packages, type aliases

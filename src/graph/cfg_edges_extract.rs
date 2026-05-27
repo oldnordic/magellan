@@ -175,7 +175,11 @@ fn find_function_node<'a>(root: &'a Node<'a>) -> Option<Node<'a>> {
 
     while let Some(node) = stack.pop() {
         let kind = node.kind();
-        if kind == "function_item" || kind == "function_definition" {
+        if kind == "function_item"
+            || kind == "function_definition"
+            || kind == "function_declaration"
+            || kind == "method_declaration"
+        {
             return Some(node);
         }
 
@@ -342,7 +346,10 @@ fn extract_blocks_from_node_with_fallthrough(
         }
 
         // Match/switch
-        "match_expression" | "switch_statement" => {
+        "match_expression"
+        | "switch_statement"
+        | "expression_switch_statement"
+        | "type_switch_statement" => {
             extract_match_blocks_with_fallthrough(
                 node,
                 function_id,
@@ -428,7 +435,7 @@ fn extract_blocks_from_node_with_fallthrough(
         }
 
         // Block/compound statement - process each statement with fallthrough
-        "block" | "compound_statement" => {
+        "block" | "compound_statement" | "statement_list" => {
             let mut cursor = node.walk();
             if cursor.goto_first_child() {
                 loop {
@@ -473,10 +480,8 @@ fn extract_blocks_from_node_with_fallthrough(
         | "assignment_expression"
         | "assignment_statement"
         | "macro_invocation"
-        | "statement"
         | "declaration_statement"
         | "item" => {
-            // Create a basic block for these statements
             let kind = match node_kind {
                 "let_declaration" | "let_statement" => "let",
                 "assignment_expression" | "assignment_statement" => "assign",
@@ -487,7 +492,6 @@ fn extract_blocks_from_node_with_fallthrough(
             let source_idx = blocks.len();
             blocks.push(block);
 
-            // Create fallthrough edge from previous block to this block
             if let Some(prev_idx) = *previous_block_idx {
                 edges.push(CfgEdge {
                     source_idx: prev_idx,
@@ -497,7 +501,6 @@ fn extract_blocks_from_node_with_fallthrough(
             }
             *previous_block_idx = Some(source_idx);
 
-            // For let/assignment, scan RHS for nested control flow expressions
             if matches!(
                 node_kind,
                 "let_declaration"
@@ -514,6 +517,62 @@ fn extract_blocks_from_node_with_fallthrough(
                     previous_block_idx,
                     loop_header,
                 );
+            }
+        }
+
+        // Go-style statement wrapper — unwrap control flow, treat rest as stmt
+        "statement" => {
+            let mut cursor = node.walk();
+            if cursor.goto_first_child() {
+                let inner = cursor.node();
+                let inner_kind = inner.kind();
+                if matches!(
+                    inner_kind,
+                    "if_expression"
+                        | "if_statement"
+                        | "match_expression"
+                        | "match_statement"
+                        | "switch_statement"
+                        | "loop_expression"
+                        | "for_expression"
+                        | "while_expression"
+                        | "for_statement"
+                        | "while_statement"
+                        | "do_statement"
+                        | "return_expression"
+                        | "return_statement"
+                        | "break_expression"
+                        | "break_statement"
+                        | "continue_expression"
+                        | "continue_statement"
+                        | "try_expression"
+                        | "await_expression"
+                        | "closure_expression"
+                ) {
+                    extract_blocks_from_node_with_fallthrough(
+                        &inner,
+                        function_id,
+                        source,
+                        blocks,
+                        edges,
+                        previous_block_idx,
+                        loop_header,
+                    );
+                } else {
+                    let block =
+                        create_block_from_node(node, function_id, source, "stmt", "fallthrough");
+                    let source_idx = blocks.len();
+                    blocks.push(block);
+
+                    if let Some(prev_idx) = *previous_block_idx {
+                        edges.push(CfgEdge {
+                            source_idx: prev_idx,
+                            target_idx: source_idx,
+                            edge_type: CfgEdgeType::Fallthrough,
+                        });
+                    }
+                    *previous_block_idx = Some(source_idx);
+                }
             }
         }
 
@@ -1066,34 +1125,32 @@ fn extract_if_blocks_with_fallthrough(
     let mut else_node = None;
 
     let mut cursor = node.walk();
-    let mut child_count = 0;
     if cursor.goto_first_child() {
         loop {
             let child = cursor.node();
-            match child_count {
-                2 if child.kind() == "block" || child.kind() == "statement_block" => {
+            let kind = child.kind();
+            if kind == "block" || kind == "statement_block" || kind == "compound_statement" {
+                if then_node.is_none() {
                     then_node = Some(child);
                 }
-                3 if child.kind() == "else_clause" || child.kind() == "else" => {
-                    let mut else_cursor = child.walk();
-                    if else_cursor.goto_first_child() {
-                        loop {
-                            let else_child = else_cursor.node();
-                            if else_child.kind() == "block"
-                                || else_child.kind() == "statement_block"
-                            {
-                                else_node = Some(else_child);
-                                break;
-                            }
-                            if !else_cursor.goto_next_sibling() {
-                                break;
-                            }
+            } else if kind == "else_clause" || kind == "else" {
+                let mut else_cursor = child.walk();
+                if else_cursor.goto_first_child() {
+                    loop {
+                        let else_child = else_cursor.node();
+                        if else_child.kind() == "block"
+                            || else_child.kind() == "statement_block"
+                            || else_child.kind() == "compound_statement"
+                        {
+                            else_node = Some(else_child);
+                            break;
+                        }
+                        if !else_cursor.goto_next_sibling() {
+                            break;
                         }
                     }
                 }
-                _ => {}
             }
-            child_count += 1;
             if !cursor.goto_next_sibling() {
                 break;
             }
@@ -1387,6 +1444,12 @@ fn extract_match_blocks_with_fallthrough(
                         }
                     }
                 }
+            } else if child.kind() == "expression_case"
+                || child.kind() == "default_case"
+                || child.kind() == "type_case"
+            {
+                // Go switch cases (direct children, no body wrapper)
+                arm_nodes.push(child);
             }
             if !cursor.goto_next_sibling() {
                 break;
@@ -2356,5 +2419,159 @@ fn cfg_function() {
                 block.kind
             );
         }
+    }
+
+    #[test]
+    fn test_go_function_cfg_extraction() {
+        let source = r#"
+package main
+
+func add(x int, y int) int {
+    if x > 0 {
+        return x + y
+    }
+    return y
+}
+"#;
+        let result = extract_cfg_with_edges(source, 1, tree_sitter_go::LANGUAGE.into());
+        assert!(
+            !result.blocks.is_empty(),
+            "Go function should produce at least entry block, got {} blocks",
+            result.blocks.len()
+        );
+        assert!(
+            result.edges.len() >= 2,
+            "Go if/return should produce at least 2 edges, got {}",
+            result.edges.len()
+        );
+        let has_conditional = result.edges.iter().any(|e| {
+            matches!(
+                e.edge_type,
+                CfgEdgeType::ConditionalTrue | CfgEdgeType::ConditionalFalse
+            )
+        });
+        assert!(has_conditional, "Go if should produce conditional edges");
+    }
+
+    #[test]
+    fn test_go_method_cfg_extraction() {
+        let source = r#"
+package main
+
+func (s *Server) handle() error {
+    if s.running {
+        s.stop()
+        return nil
+    }
+    return s.start()
+}
+"#;
+        let result = extract_cfg_with_edges(source, 1, tree_sitter_go::LANGUAGE.into());
+        assert!(
+            !result.blocks.is_empty(),
+            "Go method should produce at least entry block, got {} blocks",
+            result.blocks.len()
+        );
+        assert!(
+            result.edges.len() >= 2,
+            "Go method with if should produce at least 2 edges, got {}",
+            result.edges.len()
+        );
+    }
+
+    #[test]
+    fn test_go_for_loop_cfg() {
+        let source = r#"
+package main
+
+func sum(n int) int {
+    total := 0
+    for i := 0; i < n; i++ {
+        total += i
+    }
+    return total
+}
+"#;
+        let result = extract_cfg_with_edges(source, 1, tree_sitter_go::LANGUAGE.into());
+        assert!(
+            !result.blocks.is_empty(),
+            "Go for loop should produce blocks"
+        );
+        assert!(!result.edges.is_empty(), "Go for loop should produce edges");
+    }
+
+    #[test]
+    fn test_go_switch_cfg() {
+        let source = r#"
+package main
+
+func classify(x int) string {
+    switch x {
+    case 0:
+        return "zero"
+    case 1:
+        return "one"
+    default:
+        return "other"
+    }
+}
+"#;
+        let result = extract_cfg_with_edges(source, 1, tree_sitter_go::LANGUAGE.into());
+        assert!(!result.blocks.is_empty(), "Go switch should produce blocks");
+        assert!(
+            result.edges.len() >= 3,
+            "Go switch with 3 cases should produce at least 3 edges, got {}",
+            result.edges.len()
+        );
+    }
+
+    #[test]
+    fn test_cuda_kernel_cfg_extraction() {
+        let source = r#"
+__global__ void vectorAdd(float *a, float *b, float *c, int n) {
+    int i = threadIdx.x + blockIdx.x * blockDim.x;
+    if (i < n) {
+        c[i] = a[i] + b[i];
+    }
+}
+"#;
+        let result = extract_cfg_with_edges(source, 1, tree_sitter_cuda::LANGUAGE.into());
+        assert!(
+            !result.blocks.is_empty(),
+            "CUDA kernel should produce at least entry block, got {} blocks",
+            result.blocks.len()
+        );
+        assert!(
+            result.edges.len() >= 2,
+            "CUDA if should produce at least 2 edges, got {}",
+            result.edges.len()
+        );
+        let has_conditional = result.edges.iter().any(|e| {
+            matches!(
+                e.edge_type,
+                CfgEdgeType::ConditionalTrue | CfgEdgeType::ConditionalFalse
+            )
+        });
+        assert!(has_conditional, "CUDA if should produce conditional edges");
+    }
+
+    #[test]
+    fn test_cuda_device_function_cfg() {
+        let source = r#"
+__device__ float clamp(float x, float lo, float hi) {
+    if (x < lo) return lo;
+    if (x > hi) return hi;
+    return x;
+}
+"#;
+        let result = extract_cfg_with_edges(source, 1, tree_sitter_cuda::LANGUAGE.into());
+        assert!(
+            !result.blocks.is_empty(),
+            "CUDA device function should produce blocks"
+        );
+        assert!(
+            !result.edges.is_empty(),
+            "CUDA device function with branches should produce edges"
+        );
     }
 }
