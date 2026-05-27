@@ -13,6 +13,8 @@ use std::sync::Arc;
 use crate::graph::schema::CallNode;
 use crate::ingest::c::CParser;
 use crate::ingest::cpp::CppParser;
+use crate::ingest::cuda::CudaParser;
+use crate::ingest::go::GoParser;
 use crate::ingest::java::JavaParser;
 use crate::ingest::javascript::JavaScriptParser;
 use crate::ingest::pool;
@@ -210,6 +212,28 @@ impl CallOps {
                     result
                 })?
             }
+            Some(Language::Go) => {
+                pool::with_parser_opt(Language::Go, |opt_parser| {
+                    let parser = opt_parser
+                        .take()
+                        .expect("Parser pool corruption: parser was None"); // M-UNWRAP: thread-local parser pool guarantees initialized parser
+                    let mut wrapper = GoParser::from_parser(parser);
+                    let result = wrapper.extract_calls(path_buf.clone(), source, &symbol_facts);
+                    *opt_parser = Some(wrapper.parser);
+                    result
+                })?
+            }
+            Some(Language::Cuda) => {
+                pool::with_parser_opt(Language::Cuda, |opt_parser| {
+                    let parser = opt_parser
+                        .take()
+                        .expect("Parser pool corruption: parser was None"); // M-UNWRAP: thread-local parser pool guarantees initialized parser
+                    let mut wrapper = CudaParser::from_parser(parser);
+                    let result = wrapper.extract_calls(path_buf.clone(), source, &symbol_facts);
+                    *opt_parser = Some(wrapper.parser);
+                    result
+                })?
+            }
             None => Vec::new(),
         };
 
@@ -354,6 +378,12 @@ impl CallOps {
             }
             Language::TypeScript => {
                 TypeScriptParser::extract_calls_from_tree(tree, path_buf, source, &symbol_facts)
+            }
+            Language::Go => {
+                GoParser::extract_calls_from_tree(tree, path_buf, source, &symbol_facts)
+            }
+            Language::Cuda => {
+                CudaParser::extract_calls_from_tree(tree, path_buf, source, &symbol_facts)
             }
         };
 

@@ -22,6 +22,10 @@ pub enum Language {
     JavaScript,
     /// TypeScript (.ts, .tsx)
     TypeScript,
+    /// Go (.go)
+    Go,
+    /// CUDA (.cu, .cuh)
+    Cuda,
 }
 
 impl Language {
@@ -35,6 +39,8 @@ impl Language {
             Language::Java => "java",
             Language::JavaScript => "javascript",
             Language::TypeScript => "typescript",
+            Language::Go => "go",
+            Language::Cuda => "cuda",
         }
     }
 }
@@ -69,7 +75,7 @@ pub fn detect_language(path: &Path) -> Option<Language> {
         "c" | "h" => Language::C,
 
         // C++
-        "cpp" | "hpp" | "cc" | "cxx" => Language::Cpp,
+        "cpp" | "hpp" | "cc" | "cxx" | "hip" => Language::Cpp,
 
         // Java
         "java" => Language::Java,
@@ -79,6 +85,12 @@ pub fn detect_language(path: &Path) -> Option<Language> {
 
         // TypeScript
         "ts" | "tsx" => Language::TypeScript,
+
+        // Go
+        "go" => Language::Go,
+
+        // CUDA
+        "cu" | "cuh" => Language::Cuda,
 
         // Unknown extension
         _ => return None,
@@ -120,6 +132,10 @@ mod tests {
         );
         assert_eq!(detect_language(Path::new("main.cc")), Some(Language::Cpp));
         assert_eq!(detect_language(Path::new("main.cxx")), Some(Language::Cpp));
+        assert_eq!(
+            detect_language(Path::new("kernel.hip")),
+            Some(Language::Cpp)
+        );
     }
 
     #[test]
@@ -155,6 +171,27 @@ mod tests {
         assert_eq!(
             detect_language(Path::new("component.tsx")),
             Some(Language::TypeScript)
+        );
+    }
+
+    #[test]
+    fn test_detect_go() {
+        assert_eq!(detect_language(Path::new("main.go")), Some(Language::Go));
+        assert_eq!(
+            detect_language(Path::new("lib/utils.go")),
+            Some(Language::Go)
+        );
+    }
+
+    #[test]
+    fn test_detect_cuda() {
+        assert_eq!(
+            detect_language(Path::new("kernel.cu")),
+            Some(Language::Cuda)
+        );
+        assert_eq!(
+            detect_language(Path::new("kernel.cuh")),
+            Some(Language::Cuda)
         );
     }
 
@@ -213,5 +250,7 @@ mod tests {
         assert_eq!(Language::Java.as_str(), "java");
         assert_eq!(Language::JavaScript.as_str(), "javascript");
         assert_eq!(Language::TypeScript.as_str(), "typescript");
+        assert_eq!(Language::Go.as_str(), "go");
+        assert_eq!(Language::Cuda.as_str(), "cuda");
     }
 }

@@ -85,6 +85,8 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
     use crate::generation::CodeChunk;
     use crate::ingest::c::CParser;
     use crate::ingest::cpp::CppParser;
+    use crate::ingest::cuda::CudaParser;
+    use crate::ingest::go::GoParser;
     use crate::ingest::java::JavaParser;
     use crate::ingest::javascript::JavaScriptParser;
     use crate::ingest::pool;
@@ -141,6 +143,12 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
         }
         (Some(Language::TypeScript), Some(tree)) => {
             TypeScriptParser::extract_symbols_from_tree(tree, path_buf.clone(), source)
+        }
+        (Some(Language::Go), Some(tree)) => {
+            GoParser::extract_symbols_from_tree(tree, path_buf.clone(), source)
+        }
+        (Some(Language::Cuda), Some(tree)) => {
+            CudaParser::extract_symbols_from_tree(tree, path_buf.clone(), source)
         }
         // Unknown language or parse failure — return empty
         _ => Vec::new(),

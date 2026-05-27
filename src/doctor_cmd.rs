@@ -39,7 +39,7 @@ pub fn run_doctor(db_path: PathBuf, fix: bool, output_format: OutputFormat) -> R
     let exec_id = generate_execution_id();
 
     // Phase: open_graph
-    let mut graph = CodeGraph::open(&db_path)?;
+    let graph = CodeGraph::open(&db_path)?;
     graph
         .telemetry()
         .record_phase_start(&exec_id, "open_graph")?;

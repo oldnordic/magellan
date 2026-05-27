@@ -149,6 +149,8 @@ async-channel = "2"
 # LSP support (Phase 3) - optional dependencies
 tower-lsp = { version = "0.20", optional = true }
 lsp-types = { version = "0.95", optional = true }
+tree-sitter-go = { version = "0.25.0", default-features = false }
+tree-sitter-cuda = { version = "0.21.1", default-features = false }
 
 # LLVM C API bindings (optional, for llvm-cfg feature)
 [dependencies.inkwell]

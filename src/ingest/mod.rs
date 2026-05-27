@@ -1,6 +1,8 @@
 pub mod c;
 pub mod cpp;
+pub mod cuda;
 pub mod detect;
+pub mod go;
 pub mod imports;
 pub mod java;
 pub mod javascript;

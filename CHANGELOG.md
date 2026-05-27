@@ -3,6 +3,20 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Language support: Go, CUDA, and HIP** (`Cargo.toml`, `src/ingest/`):
+  - Added `tree-sitter-go = "0.25.0"` and `tree-sitter-cuda = "0.21.1"` dependencies
+  - New `src/ingest/go.rs` — symbol extraction for Go: functions, methods, structs, interfaces, packages, type aliases
+  - New `src/ingest/cuda.rs` — symbol extraction for CUDA: functions, classes, structs, enums, namespaces, unions, templates (C++-based patterns)
+  - `.hip` files now detected as C++ (HIP is C++ with AMD extensions; no dedicated tree-sitter grammar exists)
+  - `Language` enum expanded: `Go`, `Cuda` variants; `.go`, `.cu`, `.cuh`, `.hip` extension mappings
+  - Thread-local parser pool updated with `GO_PARSER` and `CUDA_PARSER`
+  - Call graph and reference indexing wired for Go and CUDA in `call_ops.rs` and `references.rs`
+  - 2 new test cases in `detect.rs` for Go and CUDA extensions
+
 ## [4.1.1] - 2026-05-26
 
 ### Changed

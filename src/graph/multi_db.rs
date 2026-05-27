@@ -278,7 +278,7 @@ impl MultiDbContext {
 
     /// Access telemetry for the first project's graph (for instrumentation)
     pub fn telemetry(&self) -> &crate::graph::telemetry::TelemetryOps {
-        &self.projects[0].graph.telemetry()
+        self.projects[0].graph.telemetry()
     }
 }
 

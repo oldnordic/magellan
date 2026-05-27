@@ -60,6 +60,8 @@ thread_local! {
     static JAVA_PARSER: RefCell<Option<tree_sitter::Parser>> = const { RefCell::new(None) };
     static JAVASCRIPT_PARSER: RefCell<Option<tree_sitter::Parser>> = const { RefCell::new(None) };
     static TYPESCRIPT_PARSER: RefCell<Option<tree_sitter::Parser>> = const { RefCell::new(None) };
+    static GO_PARSER: RefCell<Option<tree_sitter::Parser>> = const { RefCell::new(None) };
+    static CUDA_PARSER: RefCell<Option<tree_sitter::Parser>> = const { RefCell::new(None) };
 }
 
 /// Initialize or get the thread-local Rust parser
@@ -311,6 +313,76 @@ where
     })
 }
 
+/// Initialize or get the thread-local Go parser as Option
+fn with_go_parser_opt<F, R>(f: F) -> Result<R>
+where
+    F: FnOnce(&mut Option<tree_sitter::Parser>) -> R,
+{
+    GO_PARSER.with(|parser_cell| {
+        let mut parser_ref = parser_cell.borrow_mut();
+        if parser_ref.is_none() {
+            let mut parser = tree_sitter::Parser::new();
+            parser.set_language(&tree_sitter_go::LANGUAGE.into())?;
+            *parser_ref = Some(parser);
+        }
+        Ok(f(&mut parser_ref))
+    })
+}
+
+/// Initialize or get the thread-local CUDA parser as Option
+fn with_cuda_parser_opt<F, R>(f: F) -> Result<R>
+where
+    F: FnOnce(&mut Option<tree_sitter::Parser>) -> R,
+{
+    CUDA_PARSER.with(|parser_cell| {
+        let mut parser_ref = parser_cell.borrow_mut();
+        if parser_ref.is_none() {
+            let mut parser = tree_sitter::Parser::new();
+            parser.set_language(&tree_sitter_cuda::LANGUAGE.into())?;
+            *parser_ref = Some(parser);
+        }
+        Ok(f(&mut parser_ref))
+    })
+}
+
+/// Initialize or get the thread-local Go parser
+fn with_go_parser<F, R>(f: F) -> Result<R>
+where
+    F: FnOnce(&mut tree_sitter::Parser) -> R,
+{
+    GO_PARSER.with(|parser_cell| {
+        let mut parser_ref = parser_cell.borrow_mut();
+        if parser_ref.is_none() {
+            let mut parser = tree_sitter::Parser::new();
+            parser.set_language(&tree_sitter_go::LANGUAGE.into())?;
+            *parser_ref = Some(parser);
+        }
+        let parser = parser_ref
+            .as_mut()
+            .expect("Go parser invariant violated: Option must be Some() after initialization");
+        Ok(f(parser))
+    })
+}
+
+/// Initialize or get the thread-local CUDA parser
+fn with_cuda_parser<F, R>(f: F) -> Result<R>
+where
+    F: FnOnce(&mut tree_sitter::Parser) -> R,
+{
+    CUDA_PARSER.with(|parser_cell| {
+        let mut parser_ref = parser_cell.borrow_mut();
+        if parser_ref.is_none() {
+            let mut parser = tree_sitter::Parser::new();
+            parser.set_language(&tree_sitter_cuda::LANGUAGE.into())?;
+            *parser_ref = Some(parser);
+        }
+        let parser = parser_ref
+            .as_mut()
+            .expect("CUDA parser invariant violated: Option must be Some() after initialization");
+        Ok(f(parser))
+    })
+}
+
 /// Execute a function with a thread-local parser for the given language.
 /// Passes &mut Option<tree_sitter::Parser> to allow take/replace patterns.
 pub fn with_parser_opt<F, R>(language: Language, f: F) -> Result<R>
@@ -325,6 +397,8 @@ where
         Language::Java => with_java_parser_opt(f),
         Language::JavaScript => with_javascript_parser_opt(f),
         Language::TypeScript => with_typescript_parser_opt(f),
+        Language::Go => with_go_parser_opt(f),
+        Language::Cuda => with_cuda_parser_opt(f),
     }
 }
 
@@ -367,6 +441,8 @@ where
         Language::Java => with_java_parser(f),
         Language::JavaScript => with_javascript_parser(f),
         Language::TypeScript => with_typescript_parser(f),
+        Language::Go => with_go_parser(f),
+        Language::Cuda => with_cuda_parser(f),
     }
 }
 
@@ -397,7 +473,7 @@ where
 /// ```
 pub fn warmup_parsers() -> Result<()> {
     // Minimal source code snippets for each language
-    let test_cases: [(Language, &[u8]); 7] = [
+    let test_cases: [(Language, &[u8]); 9] = [
         (Language::Rust, b"fn test() {}"),
         (Language::Python, b"def test(): pass"),
         (Language::C, b"int test() { return 0; }"),
@@ -405,6 +481,8 @@ pub fn warmup_parsers() -> Result<()> {
         (Language::Java, b"class Test {}"),
         (Language::JavaScript, b"function test() {}"),
         (Language::TypeScript, b"function test(): void {}"),
+        (Language::Go, b"package main\nfunc test() {}"),
+        (Language::Cuda, b"__global__ void test() {}"),
     ];
 
     for (lang, source) in test_cases {
@@ -467,6 +545,12 @@ pub fn cleanup_parsers() {
     TYPESCRIPT_PARSER.with(|parser_cell| {
         parser_cell.borrow_mut().take();
     });
+    GO_PARSER.with(|parser_cell| {
+        parser_cell.borrow_mut().take();
+    });
+    CUDA_PARSER.with(|parser_cell| {
+        parser_cell.borrow_mut().take();
+    });
 }
 
 #[cfg(test)]
@@ -492,6 +576,8 @@ mod tests {
             Language::Java,
             Language::JavaScript,
             Language::TypeScript,
+            Language::Go,
+            Language::Cuda,
         ];
 
         for lang in languages {
@@ -562,7 +648,7 @@ mod tests {
     #[test]
     fn test_multiple_languages_same_thread() {
         // Verify we can use multiple language parsers in the same thread
-        let test_cases: [(Language, &[u8]); 7] = [
+        let test_cases: [(Language, &[u8]); 9] = [
             (Language::Rust, b"fn test() {}"),
             (Language::Python, b"def test(): pass"),
             (Language::C, b"int test() { return 0; }"),
@@ -570,6 +656,8 @@ mod tests {
             (Language::Java, b"class Test {}"),
             (Language::JavaScript, b"function test() {}"),
             (Language::TypeScript, b"function test(): void {}"),
+            (Language::Go, b"package main\nfunc test() {}"),
+            (Language::Cuda, b"__global__ void test() {}"),
         ];
 
         for (lang, source) in test_cases {
@@ -620,7 +708,7 @@ mod tests {
         warmup_parsers().expect("Parser warmup should succeed");
 
         // After warmup, all parsers should be initialized
-        let test_cases: [(Language, &[u8]); 7] = [
+        let test_cases: [(Language, &[u8]); 9] = [
             (Language::Rust, b"fn test() {}"),
             (Language::Python, b"def test(): pass"),
             (Language::C, b"int test() { return 0; }"),
@@ -628,6 +716,8 @@ mod tests {
             (Language::Java, b"class Test {}"),
             (Language::JavaScript, b"function test() {}"),
             (Language::TypeScript, b"function test(): void {}"),
+            (Language::Go, b"package main\nfunc test() {}"),
+            (Language::Cuda, b"__global__ void test() {}"),
         ];
 
         for (lang, source) in test_cases {

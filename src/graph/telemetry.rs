@@ -222,6 +222,7 @@ impl TelemetryOps {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn insert_event_sqlite(
         conn: &rusqlite::Connection,
         execution_id: &str,
@@ -254,6 +255,7 @@ impl TelemetryOps {
         Ok(conn.last_insert_rowid())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn insert_event(
         &self,
         execution_id: &str,
