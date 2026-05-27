@@ -96,6 +96,7 @@ pub use graph::source_inventory::{
     extract_title, extract_wikilinks, find_stale, insert_or_update, list_by_kind,
     parse_frontmatter, scan_directory, scan_file, ExtractedMetadata, SourceDocument,
 };
+pub use graph::telemetry::{TelemetryEvent, TelemetryEventType, TelemetryOps};
 pub use graph::test_helpers::{delete_file_facts_with_injection, FailPoint};
 pub use graph::CrossFileRef;
 pub use graph::{extract_ast_nodes, is_structural_kind, AstNode};
