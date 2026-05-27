@@ -17,6 +17,18 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - Call graph and reference indexing wired for Go and CUDA in `call_ops.rs` and `references.rs`
   - 2 new test cases in `detect.rs` for Go and CUDA extensions
 
+### Removed
+
+- **Dead `glam` dependency** (`Cargo.toml`):
+  - Removed `glam = { version = "0.27", features = ["serde"] }` — unused since geometric backend removal (commit 5b6e0634, 2026-03-15)
+  - Zero source references confirmed; no functional impact
+
+- **Dead `GeoIndexMeta` code** (`src/graph/schema.rs`, `src/graph/db_compat.rs`):
+  - Removed `GeoIndexMeta` struct and its `record_geo_index_built()` / `get_geo_index_meta()` methods from `schema.rs` — geometric backend artifact with zero callers
+  - Removed `ensure_geo_index_meta_schema()` function and all call sites from `db_compat.rs`
+  - Schema migration path updated: v10 now skips directly to v12 (FTS5), removing the v11 geo_index_meta step
+  - Existing databases with `geo_index_meta` table are harmless — the table is simply no longer created for new DBs
+
 ## [4.1.1] - 2026-05-26
 
 ### Changed

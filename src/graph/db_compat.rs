@@ -84,7 +84,6 @@ pub fn ensure_magellan_meta(
                  VALUES (1, ?1, ?2, ?3, NULL, NULL)",
                 params![MAGELLAN_SCHEMA_VERSION, expected_sqlitegraph, created_at],
             ).map_err(|e| map_sqlite_query_err(db_path, e))?;
-            ensure_geo_index_meta_schema(conn)?;
             ensure_symbol_fts_schema(conn)?;
             ensure_source_inventory_schema(conn)?;
             Ok(())
@@ -119,10 +118,6 @@ pub fn ensure_magellan_meta(
                             current_version = 10;
                         }
                         10 => {
-                            ensure_geo_index_meta_schema(conn)?;
-                            current_version = 11;
-                        }
-                        11 => {
                             ensure_symbol_fts_schema(conn)?;
                             current_version = 12;
                         }
@@ -540,29 +535,7 @@ pub fn ensure_4d_coordinates_columns(conn: &rusqlite::Connection) -> Result<(), 
     Ok(())
 }
 
-/// Add geo_index_meta table for lazy index tracking
-///
-/// This table records when a .geo file was built from the SQLite database
-/// and is used for staleness detection.
-pub fn ensure_geo_index_meta_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS geo_index_meta (
-            id INTEGER PRIMARY KEY CHECK (id = 1),
-            geo_path TEXT NOT NULL,
-            built_at INTEGER NOT NULL,
-            schema_version INTEGER NOT NULL,
-            symbol_count INTEGER NOT NULL,
-            call_count INTEGER NOT NULL,
-            cfg_block_count INTEGER NOT NULL,
-            checksum TEXT NOT NULL
-        )",
-        [],
-    )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
-    Ok(())
-}
-
-/// Add symbol_fts FTS5 virtual table for fast symbol search (v11 -> v12 migration)
+/// Add symbol_fts FTS5 virtual table for fast symbol search (v10 -> v12 migration)
 ///
 /// Creates an FTS5 virtual table that indexes symbol names from graph_entities
 /// for prefix and full-text search capabilities.
