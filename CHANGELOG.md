@@ -22,7 +22,7 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - `merge_scan_config()` in watch pipeline simplified to use `detect_include_paths_from_root()` for all languages
   - 35 new tests (16 Cargo/Pyproject + 19 Go/JS/TS/Java/CMake)
 
-- **SymbolNavigator — LLM-navigable graph traversal** (`src/graph/navigator.rs`):
+- **SymbolNavigator — navigable graph traversal** (`src/graph/navigator.rs`):
   - New `SymbolNavigator` struct wrapping sqlitegraph's `GraphQuery` with magellan-aware entity resolution
   - `SymbolInfo` enriched with `kind_normalized`, `start_line`, `end_line`, `byte_start` parsed from `graph_entities.data` JSON
   - `DepthSymbol` struct preserving BFS hop depth for callers/callees
