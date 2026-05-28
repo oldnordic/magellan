@@ -55,8 +55,16 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - 2 new tests: `registry_include_exclude_roundtrip`, `registry_backward_compat_without_include_exclude`
   - 1 new test: `test_watcher_task_filters_by_include_patterns`
   - Fixed 2 pre-existing `scan_tests` failures (files placed at root instead of `src/`)
+  - E2E verified: file creation → symbol indexed, file modification → reindexed, file deletion → facts removed
 
 ### Changed
+
+- **Service daemon socket API documented** (`docs/API_INTEGRATION.md`):
+  - Full JSON-RPC method reference with wire format, error codes, and forge integration examples
+  - All 23 methods documented: project management, cross-project queries, evolution loop, events
+  - Corrected wire format: params are flattened at top level (was incorrectly documented as `"params": {}`)
+  - `MANUAL.md` updated with DB path conventions, socket API examples, and include/exclude usage
+  - `README.md` updated with service daemon section
 
 - **`cfg_edges_extract.rs` modularization** (commit `6d07af9`):
   - Split 2577-line file into 4 sub-1K files: `mod.rs` (327), `extract.rs` (748), `control_flow.rs` (593), `tests.rs` (842)

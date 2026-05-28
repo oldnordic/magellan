@@ -276,69 +276,115 @@ auto-generated UUIDs when omitted.
 
 ## Service Daemon Socket API (v4.1.0+)
 
-The daemon exposes a JSON-RPC API over a Unix domain socket.  The socket path
+The daemon exposes a JSON-RPC API over a Unix domain socket. The socket path
 follows `XDG_RUNTIME_DIR` when the variable is set (e.g.
 `/run/user/1000/magellan.sock` under systemd user services); otherwise it falls
-back to `/tmp/magellan.sock`.  All callers use `socket_path()` for portability.
+back to `/tmp/magellan.sock`.
 
 All messages are newline-delimited JSON. Start the daemon with
 `magellan service start` (or `systemctl --user start magellan`) before
 connecting.
 
-Wire format:
+### Wire Format
+
+**Request** (params are flattened at the top level via `#[serde(flatten)]`):
 
 ```json
-{ "method": "ping", "params": {} }
+{ "id": "req-1", "method": "ping" }
+{ "id": "req-2", "method": "register", "name": "myproject", "root": "/path" }
 ```
 
-### Admin Methods
+**Success response:**
+
+```json
+{ "id": "req-1", "result": { ... } }
+```
+
+**Error response:**
+
+```json
+{ "id": "req-1", "error": { "code": -32603, "message": "..." } }
+```
+
+Error codes: `-32001` (not implemented), `-32002` (dispatch closed),
+`-32003` (meta-db error), `-32005` (project not found),
+`-32006` (candidate not found), `-32602` (invalid params),
+`-32603` (internal error).
+
+### Project Management Methods
 
 | Method | Params | Returns |
 |--------|--------|---------|
-| `ping` | `{}` | `{ "pong": true }` |
-| `list` | `{}` | `{ "projects": [...] }` |
-| `status` | `{ "name": "myproject" }` | project entry |
-| `register` | `{ "name"`, `"root"`, `"source?"` } | `{ "registered": "name" }` |
-| `unregister` | `{ "name" }` | `{ "unregistered": true }` |
-| `pause` | `{ "name" }` | `{ "paused": true }` |
-| `resume` | `{ "name" }` | `{ "resumed": true }` |
+| `ping` | *(none)* | `{ "pong": true }` |
+| `list` | *(none)* | `{ "projects": ["name1", ...] }` (enabled only) |
+| `status` | *(none)* | `{ "projects": [{name, root, db, enabled, source}] }` |
+| `register` | `name?`, `root?`, `source?`, `include?`, `exclude?` | `{ "registered": "name" }` |
+| `unregister` | `name` | `{ "removed": bool }` |
+| `pause` | `name` | `{ "paused": bool }` |
+| `resume` | `name` | `{ "resumed": bool }` |
+| `watch` | `tag?`, `paths?` | `{ "queued": "tag", "files": N }` |
+| `stop` | *(none)* | `{ "stopping": true }` |
+| `stats` | *(none)* | `{ "projects": [{name, file_count, symbol_count, last_reindexed}] }` |
+| `events` | `project?`, `event_type?`, `since_hours?`, `limit?` | `{ "events": [DaemonEvent] }` |
 
-The `register` method stores the project's database at the canonical path
-`~/.magellan/<name>/<name>.db` (derived from the registry, not a param).
-`root` defaults to `"."` if omitted.
+**`register`** details:
+
+- `name` defaults to `"unnamed"`, `root` defaults to `"."`
+- `include` and `exclude` are `string[]` glob patterns for file filtering
+- Spawns a filesystem watcher if the daemon has a watcher map
+- Stores the project's database at `~/.magellan/<name>/<name>.db`
+
+**`watch`** enqueues files for indexing under a project tag. Use this when
+forge needs to trigger indexing of specific files.
+
+**`events`** returns daemon event log entries with fields: `id`, `event_type`,
+`project_name`, `file_path`, `details`, `created_at`, `execution_id`.
 
 ### Cross-Project Query Methods
 
-| Method | Key Params | Returns |
-|--------|-----------|---------|
-| `query.find` | `name`, `file?`, `depth?`, `callers?`, `callees?` | `{ "results": [ProjectSymbolMatch] }` |
-| `query.context` | `name`, `file?`, `callers?`, `callees?`, `depth?` | per-project symbol match with caller/callee arrays |
-| `query.compare` | `name`, `projects: [string]` | `{ "comparisons": [..., "similarity_score"?] }` |
-| `query.build-index` | `{}` | `{ "pairs_inserted": N }` |
-| `query.suggest` | `from_project`, `name`, `to_project?` | `{ "suggestions": [{ project, symbol, file, similarity_score }] }` |
+| Method | Params | Returns |
+|--------|--------|---------|
+| `query.find` | `name`, `file?`, `depth?`, `callers?`, `callees?` | `{ "query": "...", "matches": [SymbolMatch] }` |
+| `query.context` | `name`, `file?`, `callers?`, `callees?`, `depth?` | Same as find with expanded caller/callee arrays |
+| `query.compare` | `name`, `projects: [string]` | `{ "comparisons": [..., similarity_score?] }` |
+| `query.suggest` | `from_project`, `name`, `to_project?` | `{ "suggestions": [{project, symbol, file, similarity_score}] }` |
+| `query.build-index` | *(none)* | `{ "pairs_inserted": N }` |
+
+`SymbolMatch` fields: `project`, `name`, `kind`, `file_path`, `start_line`,
+`start_col`, `end_line`, `end_col`.
 
 `query.build-index` populates `pattern_cross_refs` via pairwise cosine
 similarity across all enabled registry projects (threshold 0.70).
 
 ### Evolution Loop Methods
 
-| Method | Key Params | Returns |
-|--------|-----------|---------|
+| Method | Params | Returns |
+|--------|--------|---------|
 | `evolve.analyze` | `project?`, `limit?` | `{ "candidates": [HotspotCandidate] }` |
 | `evolve.retrieve` | `project`, `symbol`, `to_project?`, `limit?` | `{ "analogues": [...] }` |
-| `evolve.propose` | `project`, `symbol`, `patch_diff`, `candidate_id?` | `{ "candidate_id": "..." }` |
-| `evolve.candidates` | `project?`, `status?`, `limit?` | `{ "candidates": [CandidateRecord] }` |
-| `evolve.verify` | `candidate_id`, `project_root` | `{ "status": "verified" \| "rejected" }` |
-| `evolve.promote` | `candidate_id` | `{ "promoted": true }` |
-| `evolve.reject` | `candidate_id`, `reason?` | `{ "rejected": true }` |
+| `evolve.propose` | `project`, `symbol`, `patch_diff`, `candidate_id?`, `analogue?` | `{ "candidate_id": "...", "status": "pending" }` |
+| `evolve.candidates` | `project`, `status?`, `limit?` | `{ "candidates": [CandidateRecord] }` |
+| `evolve.verify` | `project`, `candidate_id` | `{ "status": "verified" \| "rejected", "passed": bool, ... }` |
+| `evolve.promote` | `project`, `candidate_id` | `{ "candidate_id": "...", "status": "promoted" }` |
+| `evolve.reject` | `project`, `candidate_id`, `rejection_reason?` | `{ "candidate_id": "...", "status": "rejected" }` |
 
-`evolve.verify` creates a temp worktree copy of `project_root`, applies
-`patch_diff` via `patch -p0`, auto-detects the test harness (`cargo test` /
-`pytest` / `npm test`), runs tests, and updates candidate status.
+`evolve.verify` creates a temp worktree, applies `patch_diff` via `patch -p0`,
+auto-detects the test harness (`cargo test` / `pytest` / `npm test`), runs
+tests, and updates candidate status.
 
-Error code `-32006` is returned when a `candidate_id` is not found.
+Candidate lifecycle: `pending` → `verified` or `rejected` → `promoted`.
 
-Candidate status lifecycle: `pending` → `verified` or `rejected` → `promoted`.
+### Forge Integration Example
+
+Forge can use the socket API to:
+
+1. **Register projects**: `{"method": "register", "name": "...", "root": "...", "include": ["src/"]}`
+2. **Query symbols**: `{"method": "query.find", "name": "parse_args"}`
+3. **Get context**: `{"method": "query.context", "name": "parse_args", "callers": true}`
+4. **Find hotspots**: `{"method": "evolve.analyze", "project": "magellan"}`
+5. **Propose changes**: `{"method": "evolve.propose", "project": "...", "symbol": "...", "patch_diff": "..."}`
+6. **Verify changes**: `{"method": "evolve.verify", "project": "...", "candidate_id": "..."}`
+7. **Trigger indexing**: `{"method": "watch", "tag": "myproject", "paths": ["/path/to/file.rs"]}`
 
 ## Path Handling
 

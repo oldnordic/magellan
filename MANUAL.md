@@ -424,6 +424,40 @@ magellan service events --type batch_received --json
 magellan service events --since 24
 ```
 
+### Database Paths
+
+The daemon stores project databases at `~/.magellan/<name>/<name>.db`. This is
+the centralized daemon DB path, separate from project-local `.magellan/*.db`
+files used by standalone `magellan watch`. Query daemon-indexed symbols with:
+
+```bash
+magellan find --db ~/.magellan/myproject/myproject.db --name "symbol_name"
+magellan query --db ~/.magellan/myproject/myproject.db --file src/main.rs
+```
+
+### Socket API for External Tools
+
+The daemon's JSON-RPC socket is the primary integration point for downstream
+tools like forge. See `docs/API_INTEGRATION.md` for the full method reference.
+Key methods:
+
+```bash
+# Send a request (any Unix socket client works)
+echo '{"id":"1","method":"ping"}' | nc -U /run/user/$(id -u)/magellan.sock
+
+# Register a project with include/exclude filters
+echo '{"id":"1","method":"register","name":"myproj","root":"/path","include":["src/"]}' \
+  | nc -U /run/user/$(id -u)/magellan.sock
+
+# Query symbols across projects
+echo '{"id":"1","method":"query.find","name":"parse_args"}' \
+  | nc -U /run/user/$(id -u)/magellan.sock
+
+# Trigger indexing of specific files
+echo '{"id":"1","method":"watch","tag":"myproj","paths":["/path/to/file.rs"]}' \
+  | nc -U /run/user/$(id -u)/magellan.sock
+```
+
 ## Source Retrieval
 
 ```bash

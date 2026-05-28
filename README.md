@@ -102,6 +102,27 @@ Status JSON always includes a stable `coverage` object:
 
 When coverage exists, `source`, `revision`, and `ingested_at` are included.
 
+## Service Daemon
+
+Magellan can run as a background daemon with per-project filesystem watchers
+and a JSON-RPC control socket for integration with downstream tools.
+
+```bash
+magellan service start                          # start daemon
+magellan service register --root /path --name myproject \
+  --include src/ --include tests/ --exclude target/
+magellan service list                            # list enabled projects
+magellan service status                          # detailed project info
+magellan service stats                           # per-project DB statistics
+magellan service events                          # daemon event log
+magellan service stop                            # graceful shutdown
+```
+
+The daemon stores databases at `~/.magellan/<name>/<name>.db`. The JSON-RPC
+socket (at `$XDG_RUNTIME_DIR/magellan.sock`) supports project management,
+cross-project queries, and an evolution loop for automated refactoring
+candidates. See `docs/API_INTEGRATION.md` for the full method reference.
+
 ## Useful Commands
 
 ```bash

@@ -292,21 +292,27 @@ fn worker_loop(
                     let path_key = magellan::normalize_path(&path)
                         .unwrap_or_else(|_| path.to_string_lossy().to_string());
 
-                    if let Err(e) = graph.reconcile_file_path(&path, &path_key) {
-                        tracing::warn!(
-                            path = %path.display(),
-                            project = %batch.project_name,
-                            error = %e,
-                            "Reconcile error"
-                        );
-                        reconcile_errors.push(format!("{}: {}", path.display(), e));
-                        if let Some(ref meta_path) = meta_db_path {
-                            if let Ok(mut meta) = meta_db::MetaDb::open_at(meta_path) {
-                                let mut ev = make_event("reconcile_err", Some(&batch.project_name));
-                                ev.file_path = Some(path.to_string_lossy().to_string());
-                                ev.details = Some(serde_json::json!({ "error": e.to_string() }));
-                                let _ = meta.log_event(&ev);
-                                let _ = meta.close();
+                    match graph.reconcile_file_path(&path, &path_key) {
+                        Ok(_outcome) => {}
+                        Err(e) => {
+                            eprintln!("[worker] reconcile ERR: {} -> {}", path.display(), e);
+                            tracing::warn!(
+                                path = %path.display(),
+                                project = %batch.project_name,
+                                error = %e,
+                                "Reconcile error"
+                            );
+                            reconcile_errors.push(format!("{}: {}", path.display(), e));
+                            if let Some(ref meta_path) = meta_db_path {
+                                if let Ok(mut meta) = meta_db::MetaDb::open_at(meta_path) {
+                                    let mut ev =
+                                        make_event("reconcile_err", Some(&batch.project_name));
+                                    ev.file_path = Some(path.to_string_lossy().to_string());
+                                    ev.details =
+                                        Some(serde_json::json!({ "error": e.to_string() }));
+                                    let _ = meta.log_event(&ev);
+                                    let _ = meta.close();
+                                }
                             }
                         }
                     }
