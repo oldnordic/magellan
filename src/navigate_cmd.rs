@@ -1,7 +1,4 @@
 use anyhow::Result;
-use magellan::context::query::{
-    affected_analysis, get_callees, get_callers, get_symbol_detail, impact_analysis,
-};
 use magellan::graph::CodeGraph;
 use std::path::PathBuf;
 use std::process::Command;
@@ -12,7 +9,6 @@ const STOP_WORDS: &[&str] = &[
     "where", "why", "with",
 ];
 
-/// Extract identifier-like terms from a natural-language task string.
 pub fn extract_terms(task: &str, max: usize) -> Vec<String> {
     let mut terms: Vec<String> = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -58,11 +54,6 @@ pub struct NavigateConfig {
     pub with_mirage: bool,
 }
 
-/// Run the navigate command: extract terms, query magellan graph, optionally invoke llmgrep/mirage.
-///
-/// Two modes (mirrors grounded-navigator):
-/// - Normal: for top 3 symbols → callers + callees + impact + affected + context+source (7 queries each)
-/// - Concise: for top 1 symbol → single bundled context call with callers+callees+source, truncated to budget
 pub fn run_navigate(cfg: NavigateConfig) -> Result<()> {
     let NavigateConfig {
         db_path,
@@ -75,22 +66,28 @@ pub fn run_navigate(cfg: NavigateConfig) -> Result<()> {
         with_mirage,
     } = cfg;
     let terms = extract_terms(&task, 8);
-    let mut graph = CodeGraph::open(&db_path)?;
+    let graph = CodeGraph::open(&db_path)?;
+    let nav = graph.navigator();
     let mut sections: Vec<Section> = Vec::new();
 
-    // Step 1: find symbols for each term
-    let mut resolved: Vec<String> = Vec::new();
+    let mut resolved_ids: Vec<i64> = Vec::new();
+    let mut resolved_names: Vec<String> = Vec::new();
+
     for term in &terms {
-        match graph.search_symbols_by_name(term) {
+        match nav.resolve(term) {
             Ok(hits) if !hits.is_empty() => {
                 let mut body = String::new();
                 for hit in hits.iter().take(limit) {
                     body.push_str(&format!(
                         "- `{}` ({}) — {}:{}\n",
-                        hit.name, hit.kind, hit.file_path, hit.byte_start
+                        hit.name,
+                        hit.kind_normalized.as_deref().unwrap_or(&hit.kind),
+                        hit.file_path.as_deref().unwrap_or("?"),
+                        hit.byte_start,
                     ));
-                    if !resolved.contains(&hit.name) {
-                        resolved.push(hit.name.clone());
+                    if !resolved_names.contains(&hit.name) {
+                        resolved_names.push(hit.name.clone());
+                        resolved_ids.push(hit.id);
                     }
                 }
                 sections.push(Section {
@@ -108,157 +105,153 @@ pub fn run_navigate(cfg: NavigateConfig) -> Result<()> {
     }
 
     if concise {
-        // Concise mode: single bundled context for top 1 symbol (callers + callees + source),
-        // truncated to budget tokens. Equivalent to grounded-index context --include-callers
-        // --include-callees --budget N.
-        if let Some(sym) = resolved.first() {
-            if let Ok(detail) = get_symbol_detail(&mut graph, sym, None) {
-                let mut body = String::new();
+        if let Some((&first_id, first_name)) = resolved_ids.first().zip(resolved_names.first()) {
+            let mut body = String::new();
+            if let Some(info) = nav.info(first_id)? {
                 body.push_str(&format!(
                     "- file: `{}` line: {}\n",
-                    detail.file, detail.line
+                    info.file_path.as_deref().unwrap_or("?"),
+                    info.start_line,
                 ));
-                body.push_str(&format!("- kind: `{}`\n", detail.kind));
+                body.push_str(&format!(
+                    "- kind: `{}`\n",
+                    info.kind_normalized.as_deref().unwrap_or(&info.kind),
+                ));
+            }
 
-                if !detail.callers.is_empty() {
-                    body.push_str("\n**callers:**\n");
-                    for c in &detail.callers {
-                        body.push_str(&format!("  - `{}` — {}:{}\n", c.name, c.file, c.line));
-                    }
+            let callers = nav.k_hop_callers(first_id, 1)?;
+            if !callers.is_empty() {
+                body.push_str("\n**callers:**\n");
+                for c in &callers {
+                    body.push_str(&format!(
+                        "  - `{}` — {}:{}\n",
+                        c.info.name,
+                        c.info.file_path.as_deref().unwrap_or("?"),
+                        c.info.start_line,
+                    ));
                 }
-                if !detail.callees.is_empty() {
-                    body.push_str("\n**callees:**\n");
-                    for c in &detail.callees {
-                        body.push_str(&format!("  - `{}` — {}:{}\n", c.name, c.file, c.line));
-                    }
+            }
+            let callees = nav.k_hop_callees(first_id, 1)?;
+            if !callees.is_empty() {
+                body.push_str("\n**callees:**\n");
+                for c in &callees {
+                    body.push_str(&format!(
+                        "  - `{}` — {}:{}\n",
+                        c.info.name,
+                        c.info.file_path.as_deref().unwrap_or("?"),
+                        c.info.start_line,
+                    ));
                 }
+            }
 
-                let snippet = read_source_lines(&detail.file, detail.line, detail.end_line);
+            if let Some(info) = nav.info(first_id)? {
+                let file = info.file_path.as_deref().unwrap_or("");
+                let snippet = read_source_lines(file, info.start_line, info.end_line);
                 if let Some(src) = snippet {
                     body.push_str("\n```\n");
                     body.push_str(&src);
                     body.push_str("\n```\n");
                 }
-
-                // Truncate to budget tokens
-                let truncated = truncate_to_budget(&body, budget);
-                sections.push(Section {
-                    title: format!("context: {}", sym),
-                    body: truncated,
-                });
             }
+
+            let truncated = truncate_to_budget(&body, budget);
+            sections.push(Section {
+                title: format!("context: {}", first_name),
+                body: truncated,
+            });
         }
     } else {
-        // Normal mode: for top 3 symbols run all individual queries
-        let top_n = resolved.len().min(3);
-        for sym in resolved.iter().take(top_n) {
-            // callers
-            if let Ok(callers) = get_callers(&mut graph, sym, None) {
-                if !callers.is_empty() {
-                    let mut body = String::new();
-                    for c in &callers {
-                        body.push_str(&format!("- `{}` — {}:{}\n", c.name, c.file, c.line));
-                    }
-                    sections.push(Section {
-                        title: format!("callers: {}", sym),
-                        body,
-                    });
-                }
-            }
+        let top_n = resolved_ids.len().min(3);
+        let top_ids: Vec<i64> = resolved_ids.iter().copied().take(top_n).collect();
+        let top_names: Vec<&String> = resolved_names.iter().take(top_n).collect();
 
-            // callees
-            if let Ok(callees) = get_callees(&mut graph, sym, None) {
-                if !callees.is_empty() {
-                    let mut body = String::new();
-                    for c in &callees {
-                        body.push_str(&format!("- `{}` — {}:{}\n", c.name, c.file, c.line));
-                    }
-                    sections.push(Section {
-                        title: format!("callees: {}", sym),
-                        body,
-                    });
-                }
-            }
-
-            // impact (what calls this, transitively)
-            if let Ok(impact) = impact_analysis(&mut graph, sym, None, depth) {
-                if !impact.is_empty() {
-                    let mut body = String::new();
-                    for r in &impact {
-                        body.push_str(&format!(
-                            "- `{}` (depth {}) — {}:{}\n",
-                            r.name,
-                            r.depth.unwrap_or(0),
-                            r.file,
-                            r.line
-                        ));
-                    }
-                    sections.push(Section {
-                        title: format!("impact: {}", sym),
-                        body,
-                    });
-                }
-            }
-
-            // affected (what this calls, transitively)
-            if let Ok(affected) = affected_analysis(&mut graph, sym, None, depth) {
-                if !affected.is_empty() {
-                    let mut body = String::new();
-                    for r in &affected {
-                        body.push_str(&format!(
-                            "- `{}` (depth {}) — {}:{}\n",
-                            r.name,
-                            r.depth.unwrap_or(0),
-                            r.file,
-                            r.line
-                        ));
-                    }
-                    sections.push(Section {
-                        title: format!("affected: {}", sym),
-                        body,
-                    });
-                }
-            }
-
-            // context with source
-            if let Ok(detail) = get_symbol_detail(&mut graph, sym, None) {
-                let mut body = String::new();
-                body.push_str(&format!(
-                    "- file: `{}` line: {}\n",
-                    detail.file, detail.line
-                ));
-                body.push_str(&format!("- kind: `{}`\n", detail.kind));
-                let snippet = read_source_lines(&detail.file, detail.line, detail.end_line);
-                if let Some(src) = snippet {
-                    body.push_str("\n```\n");
-                    body.push_str(&src);
-                    body.push_str("\n```\n");
-                }
+        for (idx, (&sym_id, sym_name)) in top_ids.iter().zip(top_names.iter()).enumerate() {
+            let callers = nav.k_hop_callers(sym_id, 1)?;
+            if !callers.is_empty() {
+                let body = format_callers(&callers);
                 sections.push(Section {
-                    title: format!("context: {}", sym),
+                    title: format!("callers: {}", sym_name),
                     body,
                 });
             }
 
-            // optional mirage CFG
+            let callees = nav.k_hop_callees(sym_id, 1)?;
+            if !callees.is_empty() {
+                let body = format_callees(&callees);
+                sections.push(Section {
+                    title: format!("callees: {}", sym_name),
+                    body,
+                });
+            }
+
+            let impact_depth = depth.max(1) as u32;
+            let impact = nav.k_hop_callers(sym_id, impact_depth)?;
+            if !impact.is_empty() {
+                let body = format_impact(&impact, impact_depth);
+                sections.push(Section {
+                    title: format!("impact: {}", sym_name),
+                    body,
+                });
+            }
+
+            let affected = nav.k_hop_callees(sym_id, impact_depth)?;
+            if !affected.is_empty() {
+                let body = format_affected(&affected, impact_depth);
+                sections.push(Section {
+                    title: format!("affected: {}", sym_name),
+                    body,
+                });
+            }
+
+            if let Some(info) = nav.info(sym_id)? {
+                let mut body = String::new();
+                body.push_str(&format!(
+                    "- file: `{}` line: {}\n",
+                    info.file_path.as_deref().unwrap_or("?"),
+                    info.start_line,
+                ));
+                body.push_str(&format!(
+                    "- kind: `{}`\n",
+                    info.kind_normalized.as_deref().unwrap_or(&info.kind),
+                ));
+                let file = info.file_path.as_deref().unwrap_or("");
+                let snippet = read_source_lines(file, info.start_line, info.end_line);
+                if let Some(src) = snippet {
+                    body.push_str("\n```\n");
+                    body.push_str(&src);
+                    body.push_str("\n```\n");
+                }
+                sections.push(Section {
+                    title: format!("context: {}", sym_name),
+                    body,
+                });
+            }
+
             if with_mirage {
                 let output = Command::new("mirage")
-                    .args(["cfg", "--db", &db_path.to_string_lossy(), "--function", sym])
+                    .args([
+                        "cfg",
+                        "--db",
+                        &db_path.to_string_lossy(),
+                        "--function",
+                        sym_name,
+                    ])
                     .output();
                 if let Ok(out) = output {
                     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
                     if !stdout.trim().is_empty() {
                         sections.push(Section {
-                            title: format!("cfg: {}", sym),
+                            title: format!("cfg: {}", sym_name),
                             body: format!("```\n{}\n```\n", stdout.trim()),
                         });
                     }
                 }
             }
+
+            let _ = idx;
         }
     }
 
-    // optional llmgrep semantic search (both modes)
     if with_llmgrep && !task.is_empty() {
         let output = Command::new("llmgrep")
             .args([
@@ -287,7 +280,60 @@ pub fn run_navigate(cfg: NavigateConfig) -> Result<()> {
     Ok(())
 }
 
-/// Truncate body text to approximately `budget` tokens (1 token ≈ 4 chars).
+fn format_callers(symbols: &[magellan::graph::navigator::DepthSymbol]) -> String {
+    let mut body = String::new();
+    for s in symbols {
+        body.push_str(&format!(
+            "- `{}` — {}:{}\n",
+            s.info.name,
+            s.info.file_path.as_deref().unwrap_or("?"),
+            s.info.start_line,
+        ));
+    }
+    body
+}
+
+fn format_callees(symbols: &[magellan::graph::navigator::DepthSymbol]) -> String {
+    let mut body = String::new();
+    for s in symbols {
+        body.push_str(&format!(
+            "- `{}` — {}:{}\n",
+            s.info.name,
+            s.info.file_path.as_deref().unwrap_or("?"),
+            s.info.start_line,
+        ));
+    }
+    body
+}
+
+fn format_impact(symbols: &[magellan::graph::navigator::DepthSymbol], _max_depth: u32) -> String {
+    let mut body = String::new();
+    for s in symbols {
+        body.push_str(&format!(
+            "- `{}` (depth {}) — {}:{}\n",
+            s.info.name,
+            s.depth,
+            s.info.file_path.as_deref().unwrap_or("?"),
+            s.info.start_line,
+        ));
+    }
+    body
+}
+
+fn format_affected(symbols: &[magellan::graph::navigator::DepthSymbol], _max_depth: u32) -> String {
+    let mut body = String::new();
+    for s in symbols {
+        body.push_str(&format!(
+            "- `{}` (depth {}) — {}:{}\n",
+            s.info.name,
+            s.depth,
+            s.info.file_path.as_deref().unwrap_or("?"),
+            s.info.start_line,
+        ));
+    }
+    body
+}
+
 fn truncate_to_budget(text: &str, budget: usize) -> String {
     let char_limit = budget * 4;
     if text.len() <= char_limit {
@@ -388,7 +434,7 @@ mod tests {
     #[test]
     fn test_truncate_to_budget_truncates() {
         let text = "a".repeat(100);
-        let result = truncate_to_budget(&text, 10); // budget=10 → limit=40 chars
+        let result = truncate_to_budget(&text, 10);
         assert!(result.len() < text.len());
         assert!(result.contains("truncated to budget"));
     }

@@ -3,6 +3,7 @@
 use crate::indexer::{
     compute_l3_cache_batch_indices, read_batch_sources, DEFAULT_L3_CACHE_SIZE, TARGET_CACHE_USAGE,
 };
+use crate::manifest::detect_include_paths_from_root;
 use crate::project_config::ProjectConfig;
 use crate::{CodeGraph, FileEvent, FileSystemWatcher, WatcherConfig};
 use anyhow::{Context, Result};
@@ -174,25 +175,11 @@ fn merge_scan_config(
 ) -> Result<crate::project_config::ProjectConfig> {
     let project_config = ProjectConfig::load(scan_root).context("Failed to load .magellan.toml")?;
 
-    // Parse Cargo.toml for auto-include targets (tests/, benches/, examples/)
-    let cargo_targets = crate::project_config::CargoManifest::parse(scan_root)
-        .ok()
-        .filter(|_| project_config.index.include.is_empty())
-        .map(|m| {
-            m.targets
-                .iter()
-                .filter_map(|p| {
-                    Path::new(p).parent().map(|d| {
-                        let mut s = d.to_string_lossy().to_string();
-                        if !s.ends_with('/') {
-                            s.push('/');
-                        }
-                        s
-                    })
-                })
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
+    let auto_detected = if project_config.index.include.is_empty() {
+        detect_include_paths_from_root(scan_root)
+    } else {
+        Vec::new()
+    };
 
     let root_is_subdir = scan_root
         .file_name()
@@ -201,14 +188,8 @@ fn merge_scan_config(
     let merged_include = if config.include_patterns.is_empty() {
         if root_is_subdir {
             vec![]
-        } else if project_config.index.include.is_empty() && !cargo_targets.is_empty() {
-            let mut auto = vec!["src/".to_string()];
-            auto.extend(
-                cargo_targets
-                    .into_iter()
-                    .collect::<std::collections::HashSet<_>>(),
-            );
-            auto
+        } else if project_config.index.include.is_empty() {
+            auto_detected
         } else {
             project_config.index.include.clone()
         }
@@ -302,7 +283,7 @@ pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>
     let mut graph = CodeGraph::open(&config.db_path)?;
 
     // Parse Cargo.toml and store manifest metadata in magellan_meta
-    if let Ok(manifest) = crate::project_config::CargoManifest::parse(&scan_root) {
+    if let Ok(manifest) = crate::manifest::CargoManifest::parse(&scan_root) {
         if manifest.package_name.is_some() {
             if let Ok(conn) = rusqlite::Connection::open(&config.db_path) {
                 if let Err(e) = manifest.store_in_db(&conn) {

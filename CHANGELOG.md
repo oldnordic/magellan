@@ -7,7 +7,63 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- **CFG extraction for Go and CUDA** (`src/graph/cfg_edges_extract.rs`):
+- **Auto-detect project layout from manifest files** (`src/manifest.rs`, `src/project_config.rs`):
+  - Extracted all manifest types into new `src/manifest.rs` module (was in `project_config.rs`, split for 1K LOC compliance)
+  - `CargoManifest::detect_include_paths()` — extracts unique directory paths from `[[bin]]`, `[[test]]`, `[[bench]]`, `[[example]]`, and `[lib]` target paths, always including `src/`
+  - `CargoManifest::parse()` now also extracts `[[example]]` targets and `[lib]` path (was only `bin`/`test`/`bench`)
+  - `PyprojectManifest` — parses `pyproject.toml` for `[project]` name, `[tool.setuptools.packages.find]` where, `[tool.pytest.ini_options]` testpaths
+  - `GoModuleManifest` — parses `go.mod` for module name; detects Go convention dirs (`cmd/`, `internal/`, `pkg/`, `api/`, `web/`) if they exist
+  - `PackageJsonManifest` — parses `package.json` for JS/TS: `"main"`, `"files"`, `"exports"` to extract source dirs
+  - `TsconfigManifest` — parses `tsconfig.json` `"include"` array to extract source directories from glob patterns
+  - `MavenManifest` — parses `pom.xml` for Java; detects Maven convention dirs (`src/main/java/`, `src/test/java/`, etc.) if they exist
+  - `CMakeManifest` — parses `CMakeLists.txt` for C/C++/CUDA: `project()` name and `add_subdirectory()` calls
+  - `detect_include_paths_from_root(root)` — tries manifests in order: Cargo.toml → pyproject.toml → go.mod → package.json+tsconfig.json → pom.xml → CMakeLists.txt → fallback `["src/"]`
+  - `ProjectConfig::init()` now auto-detects include paths from any supported manifest
+  - `merge_scan_config()` in watch pipeline simplified to use `detect_include_paths_from_root()` for all languages
+  - 35 new tests (16 Cargo/Pyproject + 19 Go/JS/TS/Java/CMake)
+
+- **SymbolNavigator — LLM-navigable graph traversal** (`src/graph/navigator.rs`):
+  - New `SymbolNavigator` struct wrapping sqlitegraph's `GraphQuery` with magellan-aware entity resolution
+  - `SymbolInfo` enriched with `kind_normalized`, `start_line`, `end_line`, `byte_start` parsed from `graph_entities.data` JSON
+  - `DepthSymbol` struct preserving BFS hop depth for callers/callees
+  - Methods: `resolve()`, `resolve_by_prefix()`, `info()`, `expand()`, `expand_typed()`, `chain()`, `k_hop_callers()`, `k_hop_callees()`, `k_hop_references()`, `pattern()`
+  - Custom `call_bfs()` performing 2-edge BFS (`Symbol→Call→Symbol`) with depth tracking — replaces flat `k_hop_filtered` which lost depth information
+  - All types derive `Serialize` for JSON output
+  - 11 tests covering resolve, expand, chain (1-hop and 2-hop), depth-aware callers/callees
+
+- **`magellan explore` CLI command** (`src/explore_cmd.rs`):
+  - Stepable graph navigation: `--symbol`, `--id`, `--edges`, `--callers`, `--callees`, `--chain`, `--depth`
+  - `--json`/`-j` flag producing structured JSON output — the contract envoy/atheneum will mirror
+  - JSON response format: `{node, resolve, edges, callers, callees, chain}` with `DepthResponse {depth, node}` for k-hop results
+  - Chain traversal syntax: `>CALLER,>CALLS` (outgoing), `<CALLER` (incoming)
+
+- **`navigate` command rewritten to use SymbolNavigator** (`src/navigate_cmd.rs`):
+  - Replaced `get_callers()`/`get_callees()`/`impact_analysis()`/`affected_analysis()` with navigator's `k_hop_callers()`/`k_hop_callees()`
+  - Removed dependency on `context::query` functions — all graph traversal now through sqlitegraph's graph API
+  - Kind now shows `fn`/`struct`/`enum` instead of `Unknown`; `byte_start` shows actual offset instead of `0`
+  - Impact/affected sections now show correct depth values (was all `depth 0`)
+  - Callers/callees resolve to definition location instead of call-site location
+
+- **Service daemon: multi-path include/exclude filtering** (`src/service/`, `src/cli/parsers/system.rs`, `src/service_cmd.rs`):
+  - `ProjectEntry` gains `include: Vec<String>` and `exclude: Vec<String>` fields with `#[serde(default)]` for backward compatibility
+  - CLI: `--include`/`-I` and `--exclude`/`-E` repeatable flags on `service register`
+  - `watcher_task` builds `FileFilter` from include/exclude patterns; normalizes `src/` to `src/**` for file-level matching
+  - Dynamic registration now spawns watchers (was broken — admin socket received `None` for `watcher_map`)
+  - Fixed JSON-RPC request format: all service commands now send params at top level (was nested in `"params":{}`, incompatible with `#[serde(flatten)]`)
+  - Fixed positional project name parsing: `magellan service unregister <name>` now works (was silently defaulting to empty)
+  - `MAGELLAN_LOCAL=1` env var forces local mode (bypasses daemon detection for tests)
+  - 2 new tests: `registry_include_exclude_roundtrip`, `registry_backward_compat_without_include_exclude`
+  - 1 new test: `test_watcher_task_filters_by_include_patterns`
+  - Fixed 2 pre-existing `scan_tests` failures (files placed at root instead of `src/`)
+
+### Changed
+
+- **`cfg_edges_extract.rs` modularization** (commit `6d07af9`):
+  - Split 2577-line file into 4 sub-1K files: `mod.rs` (327), `extract.rs` (748), `control_flow.rs` (593), `tests.rs` (842)
+  - Extracted `CONTROL_FLOW_KINDS` constant + `is_control_flow()` helper
+  - Merged identical `statement`/`expression_statement` handlers
+
+- **CFG extraction for Go and CUDA** (`src/graph/cfg_edges_extract/`):
   - Extended `find_function_node` to recognize Go `function_declaration` and `method_declaration`
   - Changed if-block extraction from positional child indexing to kind-based discovery — fixes Go `if_statement` where `block` is at variable child index due to optional init statement
   - Added `statement_list` as recognized block container — Go wraps `block` bodies in `statement_list`
@@ -40,21 +96,6 @@ Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - Existing databases with `geo_index_meta` table are harmless — the table is simply no longer created for new DBs
 
 ## [4.1.1] - 2026-05-26
-
-### Changed
-
-- **Removed `geometric-backend` from default features** (`Cargo.toml`, `src/geo_builder.rs`):
-  - Default features changed from `["sqlite-backend", "geometric-backend"]` to `["sqlite-backend"]`
-  - The geometric backend (`.geo` files) has been unused since March 2026; all production workflows use SQLite (`.db`)
-  - `geometric-backend` remains available as an opt-in feature: `--features geometric-backend`
-  - `src/geo_builder.rs`: `compute_checksum` now gated behind `#[cfg(feature = "geometric-backend")]`
-
-### Compatibility Notice
-
-- **Mirage compatibility**: Mirage will be upgraded to work with this schema correction. Users of mirage should update to the upcoming mirage release after upgrading magellan.
-- **Splice compatibility**: SPL-E091 schema mismatch errors are expected until splice updates its magellan dependency to 4.1.1+. The workaround is to re-index with `magellan watch --root ./src --db .magellan/<project>.db --scan-initial`.
-
-## [4.1.0] - Unreleased
 
 ### Changed
 

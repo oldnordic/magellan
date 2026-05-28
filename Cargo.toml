@@ -58,17 +58,10 @@ harness = false
 path = "benches/kv_metadata_bench.rs"
 
 [features]
-# Default: SQLite backend only (geometric-backend removed — unused, see CHANGELOG)
 default = ["sqlite-backend"]
-# SQLite backend (stable, uses SQLite for storage)
-# Use this for compatibility and stability
 sqlite-backend = ["sqlitegraph/sqlite-backend"]
-# Enable with: cargo build --features debug-prints
 debug-prints = []
 
-# GeoGraphDB backend for 3D spatial indexing of CFG data (experimental, not in default builds)
-
-# LLVM IR CFG for C/C++ (stable, uses LLVM)
 llvm-cfg = ["dep:llvm-sys"]
 
 # Platform support

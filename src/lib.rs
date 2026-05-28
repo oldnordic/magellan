@@ -67,6 +67,7 @@ pub mod migrate_cmd;
 pub use backend_router::{MagellanBackend, UnifiedSymbolInfo};
 pub use capabilities::all_capabilities;
 pub use migrate_backend_cmd::{detect_backend_format, BackendFormat};
+pub mod manifest;
 pub mod output;
 pub mod project_config;
 pub mod references;

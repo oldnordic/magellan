@@ -241,6 +241,8 @@ async fn test_watcher_task_emits_batch_on_file_change() {
         "testproj".to_string(),
         shutdown_rx,
         tx,
+        Vec::new(),
+        Vec::new(),
     ));
 
     // Give watcher time to start
@@ -2505,4 +2507,82 @@ async fn test_admin_socket_events_returns_logged_events() {
     accept_task.abort();
     let _ = tokio::fs::remove_file(&socket).await;
     let _ = tokio::fs::remove_file(&meta_path).await;
+}
+
+#[tokio::test]
+async fn test_watcher_task_filters_by_include_patterns() {
+    use std::fs::{create_dir, write};
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+
+    create_dir(root.join("src")).unwrap();
+    create_dir(root.join("kernels")).unwrap();
+    create_dir(root.join("target")).unwrap();
+
+    write(root.join("src/main.rs"), "fn main() {}").unwrap();
+    write(root.join("kernels/mod.rs"), "pub fn k() {}").unwrap();
+    write(root.join("target/output.rs"), "fn unused() {}").unwrap();
+
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16);
+    let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+
+    let include = vec!["src/".to_string(), "kernels/".to_string()];
+    let exclude: Vec<String> = Vec::new();
+
+    let _join = tokio::spawn(super::watcher_task(
+        root.clone(),
+        "filtertest".to_string(),
+        shutdown_rx,
+        tx,
+        include,
+        exclude,
+    ));
+
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+    write(root.join("src/new.rs"), "// new src file").unwrap();
+    write(root.join("kernels/new_kernel.rs"), "// new kernel").unwrap();
+    write(root.join("target/artifact.rs"), "fn artifact() {}").unwrap();
+
+    let mut collected_paths = Vec::new();
+    let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(10);
+    while tokio::time::Instant::now() < deadline {
+        match tokio::time::timeout(tokio::time::Duration::from_secs(3), rx.recv()).await {
+            Ok(Some(batch)) => {
+                collected_paths.extend(batch.paths);
+                if collected_paths.len() >= 2 {
+                    break;
+                }
+            }
+            Ok(None) => break,
+            Err(_) => break,
+        }
+    }
+
+    let has_src = collected_paths
+        .iter()
+        .any(|p| p.to_string_lossy().contains("src/new.rs"));
+    let has_kernel = collected_paths
+        .iter()
+        .any(|p| p.to_string_lossy().contains("kernels/new_kernel.rs"));
+    let has_target = collected_paths
+        .iter()
+        .any(|p| p.to_string_lossy().contains("target/artifact.rs"));
+
+    assert!(
+        has_src,
+        "src/new.rs should be included, paths: {:?}",
+        collected_paths
+    );
+    assert!(
+        has_kernel,
+        "kernels/new_kernel.rs should be included, paths: {:?}",
+        collected_paths
+    );
+    assert!(
+        !has_target,
+        "target/artifact.rs should be excluded, paths: {:?}",
+        collected_paths
+    );
 }

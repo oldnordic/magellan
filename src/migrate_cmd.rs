@@ -19,7 +19,9 @@ use std::path::{Path, PathBuf};
 /// v8: cfg_blocks.cfg_hash column for cache invalidation
 /// v9: cfg_blocks.statements column for AST snippets
 /// v10: cfg_blocks 4D spatial-temporal coordinate columns
-/// v11: geo_index_meta table
+/// v10: CFG coordinate columns (coord_x, coord_y, coord_z, coord_t)
+/// v11: (removed — geo_index_meta table no longer created)
+/// v12: FTS5 full-text search index
 /// v12: symbol_fts FTS5 virtual table for fast symbol search
 /// v13: source_documents table for graph memory source inventory
 /// v14: candidate_facts table for graph memory candidate staging
@@ -306,12 +308,8 @@ fn migrate_from_version(tx: &Transaction, old_version: i64) -> Result<()> {
     }
 
     if old_version < 11 {
-        // v10 -> v11: Add geo_index_meta table
-        // This table records when a .geo file was built from the SQLite database
-        tx.execute(
-            "CREATE TABLE IF NOT EXISTS geo_index_meta (\n                id INTEGER PRIMARY KEY CHECK (id = 1),\n                geo_path TEXT NOT NULL,\n                built_at INTEGER NOT NULL,\n                schema_version INTEGER NOT NULL,\n                symbol_count INTEGER NOT NULL,\n                call_count INTEGER NOT NULL,\n                cfg_block_count INTEGER NOT NULL,\n                checksum TEXT NOT NULL\n            )",
-            [],
-        )?;
+        // v10 -> v11: geo_index_meta removed — no-op
+        // Previously created geo_index_meta table; existing databases with this table are harmless
     }
 
     if old_version < 12 {

@@ -125,6 +125,8 @@ where
             let mut since_hours: Option<u64> = None;
             let mut event_limit: usize = 50;
             let mut json_output = false;
+            let mut include: Vec<String> = Vec::new();
+            let mut exclude: Vec<String> = Vec::new();
             let mut i = 0;
             while i < args.len() {
                 match args[i].as_str() {
@@ -137,6 +139,12 @@ where
                     }
                     "--root" | "-r" => {
                         root = Some(parse_path_arg(&args[..], &mut i, "--root")?);
+                    }
+                    "--include" | "-I" => {
+                        include.push(parse_required_arg(&args[..], &mut i, "--include")?);
+                    }
+                    "--exclude" | "-E" => {
+                        exclude.push(parse_required_arg(&args[..], &mut i, "--exclude")?);
                     }
                     "--type" | "-t" => {
                         event_type = Some(parse_required_arg(&args[..], &mut i, "--type")?);
@@ -163,22 +171,29 @@ where
                     _ => i += 1,
                 }
             }
+            let positional = if args.len() > 3 {
+                Some(args[3].clone())
+            } else {
+                None
+            };
             let action = match args[2].as_str() {
                 "start" => crate::service_cmd::ServiceAction::Start,
                 "stop" => crate::service_cmd::ServiceAction::Stop,
                 "list" => crate::service_cmd::ServiceAction::List,
                 "register" => crate::service_cmd::ServiceAction::Register {
                     root: root.unwrap_or_else(|| PathBuf::from(".")),
-                    name,
+                    name: name.or(positional),
+                    include,
+                    exclude,
                 },
                 "unregister" => crate::service_cmd::ServiceAction::Unregister {
-                    name: name.unwrap_or_default(),
+                    name: name.or(positional).unwrap_or_default(),
                 },
                 "pause" => crate::service_cmd::ServiceAction::Pause {
-                    name: name.unwrap_or_default(),
+                    name: name.or(positional).unwrap_or_default(),
                 },
                 "resume" => crate::service_cmd::ServiceAction::Resume {
-                    name: name.unwrap_or_default(),
+                    name: name.or(positional).unwrap_or_default(),
                 },
                 "status" => crate::service_cmd::ServiceAction::Status,
                 "stats" => crate::service_cmd::ServiceAction::Stats,
@@ -202,6 +217,7 @@ where
         "hnsw-query" => parse_hnsw_query_args(&args[2..]),
         "ask" => parse_ask_args(&args[2..]),
         "navigate" => parse_navigate_args(&args[2..]),
+        "explore" => parse_explore_args(&args[2..]),
         "telemetry" => parse_telemetry_args(&args[2..]),
         "features" => parse_features_args(&args[2..]),
         "service-daemon" => Ok(Command::ServiceDaemon),

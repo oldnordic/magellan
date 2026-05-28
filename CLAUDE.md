@@ -1,7 +1,7 @@
 # Magellan Development Rules - Grounded Tool Workflow
 
 **Project:** Magellan - Graph Database Indexer
-**Crate Version:** 3.3.7 | **Schema Version:** 16
+**Crate Version:** 4.2.0 | **Schema Version:** 17
 **Last Updated:** 2026-05-11
 
 ---
@@ -44,8 +44,6 @@ cargo test                               # run tests
 cargo clippy --all-targets --all-features # lint
 ```
 
-**Note:** `geometric-backend` requires `geographdb-core` at `../geographdb-core`. `cargo build --features geometric-backend` fails without it.
-
 ---
 
 ## Architecture
@@ -54,11 +52,12 @@ cargo clippy --all-targets --all-features # lint
 src/
 ├── main.rs, lib.rs, cli.rs          # CLI entry points
 ├── graph/                           # Core graph engine (40+ files)
-│   ├── backend.rs                   # Backend abstraction (sqlite + geometric)
+│   ├── backend.rs                   # Backend abstraction
 │   ├── ops.rs, call_ops.rs          # Graph mutations and call graph
 │   ├── ast_*.rs, cfg_*.rs           # AST/CFG extraction
+│   ├── navigator.rs                 # SymbolNavigator — stepable graph traversal
 │   ├── scan.rs, indexer.rs          # File scanning and indexing
-│   └── geo_*.rs                     # Geometric backend (3D spatial)
+│   └── mod.rs                       # CodeGraph struct, navigator() accessor
 ├── watcher/                         # Filesystem watch + debounce
 ├── lsp/                             # LSP server (tower-lsp feature)
 └── *_cmd.rs                         # CLI subcommands
@@ -66,7 +65,6 @@ src/
 
 **Key design:** `graph::backend::GraphBackend` abstracts storage.
 - `sqlite-backend` (default) — stable, rusqlite
-- `geometric-backend` — experimental 3D spatial CFG indexing
 
 ## Database Convention
 
@@ -80,11 +78,9 @@ All projects: `.magellan/<project>.db`
 | Feature | Default | Description |
 |---------|---------|-------------|
 | `sqlite-backend` | yes | Stable SQLite storage |
-| `geometric-backend` | no | 3D spatial CFG (requires `../geographdb-core`) |
 | `web-ui` | no | Axum web UI server |
 | `llvm-cfg` | no | LLVM IR CFG for C/C++ |
 | `telemetry` | no | Race/loop detection telemetry |
-| `benchmarks` | no | Geometric benchmark suites |
 
 ---
 
@@ -124,8 +120,7 @@ All tools support `--output human|json|pretty`.
 ## Test Patterns
 
 ```bash
-cargo test                                              # sqlite backend
-cargo test --features geometric-backend --test geometric_cfg_tests  # geometric
+cargo test                                              # all tests
 cargo test --test system_workflow_tests                 # integration
 cargo test --test migration_tests                       # migrations
 cargo test --test cfg_mir_parity_tdd                    # MIR parity
@@ -143,7 +138,6 @@ magellan watch --root ./src --db .magellan/magellan.db --debounce-ms 500
 ## Known Build Quirks
 
 - `unexpected_cfgs` warning for `debug-prints` — harmless. Suppress: `RUSTFLAGS='--allow=unexpected_cfgs' cargo build`
-- `geometric-backend` requires local `../geographdb-core`
 
 ## Quick Reference: When to Use Which Tool
 

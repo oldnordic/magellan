@@ -3,12 +3,17 @@
 //! Sits at the project root alongside `Cargo.toml`. Controls include/exclude
 //! paths, watcher settings, and project metadata. When absent, behaviour is
 //! identical to the pre-v4 CLI (backward compatible).
+//!
+//! Manifest auto-detection lives in [`crate::manifest`].
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 use crate::graph::filter::FileFilter;
+use crate::manifest::detect_include_paths_from_root;
+
+pub use crate::manifest::{CargoManifest, PyprojectManifest};
 
 const CONFIG_FILENAME: &str = ".magellan.toml";
 
@@ -102,12 +107,14 @@ impl ProjectConfig {
             );
         }
 
+        let auto_include = detect_include_paths_from_root(project_root);
+
         let config = Self {
             project: ProjectSection {
                 name: Some(name.to_string()),
             },
             index: IndexSection {
-                include: vec!["src/".into(), "tests/".into(), "benches/".into()],
+                include: auto_include,
                 exclude: Vec::new(),
             },
             ..Self::default()
@@ -131,107 +138,10 @@ impl ProjectConfig {
         let exclude = normalize_dir_patterns(&self.index.exclude);
         FileFilter::new(root, &include, &exclude)
     }
-}
 
-/// Parsed Cargo.toml manifest data.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct CargoManifest {
-    pub package_name: Option<String>,
-    /// `[features]` config section.
-    /// `default` feature is excluded — it's a meta-feature listing defaults.
-    #[serde(default)]
-    pub features: std::collections::HashMap<String, Vec<String>>,
-    /// `[dependencies]` config section (dev-dependencies excluded).
-    #[serde(default)]
-    pub dependencies: Vec<String>,
-    /// Target paths extracted from `[[bin]]`, `[[test]]`, `[[bench]]` arrays.
-    #[serde(default)]
-    pub targets: Vec<String>,
-}
-
-impl CargoManifest {
-    pub fn parse(project_root: &Path) -> Result<Self> {
-        let mut path = project_root.join("Cargo.toml");
-        let mut current = Some(project_root);
-        while !path.exists() {
-            if let Some(p) = current.and_then(|c| c.parent()) {
-                path = p.join("Cargo.toml");
-                current = Some(p);
-            } else {
-                break;
-            }
-        }
-        if !path.exists() {
-            return Ok(Self::default());
-        }
-
-        let content = std::fs::read_to_string(&path)
-            .with_context(|| format!("Failed to read {}", path.display()))?;
-
-        let doc: toml::Table = toml::from_str(&content)
-            .with_context(|| format!("Failed to parse {}", path.display()))?;
-
-        let mut manifest = Self::default();
-
-        // [package].name
-        if let Some(toml::Value::Table(package)) = doc.get("package") {
-            if let Some(toml::Value::String(name)) = package.get("name") {
-                manifest.package_name = Some(name.clone());
-            }
-        }
-
-        // [features] — skip "default" meta-feature
-        if let Some(toml::Value::Table(features)) = doc.get("features") {
-            for (k, v) in features.iter().filter(|(k, _)| *k != "default") {
-                if let toml::Value::Array(arr) = v {
-                    manifest.features.insert(
-                        k.clone(),
-                        arr.iter()
-                            .filter_map(|item| item.as_str().map(String::from))
-                            .collect(),
-                    );
-                }
-            }
-        }
-
-        // [dependencies]
-        if let Some(toml::Value::Table(deps)) = doc.get("dependencies") {
-            manifest.dependencies = deps.keys().cloned().collect();
-        }
-
-        // [[bin]], [[test]], [[bench]] — extract path
-        for key in ["bin", "test", "bench"] {
-            if let Some(toml::Value::Array(arr)) = doc.get(key) {
-                for item in arr {
-                    if let toml::Value::Table(t) = item {
-                        if let Some(toml::Value::String(path)) = t.get("path") {
-                            manifest.targets.push(path.clone());
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(manifest)
-    }
-
-    /// Store manifest data into `magellan_meta` table on `conn`.
-    pub fn store_in_db(&self, conn: &rusqlite::Connection) -> Result<()> {
-        let metadata_json =
-            serde_json::to_string(self).context("Failed to serialize CargoManifest")?;
-        conn.execute(
-            "UPDATE magellan_meta SET project_name = ?1, project_metadata = ?2 WHERE id = 1",
-            rusqlite::params![self.package_name, metadata_json],
-        )
-        .context("Failed to update magellan_meta with project metadata")?;
-        Ok(())
-    }
-}
-
-impl ProjectConfig {
     /// Parse `Cargo.toml` manifest from `project_root`.
     pub fn parse_cargo_manifest(project_root: &Path) -> Result<CargoManifest> {
-        CargoManifest::parse(project_root)
+        crate::manifest::CargoManifest::parse(project_root)
     }
 }
 
@@ -319,12 +229,12 @@ scan_initial = false
         let content = fs::read_to_string(&path).unwrap();
         assert!(content.contains("name = \"my-project\""));
 
-        // Round-trip: load what we just wrote
         let cfg = ProjectConfig::load(dir.path()).unwrap();
         assert_eq!(cfg.project.name.as_deref(), Some("my-project"));
-        assert!(cfg.index.include.contains(&"src/".to_string()));
-        assert!(cfg.index.include.contains(&"tests/".to_string()));
-        assert!(cfg.index.include.contains(&"benches/".to_string()));
+        assert!(
+            cfg.index.include.contains(&"src/".to_string()),
+            "should have at least src/ as default"
+        );
     }
 
     #[test]
@@ -386,15 +296,49 @@ path = "tests/integration.rs"
         assert_eq!(manifest.package_name, Some("test-crate".to_string()));
         assert!(manifest.features.contains_key("sqlite-backend"));
         assert!(manifest.features.contains_key("llvm-cfg"));
-        assert!(!manifest.features.contains_key("default")); // default is a meta-feature, skip
+        assert!(!manifest.features.contains_key("default"));
 
         assert!(manifest.dependencies.contains(&"anyhow".to_string()));
         assert!(manifest.dependencies.contains(&"thiserror".to_string()));
         assert!(manifest.dependencies.contains(&"serde".to_string()));
-        assert!(!manifest.dependencies.contains(&"tempfile".to_string())); // dev-dependencies excluded
+        assert!(!manifest.dependencies.contains(&"tempfile".to_string()));
 
         assert!(manifest
             .targets
             .contains(&"tests/integration.rs".to_string()));
+    }
+
+    #[test]
+    fn init_uses_auto_detected_cargo_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let cargo_toml = r#"
+[package]
+name = "auto-project"
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
+
+[[bench]]
+name = "perf"
+path = "benches/perf.rs"
+"#;
+        fs::write(dir.path().join("Cargo.toml"), cargo_toml).unwrap();
+
+        ProjectConfig::init(dir.path(), "auto-project").unwrap();
+
+        let cfg = ProjectConfig::load(dir.path()).unwrap();
+        assert!(
+            cfg.index.include.contains(&"src/".to_string()),
+            "should auto-detect src/"
+        );
+        assert!(
+            cfg.index.include.contains(&"tests/".to_string()),
+            "should auto-detect tests/ from [[test]]"
+        );
+        assert!(
+            cfg.index.include.contains(&"benches/".to_string()),
+            "should auto-detect benches/ from [[bench]]"
+        );
     }
 }

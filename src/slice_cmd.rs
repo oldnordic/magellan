@@ -52,15 +52,6 @@ fn resolve_target(graph: &mut CodeGraph, _db_path: &Path, target: &str) -> Resul
     resolve_target_sqlite(graph, target)
 }
 
-/// Resolve target for geometric backend
-#[allow(dead_code)]
-fn resolve_target_geometric(_backend: &(), target: &str) -> Result<ResolvedTarget> {
-    Err(anyhow::anyhow!(
-        "Geometric backend removed: target '{}'",
-        target
-    ))
-}
-
 /// Resolve target for SQLite backend
 fn resolve_target_sqlite(graph: &mut CodeGraph, target: &str) -> Result<ResolvedTarget> {
     use magellan::graph::query;

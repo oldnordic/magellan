@@ -1,6 +1,6 @@
 # Magellan API Integration
 
-**Version:** 4.1.0 (unreleased)
+**Version:** 4.2.0 (unreleased)
 
 This guide is for downstream tools that use Magellan as a Rust library or invoke
 the CLI and parse JSON output.
@@ -157,10 +157,75 @@ token-constrained output (1 token ≈ 4 chars). `extract_terms()` and
 
 ## Schema Versions
 
-- Magellan database schema: `16`
+- Magellan database schema: `17`
 - JSON response schema: `1.0.0`
+- Explore JSON contract: `1.0.0` (see Explore API below)
 
 Consumers should treat both as compatibility boundaries.
+
+## SymbolNavigator API (v4.2.0+)
+
+`SymbolNavigator` provides programmatic stepable graph traversal:
+
+```rust
+use magellan::CodeGraph;
+
+let graph = CodeGraph::open("code.db")?;
+let nav = graph.navigator();
+
+// Resolve by name
+let syms = nav.resolve("index_file")?;
+let syms = nav.resolve_by_prefix("index_")?;
+
+// Symbol info
+let info = nav.info(syms[0].id)?;
+
+// Expand connected entities
+let neighbors = nav.expand(syms[0].id)?;
+let typed = nav.expand_typed(syms[0].id, "REFERENCES")?;
+
+// Depth-aware call graph
+let callers = nav.k_hop_callers(syms[0].id, 2)?;  // depth 2 callers
+let callees = nav.k_hop_callees(syms[0].id, 3)?;  // depth 3 callees
+let refs = nav.k_hop_references(syms[0].id, 1)?;
+
+// Chain traversal (sqlitegraph ChainStep)
+let chain = nav.chain(syms[0].id, &[
+    (">CALLER".into(), false),
+    (">CALLS".into(), false),
+])?;
+
+// Pattern matching
+let matches = nav.pattern(&["Symbol", "Call"], &[("CALLER", "CALLS")])?;
+```
+
+`SymbolInfo` fields: `id`, `name`, `kind` (normalized), `file`, `line` (start_line).
+`DepthSymbol` adds `depth` (call-hop count).
+
+### Explore CLI API
+
+```bash
+magellan explore --db code.db --symbol "index_file" --json
+magellan explore --db code.db --id 42 --callers --depth 2 --json
+magellan explore --db code.db --id 42 --callees --depth 3 --json
+magellan explore --db code.db --id 42 --edges --json
+magellan explore --db code.db --id 42 --chain ">CALLER,>CALLS" --json
+```
+
+JSON response:
+
+```json
+{
+  "node": { "id": 42, "name": "index_file", "kind": "fn", "file": "src/lib.rs", "line": 10 },
+  "resolve": [...],
+  "edges": [...],
+  "callers": [{ "depth": 1, "node": {...} }],
+  "callees": [{ "depth": 1, "node": {...} }],
+  "chain": [...]
+}
+```
+
+This JSON contract is the prototype for envoy/atheneum HTTP endpoints.
 
 ## Graph Memory API
 

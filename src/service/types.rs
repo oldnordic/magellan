@@ -13,6 +13,10 @@ pub struct ProjectEntry {
     pub enabled: bool,
     #[serde(default)]
     pub registered_at: String,
+    #[serde(default)]
+    pub include: Vec<String>,
+    #[serde(default)]
+    pub exclude: Vec<String>,
 }
 
 impl ProjectEntry {
@@ -25,7 +29,19 @@ impl ProjectEntry {
             source,
             enabled: true,
             registered_at,
+            include: Vec::new(),
+            exclude: Vec::new(),
         }
+    }
+
+    pub fn with_include(mut self, include: Vec<String>) -> Self {
+        self.include = include;
+        self
+    }
+
+    pub fn with_exclude(mut self, exclude: Vec<String>) -> Self {
+        self.exclude = exclude;
+        self
     }
 }
 

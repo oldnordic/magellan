@@ -1,6 +1,6 @@
 # Magellan Manual
 
-**Version:** 4.1.0 (unreleased)
+**Version:** 4.2.0 (unreleased)
 
 This manual documents the current user-facing Magellan CLI. The supported normal
 workflow uses a SQLite `.db` database.
@@ -150,7 +150,7 @@ magellan migrate --db code.db --dry-run
 magellan migrate --db code.db --no-backup
 ```
 
-Current Magellan schema version: `16`.
+Current Magellan schema version: `17`.
 
 **Schema v12 changes:** Added FTS5 full-text search index for fast prefix search.
 Migration is automatic and creates a backup. See [docs/SCHEMA_SQLITE.md](docs/SCHEMA_SQLITE.md)
@@ -237,15 +237,19 @@ magellan service register --root /path/to/project --name myproject
 # Register with the default db location (~/.magellan/myproject/myproject.db)
 magellan service register --root /path/to/project
 
+# Register with include/exclude filters (only watch src/ and tests/, skip target/)
+magellan service register --root /path/to/project --name myproject \
+  --include src/ --include tests/ --exclude target/
+
 # List registered projects
 magellan service list
 
 # Remove a project from the registry
-magellan service unregister --name myproject
+magellan service unregister myproject
 
 # Pause / resume a project (disable / re-enable indexing)
-magellan service pause --name myproject
-magellan service resume --name myproject
+magellan service pause myproject
+magellan service resume myproject
 ```
 
 For bulk discovery, the `magellan registry scan` command finds Git repositories:
@@ -316,6 +320,40 @@ magellan navigate --db code.db "handle_request" --concise
 
 Output is a markdown investigation packet with a token estimate.
 
+### Explore (Stepable Graph Navigation)
+
+`explore` provides stepable graph traversal for interactive and programmatic
+navigation of the code graph. It resolves symbols by name or ID, then traverses
+edges, callers, callees, and chains.
+
+```bash
+# Resolve a symbol and show its node info as JSON
+magellan explore --db code.db --symbol "function_name" --json
+
+# Show callers up to depth 3
+magellan explore --db code.db --symbol "function_name" --callers --depth 3
+
+# Show callees up to depth 3
+magellan explore --db code.db --symbol "function_name" --callees --depth 3
+
+# Show all edges from a specific entity ID
+magellan explore --db code.db --id 42 --edges
+
+# Chain traversal through the call graph
+magellan explore --db code.db --id 42 --chain ">CALLER,>CALLS"
+```
+
+| Flag | Meaning |
+|------|---------|
+| `--symbol <NAME>` | Resolve symbol by name |
+| `--id <ID>` | Use a specific entity ID |
+| `--edges` | Show all edges from the resolved entity |
+| `--callers` | Show k-hop callers (depth-aware BFS) |
+| `--callees` | Show k-hop callees (depth-aware BFS) |
+| `--chain <STEPS>` | Chain traversal (e.g. `>CALLER,>CALLS`, `<CALLER`) |
+| `--depth <N>` | Traversal depth for callers/callees (default: 1) |
+| `--json` / `-j` | Structured JSON output (contract for envoy/atheneum) |
+
 ### Configuration
 
 ```bash
@@ -364,12 +402,16 @@ magellan service list
 # Register a new project for indexing (auto-assigns name if --name omitted)
 magellan service register --root /path/to/project --name myproject
 
+# Register with include/exclude filters
+magellan service register --root /path/to/project --name myproject \
+  --include src/ --include tests/ --exclude target/
+
 # Remove a project from indexing
-magellan service unregister --name myproject
+magellan service unregister myproject
 
 # Pause / resume indexing for a project
-magellan service pause --name myproject
-magellan service resume --name myproject
+magellan service pause myproject
+magellan service resume myproject
 
 # Show daemon status (all projects with metadata)
 magellan service status
@@ -660,6 +702,9 @@ magellan candidate-fact list --db code.db --output json
 | Java | `.java` |
 | JavaScript | `.js`, `.mjs`, `.cjs` |
 | TypeScript | `.ts`, `.tsx` |
+| Go | `.go` |
+| CUDA | `.cu`, `.cuh` |
+| HIP | `.hip` (detected as C++) |
 
 Unsupported extensions are ignored during directory scans and return zero
 symbols when indexed directly.

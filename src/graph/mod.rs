@@ -54,6 +54,7 @@ mod imports; // Private module for import operations
 pub mod metrics;
 mod module_resolver; // Private module for module path resolution
 pub mod multi_db;
+pub mod navigator;
 mod ops;
 pub mod query;
 mod references;
@@ -219,6 +220,10 @@ impl CodeGraph {
     /// Get the database file path
     pub fn db_path(&self) -> &Path {
         &self.db_path
+    }
+
+    pub fn navigator(&self) -> navigator::SymbolNavigator<'_> {
+        navigator::SymbolNavigator::new(self)
     }
 
     /// Open a graph database at the given path

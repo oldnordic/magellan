@@ -61,12 +61,15 @@ pub fn socket_path() -> &'static str {
         .unwrap_or("/tmp/magellan.sock")
 }
 /// Service daemon state
+type WatcherMap = Arc<tokio::sync::Mutex<std::collections::HashMap<String, watch::Sender<bool>>>>;
+
 pub struct Service {
     registry: Arc<tokio::sync::Mutex<Registry>>,
     shutdown: watch::Sender<bool>,
     batch_tx: mpsc::Sender<TaggedBatch>,
     worker_shutdown: Arc<AtomicBool>,
     meta_db: Arc<tokio::sync::Mutex<meta_db::MetaDb>>,
+    watcher_map: WatcherMap,
 }
 
 impl Service {
@@ -130,6 +133,8 @@ impl Service {
         });
 
         // Start per-project watchers
+        let watcher_map: WatcherMap =
+            Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
         {
             let lock = reg.lock().await;
             let entries: Vec<types::ProjectEntry> =
@@ -138,10 +143,16 @@ impl Service {
 
             for entry in entries {
                 let tx = batch_tx.clone();
-                let shutdown = shutdown_rx.clone();
+                let _shutdown = shutdown_rx.clone();
                 let root = entry.root;
                 let name = entry.name;
-                let _handle = tokio::spawn(watcher_task(root, name, shutdown, tx));
+                let include = entry.include;
+                let exclude = entry.exclude;
+                let (local_tx, local_rx) = watch::channel(false);
+                let name_key = name.clone();
+                let _handle =
+                    tokio::spawn(watcher_task(root, name, local_rx, tx, include, exclude));
+                watcher_map.lock().await.insert(name_key, local_tx);
             }
         }
 
@@ -151,6 +162,7 @@ impl Service {
             batch_tx,
             worker_shutdown,
             meta_db,
+            watcher_map,
         };
 
         Ok((svc, shutdown_rx))
@@ -175,6 +187,7 @@ impl Service {
         // Accept admin connections
         let mut shutdown_rx = self.shutdown.subscribe();
         let registry = self.registry.clone();
+        let watcher_map = self.watcher_map.clone();
 
         loop {
             tokio::select! {
@@ -188,9 +201,10 @@ impl Service {
                     let reg = registry.clone();
                     let meta = self.meta_db.clone();
                     let tx = self.batch_tx.clone();
+                    let wm = watcher_map.clone();
                     tokio::spawn(async move {
                         if let Err(e) = AdminSocket::handle_client(
-                            stream, reg, meta, tx, None, None,
+                            stream, reg, meta, tx, Some(wm), None,
                         ).await {
                             tracing::error!(error = %e, "Admin socket handler error");
                         }
@@ -377,6 +391,8 @@ async fn watcher_task(
     project_name: String,
     mut shutdown: watch::Receiver<bool>,
     batch_tx: mpsc::Sender<TaggedBatch>,
+    include: Vec<String>,
+    exclude: Vec<String>,
 ) {
     let shutdown_flag = Arc::new(AtomicBool::new(false));
     let flag = shutdown_flag.clone();
@@ -386,6 +402,10 @@ async fn watcher_task(
 
     let name_for_blocking = project_name.clone();
     let root_display = root.display().to_string();
+    let has_filters = !include.is_empty() || !exclude.is_empty();
+    let filter_root = root.clone();
+    let _filter_include = include.clone();
+    let _filter_exclude = exclude.clone();
 
     // Spawn the actual blocking filesystem watcher
     let _task = tokio::task::spawn_blocking(move || {
@@ -419,6 +439,49 @@ async fn watcher_task(
         }
     });
 
+    // Build FileFilter if include/exclude patterns are provided.
+    // Normalize directory patterns (e.g. "src/" -> "src/**") so they match
+    // individual file paths, since the watcher receives file-level events.
+    let file_filter = if has_filters {
+        let normalized_include: Vec<String> = include
+            .iter()
+            .map(|p| {
+                if p.ends_with('/') {
+                    format!("{}**", p)
+                } else {
+                    p.clone()
+                }
+            })
+            .collect();
+        let normalized_exclude: Vec<String> = exclude
+            .iter()
+            .map(|p| {
+                if p.ends_with('/') {
+                    format!("{}**", p)
+                } else {
+                    p.clone()
+                }
+            })
+            .collect();
+        match magellan::graph::filter::FileFilter::new(
+            &filter_root,
+            &normalized_include,
+            &normalized_exclude,
+        ) {
+            Ok(f) => Some(f),
+            Err(e) => {
+                tracing::error!(
+                    project = %project_name,
+                    error = %e,
+                    "Failed to build FileFilter from include/exclude patterns"
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     // Forward from bridge to batch_tx while watching shutdown
     loop {
         tokio::select! {
@@ -427,7 +490,16 @@ async fn watcher_task(
                 break;
             }
             Some(batch) = bridge_rx.recv() => {
-                let paths = batch.paths;
+                let paths = if let Some(ref filter) = file_filter {
+                    batch.paths.into_iter().filter(|p| {
+                        filter.should_skip(p).is_none()
+                    }).collect()
+                } else {
+                    batch.paths
+                };
+                if paths.is_empty() {
+                    continue;
+                }
                 let _ = batch_tx
                     .send(TaggedBatch {
                         project_name: project_name.clone(),
@@ -474,6 +546,10 @@ pub fn is_daemon_running() -> bool {
     use std::io::{Read, Write};
     use std::os::unix::net::UnixStream;
     use std::time::Duration;
+
+    if std::env::var("MAGELLAN_LOCAL").as_deref() == Ok("1") {
+        return false;
+    }
 
     let path = std::path::PathBuf::from(socket_path());
     if !path.exists() {

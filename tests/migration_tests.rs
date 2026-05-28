@@ -3,11 +3,11 @@
 use tempfile::TempDir;
 
 #[test]
-fn test_new_database_has_v16_schema() {
+fn test_new_database_has_v17_schema() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
 
-    // Open a new database (should create with v15)
+    // Open a new database (should create with v17)
     let _graph = magellan::CodeGraph::open(&db_path).unwrap();
 
     // Verify schema version
@@ -20,7 +20,7 @@ fn test_new_database_has_v16_schema() {
         )
         .unwrap();
 
-    assert_eq!(version, 16, "New databases should have schema version 16");
+    assert_eq!(version, 17, "New databases should have schema version 17");
 
     // Verify ast_nodes table exists
     let has_ast_table: bool = conn
@@ -92,19 +92,7 @@ fn test_new_database_has_v16_schema() {
         "coord_x column should exist in cfg_blocks (v10)"
     );
 
-    // Verify geo_index_meta table exists (v11 addition)
-    let has_geo_meta: bool = conn
-        .query_row(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='geo_index_meta'",
-            [],
-            |_| Ok(true),
-        )
-        .unwrap_or(false);
-
-    assert!(
-        has_geo_meta,
-        "geo_index_meta table should exist in new databases (v11)"
-    );
+    // v11 geo_index_meta removed — table no longer created, existing tables harmless
 
     // Verify symbol_fts table exists (v12 addition)
     let has_symbol_fts: bool = conn
@@ -187,7 +175,7 @@ fn test_new_database_has_v16_schema() {
 }
 
 #[test]
-fn test_fresh_database_creation_v16() {
+fn test_fresh_database_creation_v17() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("fresh.db");
 
@@ -207,7 +195,7 @@ fn test_fresh_database_creation_v16() {
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(version, 16);
+    assert_eq!(version, 17);
 
     // Check ast_nodes table
     let count: i64 = conn
@@ -221,11 +209,7 @@ fn test_fresh_database_creation_v16() {
         .unwrap();
     assert_eq!(count, 0); // Empty but exists
 
-    // Check geo_index_meta table (v11)
-    let count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM geo_index_meta", [], |r| r.get(0))
-        .unwrap();
-    assert_eq!(count, 0); // Empty but exists
+    // v11 geo_index_meta removed — no longer created
 
     // Check symbol_fts table (v12)
     let count: i64 = conn
@@ -258,9 +242,10 @@ fn test_fresh_database_creation_v16() {
     assert!(indexes.contains(&"idx_ast_nodes_span".to_string()));
 }
 
-/// Test that v4->v16 migration creates the required tables
+/// Test that v4->v17 migration creates the required tables
+
 #[test]
-fn test_migration_v4_to_v16_creates_required_tables() {
+fn test_migration_v4_to_v17_creates_required_tables() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test_v4_to_v15.db");
 
@@ -288,7 +273,7 @@ fn test_migration_v4_to_v16_creates_required_tables() {
     let result = magellan::migrate_cmd::run_migrate(db_path.clone(), false, true).unwrap();
     assert!(result.success);
     assert_eq!(result.old_version, 4);
-    assert_eq!(result.new_version, 16);
+    assert_eq!(result.new_version, 17);
 
     // Verify ast_nodes table exists
     let conn = rusqlite::Connection::open(&db_path).unwrap();
@@ -341,15 +326,7 @@ fn test_migration_v4_to_v16_creates_required_tables() {
         .unwrap_or(false);
     assert!(has_coord_x, "coord_x column should be created (v10)");
 
-    // Verify geo_index_meta table exists (v11)
-    let has_geo_meta: bool = conn
-        .query_row(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='geo_index_meta'",
-            [],
-            |_| Ok(true),
-        )
-        .unwrap_or(false);
-    assert!(has_geo_meta, "geo_index_meta table should be created (v11)");
+    // v11 geo_index_meta removed — no longer created
 
     // Verify indexes exist
     let has_parent_index: bool = conn
@@ -404,12 +381,12 @@ fn test_migration_v4_to_v16_creates_required_tables() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(version, 16, "schema version should be 16 after migration");
+    assert_eq!(version, 17, "schema version should be 17 after migration");
 }
 
-/// Test that opening a v4 database auto-upgrades to v16
+/// Test that opening a v4 database auto-upgrades to v17
 #[test]
-fn test_opening_v4_database_auto_upgrades_to_v16() {
+fn test_opening_v4_database_auto_upgrades_to_v17() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test_v4_auto.db");
 
@@ -450,8 +427,8 @@ fn test_opening_v4_database_auto_upgrades_to_v16() {
         .unwrap();
 
     assert_eq!(
-        version, 16,
-        "Opening v4 database should auto-upgrade to v16"
+        version, 17,
+        "Opening v4 database should auto-upgrade to v17"
     );
 
     // Verify ast_nodes table exists
@@ -510,19 +487,7 @@ fn test_opening_v4_database_auto_upgrades_to_v16() {
         "coord_x column should be created during auto-upgrade (v10)"
     );
 
-    // Verify geo_index_meta table exists (v11)
-    let has_geo_meta: bool = conn
-        .query_row(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='geo_index_meta'",
-            [],
-            |_| Ok(true),
-        )
-        .unwrap_or(false);
-
-    assert!(
-        has_geo_meta,
-        "geo_index_meta table should be created during auto-upgrade (v11)"
-    );
+    // v11 geo_index_meta removed — no longer created during migration
 
     // Verify source_documents table exists (v13)
     let has_source_inventory: bool = conn

@@ -463,6 +463,18 @@ pub enum Command {
         with_llmgrep: bool,
         with_mirage: bool,
     },
+    /// Explore — stepable graph navigation (SymbolNavigator)
+    Explore {
+        db_path: PathBuf,
+        symbol: Option<String>,
+        id: Option<i64>,
+        edges: bool,
+        callers: bool,
+        callees: bool,
+        chain: Option<String>,
+        depth: u32,
+        json: bool,
+    },
     /// Telemetry — query performance telemetry events
     Telemetry {
         db_path: PathBuf,

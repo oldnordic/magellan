@@ -158,9 +158,30 @@ impl AdminSocket {
                     .and_then(|v| v.as_str())
                     .unwrap_or("manual")
                     .to_string();
+                let include: Vec<String> = params
+                    .get("include")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let exclude: Vec<String> = params
+                    .get("exclude")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
                 let db = super::registry::Registry::canonical_db_path(&name);
 
-                let entry = super::types::ProjectEntry::new(name.clone(), root.clone(), db, source);
+                let entry = super::types::ProjectEntry::new(name.clone(), root.clone(), db, source)
+                    .with_include(include.clone())
+                    .with_exclude(exclude.clone());
                 let mut reg = registry.lock().await;
                 reg.register(entry)?;
                 // Phase 6: spawn watcher if map / shutdown available and not already running
@@ -171,8 +192,10 @@ impl AdminSocket {
                         let tx = batch_tx.clone();
                         let (local_tx, local_rx) = tokio::sync::watch::channel(false);
                         let name_w = name.clone();
+                        let inc = include.clone();
+                        let exc = exclude.clone();
                         tokio::spawn(async move {
-                            super::watcher_task(root, name_w, local_rx, tx).await;
+                            super::watcher_task(root, name_w, local_rx, tx, inc, exc).await;
                         });
                         let mut wm_guard = wm.lock().await;
                         wm_guard.insert(name.clone(), local_tx);
@@ -197,11 +220,14 @@ impl AdminSocket {
 
             "resume" => {
                 let name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                let (root_opt, enabled) = {
+                let (root_opt, include_opt, exclude_opt, enabled) = {
                     let mut reg = registry.lock().await;
                     let ok = reg.resume(name)?;
-                    let root = reg.find(name).map(|e| e.root.clone());
-                    (root, ok)
+                    let entry = reg.find(name);
+                    let root = entry.map(|e| e.root.clone());
+                    let include = entry.map(|e| e.include.clone()).unwrap_or_default();
+                    let exclude = entry.map(|e| e.exclude.clone()).unwrap_or_default();
+                    (root, include, exclude, ok)
                 };
                 // Phase 6: spawn watcher on resume if map / shutdown available
                 if let Some(root) = root_opt {
@@ -212,8 +238,10 @@ impl AdminSocket {
                             let tx = batch_tx.clone();
                             let (local_tx, local_rx) = tokio::sync::watch::channel(false);
                             let name_str = name.to_string();
+                            let inc = include_opt;
+                            let exc = exclude_opt;
                             tokio::spawn(async move {
-                                super::watcher_task(root, name_str, local_rx, tx).await;
+                                super::watcher_task(root, name_str, local_rx, tx, inc, exc).await;
                             });
                             let mut wm_guard = wm.lock().await;
                             wm_guard.insert(name.to_string(), local_tx);

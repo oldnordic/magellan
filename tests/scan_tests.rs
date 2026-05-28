@@ -17,10 +17,10 @@ fn test_scan_initial_flag_indexes_all_files_on_startup() {
 
     // Create multiple Rust files BEFORE starting magellan
     // This tests that --scan-initial indexes files without requiring file events
-    let file1_path = root_path.join("file1.rs");
-    let file2_path = root_path.join("file2.rs");
-    let subdir = root_path.join("subdir");
-    fs::create_dir(&subdir).unwrap();
+    let file1_path = root_path.join("src/file1.rs");
+    let file2_path = root_path.join("src/file2.rs");
+    let subdir = root_path.join("src/subdir");
+    fs::create_dir_all(&subdir).unwrap();
     let file3_path = subdir.join("file3.rs");
 
     fs::write(&file1_path, b"fn foo() {}").unwrap();
@@ -44,6 +44,7 @@ fn test_scan_initial_flag_indexes_all_files_on_startup() {
         .arg("--db")
         .arg(&db_path)
         .arg("--scan-initial") // NEW FLAG
+        .env("MAGELLAN_LOCAL", "1")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -89,10 +90,11 @@ fn test_scan_only_processes_rs_files() {
     let db_path = temp_dir.path().join("magellan.db");
 
     // Create Rust file and non-Rust file
-    let rs_path = root_path.join("code.rs");
+    let rs_path = root_path.join("src/code.rs");
     let txt_path = root_path.join("readme.txt");
     let db_txt_path = root_path.join("other.db");
 
+    fs::create_dir_all(root_path.join("src")).unwrap();
     fs::write(&rs_path, b"fn test() {}").unwrap();
     fs::write(&txt_path, b"Some text").unwrap();
     fs::write(&db_txt_path, b"Database").unwrap();
@@ -112,6 +114,7 @@ fn test_scan_only_processes_rs_files() {
         .arg("--db")
         .arg(&db_path)
         .arg("--scan-initial")
+        .env("MAGELLAN_LOCAL", "1")
         .stdout(Stdio::piped())
         .spawn()
         .expect("Failed to start magellan");

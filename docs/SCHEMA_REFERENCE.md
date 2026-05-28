@@ -1,6 +1,6 @@
 # Magellan Schema Reference
 
-**Version:** 3.3.13
+**Version:** 4.2.0
 
 This document describes the public data model used by the SQLite `.db` workflow.
 
@@ -45,6 +45,9 @@ Spans are half-open byte ranges: `[byte_start, byte_end)`.
 | Java | `.java` |
 | JavaScript | `.js`, `.mjs`, `.cjs` |
 | TypeScript | `.ts`, `.tsx` |
+| Go | `.go` |
+| CUDA | `.cu`, `.cuh` |
+| HIP | `.hip` (detected as C++) |
 
 ## Symbol Kinds
 
@@ -95,7 +98,12 @@ Core graph relationships:
 |------|-----------|---------|
 | `DEFINES` | File -> Symbol | file defines a symbol |
 | `REFERENCES` | Symbol -> Symbol | symbol references another symbol |
-| `CALLS` | Symbol -> Symbol | callable invokes another callable |
+| `CALLER` | Symbol -> Call | symbol contains a call site |
+| `CALLS` | Call -> Symbol | call site invokes a callable |
+| `IMPLEMENTS` | Symbol -> Symbol | type implements trait |
+
+The call graph uses a 3-node pattern: `Symbol --CALLER--> Call --CALLS--> Symbol`.
+This intermediate `Call` entity stores call-site location data independently.
 
 CFG edges are stored in the `cfg_edges` side table rather than as primary graph
 edges.
@@ -176,6 +184,70 @@ Fact status transitions: `pending` → `accepted` or `rejected`.
 - `edge_type`
 
 Coverage tables attach execution data to CFG blocks and edges.
+
+## SymbolNavigator (v4.2.0+)
+
+`SymbolNavigator` provides stepable graph traversal through `CodeGraph::navigator()`.
+
+### Explore JSON Contract
+
+`magellan explore --json` produces:
+
+```json
+{
+  "node": {
+    "id": 1500,
+    "name": "run_explore",
+    "kind": "fn",
+    "file": "src/explore_cmd.rs",
+    "line": 88
+  },
+  "resolve": [
+    {
+      "id": 1500,
+      "name": "run_explore",
+      "kind": "fn",
+      "file": "src/explore_cmd.rs",
+      "line": 88
+    }
+  ],
+  "edges": null,
+  "callers": [
+    {
+      "depth": 1,
+      "node": { "id": 42, "name": "main", "kind": "fn", "file": "src/main.rs", "line": 10 }
+    }
+  ],
+  "callees": [
+    {
+      "depth": 1,
+      "node": { "id": 1503, "name": "parse_chain_steps", "kind": "fn", "file": "src/explore_cmd.rs", "line": 234 }
+    }
+  ],
+  "chain": null
+}
+```
+
+Fields are `null` when the corresponding flag is not provided. `callers` and `callees`
+use `DepthResponse { depth, node }` where `depth` counts call hops (not edge hops
+through the intermediate `Call` entity).
+
+### SymbolInfo
+
+All symbol-bearing responses use this shape:
+
+```json
+{
+  "id": 1500,
+  "name": "run_explore",
+  "kind": "fn",
+  "file": "src/explore_cmd.rs",
+  "line": 88
+}
+```
+
+`kind` is the `kind_normalized` field from `graph_entities.data` (e.g. `fn`,
+`struct`, `method`), falling back to the entity's top-level `kind` column.
 
 ## JSON Response Schema
 

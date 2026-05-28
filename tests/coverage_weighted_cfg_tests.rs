@@ -90,7 +90,7 @@ fn test_coverage_ingest_and_query() {
     // Verify coverage schema exists by querying directly
     let conn = rusqlite::Connection::open(&db_path).unwrap();
     // Disable foreign keys so we can insert synthetic test data without
-    // requiring real cfg_blocks entries (which only exist in geometric backend)
+    // requiring real cfg_blocks entries
     conn.execute("PRAGMA foreign_keys = OFF", []).unwrap();
     let table_count: i64 = conn
         .query_row(

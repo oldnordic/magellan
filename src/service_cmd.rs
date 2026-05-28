@@ -15,6 +15,8 @@ pub enum ServiceAction {
     Register {
         root: PathBuf,
         name: Option<String>,
+        include: Vec<String>,
+        exclude: Vec<String>,
     },
     Unregister {
         name: String,
@@ -74,8 +76,7 @@ pub async fn run(action: ServiceAction, _output_format: OutputFormat) -> Result<
         ServiceAction::Stop => {
             let req = json!({
                 "id": "stop-1",
-                "method": "stop",
-                "params": {}
+                "method": "stop"
             });
             let resp = crate::service::send_request(req).await?;
             if let Some(err) = resp.get("error") {
@@ -89,8 +90,7 @@ pub async fn run(action: ServiceAction, _output_format: OutputFormat) -> Result<
         ServiceAction::List => {
             let req = json!({
                 "id": "list-1",
-                "method": "list",
-                "params": {}
+                "method": "list"
             });
             let resp = crate::service::send_request(req).await?;
             if let Some(result) = resp.get("result") {
@@ -105,7 +105,12 @@ pub async fn run(action: ServiceAction, _output_format: OutputFormat) -> Result<
             Ok(())
         }
 
-        ServiceAction::Register { root, name } => {
+        ServiceAction::Register {
+            root,
+            name,
+            include,
+            exclude,
+        } => {
             // If no name given, derive from root
             let name = name.unwrap_or_else(|| {
                 crate::service::registry::Registry::disambiguate_name(
@@ -115,15 +120,19 @@ pub async fn run(action: ServiceAction, _output_format: OutputFormat) -> Result<
                         .unwrap_or("project"),
                 )
             });
-            let req = json!({
+            let mut req = json!({
                 "id": "reg-1",
                 "method": "register",
-                "params": {
-                    "name": name,
-                    "root": root.to_string_lossy(),
-                    "source": "manual"
-                }
+                "name": name,
+                "root": root.to_string_lossy(),
+                "source": "manual"
             });
+            if !include.is_empty() {
+                req["include"] = json!(include);
+            }
+            if !exclude.is_empty() {
+                req["exclude"] = json!(exclude);
+            }
             let resp = crate::service::send_request(req).await?;
             if let Some(result) = resp.get("result") {
                 println!("Registered: {}", result);
@@ -137,7 +146,7 @@ pub async fn run(action: ServiceAction, _output_format: OutputFormat) -> Result<
             let req = json!({
                 "id": "unreg-1",
                 "method": "unregister",
-                "params": { "name": name }
+                "name": name
             });
             let resp = crate::service::send_request(req).await?;
             if let Some(result) = resp.get("result") {
@@ -152,7 +161,7 @@ pub async fn run(action: ServiceAction, _output_format: OutputFormat) -> Result<
             let req = json!({
                 "id": "pause-1",
                 "method": "pause",
-                "params": { "name": name }
+                "name": name
             });
             let resp = crate::service::send_request(req).await?;
             if let Some(result) = resp.get("result") {
@@ -167,7 +176,7 @@ pub async fn run(action: ServiceAction, _output_format: OutputFormat) -> Result<
             let req = json!({
                 "id": "resume-1",
                 "method": "resume",
-                "params": { "name": name }
+                "name": name
             });
             let resp = crate::service::send_request(req).await?;
             if let Some(result) = resp.get("result") {
@@ -181,8 +190,7 @@ pub async fn run(action: ServiceAction, _output_format: OutputFormat) -> Result<
         ServiceAction::Status => {
             let req = json!({
                 "id": "status-1",
-                "method": "status",
-                "params": {}
+                "method": "status"
             });
             let resp = crate::service::send_request(req).await?;
             if let Some(result) = resp.get("result") {
@@ -196,8 +204,7 @@ pub async fn run(action: ServiceAction, _output_format: OutputFormat) -> Result<
         ServiceAction::Stats => {
             let req = json!({
                 "id": "stats-1",
-                "method": "stats",
-                "params": {}
+                "method": "stats"
             });
             let resp = crate::service::send_request(req).await?;
             if let Some(result) = resp.get("result") {
@@ -218,12 +225,10 @@ pub async fn run(action: ServiceAction, _output_format: OutputFormat) -> Result<
             let req = json!({
                 "id": "events-1",
                 "method": "events",
-                "params": {
-                    "project": project,
-                    "event_type": event_type,
-                    "since_hours": since_hours,
-                    "limit": limit,
-                }
+                "project": project,
+                "event_type": event_type,
+                "since_hours": since_hours,
+                "limit": limit,
             });
             let resp = crate::service::send_request(req).await?;
             if let Some(err) = resp.get("error") {

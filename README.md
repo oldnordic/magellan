@@ -1,6 +1,6 @@
 # Magellan
 
-**Version:** 4.1.0
+**Version:** 4.2.0
 
 Magellan is a deterministic codebase indexing tool. It watches or scans source
 trees, extracts symbols, references, calls, AST nodes, code chunks, CFG data, and
@@ -19,19 +19,14 @@ The supported user-facing database is SQLite:
 code.db
 ```
 
-Use `.db` files for normal operation. Historical alternative backend material has
-been removed from the public documentation because it is not part of the current
-supported workflow.
+Use `.db` files for normal operation.
 
-Optional source builds may include experimental geometric index code, but the
-SQLite database remains the source of truth.
-
-**Schema version:** 16 (cfg-aware CFG blocks, project metadata, FTS5 full-text search, graph memory tables)
+**Schema version:** 17 (telemetry events, cfg-aware CFG blocks, project metadata, FTS5 full-text search, graph memory tables)
 
 ## Features
 
 - Multi-language symbol extraction with tree-sitter:
-  Rust, Python, C, C++, Java, JavaScript, and TypeScript
+  Rust, Python, C, C++, Java, JavaScript, TypeScript, Go, and CUDA
 - Stable symbol IDs, canonical FQNs, display FQNs, and byte/line spans
 - File watching and one-shot indexing
 - References and call graph queries
@@ -39,8 +34,9 @@ SQLite database remains the source of truth.
 - Code chunks for source retrieval and editor context
 - CFG blocks and CFG edges for control-flow analysis
 - `#[cfg]` attribute extraction: CFG blocks inherit cfg conditions from function attributes
-- Cargo.toml manifest parsing: features, dependencies, and test targets
+- Cargo.toml manifest parsing: features, dependencies, and test/bench/example targets
 - `.magellan.toml` project configuration with include/exclude filters
+- Auto-detect project layout from `Cargo.toml`, `pyproject.toml`, `go.mod`, `package.json`, `tsconfig.json`, `pom.xml`, `CMakeLists.txt`
 - Coverage ingestion from LCOV into CFG coverage side tables
 - Graph algorithms: reachability, dead code, cycles, condensation, paths, slice
 - Source inventory: index wiki pages, specs, and other non-code documents

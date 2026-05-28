@@ -28,7 +28,7 @@ fn test_backends_flag_shows_backends() {
 
     // Should show available backends
     assert!(
-        combined.contains("sqlite") || combined.contains("geometric"),
+        combined.contains("sqlite"),
         "--backends output should list available backends"
     );
 }
@@ -93,7 +93,7 @@ fn test_status_shows_backend_type_sqlite() {
     assert_eq!(stats.symbol_count, 0, "New database should have 0 symbols");
 }
 
-/// Test status command on geometric database
+/// Test status command on SQLite database
 /// Test backend type detection for different file extensions
 #[test]
 fn test_backend_detection_by_extension() {

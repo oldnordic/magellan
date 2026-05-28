@@ -263,4 +263,55 @@ mod tests {
             names
         );
     }
+
+    #[test]
+    fn registry_include_exclude_roundtrip() {
+        let (mut reg, _dir) = tmp_registry();
+        let mut entry = make_entry("multi_path");
+        entry.include = vec![
+            "src/".to_string(),
+            "kernels/".to_string(),
+            "tests/".to_string(),
+        ];
+        entry.exclude = vec!["target/".to_string()];
+        reg.register(entry).unwrap();
+
+        let reg2 = Registry::load_from(reg.path.clone()).unwrap();
+        let loaded = reg2.find("multi_path").unwrap();
+        assert_eq!(
+            loaded.include,
+            vec!["src/", "kernels/", "tests/"],
+            "include should round-trip through TOML"
+        );
+        assert_eq!(loaded.exclude, vec!["target/"]);
+    }
+
+    #[test]
+    fn registry_backward_compat_without_include_exclude() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("registry.toml");
+        let toml_content = r#"
+version = "1"
+
+[[project]]
+name = "legacy"
+root = "/tmp/legacy"
+db = "/tmp/legacy.db"
+source = "manual"
+enabled = true
+"#;
+        std::fs::write(&path, toml_content).unwrap();
+
+        let reg = Registry::load_from(path).unwrap();
+        let entry = reg.find("legacy").unwrap();
+        assert_eq!(entry.name, "legacy");
+        assert!(
+            entry.include.is_empty(),
+            "legacy entries should have empty include"
+        );
+        assert!(
+            entry.exclude.is_empty(),
+            "legacy entries should have empty exclude"
+        );
+    }
 }

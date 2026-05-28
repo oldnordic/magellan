@@ -365,18 +365,15 @@ namespace TsNamespace {}
 
 #[test]
 fn test_graceful_degradation_for_unsupported_language() {
-    // Test that unsupported languages return empty without crashing
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
 
     let mut graph = magellan::CodeGraph::open(&db_path).unwrap();
 
-    // Create a Go file (unsupported language)
-    let go_file = temp_dir.path().join("test.go");
-    let go_source = b"package main\n\nfunc main() {}";
-    let result = graph.index_file(go_file.to_str().unwrap(), go_source);
+    let fortran_file = temp_dir.path().join("test.f90");
+    let fortran_source = b"program hello\n  print *, 'hello'\nend program hello";
+    let result = graph.index_file(fortran_file.to_str().unwrap(), fortran_source);
 
-    // Should succeed but return 0 symbols (graceful degradation)
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), 0);
 }

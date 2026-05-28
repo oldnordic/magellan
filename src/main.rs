@@ -19,6 +19,7 @@ mod dead_code_cmd;
 mod delete_cmd;
 mod doctor_cmd;
 mod enrich_cmd;
+mod explore_cmd;
 mod export_cmd;
 mod features_cmd;
 mod files_cmd;
@@ -1069,6 +1070,38 @@ fn main() -> ExitCode {
                 with_mirage,
             };
             if let Err(e) = navigate_cmd::run_navigate(cfg) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::Explore {
+            db_path,
+            symbol,
+            id,
+            edges,
+            callers,
+            callees,
+            chain,
+            depth,
+            json,
+        }) => {
+            let cfg = explore_cmd::ExploreConfig {
+                db_path,
+                symbol,
+                id,
+                edges,
+                callers,
+                callees,
+                chain,
+                depth,
+                format: if json {
+                    explore_cmd::OutputFormat::Json
+                } else {
+                    explore_cmd::OutputFormat::Human
+                },
+            };
+            if let Err(e) = explore_cmd::run_explore(cfg) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }

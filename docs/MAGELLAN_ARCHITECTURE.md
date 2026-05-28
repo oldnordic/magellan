@@ -1,6 +1,6 @@
 # Magellan Architecture
 
-**Version:** 4.1.0 (unreleased)
+**Version:** 4.2.0 (unreleased)
 
 This document describes the current public architecture. Magellan's supported
 user-facing storage path is a SQLite `.db` database.
@@ -27,8 +27,8 @@ for that file and inserts the current facts.
 
 Magellan uses `sqlitegraph` for graph storage:
 
-- `graph_entities`: File, Symbol, Reference, Call, and related graph nodes
-- `graph_edges`: relationships such as `DEFINES`, `REFERENCES`, and `CALLS`
+- `graph_entities`: File, Symbol, Reference, Call, Import, and related graph nodes
+- `graph_edges`: relationships such as `DEFINES`, `REFERENCES`, `CALLER`, `CALLS`, `IMPLEMENTS`
 - `graph_labels`: query labels such as language and normalized symbol kind
 - `graph_meta`: sqlitegraph schema metadata
 - `magellan_meta`: Magellan schema metadata
@@ -69,8 +69,9 @@ SQLite remains the source of truth for normal operation.
 12. Extract references and calls.
 13. Scan and store source documents for graph memory (if configured).
 
-Current parser dispatch covers Rust, Python, C, C++, Java, JavaScript, and
-TypeScript.
+Current parser dispatch covers Rust, Python, C, C++, Java, JavaScript,
+TypeScript, Go, and CUDA. `.hip` files are detected as C++ (HIP is C++ with AMD
+extensions; no dedicated tree-sitter grammar exists).
 
 ## Identity Model
 
@@ -117,6 +118,33 @@ detects it as `BackendType::Dual` and opens both backends.
 The V3 backend is intended for high-throughput graph traversal workloads. The
 SQLite backend remains the source of truth for symbol facts and metadata.
 
+## SymbolNavigator
+
+`SymbolNavigator` wraps sqlitegraph's `GraphQuery` with magellan-aware entity
+resolution, providing LLM-navigable stepable graph traversal.
+
+```text
+SymbolNavigator
+  -> resolve / resolve_by_prefix  (name -> SymbolInfo)
+  -> expand / expand_typed        (entity -> connected entities)
+  -> k_hop_callers / k_hop_callees (depth-aware call graph BFS)
+  -> k_hop_references             (depth-aware reference BFS)
+  -> chain                        (sqlitegraph ChainStep traversal)
+  -> pattern                      (PatternQuery matching)
+```
+
+Key design: magellan's call graph uses a 3-node pattern
+`Symbol --CALLER--> Call --CALLS--> Symbol`. The navigator's custom `call_bfs()`
+performs 2-edge BFS through this intermediate `Call` entity, tracking depth per
+call hop (not per edge hop). This preserves depth information that flat
+`k_hop_filtered` loses.
+
+`SymbolInfo` is enriched from `graph_entities.data` JSON with `kind_normalized`,
+`start_line`, `end_line`, `byte_start`. All types derive `Serialize` for JSON.
+
+Access: `CodeGraph::navigator()` returns a `SymbolNavigator` borrowing the graph's
+SQLite connection.
+
 ## Query Model
 
 Commands are organized around facts:
@@ -133,6 +161,7 @@ Commands are organized around facts:
 - maintenance: `refresh`, `backfill`, `index`, `delete`
 - multi-project: `ask`, `find --all`, `status --all`, `find --project <name>`
 - investigation: `navigate`
+- stepable graph navigation: `explore`
 
 ## Coverage Data
 
@@ -158,7 +187,6 @@ Optional features:
 | `llvm-cfg` | optional LLVM-based C/C++ CFG support |
 | `bytecode-cfg` | placeholder for Java bytecode CFG work |
 | `web-ui` | optional web UI server |
-| `geometric-backend` | experimental geometric index code for source builds |
 
 The public command documentation assumes the default SQLite `.db` workflow.
 

@@ -453,8 +453,7 @@ impl CfgOps {
 
             let mut features = HashSet::new();
             if let Some(json) = meta_json {
-                if let Ok(manifest) =
-                    serde_json::from_str::<crate::project_config::CargoManifest>(&json)
+                if let Ok(manifest) = serde_json::from_str::<crate::manifest::CargoManifest>(&json)
                 {
                     for (feature, _deps) in manifest.features {
                         features.insert(feature);

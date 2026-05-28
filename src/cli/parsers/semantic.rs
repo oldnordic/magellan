@@ -548,6 +548,81 @@ pub fn parse_navigate_args(args: &[String]) -> Result<Command> {
     })
 }
 
+/// Parse the `explore` command arguments
+pub fn parse_explore_args(args: &[String]) -> Result<Command> {
+    let mut db_path: Option<PathBuf> = None;
+    let mut symbol: Option<String> = None;
+    let mut id: Option<i64> = None;
+    let mut edges = false;
+    let mut callers = false;
+    let mut callees = false;
+    let mut chain: Option<String> = None;
+    let mut depth = 2u32;
+    let mut json = false;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--db" => {
+                let value = parse_required_arg(args, &mut i, "--db")?;
+                db_path = Some(PathBuf::from(value));
+            }
+            "--symbol" | "-s" => {
+                let value = parse_required_arg(args, &mut i, "--symbol")?;
+                symbol = Some(value);
+            }
+            "--id" => {
+                let value = parse_required_arg(args, &mut i, "--id")?;
+                id = Some(
+                    value
+                        .parse()
+                        .map_err(|_| anyhow::anyhow!("--id must be integer"))?,
+                );
+            }
+            "--edges" | "-e" => {
+                edges = true;
+                i += 1;
+            }
+            "--callers" => {
+                callers = true;
+                i += 1;
+            }
+            "--callees" => {
+                callees = true;
+                i += 1;
+            }
+            "--chain" => {
+                let value = parse_required_arg(args, &mut i, "--chain")?;
+                chain = Some(value);
+            }
+            "--depth" => {
+                let v = parse_required_arg(args, &mut i, "--depth")?;
+                depth = v
+                    .parse()
+                    .map_err(|_| anyhow::anyhow!("--depth must be integer"))?;
+            }
+            "--json" | "-j" => {
+                json = true;
+                i += 1;
+            }
+            _ => {
+                i += 1;
+            }
+        }
+    }
+    let db_path = resolve_db_path(db_path)?;
+    Ok(Command::Explore {
+        db_path,
+        symbol,
+        id,
+        edges,
+        callers,
+        callees,
+        chain,
+        depth,
+        json,
+    })
+}
+
 /// Parse the `hnsw-create` command arguments
 pub fn parse_hnsw_create_args(args: &[String]) -> Result<Command> {
     let mut db_path: Option<PathBuf> = None;

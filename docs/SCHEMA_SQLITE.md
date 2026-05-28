@@ -1,7 +1,7 @@
 # SQLite Schema Reference
 
-**Version:** 3.3.9
-**Magellan schema version:** 16
+**Version:** 4.2.0
+**Magellan schema version:** 17
 **Database extension:** `.db`
 
 SQLite is the supported user-facing storage model.
@@ -21,7 +21,64 @@ Common node kinds:
 - `Import`
 - `DisplayName`
 
-The `data` column stores JSON payloads for each node type.
+The `data` column stores JSON payloads for each node type. See
+[Symbol Payload](#symbol-payload) below for the full field reference.
+
+### Symbol Payload Fields
+
+The `graph_entities.data` JSON for `kind = 'Symbol'` entities contains:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `symbol_id` | string | Stable SHA-256 identifier |
+| `name` | string | Short symbol name |
+| `fqn` | string | Fully qualified name |
+| `canonical_fqn` | string | Canonical FQN with file path |
+| `display_fqn` | string | Display-formatted FQN |
+| `kind` | string | Tree-sitter node kind (e.g. `Function`, `Struct`) |
+| `kind_normalized` | string | Normalized kind (e.g. `fn`, `struct`, `method`) |
+| `byte_start` | integer | Byte offset of symbol start |
+| `byte_end` | integer | Byte offset of symbol end |
+| `start_line` | integer | 1-indexed start line |
+| `start_col` | integer | 0-indexed start column |
+| `end_line` | integer | 1-indexed end line |
+| `end_col` | integer | 0-indexed end column |
+
+The `data` JSON for `kind = 'Reference'` entities contains:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `file` | string | Source file path |
+| `symbol_id` | string | Referenced symbol's stable ID |
+| `byte_start` | integer | Reference byte offset |
+| `byte_end` | integer | Reference byte end |
+| `start_line` | integer | Reference start line |
+| `start_col` | integer | Reference start column |
+| `end_line` | integer | Reference end line |
+| `end_col` | integer | Reference end column |
+
+The `data` JSON for `kind = 'Call'` entities contains:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `file` | string | Source file path |
+| `caller` | string | Caller function name |
+| `callee` | string | Callee function name |
+| `caller_symbol_id` | string | Caller's stable symbol ID |
+| `callee_symbol_id` | string | Callee's stable symbol ID |
+| `byte_start` | integer | Call site byte offset |
+| `byte_end` | integer | Call site byte end |
+| `start_line` | integer | Call site start line |
+| `start_col` | integer | Call site start column |
+| `end_line` | integer | Call site end line |
+| `end_col` | integer | Call site end column |
+
+The `data` JSON for `kind = 'File'` entities contains:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `path` | string | File path |
+| `file_path` | string | File path (alias) |
 
 ### `graph_edges`
 
@@ -33,7 +90,15 @@ Common edge types:
 |------|-----------|---------|
 | `DEFINES` | File -> Symbol | file defines symbol |
 | `REFERENCES` | Symbol -> Symbol | symbol references symbol |
-| `CALLS` | Symbol -> Symbol | callable invokes callable |
+| `CALLER` | Symbol -> Call | symbol contains call site |
+| `CALLS` | Call -> Symbol | call site invokes symbol |
+| `IMPLEMENTS` | Symbol -> Symbol | type implements trait |
+
+The call graph uses a 3-node pattern: `Symbol --CALLER--> Call --CALLS--> Symbol`.
+`CALLER` edges link from the containing function to the intermediate `Call` entity.
+`CALLS` edges link from the `Call` entity to the callee function. This design
+enables storing call-site location data on the `Call` entity separately from both
+the caller and callee definitions.
 
 ### `graph_labels`
 
@@ -241,10 +306,13 @@ Exact table presence can depend on schema version and which commands have been r
 | 8 | CFG block hash |
 | 9 | CFG statement snippets |
 | 10 | CFG coordinate columns |
-| 11 | lazy index metadata and current compatibility baseline |
+| 11 | lazy index metadata |
 | 12 | **FTS5 full-text search index** for symbol names (`symbol_fts` virtual table) |
 | 13 | **source_documents** table for graph memory source inventory |
 | 14 | **candidate_facts** table for validated fact extraction from source documents |
+| 15 | `project_name` and `project_metadata` columns in `magellan_meta` |
+| 16 | `cfg_condition` column in `cfg_blocks` for `#[cfg(...)]` condition tracking |
+| 17 | `telemetry_events` table for performance telemetry |
 
 ### Schema v12: FTS5 Full-Text Search
 
