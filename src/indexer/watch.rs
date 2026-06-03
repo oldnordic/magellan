@@ -254,7 +254,7 @@ fn wait_for_watcher_thread(thread: std::thread::JoinHandle<()>, timeout: Duratio
 /// 4. **Main watch loop** - Process dirty paths in sorted order as batches arrive
 ///
 /// # Concurrency Model
-/// - One watcher thread (notify/debouncer callback) produces batches
+/// - One watcher thread (notify callback with custom debounce) produces batches
 /// - One main/indexer thread performs scan and processes dirty paths
 /// - BTreeSet ensures deterministic ordering regardless of event arrival
 ///

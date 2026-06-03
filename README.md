@@ -1,6 +1,6 @@
 # Magellan
 
-**Version:** 4.2.0
+**Version:** 4.2.1
 
 Magellan is a deterministic codebase indexing tool. It watches or scans source
 trees, extracts symbols, references, calls, AST nodes, code chunks, CFG data, and
@@ -106,6 +106,12 @@ When coverage exists, `source`, `revision`, and `ingested_at` are included.
 
 Magellan can run as a background daemon with per-project filesystem watchers
 and a JSON-RPC control socket for integration with downstream tools.
+
+The daemon uses `notify::RecommendedWatcher` directly with custom debouncing
+that filters out read-only filesystem events (ACCESS/OPEN/CLOSE_NOWRITE).
+Only write-side mutations (CREATE/MODIFY/REMOVE) are tracked. This prevents
+the feedback loop where reading a file for reconciliation would trigger
+re-indexing.
 
 ```bash
 magellan service start                          # start daemon

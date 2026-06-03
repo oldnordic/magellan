@@ -1,6 +1,6 @@
 [package]
 name = "magellan"
-version = "4.2.0"
+version = "4.2.1"
 edition = "2021"
 license = "GPL-3.0-only"
 repository = "https://github.com/oldnordic/magellan"
@@ -78,7 +78,6 @@ web-ui = []
 [dependencies]
 ahash = "0.8"
 notify = "8.2.0"
-notify-debouncer-mini = "0.7.0"
 anyhow = "1.0"
 thiserror = "1.0"
 indicatif = "0.17"

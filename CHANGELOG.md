@@ -3,6 +3,24 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.2.1] - 2026-06-03
+
+### Fixed
+
+- **Critical: Eliminated infinite watcher loop that killed the daemon** (`src/watcher/mod.rs`):
+  - Root cause: `notify-debouncer-mini` 0.7.0 forwarded ALL inotify events including `ACCESS`/`OPEN`/`CLOSE_NOWRITE` (read-only). `reconcile_file_path` calls `fs::read()` on changed files, which triggers these read-only inotify events. The debouncer treated them as new filesystem changes, creating an infinite feedback loop: touch → batch → reconcile → read → ACCESS event → batch → reconcile → read → ...
+  - Fix: Replaced `notify-debouncer-mini` with direct `notify::RecommendedWatcher` + custom debouncing that filters out read-only events (`EventKind::Access`) at the source. Only `Create`, `Modify`, `Remove`, `Any`, and `Other` events are processed.
+  - Removed `notify-debouncer-mini` dependency entirely. Custom debouncer uses `HashMap<PathBuf, Instant>` with time-based expiry matching the configured `debounce_ms`.
+  - Verified: single `touch` now produces exactly ONE batch, then silence. Previously produced batches every 500ms indefinitely until the daemon died.
+  - 3 new tests: `test_is_mutation_event_accepts_create_modify_remove`, `test_is_mutation_event_rejects_access`, `test_filter_dirty_paths_excludes_db_files`.
+
+### Known Limitations
+
+- Single-threaded worker bottleneck: all 14 projects share one `worker_loop`. Large projects (rocmforge: 958MB DB, 207K symbols) can starve smaller projects during initial scan burst. Per-project workers planned.
+- Admin socket at `/run/user/1000/magellan.sock` may vanish (suspected systemd-tmpfiles cleanup).
+- meta.db grows without bound (2.6GB, 18M+ events for rocmforge). Needs retention/rotation.
+- Hundreds of `.tmp*.db` files in `~/.magellan/` from `magellan refresh` calls need cleanup.
+
 ## [4.2.0] - 2026-05-28
 
 ### Added

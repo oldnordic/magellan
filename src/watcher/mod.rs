@@ -31,17 +31,16 @@
 pub mod async_watcher;
 
 use anyhow::Result;
-use notify::RecursiveMode;
-use notify_debouncer_mini::new_debouncer;
+use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::mem::ManuallyDrop;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::diagnostics::SkipReason;
 use crate::graph::filter::FileFilter;
@@ -98,9 +97,10 @@ impl Default for WatcherConfig {
 
 /// Filesystem watcher that emits debounced batches of dirty paths.
 ///
-/// Uses notify-debouncer-mini for event coalescing. All paths within the
-/// debounce window are collected, de-duplicated, sorted, and emitted as a
-/// single WatcherBatch.
+/// Uses `notify::RecommendedWatcher` directly with custom debouncing that
+/// filters out read-only events (ACCESS/OPEN/CLOSE_NOWRITE) at the source.
+/// All paths within the debounce window are collected, de-duplicated, sorted,
+/// and emitted as a single `WatcherBatch`.
 pub struct FileSystemWatcher {
     /// Watcher thread handle (wrapped in ManuallyDrop for custom Drop/shutdown logic)
     _watcher_thread: ManuallyDrop<thread::JoinHandle<()>>,
@@ -126,7 +126,6 @@ impl FileSystemWatcher {
     pub fn new(path: PathBuf, config: WatcherConfig, shutdown: Arc<AtomicBool>) -> Result<Self> {
         let (batch_tx, batch_rx) = mpsc::channel();
 
-        // Ensure root_path is set to the watched directory for validation
         let config = WatcherConfig {
             root_path: path.clone(),
             ..config
@@ -197,7 +196,6 @@ impl FileSystemWatcher {
     /// # Errors
     /// Returns an error if a mutex is poisoned (thread panicked while holding the lock).
     pub fn try_recv_event(&self) -> Result<Option<FileEvent>> {
-        // First, check if we have a pending batch to continue from
         {
             let mut pending_batch = self
                 .legacy_pending_batch
@@ -213,7 +211,6 @@ impl FileSystemWatcher {
                     let path = batch.paths[*pending_index].clone();
                     *pending_index += 1;
 
-                    // Check if we've exhausted this batch
                     if *pending_index >= batch.paths.len() {
                         *pending_batch = None;
                         *pending_index = 0;
@@ -227,13 +224,11 @@ impl FileSystemWatcher {
             }
         }
 
-        // No pending batch or batch exhausted, try to get a new batch
         if let Ok(batch) = self.batch_receiver.try_recv() {
             if batch.paths.is_empty() {
                 return Ok(None);
             }
 
-            // If there are multiple paths, store the batch for next call
             if batch.paths.len() > 1 {
                 let path = batch.paths[0].clone();
                 let mut pending_batch = self
@@ -245,7 +240,7 @@ impl FileSystemWatcher {
                     .lock()
                     .map_err(|e| anyhow::anyhow!("legacy_pending_index mutex poisoned: {}", e))?;
                 *pending_batch = Some(batch);
-                *pending_index = 1; // Next call will return index 1
+                *pending_index = 1;
                 drop(pending_batch);
                 drop(pending_index);
                 return Ok(Some(FileEvent {
@@ -254,7 +249,6 @@ impl FileSystemWatcher {
                 }));
             }
 
-            // Single path, return it directly
             Ok(Some(FileEvent {
                 path: batch.paths[0].clone(),
                 event_type: EventType::Modify,
@@ -276,7 +270,6 @@ impl FileSystemWatcher {
     /// # Errors
     /// Returns an error if a mutex is poisoned (thread panicked while holding the lock).
     pub fn recv_event(&self) -> Result<Option<FileEvent>> {
-        // First, check if we have a pending batch to continue from
         {
             let mut pending_batch = self
                 .legacy_pending_batch
@@ -292,7 +285,6 @@ impl FileSystemWatcher {
                     let path = batch.paths[*pending_index].clone();
                     *pending_index += 1;
 
-                    // Check if we've exhausted this batch
                     if *pending_index >= batch.paths.len() {
                         *pending_batch = None;
                         *pending_index = 0;
@@ -306,13 +298,11 @@ impl FileSystemWatcher {
             }
         }
 
-        // No pending batch or batch exhausted, block for a new batch
         if let Ok(batch) = self.batch_receiver.recv() {
             if batch.paths.is_empty() {
                 return Ok(None);
             }
 
-            // If there are multiple paths, store the batch for next call
             if batch.paths.len() > 1 {
                 let path = batch.paths[0].clone();
                 let mut pending_batch = self
@@ -324,7 +314,7 @@ impl FileSystemWatcher {
                     .lock()
                     .map_err(|e| anyhow::anyhow!("legacy_pending_index mutex poisoned: {}", e))?;
                 *pending_batch = Some(batch);
-                *pending_index = 1; // Next call will return index 1
+                *pending_index = 1;
                 drop(pending_batch);
                 drop(pending_index);
                 return Ok(Some(FileEvent {
@@ -333,7 +323,6 @@ impl FileSystemWatcher {
                 }));
             }
 
-            // Single path, return it directly
             Ok(Some(FileEvent {
                 path: batch.paths[0].clone(),
                 event_type: EventType::Modify,
@@ -354,44 +343,49 @@ impl FileSystemWatcher {
     /// This method should be called during graceful shutdown to ensure
     /// all threads have terminated before the program exits.
     pub fn shutdown(mut self) {
-        // Take ownership of self (consume it)
-        // SAFETY: We're consuming self, so we can safely extract the JoinHandle
         let thread = unsafe { ManuallyDrop::take(&mut self._watcher_thread) };
-        // Join the thread - this waits for the watcher to exit cleanly
         let _ = thread.join();
-        // Note: pubsub_receiver is dropped here, triggering its Drop impl
     }
 }
 
 impl Drop for FileSystemWatcher {
     fn drop(&mut self) {
-        // SAFETY: Drop is running, we can safely extract the JoinHandle
-        // and drop it without running its destructor (thread should be shutting down)
         let _thread = unsafe { ManuallyDrop::take(&mut self._watcher_thread) };
         drop(_thread);
-        // Note: The watcher thread will exit when shutdown flag is set
     }
+}
+
+/// Whether a notify event kind represents a write-side mutation worth indexing.
+///
+/// Read-only events (ACCESS, OPEN, CLOSE_NOWRITE) are excluded because
+/// `reconcile_file_path` calls `fs::read`, which triggers those inotify
+/// events and would otherwise create an infinite feedback loop.
+fn is_mutation_event(kind: &EventKind) -> bool {
+    matches!(
+        kind,
+        EventKind::Create(_)
+            | EventKind::Modify(_)
+            | EventKind::Remove(_)
+            | EventKind::Any
+            | EventKind::Other
+    )
 }
 
 /// Run the debounced watcher in a dedicated thread.
 ///
-/// Uses notify-debouncer-mini for event coalescing. Batches are emitted
-/// after the debounce delay expires with all paths that changed during
-/// the window.
+/// Uses `notify::RecommendedWatcher` directly with custom debouncing that
+/// filters out read-only events (ACCESS/OPEN/CLOSE_NOWRITE) at the source.
+/// This prevents the infinite feedback loop where `reconcile_file_path`
+/// reads a file → triggers ACCESS inotify event → re-indexes → reads again.
 fn run_watcher(
     path: PathBuf,
     tx: Sender<WatcherBatch>,
     config: WatcherConfig,
     shutdown: Arc<AtomicBool>,
 ) -> Result<()> {
-    // Convert debounce_ms to Duration
     let debounce_duration = Duration::from_millis(config.debounce_ms);
-
-    // Get the root path for validation
     let root_path = config.root_path.clone();
 
-    // Create gitignore filter if enabled (created ONCE before debouncer)
-    // This avoids re-parsing .gitignore on every event
     let filter = if config.gitignore_aware {
         match FileFilter::new(&root_path, &[], &[]) {
             Ok(f) => Some(f),
@@ -404,103 +398,116 @@ fn run_watcher(
         None
     };
 
-    // Create debouncer with notify 8.x API
-    // The debouncer calls our closure on each batch of events
-    let mut debouncer = new_debouncer(
-        debounce_duration,
-        move |result: notify_debouncer_mini::DebounceEventResult| {
-            match result {
-                Ok(events) => {
-                    // Collect all dirty paths from this batch
-                    // Pass filter reference (moved into closure)
-                    let dirty_paths = extract_dirty_paths(&events, &root_path, filter.as_ref());
+    let (raw_tx, raw_rx): (Sender<Vec<PathBuf>>, Receiver<Vec<PathBuf>>) = mpsc::channel();
 
-                    if !dirty_paths.is_empty() {
-                        let batch = WatcherBatch::from_set(dirty_paths);
-                        let _ = tx.send(batch);
-                    }
+    let mut watcher = RecommendedWatcher::new(
+        move |result: notify::Result<notify::Event>| match result {
+            Ok(event) => {
+                if !is_mutation_event(&event.kind) {
+                    return;
                 }
-                Err(error) => {
-                    eprintln!("Watcher error: {:?}", error);
+                let paths: Vec<PathBuf> = event.paths;
+                if !paths.is_empty() {
+                    let _ = raw_tx.send(paths);
                 }
             }
+            Err(error) => {
+                eprintln!("Watcher error: {:?}", error);
+            }
         },
+        notify::Config::default(),
     )?;
 
-    // Watch the directory recursively via the inner watcher
-    debouncer.watcher().watch(&path, RecursiveMode::Recursive)?;
+    watcher.watch(&path, RecursiveMode::Recursive)?;
 
-    // Keep the thread alive until shutdown is signaled
-    // The debouncer runs in the background and sends batches via callback
+    let mut pending: HashMap<PathBuf, Instant> = HashMap::new();
+    let idle_sleep = Duration::from_millis(50);
+
     while !shutdown.load(Ordering::SeqCst) {
-        thread::sleep(Duration::from_secs(1));
+        let mut new_paths: Vec<PathBuf> = Vec::new();
+
+        match raw_rx.recv_timeout(debounce_duration) {
+            Ok(paths) => {
+                new_paths.extend(paths);
+                let drain_until = Instant::now() + Duration::from_millis(10);
+                while Instant::now() < drain_until {
+                    match raw_rx.try_recv() {
+                        Ok(paths) => new_paths.extend(paths),
+                        Err(_) => break,
+                    }
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+
+        let now = Instant::now();
+        for p in new_paths {
+            pending.insert(p, now);
+        }
+
+        let mut expired: BTreeSet<PathBuf> = BTreeSet::new();
+        pending.retain(|p, ts| {
+            if now.duration_since(*ts) >= debounce_duration {
+                expired.insert(p.clone());
+                false
+            } else {
+                true
+            }
+        });
+
+        if !expired.is_empty() {
+            let dirty_paths = filter_dirty_paths(expired, &root_path, filter.as_ref());
+            if !dirty_paths.is_empty() {
+                let batch = WatcherBatch::from_set(dirty_paths);
+                let _ = tx.send(batch);
+            }
+        }
+
+        if pending.is_empty() {
+            thread::sleep(idle_sleep);
+        }
     }
 
     Ok(())
 }
 
-/// Extract dirty paths from a batch of debouncer events.
-///
-/// Filtering rules:
-/// - Exclude directories (only process files)
-/// - Exclude database-related files (.db, .sqlite, etc.)
-/// - Apply gitignore filter if provided (skip ignored files)
-/// - Validate paths are within project root (security: prevent path traversal)
-/// - De-duplicate via BTreeSet
-///
-/// Returns: BTreeSet of dirty paths (sorted deterministically)
-fn extract_dirty_paths(
-    events: &[notify_debouncer_mini::DebouncedEvent],
+/// Filter a set of expired paths through gitignore, database, and validation checks.
+fn filter_dirty_paths(
+    candidates: BTreeSet<PathBuf>,
     root: &Path,
     filter: Option<&FileFilter>,
 ) -> BTreeSet<PathBuf> {
     let mut dirty_paths = BTreeSet::new();
 
-    for event in events {
-        let path = &event.path;
-
-        // Skip directories
+    for path in candidates {
         if path.is_dir() {
             continue;
         }
 
-        // Skip database-related files to avoid feedback loop
         let path_str = path.to_string_lossy();
         if is_database_file(&path_str) {
             continue;
         }
 
-        // Apply gitignore filter if enabled
-        // This checks .gitignore patterns and internal ignores (target/, node_modules/, etc.)
         if let Some(f) = filter {
-            match f.should_skip(path) {
-                None => {} // Path is not skipped, continue processing
-                Some(SkipReason::NotAFile) => {
-                    // File doesn't exist on disk - this could be a delete event
-                    // or a temporary file. Still report it so the indexer can
-                    // reconcile deletions.
-                }
-                Some(_) => {
-                    // Path is ignored by gitignore or other reasons, skip it
-                    continue;
-                }
+            match f.should_skip(&path) {
+                None => {}
+                Some(SkipReason::NotAFile) => {}
+                Some(_) => continue,
             }
         }
 
-        // Validate path is within project root (security: prevent path traversal)
-        match crate::validation::validate_path_within_root(path, root) {
+        match crate::validation::validate_path_within_root(&path, root) {
             Ok(_) => {
-                // Path is safe, normalize before inserting
-                let normalized = crate::validation::normalize_path(path)
+                let normalized = crate::validation::normalize_path(&path)
                     .unwrap_or_else(|_| path.to_string_lossy().to_string());
                 dirty_paths.insert(PathBuf::from(normalized));
             }
             Err(crate::validation::PathValidationError::OutsideRoot(p, _)) => {
-                // Log the rejection but don't crash
                 eprintln!("WARNING: Watcher rejected path outside project root: {}", p);
             }
             Err(crate::validation::PathValidationError::SuspiciousTraversal(p)) => {
-                // Log suspicious path patterns
                 eprintln!(
                     "WARNING: Watcher rejected suspicious traversal pattern: {}",
                     p
@@ -513,10 +520,7 @@ fn extract_dirty_paths(
                 );
             }
             Err(crate::validation::PathValidationError::CannotCanonicalize(_)) => {
-                // Path doesn't exist or can't be accessed
-                // This happens for deleted files - still report them so the indexer
-                // can reconcile the deletion
-                let normalized = crate::validation::normalize_path(path)
+                let normalized = crate::validation::normalize_path(&path)
                     .unwrap_or_else(|_| path.to_string_lossy().to_string());
                 dirty_paths.insert(PathBuf::from(normalized));
             }
@@ -596,7 +600,6 @@ mod tests {
 
         let batch = WatcherBatch::from_set(set);
 
-        // BTreeSet iterates in sorted order
         assert_eq!(batch.paths[0], PathBuf::from("/alpha.rs"));
         assert_eq!(batch.paths[1], PathBuf::from("/beta.rs"));
         assert_eq!(batch.paths[2], PathBuf::from("/zebra.rs"));
@@ -607,12 +610,12 @@ mod tests {
         assert!(is_database_file("test.db"));
         assert!(is_database_file("test.sqlite"));
         assert!(is_database_file("test.db-journal"));
-        assert!(is_database_file("test.DB")); // Case insensitive
+        assert!(is_database_file("test.DB"));
         assert!(is_database_file("test.SQLITE"));
 
         assert!(!is_database_file("test.rs"));
         assert!(!is_database_file("test.py"));
-        assert!(!is_database_file("database.rs")); // Extension matters
+        assert!(!is_database_file("database.rs"));
     }
 
     #[test]
@@ -657,18 +660,52 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let root = temp_dir.path();
 
-        // Create a valid file
         let valid_file = root.join("valid.rs");
         fs::write(&valid_file, b"fn valid() {}").unwrap();
 
-        // Test the validation logic directly
-        // since DebouncedEvent cannot be easily constructed in tests
         let result = crate::validation::validate_path_within_root(&valid_file, root);
         assert!(result.is_ok());
 
-        // Test that traversal is rejected
         let outside = root.join("../../../etc/passwd");
         let result_outside = crate::validation::validate_path_within_root(&outside, root);
         assert!(result_outside.is_err());
+    }
+
+    #[test]
+    fn test_is_mutation_event_accepts_create_modify_remove() {
+        assert!(is_mutation_event(&EventKind::Create(
+            notify::event::CreateKind::File
+        )));
+        assert!(is_mutation_event(&EventKind::Modify(
+            notify::event::ModifyKind::Data(notify::event::DataChange::Content)
+        )));
+        assert!(is_mutation_event(&EventKind::Remove(
+            notify::event::RemoveKind::File
+        )));
+        assert!(is_mutation_event(&EventKind::Any));
+    }
+
+    #[test]
+    fn test_is_mutation_event_rejects_access() {
+        assert!(!is_mutation_event(&EventKind::Access(
+            notify::event::AccessKind::Read
+        )));
+        assert!(!is_mutation_event(&EventKind::Access(
+            notify::event::AccessKind::Close(notify::event::AccessMode::Read)
+        )));
+    }
+
+    #[test]
+    fn test_filter_dirty_paths_excludes_db_files() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let root = temp_dir.path();
+        let db_file = root.join("index.db");
+        std::fs::write(&db_file, b"fake db").unwrap();
+
+        let mut candidates = BTreeSet::new();
+        candidates.insert(db_file);
+
+        let result = filter_dirty_paths(candidates, root, None);
+        assert!(result.is_empty());
     }
 }

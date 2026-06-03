@@ -1,6 +1,6 @@
 # Magellan Manual
 
-**Version:** 4.2.0 (unreleased)
+**Version:** 4.2.1
 
 This manual documents the current user-facing Magellan CLI. The supported normal
 workflow uses a SQLite `.db` database.
@@ -371,6 +371,17 @@ Config is stored in `~/.config/magellan/config.toml`.
 
 The daemon provides a long-running indexer with per-project filesystem watchers
 and a JSON-RPC control socket.
+
+**Watcher architecture:** The daemon uses `notify::RecommendedWatcher` (Linux
+inotify backend) with custom time-based debouncing. Read-only filesystem events
+(ACCESS, OPEN, CLOSE_NOWRITE) are filtered at the source — only write-side
+mutations (CREATE, MODIFY, REMOVE) trigger indexing. This prevents the feedback
+loop where `reconcile_file_path` reads a file and the resulting ACCESS event
+would cause re-indexing.
+
+The debounce window is configurable via `debounce_ms` in `.magellan.toml`
+(default: 500 ms). Within the window, paths are collected, deduplicated, and
+emitted as a single sorted batch.
 
 Socket path follows the
 [XDG Base Directory](https://specifications.freedesktop.org/basedir-spec/latest/)
