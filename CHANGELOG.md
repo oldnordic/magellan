@@ -1,7 +1,68 @@
 # Changelog
 
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
-Project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+Project adheres to [Semantic Versioning](https://sememver.org/spec/v2.0.0.html).
+
+## [4.3.0] - 2026-06-04
+
+### Added
+
+- **HopGraph: embedding-based symbol search over HNSW vector index** (`src/graph/embed.rs`, `src/graph/search.rs`, `src/graph/ops.rs`):
+  - `TextEmbedder` trait with two backends: `HashEmbedder` (128-dim structural hash, default) and `OllamaEmbedder` (768-dim, ureq to ollama `/api/embed`).
+  - `create_embedder(enabled, base_url, model)` factory — `enabled=false` → HashEmbedder, `enabled=true` → OllamaEmbedder. Runtime config, no recompilation.
+  - `[embeddings]` section in `~/.config/magellan/config.toml`: `enabled` (bool, default false), `base_url`, `model` (default "nomic-embed-text").
+  - `CodeGraph.configure_embeddings()` method to swap embedder at runtime.
+  - HNSW "symbols" index created lazily on first insert. `add_to_search_index` and `add_to_search_index_with_vector` create the index if absent.
+  - `index_file` hook: after symbol insert, embeds symbol text and adds vector to HNSW index. Skipped if index doesn't exist (zero overhead for users without embeddings).
+  - `delete_file_facts` hook: stale vectors handled via existence filtering in `search_symbols` rather than HNSW deletion (avoids entry-point corruption).
+  - `search_symbols` over-fetches `k*2` and validates each entity still exists via `graph.get_entity()`, filtering out deleted symbols transparently.
+  - `CodeGraph.hopgraph_search(query, k)` public method wrapping embed + HNSW search + entity validation.
+  - 7 embed tests, 4 search tests.
+
+- **`magellan hopgraph` CLI command** (`src/hopgraph_cmd.rs`, `src/cli.rs`, `src/cli/parsers/semantic.rs`):
+  - `magellan hopgraph <query> --db <path> --k 10 --output human|json|pretty`
+  - Queries the HopGraph HNSW index and returns ranked entity results.
+  - Human output: ranked list with entity_id and cosine score.
+  - JSON/Pretty output: structured array with rank, entity_id, score.
+
+- **Integration tests for HopGraph lifecycle** (`src/graph/ops.rs`):
+  - `test_hopgraph_lifecycle_index_delete_reindex`: index file → verify HNSW populated → delete file → verify symbols removed → reindex → verify repopulated.
+  - `test_hopgraph_multiple_files_ranking`: multi-file indexing, single-file delete isolation.
+
+### Changed
+
+- `Cargo.toml`: sqlitegraph 3.0.3 → 3.1.1, added `ureq = { version = "3", features = ["json"] }`.
+- `src/graph/search.rs`: `remove_from_search_index` simplified to no-op (HNSW vector deletion requires public sqlitegraph storage API not yet available; stale vectors filtered at query time instead).
+- `src/graph/db_compat.rs` / `src/graph/mod.rs`: after `SqliteGraph::open` runs sqlitegraph migrations, `magellan_meta.sqlitegraph_schema_version` is updated to match current sqlitegraph schema. Prevents `DB_COMPAT` errors when sqlitegraph adds schema migrations (e.g. v5→v6 `order_idx` column).
+- `src/graph/symbols.rs`: `sqlite_graph()` accessor returns `Result<&SqliteGraph>` instead of panicking.
+
+### Known Limitations
+
+- **HashEmbedder is structural, not semantic**: matching is based on token overlap in symbol names/FQNs. "parse_rust" vs "parse_python" = moderate cosine (shared tokens), "sync_claude_transcript" vs "process_file" = near-zero cosine. Enable Ollama embeddings for semantic search.
+- **Stale vectors are not deleted from HNSW**: when symbols are deleted via `delete_file_facts`, the HNSW vectors remain but are filtered at query time by verifying entity existence. This means the HNSW index grows monotonically until a full reindex. For large codebases with frequent deletes, periodic `magellan refresh` is recommended.
+- **No cross-domain hops**: magellan has code structure edges only (CALLS/DEFINES/REFERENCES/IMPORTS). Cross-domain knowledge (Explains, DerivedFrom) requires atheneum navigation after HopGraph entry-point discovery.
+- **Single-threaded worker bottleneck**: all 14 projects share one `worker_loop`. Large projects can starve smaller projects during initial scan burst.
+- **OllamaEmbedder requires running ollama instance**: no fallback if ollama is unreachable — embedding calls will fail.
+- **Service worker blocks during embedding**: the single-threaded worker blocks on ureq HTTP calls to ollama. A file with 52 symbols takes ~3s (batch embedding). During this time, all other projects are queued. For codebases with many files, consider doing initial scan with embeddings disabled, then enabling for incremental updates.
+
+- **HopGraph hooks guarded by `embeddings_enabled` flag** (`src/graph/ops.rs`, `src/graph/mod.rs`):
+  - `CodeGraph` has `embeddings_enabled: bool` field, default `false`.
+  - `index_file` and `delete_file_facts` HopGraph hooks skip entirely when `embeddings_enabled = false` — zero overhead, identical to 4.2.1 behavior.
+  - `hopgraph_search` returns empty results when disabled.
+  - `configure_embeddings(enabled=true, ...)` sets the flag; `[embeddings] enabled = true` in config.toml activates it.
+  - Regression test `test_no_hnsw_index_when_embeddings_disabled` confirms no HNSW index is created when disabled.
+
+- **`CodeGraph::open()` now reads `[embeddings]` config** (`src/graph/mod.rs`):
+  - Previously: `[embeddings] enabled = true` in config.toml was parsed but never applied — all CodeGraph instances defaulted to `embeddings_enabled = false`.
+  - Fix: `CodeGraph::open()` loads `config::load()` and calls `configure_embeddings()` when `enabled = true`. This covers all 43 call sites (service worker, CLI commands, admin socket) without per-site changes.
+  - Config load failure is silent (falls back to disabled) — no disruption if config file is missing or malformed.
+
+- **Service worker hot-reloads embeddings config** (`src/service/mod.rs`):
+  - Previously: cached `CodeGraph` instances never re-read config after startup. Changing `[embeddings]` in config.toml required a daemon restart.
+  - Fix: worker loop loads config on each batch, compares embeddings fields, and calls `configure_embeddings()` only when values change. No daemon restart needed to toggle embeddings on/off.
+
+- **`structural.rs` audited — no double-embedding risk** (`src/service/structural.rs`):
+  - Confirmed: `build_cross_refs` uses its own `structural_hash`/`kind_vector` system stored in `meta_db`, not the HopGraph HNSW index. Calls `symbols_in_file()` (read-only), never `index_file()`. No interaction with HopGraph hooks.
 
 ## [4.2.1] - 2026-06-03
 

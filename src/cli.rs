@@ -478,12 +478,15 @@ pub enum Command {
     /// Telemetry — query performance telemetry events
     Telemetry {
         db_path: PathBuf,
-        /// Show recent events
         recent: bool,
-        /// Show phase durations for an execution
         phases: Option<String>,
-        /// Limit number of results
         limit: usize,
+        output_format: OutputFormat,
+    },
+    Hopgraph {
+        db_path: PathBuf,
+        query: String,
+        k: usize,
         output_format: OutputFormat,
     },
 }

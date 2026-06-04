@@ -26,6 +26,7 @@ mod files_cmd;
 mod find_cmd;
 mod get_cmd;
 mod hnsw_cmd;
+mod hopgraph_cmd;
 mod import_lsif_cmd;
 mod index_cmd;
 mod ingest_coverage;
@@ -1127,6 +1128,18 @@ fn main() -> ExitCode {
             output_format,
         }) => {
             if let Err(e) = features_cmd::run_features(db_path, output_format) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::Hopgraph {
+            db_path,
+            query,
+            k,
+            output_format,
+        }) => {
+            if let Err(e) = hopgraph_cmd::run_hopgraph(db_path, query, k, output_format) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }

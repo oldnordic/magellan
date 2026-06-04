@@ -239,6 +239,7 @@ fn worker_loop(
     meta_db_path: Option<PathBuf>,
 ) {
     let mut open_graphs: HashMap<String, magellan::CodeGraph> = HashMap::new();
+    let mut last_embeddings_config: Option<magellan::config::EmbeddingsConfig> = None;
 
     loop {
         if shutdown.load(Ordering::SeqCst) {
@@ -261,8 +262,28 @@ fn worker_loop(
                         (PathBuf::new(), db)
                     });
 
+                let current_cfg = magellan::config::load().ok();
+                let cfg_changed = current_cfg.as_ref().is_none_or(|c| {
+                    last_embeddings_config.as_ref().is_none_or(|last| {
+                        c.embeddings.enabled != last.enabled
+                            || c.embeddings.base_url != last.base_url
+                            || c.embeddings.model != last.model
+                    })
+                });
+
                 let graph = match open_graphs.get_mut(&batch.project_name) {
-                    Some(g) => g,
+                    Some(g) => {
+                        if cfg_changed {
+                            if let Some(ref cfg) = current_cfg {
+                                g.configure_embeddings(
+                                    cfg.embeddings.enabled,
+                                    &cfg.embeddings.base_url,
+                                    &cfg.embeddings.model,
+                                );
+                            }
+                        }
+                        g
+                    }
                     None => match magellan::CodeGraph::open(&db) {
                         Ok(g) => {
                             open_graphs.insert(batch.project_name.clone(), g);
@@ -282,6 +303,12 @@ fn worker_loop(
                     },
                 };
 
+                if cfg_changed {
+                    if let Some(ref cfg) = current_cfg {
+                        last_embeddings_config = Some(cfg.embeddings.clone());
+                    }
+                }
+
                 let mut reconcile_errors: Vec<String> = Vec::new();
                 for raw_path in &batch.paths {
                     let path = if raw_path.is_absolute() {
@@ -292,8 +319,11 @@ fn worker_loop(
                     let path_key = magellan::normalize_path(&path)
                         .unwrap_or_else(|_| path.to_string_lossy().to_string());
 
+                    tracing::info!(path = %path_key, "Reconciling file");
                     match graph.reconcile_file_path(&path, &path_key) {
-                        Ok(_outcome) => {}
+                        Ok(_outcome) => {
+                            tracing::info!(path = %path_key, "Reconcile complete");
+                        }
                         Err(e) => {
                             eprintln!("[worker] reconcile ERR: {} -> {}", path.display(), e);
                             tracing::warn!(

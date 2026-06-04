@@ -354,6 +354,40 @@ magellan explore --db code.db --id 42 --chain ">CALLER,>CALLS"
 | `--depth <N>` | Traversal depth for callers/callees (default: 1) |
 | `--json` / `-j` | Structured JSON output (contract for envoy/atheneum) |
 
+### HopGraph (Embedding-Based Symbol Search)
+
+HopGraph finds symbols by semantic similarity using an HNSW vector index.
+Embeddings find entry points (the door), then graph walk retrieves connected
+knowledge (the room).
+
+**Disabled by default** — zero overhead when not configured. To enable:
+
+```toml
+# ~/.config/magellan/config.toml
+[embeddings]
+enabled = true
+base_url = "http://localhost:11434"
+model = "nomic-embed-text"
+```
+
+```bash
+# Search for symbols by natural language query
+magellan hopgraph "parse rust files" --db code.db
+magellan hopgraph "error handling" --db code.db --k 10 --output json
+```
+
+| Flag | Meaning |
+|------|---------|
+| `<query>` | Search query (positional argument) |
+| `--db <PATH>` | Database path |
+| `--k <N>` | Number of results (default: 10) |
+| `--output human\|json\|pretty` | Output format |
+
+When `enabled = false` (default), `hopgraph` returns empty results and no HNSW
+index is created. The `HashEmbedder` (128-dim structural hash) is used for
+testing without ollama; it matches on token overlap in symbol names/FQNs, not
+true semantic similarity.
+
 ### Configuration
 
 ```bash

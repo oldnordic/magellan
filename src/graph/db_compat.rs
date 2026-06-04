@@ -771,7 +771,7 @@ pub fn preflight_sqlitegraph_compat(db_path: &Path) -> Result<PreflightOk, DbCom
     })
 }
 
-fn is_in_memory_path(db_path: &Path) -> bool {
+pub fn is_in_memory_path(db_path: &Path) -> bool {
     db_path == Path::new(":memory:")
 }
 fn map_sqlite_open_err(path: &Path, _e: rusqlite::Error) -> DbCompatError {

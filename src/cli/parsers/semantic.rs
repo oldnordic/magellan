@@ -851,3 +851,58 @@ pub fn parse_telemetry_args(args: &[String]) -> Result<Command> {
         output_format,
     })
 }
+
+pub fn parse_hopgraph_args(args: &[String]) -> Result<Command> {
+    let mut db_path: Option<PathBuf> = None;
+    let mut query: Option<String> = None;
+    let mut k = 10usize;
+    let mut output_format = OutputFormat::Human;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--db" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--db requires an argument"));
+                }
+                db_path = Some(PathBuf::from(&args[i + 1]));
+                i += 2;
+            }
+            "--k" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--k requires a number"));
+                }
+                k = args[i + 1].parse().unwrap_or(10);
+                i += 2;
+            }
+            "--output" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--output requires an argument"));
+                }
+                output_format = match args[i + 1].as_str() {
+                    "human" => OutputFormat::Human,
+                    "json" => OutputFormat::Json,
+                    "pretty" => OutputFormat::Pretty,
+                    _ => return Err(anyhow::anyhow!("Invalid output format: {}", args[i + 1])),
+                };
+                i += 2;
+            }
+            other => {
+                if !other.starts_with('-') && query.is_none() {
+                    query = Some(other.to_string());
+                }
+                i += 1;
+            }
+        }
+    }
+
+    let db_path = resolve_db_path(db_path)?;
+    let query = query.ok_or_else(|| anyhow::anyhow!("hopgraph requires a query argument"))?;
+
+    Ok(Command::Hopgraph {
+        db_path,
+        query,
+        k,
+        output_format,
+    })
+}

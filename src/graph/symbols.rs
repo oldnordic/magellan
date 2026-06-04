@@ -209,13 +209,15 @@ pub struct SymbolOps {
 }
 
 impl SymbolOps {
-    /// Insert a symbol node from SymbolFact
-    ///
-    /// This method generates a stable symbol_id based on the symbol's language,
-    /// fully-qualified name, and defining span. The symbol_id is stored in the
-    /// SymbolNode and can be used to correlate symbols across indexing runs.
-    ///
-    /// Also updates the in-memory lookup index for O(1) resolution.
+    pub fn sqlite_graph(&self) -> anyhow::Result<&sqlitegraph::SqliteGraph> {
+        self.sqlite_backend
+            .as_ref()
+            .map(|sb| sb.graph())
+            .ok_or_else(|| {
+                anyhow::anyhow!("sqlite backend not available: requires sqlite-backend feature")
+            })
+    }
+
     pub fn insert_symbol_node(&mut self, fact: &SymbolFact) -> Result<NodeId> {
         // Detect language (default to "unknown" if detection fails)
         let language = detect_language(&fact.file_path)

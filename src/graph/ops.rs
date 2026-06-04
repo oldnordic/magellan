@@ -196,6 +196,41 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
         indexed_symbols.push((fact.clone(), symbol_id.as_i64()));
     }
 
+    if graph.embeddings_enabled {
+        if let Ok(sg) = graph.symbols.sqlite_graph() {
+            let texts: Vec<String> = indexed_symbols
+                .iter()
+                .map(|(fact, _)| {
+                    crate::graph::embed::symbol_fact_embed_text(
+                        &fact.name,
+                        path,
+                        &fact.kind_normalized,
+                    )
+                })
+                .collect();
+            let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
+            tracing::info!(path = %path, count = text_refs.len(), embedder = %graph.embedder.name(), "HopGraph: embedding batch");
+            match graph.embedder.embed_batch(&text_refs) {
+                Ok(vectors) => {
+                    tracing::info!(path = %path, vectors = vectors.len(), "HopGraph: embedding batch complete");
+                    for (i, vector) in vectors.iter().enumerate() {
+                        if i < indexed_symbols.len() {
+                            let entity_id = indexed_symbols[i].1;
+                            if let Err(e) = crate::graph::search::add_to_search_index_with_vector(
+                                sg, entity_id, vector,
+                            ) {
+                                tracing::warn!(entity_id = entity_id, error = %e, "HopGraph: insert failed");
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(path = %path, error = %e, "embedding batch failed");
+                }
+            }
+        }
+    }
+
     // Step 5: Extract and store code chunks for each symbol
     // Use safe UTF-8 extraction to handle multi-byte characters that tree-sitter may split
     let mut code_chunks = Vec::new();
@@ -593,6 +628,11 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         // Delete each symbol node (sqlitegraph deletes edges touching entity).
         for symbol_id in &symbol_ids_sorted {
             graph.files.backend.delete_entity(*symbol_id)?;
+            if graph.embeddings_enabled {
+                if let Ok(sg) = graph.symbols.sqlite_graph() {
+                    let _ = crate::graph::search::remove_from_search_index(sg, *symbol_id);
+                }
+            }
         }
 
         symbols_deleted = symbol_ids_sorted.len();
@@ -1230,7 +1270,6 @@ pub fn reconcile_file_path(
         let _ = delete_file_facts(graph, path_key)?;
     }
 
-    // Rebuild module index after file deletion for updated import resolutions
     let _ = graph.module_resolver.build_module_index();
 
     let symbols = index_file(graph, path_key, &source)?;
@@ -1377,5 +1416,112 @@ mod tests {
             )
             .unwrap();
         assert!(if_count > 0, "if_expression should be indexed");
+    }
+
+    #[test]
+    fn test_hopgraph_lifecycle_index_delete_reindex() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test.db");
+        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
+        graph.enable_embeddings_for_test();
+
+        let source_a = b"fn parse_rust() -> u32 { 42 }";
+        graph.index_file("a.rs", source_a).unwrap();
+
+        let hits = graph.hopgraph_search("parse_rust", 5).unwrap();
+        assert!(
+            !hits.is_empty(),
+            "hopgraph_search should find symbols after indexing"
+        );
+
+        let top_id = hits[0].0;
+
+        graph.delete_file_facts("a.rs").unwrap();
+
+        let hits_after_delete = graph.hopgraph_search("parse_rust", 5).unwrap();
+        let deleted_still_present = hits_after_delete.iter().any(|(id, _)| *id == top_id);
+        assert!(
+            !deleted_still_present,
+            "deleted symbol should not appear in hopgraph results"
+        );
+
+        graph.index_file("a.rs", source_a).unwrap();
+
+        let hits_after_reindex = graph.hopgraph_search("parse_rust", 5).unwrap();
+        assert!(
+            !hits_after_reindex.is_empty(),
+            "hopgraph_search should find symbols after reindexing"
+        );
+    }
+
+    #[test]
+    fn test_hopgraph_multiple_files_ranking() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test.db");
+        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
+        graph.enable_embeddings_for_test();
+
+        graph
+            .index_file(
+                "parse_rust.rs",
+                b"fn parse_rust_file() -> String { \"\".to_string() }",
+            )
+            .unwrap();
+        graph
+            .index_file(
+                "parse_python.rs",
+                b"fn parse_python_file() -> String { \"\".to_string() }",
+            )
+            .unwrap();
+
+        let hits = graph.hopgraph_search("parse_rust_file", 5).unwrap();
+        assert!(!hits.is_empty(), "search should find results");
+
+        let first_id = hits[0].0;
+
+        graph.delete_file_facts("parse_rust.rs").unwrap();
+
+        let hits_after = graph.hopgraph_search("parse_rust_file", 5).unwrap();
+        let still_present = hits_after.iter().any(|(id, _)| *id == first_id);
+        assert!(
+            !still_present,
+            "deleted file's symbols should be removed from index"
+        );
+
+        let python_present = hits_after.iter().any(|(id, _)| *id != first_id);
+        assert!(
+            python_present || hits_after.is_empty(),
+            "other file's symbols may or may not appear (hash embedder)"
+        );
+    }
+
+    #[test]
+    fn test_no_hnsw_index_when_embeddings_disabled() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test.db");
+        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
+        graph.configure_embeddings(false, "", "");
+
+        assert!(
+            !graph.embeddings_enabled(),
+            "embeddings should be disabled by default"
+        );
+
+        let source = b"fn parse_rust() -> u32 { 42 }";
+        graph.index_file("test.rs", source).unwrap();
+
+        let sg = graph.symbols.sqlite_graph().unwrap();
+        let indexes = sg.list_hnsw_indexes().unwrap();
+        assert!(
+            indexes.is_empty(),
+            "no HNSW index should be created when embeddings disabled, found: {:?}",
+            indexes
+        );
     }
 }

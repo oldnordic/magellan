@@ -81,6 +81,36 @@ pub struct Config {
     pub llm: LlmConfig,
     #[serde(default)]
     pub registry: RegistryConfig,
+    #[serde(default)]
+    pub embeddings: EmbeddingsConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddingsConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_embeddings_base_url")]
+    pub base_url: String,
+    #[serde(default = "default_embeddings_model")]
+    pub model: String,
+}
+
+fn default_embeddings_base_url() -> String {
+    "http://localhost:11434".to_string()
+}
+
+fn default_embeddings_model() -> String {
+    "nomic-embed-text".to_string()
+}
+
+impl Default for EmbeddingsConfig {
+    fn default() -> Self {
+        EmbeddingsConfig {
+            enabled: false,
+            base_url: default_embeddings_base_url(),
+            model: default_embeddings_model(),
+        }
+    }
 }
 
 /// Get the default config path: ~/.config/magellan/config.toml
@@ -158,7 +188,26 @@ mod tests {
     #[test]
     fn test_load_from_invalid_path() {
         let result = load_from(&PathBuf::from("/nonexistent/path/config.toml"));
-        // Should return default config, not error
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_default_embeddings_disabled() {
+        let config = Config::default();
+        assert!(!config.embeddings.enabled);
+        assert_eq!(config.embeddings.model, "nomic-embed-text");
+    }
+
+    #[test]
+    fn test_parse_embeddings_enabled() {
+        let toml_str = r#"
+[embeddings]
+enabled = true
+model = "custom-model"
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert!(config.embeddings.enabled);
+        assert_eq!(config.embeddings.model, "custom-model");
+        assert_eq!(config.embeddings.base_url, "http://localhost:11434");
     }
 }

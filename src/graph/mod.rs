@@ -45,6 +45,7 @@ mod cfg_ops;
 mod count;
 pub mod crate_name;
 pub mod db_compat;
+pub mod embed;
 pub mod execution_log;
 pub mod export;
 mod files;
@@ -52,7 +53,7 @@ pub mod filter;
 mod freshness;
 mod imports; // Private module for import operations
 pub mod metrics;
-mod module_resolver; // Private module for module path resolution
+mod module_resolver;
 pub mod multi_db;
 pub mod navigator;
 mod ops;
@@ -60,6 +61,7 @@ pub mod query;
 mod references;
 pub mod scan;
 pub mod schema;
+pub mod search;
 pub mod side_tables;
 mod symbol_index;
 mod symbol_lookup;
@@ -212,6 +214,9 @@ pub struct CodeGraph {
     /// pooled connection deadlock with the flush cycle.
     pub(crate) batch_mode: bool,
 
+    embeddings_enabled: bool,
+    embedder: Box<dyn crate::graph::embed::TextEmbedder>,
+
     /// Database file path for re-opening connections
     db_path: PathBuf,
 }
@@ -224,6 +229,29 @@ impl CodeGraph {
 
     pub fn navigator(&self) -> navigator::SymbolNavigator<'_> {
         navigator::SymbolNavigator::new(self)
+    }
+
+    pub fn embeddings_enabled(&self) -> bool {
+        self.embeddings_enabled
+    }
+
+    pub fn configure_embeddings(&mut self, enabled: bool, base_url: &str, model: &str) {
+        self.embeddings_enabled = enabled;
+        self.embedder = crate::graph::embed::create_embedder(enabled, base_url, model);
+    }
+
+    #[cfg(test)]
+    pub fn enable_embeddings_for_test(&mut self) {
+        self.embeddings_enabled = true;
+        self.embedder = Box::new(crate::graph::embed::HashEmbedder::new(128));
+    }
+
+    pub fn hopgraph_search(&self, query: &str, k: usize) -> anyhow::Result<Vec<(i64, f32)>> {
+        if !self.embeddings_enabled {
+            return Ok(Vec::new());
+        }
+        let sg = self.symbols.sqlite_graph()?;
+        crate::graph::search::search_symbols(sg, self.embedder.as_ref(), query, k)
     }
 
     /// Open a graph database at the given path
@@ -347,6 +375,19 @@ impl CodeGraph {
                 &db_path_buf,
             )
             .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+
+            {
+                if !db_compat::is_in_memory_path(&db_path_buf) {
+                    let expected_sg = db_compat::expected_sqlitegraph_schema_version();
+                    side_conn_arc
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .execute(
+                            "UPDATE magellan_meta SET sqlitegraph_schema_version = ?1 WHERE id = 1",
+                            rusqlite::params![expected_sg],
+                        )?;
+                }
+            }
 
             // Create SQLite side tables reusing the shared connection
             let side_tables: Arc<dyn side_tables::SideTables> = Arc::new(
@@ -483,6 +524,8 @@ impl CodeGraph {
             side_tables,
             side_conn,
             batch_mode: true,
+            embeddings_enabled: false,
+            embedder: crate::graph::embed::create_embedder(false, "", ""),
             db_path: db_path_buf,
         };
 
@@ -498,8 +541,17 @@ impl CodeGraph {
 
         // Trigger backfill if we have existing symbols but no metrics
         if needs_backfill {
-            // Silent backfill with no progress callback
             let _ = graph.backfill_metrics(None);
+        }
+
+        if let Ok(cfg) = crate::config::load() {
+            if cfg.embeddings.enabled {
+                graph.configure_embeddings(
+                    cfg.embeddings.enabled,
+                    &cfg.embeddings.base_url,
+                    &cfg.embeddings.model,
+                );
+            }
         }
 
         Ok(graph)
