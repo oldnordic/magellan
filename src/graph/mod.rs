@@ -376,19 +376,6 @@ impl CodeGraph {
             )
             .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
-            {
-                if !db_compat::is_in_memory_path(&db_path_buf) {
-                    let expected_sg = db_compat::expected_sqlitegraph_schema_version();
-                    side_conn_arc
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .execute(
-                            "UPDATE magellan_meta SET sqlitegraph_schema_version = ?1 WHERE id = 1",
-                            rusqlite::params![expected_sg],
-                        )?;
-                }
-            }
-
             // Create SQLite side tables reusing the shared connection
             let side_tables: Arc<dyn side_tables::SideTables> = Arc::new(
                 side_tables::sqlite_impl::SqliteSideTables::with_mutex(Arc::clone(&side_conn_arc))?,

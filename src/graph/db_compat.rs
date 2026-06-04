@@ -157,11 +157,11 @@ pub fn ensure_magellan_meta(
                 }
             }
             if found_sqlitegraph != expected_sqlitegraph {
-                return Err(DbCompatError::SqliteGraphSchemaMismatch {
-                    path: db_path.to_path_buf(),
-                    found: found_sqlitegraph,
-                    expected: expected_sqlitegraph,
-                });
+                conn.execute(
+                    "UPDATE magellan_meta SET sqlitegraph_schema_version = ?1 WHERE id = 1",
+                    params![expected_sqlitegraph],
+                )
+                .map_err(|e| map_sqlite_query_err(db_path, e))?;
             }
             Ok(())
         }
