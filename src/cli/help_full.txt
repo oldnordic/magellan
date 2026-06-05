@@ -47,6 +47,7 @@ Usage:
   magellan context file --db <FILE> --path <PATH>
   magellan context impact --db <FILE> --name <NAME> [--file <PATH>] [--depth <N>] [--output <FORMAT>]
   magellan context affected --db <FILE> --name <NAME> [--file <PATH>] [--depth <N>] [--output <FORMAT>]
+  magellan hopgraph --db <FILE> <QUERY> [--k <N>] [--output <FORMAT>]
 
 Commands:
   watch           Watch directory and index changes
@@ -84,6 +85,7 @@ Commands:
   source-inventory Scan wiki/message files for graph memory source inventory
   candidate-fact  Submit, validate, and manage candidate facts for graph memory
   context         Code context queries for LLM consumption (build, summary, list, symbol, file, impact, affected)
+  hopgraph        Embedding-based semantic symbol search (nomic-embed-text via ollama)
 
 Global arguments:
   --output <FORMAT>   Output format: human (default), json (compact), or pretty (formatted)
@@ -289,3 +291,9 @@ Navigate arguments:
   --concise           Single bundled context for top symbol, truncated to --budget
   --with-llmgrep      Also run llmgrep semantic search
   --with-mirage       Also run mirage CFG for top symbols
+
+Hopgraph arguments:
+  <QUERY>             Natural-language query (required)
+  --db <FILE>         Path to sqlitegraph database
+  --k <N>             Number of results to return (default: 10)
+  --output <FORMAT>   Output format: human (default), json, pretty
