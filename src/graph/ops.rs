@@ -1564,10 +1564,7 @@ mod tests {
         let hits_1 = graph.hopgraph_search("compute_hash", 10, 1).unwrap();
         // With hops enabled, we should get at least as many results
         // (expanded hits are added to the initial vector hits)
-        assert!(
-            !hits_1.is_empty(),
-            "should find results with hops=1"
-        );
+        assert!(!hits_1.is_empty(), "should find results with hops=1");
 
         // hops=0 results should all have hop_distance=0
         for hit in &hits_0 {

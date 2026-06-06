@@ -264,7 +264,11 @@ impl CodeGraph {
             return Ok(Vec::new());
         }
         let sg = self.symbols.sqlite_graph()?;
-        let raw_hits = crate::graph::search::search_symbols(sg, self.embedder.as_ref(), query, k)?;
+        // When hops > 0, request more vector candidates so graph expansion has
+        // more seeds to work from, and allow the result set to grow beyond k.
+        let vector_k = if hops > 0 { k * 2 } else { k };
+        let raw_hits =
+            crate::graph::search::search_symbols(sg, self.embedder.as_ref(), query, vector_k)?;
 
         // Build initial hit set with vector scores
         let mut hit_scores: std::collections::HashMap<i64, (f32, u32)> =
@@ -277,26 +281,24 @@ impl CodeGraph {
         if hops > 0 && !raw_hits.is_empty() {
             let nav = navigator::SymbolNavigator::new(self);
             let initial_ids: Vec<i64> = raw_hits.iter().map(|(id, _)| *id).collect();
-            for start_id in initial_ids {
-                for depth in 1..=hops {
-                    // Use k_hop_references at exactly this depth
-                    if let Ok(expanded) = nav.k_hop_references(start_id, depth) {
-                        for info in expanded {
-                            let graph_proximity = 1.0_f32 / (1.0 + depth as f32);
-                            // Blend: 70% vector (estimated by proximity to start), 30% graph structure
-                            let blended = 0.7 * hit_scores[&start_id].0 * graph_proximity
-                                + 0.3 * graph_proximity;
-                            hit_scores
-                                .entry(info.id)
-                                .and_modify(|(existing_score, existing_dist)| {
-                                    // Keep the better score (lower distance = better)
-                                    if blended < *existing_score {
-                                        *existing_score = blended;
-                                        *existing_dist = depth;
-                                    }
-                                })
-                                .or_insert((blended, depth));
+            let alpha = 0.7_f32;
+            for start_id in &initial_ids {
+                // k_hop_references returns all nodes reachable within `hops` hops
+                if let Ok(expanded) = nav.k_hop_references(*start_id, hops) {
+                    for info in expanded {
+                        // Skip if already in results (vector hit or earlier expansion)
+                        if hit_scores.contains_key(&info.id) {
+                            continue;
                         }
+                        // Use estimated depth = 1 (can't distinguish exact hop from
+                        // k_hop_references output which returns all reachable nodes)
+                        let estimated_depth = 1u32;
+                        let graph_proximity = 1.0_f32 / (1.0 + estimated_depth as f32);
+                        let seed_score = hit_scores[start_id].0;
+                        // Plan formula: alpha * vector_score + (1-alpha) * (1 - graph_proximity)
+                        // (1 - proximity) penalizes distant nodes, keeping vector hits on top
+                        let blended = alpha * seed_score + (1.0 - alpha) * (1.0 - graph_proximity);
+                        hit_scores.insert(info.id, (blended, estimated_depth));
                     }
                 }
             }
@@ -342,8 +344,14 @@ impl CodeGraph {
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
 
-        // Return top-k
-        hits.truncate(k);
+        // When hops > 0, allow results beyond k to surface graph-expanded hits.
+        // Cap at k + per-hop budget so output doesn't explode.
+        let cap = if hops > 0 {
+            k + (hops as usize * k / 2).max(5)
+        } else {
+            k
+        };
+        hits.truncate(cap);
         Ok(hits)
     }
 

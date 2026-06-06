@@ -1,6 +1,6 @@
 # Magellan Manual
 
-**Version:** 4.2.1
+**Version:** 4.6.0
 
 This manual documents the current user-facing Magellan CLI. The supported normal
 workflow uses a SQLite `.db` database.
@@ -354,39 +354,257 @@ magellan explore --db code.db --id 42 --chain ">CALLER,>CALLS"
 | `--depth <N>` | Traversal depth for callers/callees (default: 1) |
 | `--json` / `-j` | Structured JSON output (contract for envoy/atheneum) |
 
-### HopGraph (Embedding-Based Symbol Search)
+### HopGraph (Semantic Symbol Search)
 
-HopGraph finds symbols by semantic similarity using an HNSW vector index.
-Embeddings find entry points (the door), then graph walk retrieves connected
-knowledge (the room).
+HopGraph lets you search your codebase using plain English instead of exact
+symbol names. Unlike `magellan find`, which requires knowing (or guessing) a
+function or type name, HopGraph understands the *meaning* of your query and
+returns the most relevant symbols — even if their names are completely different
+from what you typed.
 
-**Disabled by default** — zero overhead when not configured. To enable:
+**How it works (briefly):** Magellan converts every indexed symbol into a
+numerical vector (an "embedding") using a language model. When you run a
+HopGraph query, your search text is converted to the same kind of vector, and
+Magellan finds the closest matches. Think of it like a search engine for code:
+you describe what you want, and it finds it.
+
+**New in v4.6.0:** Results now show real symbol names, file paths, and line
+numbers (previously they showed raw numeric IDs). You can also use `--hops N`
+to expand results through the call/reference graph — for example, if a query
+matches a function, `--hops 1` also surfaces functions that call it or types it
+references.
+
+#### Step 1: Enable embeddings (one-time setup)
+
+HopGraph is **disabled by default** because it needs a language model to
+generate embeddings. You need an embedding model running locally via
+[Ollama](https://ollama.com) (recommended) or any OpenAI-compatible API.
+
+**Install and run the embedding model:**
+
+```bash
+# Install Ollama (if not already installed)
+# See https://ollama.com for platform-specific instructions
+
+# Download the embedding model (nomic-embed-text is small and fast, ~274MB)
+ollama pull nomic-embed-text
+
+# Verify it's running
+ollama list
+```
+
+**Configure Magellan to use it:**
+
+Create or edit `~/.config/magellan/config.toml`:
 
 ```toml
-# ~/.config/magellan/config.toml
 [embeddings]
 enabled = true
 base_url = "http://localhost:11434"
 model = "nomic-embed-text"
 ```
 
+| Setting | What it means |
+|---------|--------------|
+| `enabled = true` | Turns on embedding generation. Without this, `hopgraph` returns nothing. |
+| `base_url` | Where Ollama (or your embedding server) is listening. Default Ollama port is 11434. |
+| `model` | Which embedding model to use. `nomic-embed-text` is the recommended default. |
+
+**Alternative embedding providers:** You can use any OpenAI-compatible
+embedding API. Set `base_url` to the API endpoint and `model` to the model
+name. The provider must return embeddings in the OpenAI format.
+
+#### Step 2: Build the search index
+
+After enabling embeddings, you need to build the HNSW index (the data structure
+that makes fast vector search possible). This reads all symbols from your
+database and generates an embedding for each one.
+
 ```bash
-# Search for symbols by natural language query
-magellan hopgraph "parse rust files" --db code.db
-magellan hopgraph "error handling" --db code.db --k 10 --output json
+# Build the index (do this after indexing your codebase with 'watch' or 'index')
+magellan embed --db code.db
+
+# If you already have an index and want to rebuild it from scratch
+magellan embed --db code.db --force
+
+# Control batch size (default is 64; increase if your model handles it)
+magellan embed --db code.db --batch-size 128
 ```
 
-| Flag | Meaning |
-|------|---------|
-| `<query>` | Search query (positional argument) |
-| `--db <PATH>` | Database path |
-| `--k <N>` | Number of results (default: 10) |
-| `--output human\|json\|pretty` | Output format |
+**How long does this take?** For a codebase with ~3,000 symbols using
+`nomic-embed-text` on a modern machine, expect 1-3 minutes. The model must
+process each symbol's name, kind, and source code to produce its embedding.
 
-When `enabled = false` (default), `hopgraph` returns empty results and no HNSW
-index is created. The `HashEmbedder` (128-dim structural hash) is used for
-testing without ollama; it matches on token overlap in symbol names/FQNs, not
-true semantic similarity.
+**When to re-run:** You only need to re-embed when symbols change significantly
+(new functions, renamed types, etc.). Running `magellan embed` again will add
+new symbols to the existing index without rebuilding from scratch.
+
+#### Step 3: Search for symbols
+
+```bash
+# Basic search — describe what you're looking for in plain English
+magellan hopgraph "parse command line arguments" --db code.db
+magellan hopgraph "error handling and recovery" --db code.db
+magellan hopgraph "database connection pool" --db code.db
+```
+
+**What you'll see:**
+
+```text
+HopGraph results for 'parse command line arguments':
+  #1: Symbol parse_watch_args [src/cli/parsers/watch.rs:42] score=0.142
+  #2: Symbol parse_hopgraph_args [src/cli/parsers/semantic.rs:855] score=0.156
+  #3: Symbol route_search [src/ask_cmd.rs:283] score=0.165
+3 result(s)
+```
+
+Each result shows:
+- **Rank** (#1, #2, ...) — sorted by relevance (lower score = better match)
+- **Kind** — what kind of symbol this is (Symbol = function/type/struct, Reference = a reference to one)
+- **Name** — the symbol's actual name in your code
+- **File and line** — where to find it, shortened to the `src/...` path
+- **Score** — how close the match is (lower is better; this is cosine distance, not similarity)
+
+#### Step 4: Expand results through the graph (--hops)
+
+Sometimes the best match isn't the function itself, but something connected to
+it. `--hops N` expands your results by following the reference graph — the same
+call/reference relationships that `magellan refs` uses.
+
+**What `--hops` does:** After finding the top vector matches, Magellan follows
+the REFERENCES edges in the graph for each match, up to N steps away. This
+surfaces symbols that are *structurally connected* to your search results even
+if they aren't semantically similar to your query text.
+
+```bash
+# Search + expand one hop (finds direct callers and referenced types)
+magellan hopgraph "embedding search function" --db code.db --k 3 --hops 1
+```
+
+**Output with expansion:**
+
+```text
+HopGraph results for 'embedding search function': (1 hop expansion)
+  #1: Symbol test_detect_intent_search [src/ask_cmd.rs:361] score=0.141
+  #2: Symbol route_search [src/ask_cmd.rs:283] score=0.149
+  #3: Symbol extract_quoted_symbol [src/ask_cmd.rs:162] score=0.165
+  #4: Symbol route_complex [src/ask_cmd.rs:263] score=0.166
+  #5: Symbol detect_intent [src/ask_cmd.rs:22] score=0.167
+  #6: Symbol Intent [src/ask_cmd.rs:9] score=0.168
+  #7: Reference ref to extract_quoted_symbol [src/ask_cmd.rs:387] hop=1 score=0.266
+  #8: Reference ref to extract_quoted_symbol [src/ask_cmd.rs:394] hop=1 score=0.266
+8 result(s)
+```
+
+Notice what happened:
+- Results #1-#6 are **vector matches** — symbols whose embeddings are closest to
+  "embedding search function". These are the direct semantic matches.
+- Results #7-#8 are **graph-expanded** — they reference `extract_quoted_symbol`
+  (result #3) through the reference graph. They're marked `hop=1` meaning they
+  are one graph step away from a vector match.
+- Graph-expanded results always appear **after** vector results (higher score).
+
+**When to use --hops:**
+- `--hops 0` (default): Just vector search. Use when you want the closest
+  semantic matches and nothing else.
+- `--hops 1`: Adds direct neighbors (callers, referenced types). Good for
+  understanding the context around your search results.
+- `--hops 2`: Adds neighbors-of-neighbors. Useful for finding broader patterns
+  but results can get noisy.
+
+**How scoring works for expanded results:** Vector matches keep their raw
+similarity score. Graph-expanded results get a blended score that is always
+higher (worse) than any vector match, so you never lose the direct matches:
+
+```text
+graph_proximity = 1.0 / (1.0 + hop_distance)
+blended_score   = 0.7 × vector_score + 0.3 × (1.0 − graph_proximity)
+```
+
+The 0.7/0.3 split means vector similarity matters more, but graph structure
+still influences ranking. The `(1.0 − graph_proximity)` term ensures that
+farther-away symbols get worse scores.
+
+#### Command reference
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `<query>` | (required) | Natural language search text. Describe what you're looking for. |
+| `--db <PATH>` | (required) | Path to your Magellan database. |
+| `--k <N>` | 10 | How many vector results to find. When `--hops > 0`, total results can exceed `k`. |
+| `--hops <N>` | 0 | Graph expansion depth. 0 = off, 1 = direct neighbors, 2 = neighbors of neighbors. |
+| `--output human\|json\|pretty` | human | Output format. `json` is useful for piping to `jq` or scripts. |
+
+#### JSON output
+
+Use `--output json` for scripting or piping to other tools:
+
+```bash
+magellan hopgraph "error handling" --db code.db --k 5 --output json | jq '.[0].name'
+```
+
+JSON structure:
+
+```json
+[
+  {
+    "rank": 1,
+    "entity_id": 165170,
+    "score": 0.140667,
+    "name": "parse_watch_args",
+    "kind": "Symbol",
+    "file_path": "/path/to/src/cli/parsers/watch.rs",
+    "start_line": 42
+  },
+  {
+    "rank": 7,
+    "entity_id": 165200,
+    "score": 0.265536,
+    "name": "ref to extract_quoted_symbol",
+    "kind": "Reference",
+    "file_path": "/path/to/src/ask_cmd.rs",
+    "start_line": 387,
+    "hop_distance": 1
+  }
+]
+```
+
+Fields:
+- `rank`: Position in sorted results (1-based).
+- `entity_id`: Internal Magellan ID (stable across sessions).
+- `score`: Match quality (lower = better).
+- `name`: The symbol's name in source code.
+- `kind`: `Symbol` for definitions, `Reference` for references.
+- `file_path`: Absolute path to the source file.
+- `start_line`: Line number where the symbol starts.
+- `hop_distance`: Only present for graph-expanded results (> 0). Absent for
+  direct vector matches (0).
+
+#### Troubleshooting
+
+| Problem | Cause | Fix |
+|---------|-------|-----|
+| "0 result(s)" every time | Embeddings not enabled | Set `enabled = true` in config and run `magellan embed --db code.db` |
+| "0 result(s)" after enabling | Index not built yet | Run `magellan embed --db code.db` (requires indexed codebase first) |
+| Results seem wrong / off-topic | Wrong or missing model | Check `ollama list` shows `nomic-embed-text`. Check config `model` matches. |
+| Very slow queries | Large codebase, cold cache | First query loads the HNSW index into memory; subsequent queries are fast. |
+| Stale results after renaming symbols | Index not rebuilt | Run `magellan embed --db code.db --force` to rebuild from scratch. |
+| `--hops` returns no extra results | All neighbors already in vector results | Try smaller `--k` or use `--hops 2` for deeper expansion. |
+| No `hop_distance` in JSON output | All results are vector matches (hop=0) | The field is intentionally omitted when 0. Try a smaller `--k` to see expanded results. |
+
+#### Testing without an embedding model
+
+If you don't have Ollama or an embedding server configured, Magellan includes a
+built-in `HashEmbedder` that uses a 128-dimensional structural hash. It matches
+on token overlap in symbol names and fully-qualified names — not true semantic
+similarity, but enough for basic testing:
+
+```bash
+# This works without any embedding server but gives approximate results
+magellan hopgraph "main function" --db code.db
+```
+
+For production use, configure a real embedding model as described in Step 1.
 
 ### Configuration
 

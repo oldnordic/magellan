@@ -1,6 +1,6 @@
 # Magellan
 
-**Version:** 4.2.1
+**Version:** 4.6.0
 
 Magellan is a deterministic codebase indexing tool. It watches or scans source
 trees, extracts symbols, references, calls, AST nodes, code chunks, CFG data, and
@@ -39,6 +39,7 @@ Use `.db` files for normal operation.
 - Auto-detect project layout from `Cargo.toml`, `pyproject.toml`, `go.mod`, `package.json`, `tsconfig.json`, `pom.xml`, `CMakeLists.txt`
 - Coverage ingestion from LCOV into CFG coverage side tables
 - Graph algorithms: reachability, dead code, cycles, condensation, paths, slice
+- HopGraph v2: embedding-based semantic symbol search with HNSW, name resolution, and `--hops N` graph expansion via BFS on REFERENCES edges
 - Source inventory: index wiki pages, specs, and other non-code documents
 - Candidate facts: structured knowledge triples linked to source documents
 - JSON, pretty JSON, human output, and graph exports
@@ -77,6 +78,11 @@ target/release/magellan refresh --db .magellan/code.db
 
 # Recompute derived metrics
 target/release/magellan backfill --db .magellan/code.db
+
+# Semantic symbol search (requires embed + configured embeddings)
+target/release/magellan embed --db .magellan/code.db
+target/release/magellan hopgraph "error handling" --db .magellan/code.db --k 5
+target/release/magellan hopgraph "parse arguments" --db .magellan/code.db --k 5 --hops 1
 ```
 
 ## Coverage

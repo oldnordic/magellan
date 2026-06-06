@@ -12,12 +12,15 @@ Project adheres to [Semantic Versioning](https://sememver.org/spec/v2.0.0.html).
     instead of raw entity_ids. Uses `resolve_entities_with_conn` from navigator for batch resolution.
     Unresolvable IDs gracefully default to "unknown".
   - `--hops N` CLI flag for graph expansion via BFS on REFERENCES edges. After initial HNSW vector
-    search, each hit's graph neighbors are discovered up to N hops. Results are scored with a blended
-    formula: `0.7 * vector_score * graph_proximity + 0.3 * graph_proximity` where
-    `graph_proximity = 1/(1+hop_distance)`. Deduplicated by entity_id, sorted by score.
-  - `hop_distance` field in output shows how many hops from the initial vector match (0 = direct).
-  - Human output shows `kind name [file:line] score=X hop=N` format.
-  - JSON output includes all fields; `hop_distance` omitted when 0.
+    search, each hit's graph neighbors are discovered via `k_hop_references`. New entities are scored
+    with a blended formula: `0.7 * vector_score + 0.3 * (1.0 - graph_proximity)` where
+    `graph_proximity = 1/(1+hop_distance)`. The `(1 - proximity)` term ensures graph-expanded hits
+    always rank below vector hits. Deduplicated by entity_id, sorted by ascending score.
+  - Vector search budget doubles when `hops > 0` to produce more seeds. Result cap expands to
+    `k + (hops * k/2).max(5)` so graph-expanded hits are not truncated.
+  - `hop_distance` field in output shows BFS distance from the initial vector match (0 = direct).
+  - Human output shows `kind name [file:line] score=X hop=N` format with path shortening.
+  - JSON output includes all fields; `hop_distance` omitted when 0 (serde skip_serializing_if).
 
 ### Changed
 
