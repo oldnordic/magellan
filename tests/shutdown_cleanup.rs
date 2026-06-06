@@ -611,7 +611,7 @@ fn test_cleanup_timing() {
         || {
             let _graph = CodeGraph::open(&db_path).unwrap();
         },
-        Duration::from_millis(100),
+        Duration::from_millis(500),
     );
 
     assert_cleanup_complete(

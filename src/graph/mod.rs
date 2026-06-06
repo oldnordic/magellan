@@ -782,6 +782,8 @@ impl CodeGraph {
             .and_then(|p| p.parent())
             .unwrap_or(Path::new("."));
 
+        let root_canonical = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+
         for (file_idx, (file_path, file_entities)) in file_groups.iter().enumerate() {
             let full_path = if file_path.starts_with('/') {
                 PathBuf::from(file_path)
@@ -789,7 +791,22 @@ impl CodeGraph {
                 root.join(file_path)
             };
 
-            let source = match std::fs::read(&full_path) {
+            let full_path_canonical = match full_path.canonicalize() {
+                Ok(p) => p,
+                Err(_) => {
+                    failed_count += file_entities.len();
+                    progress_callback(file_path, file_entities.len(), file_idx, total_files);
+                    continue;
+                }
+            };
+
+            if !full_path_canonical.starts_with(&root_canonical) {
+                failed_count += file_entities.len();
+                progress_callback(file_path, file_entities.len(), file_idx, total_files);
+                continue;
+            }
+
+            let source = match std::fs::read(&full_path_canonical) {
                 Ok(s) => s,
                 Err(_) => {
                     failed_count += file_entities.len();
