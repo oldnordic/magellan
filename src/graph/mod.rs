@@ -757,10 +757,18 @@ impl CodeGraph {
                 let text_refs: Vec<&str> = chunk_texts.iter().map(|s| s.as_str()).collect();
                 match self.embedder.embed_batch(&text_refs) {
                     Ok(vectors) => {
-                        for (vec, entity_id) in vectors.iter().zip(chunk_ids.iter()) {
-                            let sg = self.symbols.sqlite_graph()?;
-                            search::add_to_search_index_with_vector(sg, *entity_id, vec)?;
-                            embedded_count += 1;
+                        let entries: Vec<(i64, Vec<f32>)> = chunk_ids
+                            .iter()
+                            .zip(vectors.iter())
+                            .map(|(id, vec)| (*id, vec.clone()))
+                            .collect();
+                        let sg = self.symbols.sqlite_graph()?;
+                        match search::bulk_add_to_search_index(sg, &entries) {
+                            Ok(n) => embedded_count += n,
+                            Err(e) => {
+                                tracing::warn!("bulk insert failed: {}", e);
+                                failed_count += entries.len();
+                            }
                         }
                     }
                     Err(_) => {

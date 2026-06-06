@@ -91,6 +91,35 @@ pub fn add_to_search_index_with_vector(
     Ok(())
 }
 
+/// Bulk-insert pre-computed vectors into the HNSW search index.
+///
+/// This acquires the index mutex once and calls `batch_insert_vectors`,
+/// which persists topology to SQLite once for the entire batch instead of
+/// after every individual insert. Use this instead of calling
+/// `add_to_search_index_with_vector` in a loop.
+pub fn bulk_add_to_search_index(graph: &SqliteGraph, entries: &[(i64, Vec<f32>)]) -> Result<usize> {
+    if entries.is_empty() {
+        return Ok(0);
+    }
+    let dim = entries[0].1.len();
+    ensure_index_in_memory(graph, dim)?;
+
+    let batch: Vec<(Vec<f32>, Option<serde_json::Value>)> = entries
+        .iter()
+        .map(|(entity_id, vec)| (vec.clone(), Some(json!({"entity_id": *entity_id}))))
+        .collect();
+
+    let count = batch.len();
+    graph
+        .get_hnsw_index_mut(SEARCH_INDEX_NAME, move |idx| {
+            idx.batch_insert_vectors(&batch)
+        })
+        .map_err(|e| anyhow::anyhow!("batch_insert failed: {}", e))?
+        .map_err(|e| anyhow::anyhow!("hnsw batch insert failed: {}", e))?;
+
+    Ok(count)
+}
+
 pub fn remove_from_search_index(_graph: &SqliteGraph, _entity_id: i64) -> Result<()> {
     Ok(())
 }

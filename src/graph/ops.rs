@@ -219,15 +219,19 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
             match graph.embedder.embed_batch(&text_refs) {
                 Ok(vectors) => {
                     tracing::info!(path = %path, vectors = vectors.len(), "HopGraph: embedding batch complete");
-                    for (i, vector) in vectors.iter().enumerate() {
-                        if i < indexed_symbols.len() {
-                            let entity_id = indexed_symbols[i].1;
-                            if let Err(e) = crate::graph::search::add_to_search_index_with_vector(
-                                sg, entity_id, vector,
-                            ) {
-                                tracing::warn!(entity_id = entity_id, error = %e, "HopGraph: insert failed");
+                    let entries: Vec<(i64, Vec<f32>)> = vectors
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(i, vec)| {
+                            if i < indexed_symbols.len() {
+                                Some((indexed_symbols[i].1, vec.clone()))
+                            } else {
+                                None
                             }
-                        }
+                        })
+                        .collect();
+                    if let Err(e) = crate::graph::search::bulk_add_to_search_index(sg, &entries) {
+                        tracing::warn!(path = %path, error = %e, "HopGraph: bulk insert failed");
                     }
                 }
                 Err(e) => {
