@@ -1,6 +1,6 @@
 # Magellan Manual
 
-**Version:** 4.6.0
+**Version:** 4.7.0
 
 This manual documents the current user-facing Magellan CLI. The supported normal
 workflow uses a SQLite `.db` database.
@@ -427,13 +427,24 @@ magellan embed --db code.db
 # If you already have an index and want to rebuild it from scratch
 magellan embed --db code.db --force
 
-# Control batch size (default is 64; increase if your model handles it)
-magellan embed --db code.db --batch-size 128
+# Control batch size (default is 16 texts per HTTP request)
+magellan embed --db code.db --batch-size 32
+
+# Parallel requests (default is 4; should match OLLAMA_NUM_PARALLEL on server)
+magellan embed --db code.db --num-parallel 8
 ```
 
 **How long does this take?** For a codebase with ~3,000 symbols using
-`nomic-embed-text` on a modern machine, expect 1-3 minutes. The model must
-process each symbol's name, kind, and source code to produce its embedding.
+`nomic-embed-text` on a modern machine with parallel embedding enabled,
+expect 30-90 seconds. The model must process each symbol's name, kind, and
+source code to produce its embedding. The default concurrency (4 parallel
+requests with 16 texts each) gives ~64 texts in flight at once.
+
+**Parallel embedding:** By default, magellan sends 4 concurrent HTTP requests
+to your embedding provider. Each request carries up to 16 texts (configurable
+via `--batch-size`). If you're using Ollama, set `OLLAMA_NUM_PARALLEL` to
+match or exceed your `--num-parallel` value so Ollama can handle all requests
+without queuing.
 
 **When to re-run:** You only need to re-embed when symbols change significantly
 (new functions, renamed types, etc.). Running `magellan embed` again will add

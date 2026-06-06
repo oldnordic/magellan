@@ -3,6 +3,25 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://sememver.org/spec/v2.0.0.html).
 
+## [4.7.0] - 2026-06-07
+
+### Added
+
+- **Parallel embedding** (`mod.rs`, `embed_cmd.rs`, `config.rs`):
+  - `embed_from_db` now embeds symbols in parallel using rayon. Multiple HTTP
+    embedding requests are fired concurrently to the provider (Ollama, etc.).
+  - `--num-parallel N` CLI flag to control concurrency (default: 4). Should match
+    `OLLAMA_NUM_PARALLEL` on the server side for optimal throughput.
+  - `batch_size` and `num_parallel` configurable in `[embeddings]` section of
+    `config.toml` (defaults: 16 and 4 respectively).
+  - Thread pool created once per embed run (not per file).
+
+### Fixed
+
+- Path traversal check in `embed_from_db` now trusts absolute paths from the DB
+  (stored during indexing) and only applies boundary checks to relative paths.
+- Error messages in embed failures now use `tracing::warn` instead of silent discard.
+
 ## [4.6.0] - 2026-06-07
 
 ### Added

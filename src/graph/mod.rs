@@ -786,6 +786,12 @@ impl CodeGraph {
 
         let root_canonical = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
 
+        // Create the thread pool once for the entire embed run (not per file).
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(num_parallel)
+            .build()
+            .unwrap_or_else(|_| rayon::ThreadPoolBuilder::new().build().unwrap());
+
         for (file_idx, (file_path, file_entities)) in file_groups.iter().enumerate() {
             let is_absolute = file_path.starts_with('/');
             let full_path = if is_absolute {
@@ -876,10 +882,6 @@ impl CodeGraph {
             type ChunkResult = Result<Vec<(i64, Vec<f32>)>>;
 
             let embedder_ref: &dyn embed::TextEmbedder = self.embedder.as_ref();
-            let pool = rayon::ThreadPoolBuilder::new()
-                .num_threads(num_parallel)
-                .build()
-                .unwrap_or_else(|_| rayon::ThreadPoolBuilder::new().build().unwrap());
 
             let chunk_results: Vec<ChunkResult> = pool.install(|| {
                 use rayon::prelude::*;
