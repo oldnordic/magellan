@@ -1583,7 +1583,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let db_path = dir.path().join("test.db");
         let mut graph = crate::CodeGraph::open(&db_path).unwrap();
-        graph.configure_embeddings(&crate::config::EmbedProvider::Hash, false, "", "", "");
+        graph.configure_embeddings(&crate::config::EmbedProvider::Hash, false, "", "", "", 0);
 
         assert!(
             !graph.embeddings_enabled(),

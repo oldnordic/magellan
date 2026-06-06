@@ -115,6 +115,12 @@ pub struct EmbeddingsConfig {
     /// OLLAMA_NUM_PARALLEL on the server side. Default: 4.
     #[serde(default = "default_embed_num_parallel")]
     pub num_parallel: usize,
+    /// Context window size (tokens) passed to the embedding provider via
+    /// `options.num_ctx`. Controls how many tokens the model processes per
+    /// batch. Larger values allow bigger batches but use more VRAM.
+    /// Default: 0 (use provider/model default).
+    #[serde(default)]
+    pub num_ctx: usize,
 }
 
 fn default_embeddings_base_url() -> String {
@@ -143,6 +149,7 @@ impl Default for EmbeddingsConfig {
             api_key: String::new(),
             batch_size: default_embed_batch_size(),
             num_parallel: default_embed_num_parallel(),
+            num_ctx: 0,
         }
     }
 }

@@ -242,10 +242,11 @@ impl CodeGraph {
         base_url: &str,
         model: &str,
         api_key: &str,
+        num_ctx: usize,
     ) {
         self.embeddings_enabled = enabled;
         self.embedder =
-            crate::graph::embed::create_embedder(provider, enabled, base_url, model, api_key);
+            crate::graph::embed::create_embedder(provider, enabled, base_url, model, api_key, num_ctx);
     }
 
     #[cfg(test)]
@@ -619,6 +620,7 @@ impl CodeGraph {
                 "",
                 "",
                 "",
+                0,
             ),
             db_path: db_path_buf,
         };
@@ -646,6 +648,7 @@ impl CodeGraph {
                     &cfg.embeddings.base_url,
                     &cfg.embeddings.model,
                     &cfg.embeddings.api_key,
+                    cfg.embeddings.num_ctx,
                 );
             }
         }

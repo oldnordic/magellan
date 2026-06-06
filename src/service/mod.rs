@@ -283,6 +283,7 @@ fn worker_loop(
                                     &cfg.embeddings.base_url,
                                     &cfg.embeddings.model,
                                     &cfg.embeddings.api_key,
+                                    cfg.embeddings.num_ctx,
                                 );
                             }
                         }

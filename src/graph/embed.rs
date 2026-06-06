@@ -55,14 +55,16 @@ pub struct OllamaEmbedder {
     base_url: String,
     model: String,
     dim: std::sync::RwLock<usize>,
+    num_ctx: usize,
 }
 
 impl OllamaEmbedder {
-    pub fn new(base_url: &str, model: &str) -> Self {
+    pub fn new(base_url: &str, model: &str, num_ctx: usize) -> Self {
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             model: model.to_string(),
             dim: std::sync::RwLock::new(0),
+            num_ctx,
         }
     }
 }
@@ -78,10 +80,13 @@ impl TextEmbedder for OllamaEmbedder {
 
     fn embed_batch(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
         let url = format!("{}/api/embed", self.base_url);
-        let body = serde_json::json!({
+        let mut body = serde_json::json!({
             "model": self.model,
             "input": texts,
         });
+        if self.num_ctx > 0 {
+            body["options"] = serde_json::json!({ "num_ctx": self.num_ctx });
+        }
         let response_body = http_post_json(&url, &body, "")?;
         // Ollama format: {"embeddings": [[...], ...]}
         let embedding_arrays = response_body
@@ -242,12 +247,15 @@ pub fn create_embedder(
     base_url: &str,
     model: &str,
     api_key: &str,
+    num_ctx: usize,
 ) -> Box<dyn TextEmbedder> {
     if !enabled {
         return Box::new(HashEmbedder::new(128));
     }
     match provider {
-        crate::config::EmbedProvider::Ollama => Box::new(OllamaEmbedder::new(base_url, model)),
+        crate::config::EmbedProvider::Ollama => {
+            Box::new(OllamaEmbedder::new(base_url, model, num_ctx))
+        }
         crate::config::EmbedProvider::OpenAi => {
             Box::new(OpenAICompatEmbedder::new(base_url, model, api_key))
         }
@@ -365,7 +373,7 @@ mod tests {
 
     #[test]
     fn test_create_embedder_hash() {
-        let embedder = create_embedder(&crate::config::EmbedProvider::Hash, false, "", "", "");
+        let embedder = create_embedder(&crate::config::EmbedProvider::Hash, false, "", "", "", 0);
         assert_eq!(embedder.name(), "hash");
         assert_eq!(embedder.dimension(), 128);
     }
@@ -378,6 +386,7 @@ mod tests {
             "http://localhost:11434",
             "nomic-embed-text",
             "",
+            0,
         );
         assert_eq!(embedder.name(), "ollama");
         // dimension is auto-detected on first call; without ollama running it
