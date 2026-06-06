@@ -85,14 +85,28 @@ pub struct Config {
     pub embeddings: EmbeddingsConfig,
 }
 
+/// Embedding provider type
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum EmbedProvider {
+    #[default]
+    Ollama,
+    OpenAi,
+    Hash,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmbeddingsConfig {
     #[serde(default)]
     pub enabled: bool,
+    #[serde(default)]
+    pub provider: EmbedProvider,
     #[serde(default = "default_embeddings_base_url")]
     pub base_url: String,
     #[serde(default = "default_embeddings_model")]
     pub model: String,
+    #[serde(default)]
+    pub api_key: String,
 }
 
 fn default_embeddings_base_url() -> String {
@@ -107,8 +121,10 @@ impl Default for EmbeddingsConfig {
     fn default() -> Self {
         EmbeddingsConfig {
             enabled: false,
+            provider: EmbedProvider::default(),
             base_url: default_embeddings_base_url(),
             model: default_embeddings_model(),
+            api_key: String::new(),
         }
     }
 }
@@ -196,6 +212,7 @@ mod tests {
         let config = Config::default();
         assert!(!config.embeddings.enabled);
         assert_eq!(config.embeddings.model, "nomic-embed-text");
+        assert_eq!(config.embeddings.provider, EmbedProvider::Ollama);
     }
 
     #[test]
@@ -203,11 +220,13 @@ mod tests {
         let toml_str = r#"
 [embeddings]
 enabled = true
+provider = "openai"
 model = "custom-model"
 "#;
         let config: Config = toml::from_str(toml_str).unwrap();
         assert!(config.embeddings.enabled);
         assert_eq!(config.embeddings.model, "custom-model");
+        assert_eq!(config.embeddings.provider, EmbedProvider::OpenAi);
         assert_eq!(config.embeddings.base_url, "http://localhost:11434");
     }
 }

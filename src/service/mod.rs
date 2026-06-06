@@ -266,8 +266,10 @@ fn worker_loop(
                 let cfg_changed = current_cfg.as_ref().is_none_or(|c| {
                     last_embeddings_config.as_ref().is_none_or(|last| {
                         c.embeddings.enabled != last.enabled
+                            || c.embeddings.provider != last.provider
                             || c.embeddings.base_url != last.base_url
                             || c.embeddings.model != last.model
+                            || c.embeddings.api_key != last.api_key
                     })
                 });
 
@@ -276,9 +278,11 @@ fn worker_loop(
                         if cfg_changed {
                             if let Some(ref cfg) = current_cfg {
                                 g.configure_embeddings(
+                                    &cfg.embeddings.provider,
                                     cfg.embeddings.enabled,
                                     &cfg.embeddings.base_url,
                                     &cfg.embeddings.model,
+                                    &cfg.embeddings.api_key,
                                 );
                             }
                         }

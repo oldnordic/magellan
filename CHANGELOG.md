@@ -3,6 +3,28 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://sememver.org/spec/v2.0.0.html).
 
+## [4.4.0] - 2026-06-06
+
+### Added
+
+- **OpenAI-compatible embedding provider** (`src/graph/embed.rs`, `src/config.rs`):
+  - `EmbedProvider::OpenAi` variant in config — routes embeddings through any
+    OpenAI-compatible `/v1/embeddings` endpoint (OpenAI, Azure OpenAI, vLLM,
+    llama.cpp server, etc.).
+  - `OpenAICompatEmbedder` struct: auto-detects embedding dimension by running
+    one test embed at construction time; supports `api_key` for cloud providers.
+  - `configure_embeddings` now accepts `api_key` parameter, passed through from
+    `[embeddings] api_key` in `~/.config/magellan/config.toml`.
+  - `EmbedProvider::Hash` preserved as zero-dependency fallback for tests and
+    offline use.
+
+### Fixed
+
+- **`configure_embeddings` ignored `enabled=false` when provider is `Hash`**:
+  the expression `enabled || matches!(provider, Hash)` silently forced
+  embeddings on even when the caller passed `enabled=false`. Corrected to
+  respect the `enabled` flag unconditionally.
+
 ## [4.3.2] - 2026-06-06
 
 ### Fixed

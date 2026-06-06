@@ -235,9 +235,16 @@ impl CodeGraph {
         self.embeddings_enabled
     }
 
-    pub fn configure_embeddings(&mut self, enabled: bool, base_url: &str, model: &str) {
+    pub fn configure_embeddings(
+        &mut self,
+        provider: &crate::config::EmbedProvider,
+        enabled: bool,
+        base_url: &str,
+        model: &str,
+        api_key: &str,
+    ) {
         self.embeddings_enabled = enabled;
-        self.embedder = crate::graph::embed::create_embedder(enabled, base_url, model);
+        self.embedder = crate::graph::embed::create_embedder(provider, enabled, base_url, model, api_key);
     }
 
     #[cfg(test)]
@@ -512,7 +519,7 @@ impl CodeGraph {
             side_conn,
             batch_mode: true,
             embeddings_enabled: false,
-            embedder: crate::graph::embed::create_embedder(false, "", ""),
+            embedder: crate::graph::embed::create_embedder(&crate::config::EmbedProvider::Hash, false, "", "", ""),
             db_path: db_path_buf,
         };
 
@@ -534,9 +541,11 @@ impl CodeGraph {
         if let Ok(cfg) = crate::config::load() {
             if cfg.embeddings.enabled {
                 graph.configure_embeddings(
+                    &cfg.embeddings.provider,
                     cfg.embeddings.enabled,
                     &cfg.embeddings.base_url,
                     &cfg.embeddings.model,
+                    &cfg.embeddings.api_key,
                 );
             }
         }
