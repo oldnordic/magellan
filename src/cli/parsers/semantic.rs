@@ -856,6 +856,7 @@ pub fn parse_hopgraph_args(args: &[String]) -> Result<Command> {
     let mut db_path: Option<PathBuf> = None;
     let mut query: Option<String> = None;
     let mut k = 10usize;
+    let mut hops = 0u32;
     let mut output_format = OutputFormat::Human;
 
     let mut i = 0;
@@ -873,6 +874,13 @@ pub fn parse_hopgraph_args(args: &[String]) -> Result<Command> {
                     return Err(anyhow::anyhow!("--k requires a number"));
                 }
                 k = args[i + 1].parse().unwrap_or(10);
+                i += 2;
+            }
+            "--hops" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--hops requires a number"));
+                }
+                hops = args[i + 1].parse().unwrap_or(0);
                 i += 2;
             }
             "--output" => {
@@ -903,6 +911,7 @@ pub fn parse_hopgraph_args(args: &[String]) -> Result<Command> {
         db_path,
         query,
         k,
+        hops,
         output_format,
     })
 }

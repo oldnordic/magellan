@@ -1138,9 +1138,10 @@ fn main() -> ExitCode {
             db_path,
             query,
             k,
+            hops,
             output_format,
         }) => {
-            if let Err(e) = hopgraph_cmd::run_hopgraph(db_path, query, k, output_format) {
+            if let Err(e) = hopgraph_cmd::run_hopgraph(db_path, query, k, hops, output_format) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }

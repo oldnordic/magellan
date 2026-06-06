@@ -3,6 +3,27 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://sememver.org/spec/v2.0.0.html).
 
+## [4.6.0] - 2026-06-07
+
+### Added
+
+- **HopGraph v2: name resolution + graph expansion** (`search.rs`, `mod.rs`, `hopgraph_cmd.rs`):
+  - `hopgraph_search` output now includes resolved symbol metadata (name, kind, file_path, start_line)
+    instead of raw entity_ids. Uses `resolve_entities_with_conn` from navigator for batch resolution.
+    Unresolvable IDs gracefully default to "unknown".
+  - `--hops N` CLI flag for graph expansion via BFS on REFERENCES edges. After initial HNSW vector
+    search, each hit's graph neighbors are discovered up to N hops. Results are scored with a blended
+    formula: `0.7 * vector_score * graph_proximity + 0.3 * graph_proximity` where
+    `graph_proximity = 1/(1+hop_distance)`. Deduplicated by entity_id, sorted by score.
+  - `hop_distance` field in output shows how many hops from the initial vector match (0 = direct).
+  - Human output shows `kind name [file:line] score=X hop=N` format.
+  - JSON output includes all fields; `hop_distance` omitted when 0.
+
+### Changed
+
+- `resolve_entities_with_conn` in navigator.rs made `pub(crate)` for reuse in hopgraph_search.
+- `hopgraph_search` signature now takes `hops: u32` parameter (breaking API change).
+
 ## [4.5.0] - 2026-06-06
 
 ### Added

@@ -119,7 +119,7 @@ impl<'a> SymbolNavigator<'a> {
         }
     }
 
-    fn resolve_entities_with_conn(
+    pub(crate) fn resolve_entities_with_conn(
         conn: &rusqlite::Connection,
         ids: &[i64],
     ) -> Result<Vec<SymbolInfo>> {

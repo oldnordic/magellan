@@ -254,12 +254,97 @@ impl CodeGraph {
         self.embedder = Box::new(crate::graph::embed::HashEmbedder::new(128));
     }
 
-    pub fn hopgraph_search(&self, query: &str, k: usize) -> anyhow::Result<Vec<(i64, f32)>> {
+    pub fn hopgraph_search(
+        &self,
+        query: &str,
+        k: usize,
+        hops: u32,
+    ) -> anyhow::Result<Vec<crate::graph::search::HopgraphHit>> {
         if !self.embeddings_enabled {
             return Ok(Vec::new());
         }
         let sg = self.symbols.sqlite_graph()?;
-        crate::graph::search::search_symbols(sg, self.embedder.as_ref(), query, k)
+        let raw_hits = crate::graph::search::search_symbols(sg, self.embedder.as_ref(), query, k)?;
+
+        // Build initial hit set with vector scores
+        let mut hit_scores: std::collections::HashMap<i64, (f32, u32)> =
+            std::collections::HashMap::new();
+        for &(entity_id, score) in &raw_hits {
+            hit_scores.insert(entity_id, (score, 0));
+        }
+
+        // Graph expansion: BFS from each initial hit via REFERENCES edges
+        if hops > 0 && !raw_hits.is_empty() {
+            let nav = navigator::SymbolNavigator::new(self);
+            let initial_ids: Vec<i64> = raw_hits.iter().map(|(id, _)| *id).collect();
+            for start_id in initial_ids {
+                for depth in 1..=hops {
+                    // Use k_hop_references at exactly this depth
+                    if let Ok(expanded) = nav.k_hop_references(start_id, depth) {
+                        for info in expanded {
+                            let graph_proximity = 1.0_f32 / (1.0 + depth as f32);
+                            // Blend: 70% vector (estimated by proximity to start), 30% graph structure
+                            let blended = 0.7 * hit_scores[&start_id].0 * graph_proximity
+                                + 0.3 * graph_proximity;
+                            hit_scores
+                                .entry(info.id)
+                                .and_modify(|(existing_score, existing_dist)| {
+                                    // Keep the better score (lower distance = better)
+                                    if blended < *existing_score {
+                                        *existing_score = blended;
+                                        *existing_dist = depth;
+                                    }
+                                })
+                                .or_insert((blended, depth));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Resolve all entity_ids to symbol metadata
+        let all_ids: Vec<i64> = hit_scores.keys().copied().collect();
+        let resolved = {
+            let conn = self.side_conn.lock().unwrap_or_else(|e| e.into_inner());
+            navigator::SymbolNavigator::resolve_entities_with_conn(&conn, &all_ids)?
+        };
+
+        let mut resolved_map = std::collections::HashMap::new();
+        for info in resolved {
+            resolved_map.insert(info.id, info);
+        }
+
+        // Build final hits
+        let mut hits: Vec<crate::graph::search::HopgraphHit> = hit_scores
+            .into_iter()
+            .map(|(entity_id, (score, hop_distance))| {
+                let info = resolved_map.get(&entity_id);
+                crate::graph::search::HopgraphHit {
+                    entity_id,
+                    score,
+                    name: info
+                        .map(|i| i.name.clone())
+                        .unwrap_or_else(|| "unknown".to_string()),
+                    kind: info
+                        .map(|i| i.kind.clone())
+                        .unwrap_or_else(|| "unknown".to_string()),
+                    file_path: info.and_then(|i| i.file_path.clone()),
+                    start_line: info.map(|i| i.start_line).unwrap_or(0),
+                    hop_distance,
+                }
+            })
+            .collect();
+
+        // Sort by score ascending (lower cosine distance = better match)
+        hits.sort_by(|a, b| {
+            a.score
+                .partial_cmp(&b.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        // Return top-k
+        hits.truncate(k);
+        Ok(hits)
     }
 
     /// Open a graph database at the given path

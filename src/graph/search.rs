@@ -7,6 +7,24 @@ use super::embed::{symbol_embed_text, TextEmbedder};
 
 const SEARCH_INDEX_NAME: &str = "symbols";
 
+/// A single HopGraph search result with resolved symbol metadata.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct HopgraphHit {
+    pub entity_id: i64,
+    pub score: f32,
+    pub name: String,
+    pub kind: String,
+    pub file_path: Option<String>,
+    pub start_line: usize,
+    /// How many graph hops from the initial HNSW hit (0 = direct vector match).
+    #[serde(skip_serializing_if = "is_zero")]
+    pub hop_distance: u32,
+}
+
+fn is_zero(v: &u32) -> bool {
+    *v == 0
+}
+
 fn search_config(dim: usize) -> Result<HnswConfig> {
     sqlitegraph::hnsw::HnswConfigBuilder::new()
         .dimension(dim)

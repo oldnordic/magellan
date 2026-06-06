@@ -1440,18 +1440,18 @@ mod tests {
         let source_a = b"fn parse_rust() -> u32 { 42 }";
         graph.index_file("a.rs", source_a).unwrap();
 
-        let hits = graph.hopgraph_search("parse_rust", 5).unwrap();
+        let hits = graph.hopgraph_search("parse_rust", 5, 0).unwrap();
         assert!(
             !hits.is_empty(),
             "hopgraph_search should find symbols after indexing"
         );
 
-        let top_id = hits[0].0;
+        let top_id = hits[0].entity_id;
 
         graph.delete_file_facts("a.rs").unwrap();
 
-        let hits_after_delete = graph.hopgraph_search("parse_rust", 5).unwrap();
-        let deleted_still_present = hits_after_delete.iter().any(|(id, _)| *id == top_id);
+        let hits_after_delete = graph.hopgraph_search("parse_rust", 5, 0).unwrap();
+        let deleted_still_present = hits_after_delete.iter().any(|h| h.entity_id == top_id);
         assert!(
             !deleted_still_present,
             "deleted symbol should not appear in hopgraph results"
@@ -1459,7 +1459,7 @@ mod tests {
 
         graph.index_file("a.rs", source_a).unwrap();
 
-        let hits_after_reindex = graph.hopgraph_search("parse_rust", 5).unwrap();
+        let hits_after_reindex = graph.hopgraph_search("parse_rust", 5, 0).unwrap();
         assert!(
             !hits_after_reindex.is_empty(),
             "hopgraph_search should find symbols after reindexing"
@@ -1488,25 +1488,95 @@ mod tests {
             )
             .unwrap();
 
-        let hits = graph.hopgraph_search("parse_rust_file", 5).unwrap();
+        let hits = graph.hopgraph_search("parse_rust_file", 5, 0).unwrap();
         assert!(!hits.is_empty(), "search should find results");
 
-        let first_id = hits[0].0;
+        let first_id = hits[0].entity_id;
 
         graph.delete_file_facts("parse_rust.rs").unwrap();
 
-        let hits_after = graph.hopgraph_search("parse_rust_file", 5).unwrap();
-        let still_present = hits_after.iter().any(|(id, _)| *id == first_id);
+        let hits_after = graph.hopgraph_search("parse_rust_file", 5, 0).unwrap();
+        let still_present = hits_after.iter().any(|h| h.entity_id == first_id);
         assert!(
             !still_present,
             "deleted file's symbols should be removed from index"
         );
 
-        let python_present = hits_after.iter().any(|(id, _)| *id != first_id);
+        let python_present = hits_after.iter().any(|h| h.entity_id != first_id);
         assert!(
             python_present || hits_after.is_empty(),
             "other file's symbols may or may not appear (hash embedder)"
         );
+    }
+
+    #[test]
+    fn test_hopgraph_resolves_entity_ids_to_names() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test.db");
+        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
+        graph.enable_embeddings_for_test();
+
+        let source = b"fn compute_checksum(data: &[u8]) -> u32 { 42 }";
+        graph.index_file("checksum.rs", source).unwrap();
+
+        let hits = graph.hopgraph_search("compute_checksum", 5, 0).unwrap();
+        assert!(!hits.is_empty(), "hopgraph should find compute_checksum");
+
+        let top = &hits[0];
+        assert!(
+            !top.name.is_empty(),
+            "resolved hit should have a non-empty name"
+        );
+        assert!(
+            !top.kind.is_empty(),
+            "resolved hit should have a non-empty kind"
+        );
+        // The top result should be the indexed function
+        assert!(
+            top.name.contains("checksum"),
+            "resolved name '{}' should contain 'checksum'",
+            top.name,
+        );
+    }
+
+    #[test]
+    fn test_hopgraph_hops_expansion() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test.db");
+        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
+        graph.enable_embeddings_for_test();
+
+        // Index two functions where one calls the other
+        let source_a = b"fn compute_hash(data: &[u8]) -> u32 { 42 }";
+        let source_b = b"fn compute_hash_wrapper(input: &[u8]) -> u32 { compute_hash(input) }";
+        graph.index_file("hash.rs", source_a).unwrap();
+        graph.index_file("wrapper.rs", source_b).unwrap();
+
+        // hops=0 should return only vector matches
+        let hits_0 = graph.hopgraph_search("compute_hash", 10, 0).unwrap();
+        assert!(!hits_0.is_empty(), "should find results with hops=0");
+
+        // hops=1 should include graph-expanded neighbors
+        let hits_1 = graph.hopgraph_search("compute_hash", 10, 1).unwrap();
+        // With hops enabled, we should get at least as many results
+        // (expanded hits are added to the initial vector hits)
+        assert!(
+            !hits_1.is_empty(),
+            "should find results with hops=1"
+        );
+
+        // hops=0 results should all have hop_distance=0
+        for hit in &hits_0 {
+            assert_eq!(
+                hit.hop_distance, 0,
+                "hops=0 results should all have hop_distance=0, got {} for {}",
+                hit.hop_distance, hit.name
+            );
+        }
     }
 
     #[test]

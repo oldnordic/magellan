@@ -487,6 +487,7 @@ pub enum Command {
         db_path: PathBuf,
         query: String,
         k: usize,
+        hops: u32,
         output_format: OutputFormat,
     },
     /// Embed symbols from DB into HNSW index
