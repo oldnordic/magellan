@@ -1,6 +1,6 @@
 [package]
 name = "magellan"
-version = "4.3.1"
+version = "4.3.2"
 edition = "2021"
 license = "GPL-3.0-only"
 repository = "https://github.com/oldnordic/magellan"
@@ -97,7 +97,7 @@ hex = "0.4"
 uuid = { version = "1.0", features = ["serde", "v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 signal-hook = "0.3"
-sqlitegraph = { version = "3.1.2", default-features = false }
+sqlitegraph = { version = "3.1.5", default-features = false }
 walkdir = "2.5"
 git2 = "0.20"
 globset = "0.4"

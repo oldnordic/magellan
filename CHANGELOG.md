@@ -3,6 +3,22 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://sememver.org/spec/v2.0.0.html).
 
+## [4.3.2] - 2026-06-06
+
+### Fixed
+
+- **`hopgraph` CLI now loads HNSW index from persistence** — `search_symbols`
+  returned empty results when called from a fresh CLI connection because the
+  HNSW index was not in memory. Added `ensure_index_in_memory` call before the
+  early-return guard so the index is loaded via `restore_topology` before
+  searching (`src/graph/search.rs`).
+- **Bump sqlitegraph to 3.1.5** — picks up two HNSW correctness fixes:
+  vector maps now keyed by layer-local IDs (not `vector_id - 1`), and
+  `search()` returns actual storage vector IDs instead of `local_id + 1`.
+  Both bugs caused silent `NodeNotFound` failures in multi-layer mode when
+  vector IDs were not sequential from 1 (e.g. after any table wipe with
+  AUTOINCREMENT active).
+
 ## [4.3.0] - 2026-06-04
 
 ### Added

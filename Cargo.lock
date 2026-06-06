@@ -1388,7 +1388,7 @@ dependencies = [
 
 [[package]]
 name = "magellan"
-version = "4.3.1"
+version = "4.3.2"
 dependencies = [
  "ahash",
  "anyhow",
@@ -2200,9 +2200,9 @@ dependencies = [
 
 [[package]]
 name = "sqlitegraph"
-version = "3.1.2"
+version = "3.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b8a6a6da2a868a80fbab7d14593d09102e25964592d0e4f925a375ff0336515"
+checksum = "b18132332ef8f36d126424e157ac18a76b9b211ea5a442ece65f8c18f2d7ab6f"
 dependencies = [
  "ahash",
  "arc-swap",

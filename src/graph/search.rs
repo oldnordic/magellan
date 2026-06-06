@@ -11,6 +11,8 @@ fn search_config(dim: usize) -> Result<HnswConfig> {
     sqlitegraph::hnsw::HnswConfigBuilder::new()
         .dimension(dim)
         .distance_metric(DistanceMetric::Cosine)
+        .ef_search(200)
+        .enable_multilayer(true)
         .build()
         .map_err(|e| anyhow::anyhow!("HNSW config build failed: {}", e))
 }
@@ -99,6 +101,7 @@ pub fn search_symbols(
     query: &str,
     k: usize,
 ) -> Result<Vec<(i64, f32)>> {
+    ensure_index_in_memory(graph, embedder.dimension())?;
     if !index_in_memory(graph) {
         return Ok(Vec::new());
     }
