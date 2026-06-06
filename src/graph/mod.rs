@@ -722,8 +722,17 @@ impl CodeGraph {
         // Step 2: If force, clear existing HNSW vectors for the 'symbols' index.
         // Otherwise, find which entity IDs already have vectors and skip them.
         let skip_ids: HashSet<i64> = if force {
-            let sg = self.symbols.sqlite_graph()?;
-            search::clear_search_index(sg)?;
+            {
+                let sg = self.symbols.sqlite_graph()?;
+                search::clear_search_index(sg)?;
+            }
+            // Reset AUTOINCREMENT counters so new inserts start from 1.
+            // Without this, IDs resume from the old high-water mark, causing
+            // a mismatch between global vector IDs and local layer IDs.
+            let conn = self.side_conn.lock().unwrap();
+            conn.execute_batch(
+                "DELETE FROM sqlite_sequence WHERE name IN ('hnsw_vectors', 'hnsw_layers')"
+            )?;
             HashSet::new()
         } else {
             let conn = self.side_conn.lock().unwrap();
