@@ -920,6 +920,7 @@ pub fn parse_embed_args(args: &[String]) -> Result<Command> {
     let mut db_path: Option<PathBuf> = None;
     let mut force = false;
     let mut batch_size: Option<usize> = None;
+    let mut num_parallel: Option<usize> = None;
     let mut output_format = OutputFormat::Human;
 
     let mut i = 0;
@@ -947,6 +948,17 @@ pub fn parse_embed_args(args: &[String]) -> Result<Command> {
                 );
                 i += 2;
             }
+            "--num-parallel" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--num-parallel requires a number"));
+                }
+                num_parallel = Some(
+                    args[i + 1]
+                        .parse()
+                        .map_err(|_| anyhow::anyhow!("Invalid num-parallel: {}", args[i + 1]))?,
+                );
+                i += 2;
+            }
             "--output" => {
                 if i + 1 >= args.len() {
                     return Err(anyhow::anyhow!("--output requires an argument"));
@@ -961,7 +973,7 @@ pub fn parse_embed_args(args: &[String]) -> Result<Command> {
             }
             other => {
                 return Err(anyhow::anyhow!(
-                    "Unknown argument: '{}'. Usage: magellan embed [--db PATH] [--force] [--batch-size N]",
+                    "Unknown argument: '{}'. Usage: magellan embed [--db PATH] [--force] [--batch-size N] [--num-parallel N]",
                     other
                 ));
             }
@@ -974,6 +986,7 @@ pub fn parse_embed_args(args: &[String]) -> Result<Command> {
         db_path,
         force,
         batch_size,
+        num_parallel,
         output_format,
     })
 }

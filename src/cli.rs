@@ -495,6 +495,7 @@ pub enum Command {
         db_path: PathBuf,
         force: bool,
         batch_size: Option<usize>,
+        num_parallel: Option<usize>,
         output_format: OutputFormat,
     },
 }

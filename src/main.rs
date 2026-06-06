@@ -1151,9 +1151,12 @@ fn main() -> ExitCode {
             db_path,
             force,
             batch_size,
+            num_parallel,
             output_format,
         }) => {
-            if let Err(e) = embed_cmd::run_embed(db_path, force, batch_size, output_format) {
+            if let Err(e) =
+                embed_cmd::run_embed(db_path, force, batch_size, num_parallel, output_format)
+            {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }

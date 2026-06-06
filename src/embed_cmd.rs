@@ -14,9 +14,13 @@ pub fn run_embed(
     db_path: PathBuf,
     force: bool,
     batch_size: Option<usize>,
+    num_parallel: Option<usize>,
     output_format: OutputFormat,
 ) -> Result<()> {
-    let batch = batch_size.unwrap_or(64);
+    let cfg = magellan::config::load().unwrap_or_default();
+    let batch = batch_size.unwrap_or(cfg.embeddings.batch_size);
+    let parallel = num_parallel.unwrap_or(cfg.embeddings.num_parallel);
+
     let mut graph = CodeGraph::open(&db_path)?;
 
     if !graph.embeddings_enabled() {
@@ -27,7 +31,7 @@ pub fn run_embed(
     }
 
     let (embedded, skipped, failed) =
-        graph.embed_from_db(force, batch, |path, count, idx, total| {
+        graph.embed_from_db(force, batch, parallel, |path, count, idx, total| {
             if matches!(output_format, OutputFormat::Human) {
                 eprintln!("  [{}/{}] {} — {} symbols", idx + 1, total, path, count);
             }

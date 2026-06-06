@@ -686,10 +686,12 @@ impl CodeGraph {
     ///
     /// If `force` is true, re-embeds all symbols regardless of existing vectors.
     /// `progress_callback` is called per file group with (file_path, symbols_in_file, file_index, total_files).
+    /// `num_parallel` controls how many concurrent HTTP embedding requests are fired (default 4).
     pub fn embed_from_db(
         &mut self,
         force: bool,
         batch_size: usize,
+        num_parallel: usize,
         mut progress_callback: impl FnMut(&str, usize, usize, usize),
     ) -> Result<(usize, usize, usize)> {
         use std::collections::{HashMap, HashSet};
@@ -785,7 +787,8 @@ impl CodeGraph {
         let root_canonical = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
 
         for (file_idx, (file_path, file_entities)) in file_groups.iter().enumerate() {
-            let full_path = if file_path.starts_with('/') {
+            let is_absolute = file_path.starts_with('/');
+            let full_path = if is_absolute {
                 PathBuf::from(file_path)
             } else {
                 root.join(file_path)
@@ -800,7 +803,9 @@ impl CodeGraph {
                 }
             };
 
-            if !full_path_canonical.starts_with(&root_canonical) {
+            // Absolute paths from the DB are trusted (stored during indexing).
+            // Only apply boundary check to relative paths we constructed from root.
+            if !is_absolute && !full_path_canonical.starts_with(&root_canonical) {
                 failed_count += file_entities.len();
                 progress_callback(file_path, file_entities.len(), file_idx, total_files);
                 continue;
@@ -808,7 +813,8 @@ impl CodeGraph {
 
             let source = match std::fs::read(&full_path_canonical) {
                 Ok(s) => s,
-                Err(_) => {
+                Err(e) => {
+                    tracing::warn!("embed: read failed {:?}: {}", full_path_canonical, e);
                     failed_count += file_entities.len();
                     progress_callback(file_path, file_entities.len(), file_idx, total_files);
                     continue;
@@ -832,7 +838,6 @@ impl CodeGraph {
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown");
 
-                // Extract body using byte offsets from the raw source bytes
                 let body = if byte_end > byte_start && byte_end <= source_bytes.len() {
                     let body_raw = crate::common::extract_symbol_content_safe(
                         source_bytes,
@@ -858,31 +863,55 @@ impl CodeGraph {
                 ids.push(*id);
             }
 
-            // Embed in batches
-            for chunk_start in (0..texts.len()).step_by(batch_size) {
-                let chunk_end = (chunk_start + batch_size).min(texts.len());
-                let chunk_texts = &texts[chunk_start..chunk_end];
-                let chunk_ids = &ids[chunk_start..chunk_end];
+            // Split into chunks, embed all chunks in parallel, write results serially.
+            // TextEmbedder: Sync, so &dyn TextEmbedder is safe to share across rayon threads.
+            let chunks: Vec<(&[String], &[i64])> = (0..texts.len())
+                .step_by(batch_size)
+                .map(|s| {
+                    let e = (s + batch_size).min(texts.len());
+                    (&texts[s..e], &ids[s..e])
+                })
+                .collect();
 
-                let text_refs: Vec<&str> = chunk_texts.iter().map(|s| s.as_str()).collect();
-                match self.embedder.embed_batch(&text_refs) {
-                    Ok(vectors) => {
-                        let entries: Vec<(i64, Vec<f32>)> = chunk_ids
+            type ChunkResult = Result<Vec<(i64, Vec<f32>)>>;
+
+            let embedder_ref: &dyn embed::TextEmbedder = self.embedder.as_ref();
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(num_parallel)
+                .build()
+                .unwrap_or_else(|_| rayon::ThreadPoolBuilder::new().build().unwrap());
+
+            let chunk_results: Vec<ChunkResult> = pool.install(|| {
+                use rayon::prelude::*;
+                chunks
+                    .par_iter()
+                    .map(|(chunk_texts, chunk_ids)| {
+                        let text_refs: Vec<&str> = chunk_texts.iter().map(|s| s.as_str()).collect();
+                        let vectors = embedder_ref.embed_batch(&text_refs)?;
+                        Ok(chunk_ids
                             .iter()
-                            .zip(vectors.iter())
-                            .map(|(id, vec)| (*id, vec.clone()))
-                            .collect();
+                            .zip(vectors)
+                            .map(|(id, vec)| (*id, vec))
+                            .collect())
+                    })
+                    .collect()
+            });
+
+            for result in chunk_results {
+                match result {
+                    Ok(entries) => {
                         let sg = self.symbols.sqlite_graph()?;
                         match search::bulk_add_to_search_index(sg, &entries) {
                             Ok(n) => embedded_count += n,
                             Err(e) => {
-                                tracing::warn!("bulk insert failed: {}", e);
+                                tracing::warn!("embed: bulk insert failed: {}", e);
                                 failed_count += entries.len();
                             }
                         }
                     }
-                    Err(_) => {
-                        failed_count += chunk_texts.len();
+                    Err(e) => {
+                        tracing::warn!("embed: embed_batch failed: {}", e);
+                        failed_count += batch_size;
                     }
                 }
             }

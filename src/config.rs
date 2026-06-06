@@ -107,6 +107,14 @@ pub struct EmbeddingsConfig {
     pub model: String,
     #[serde(default)]
     pub api_key: String,
+    /// Texts per HTTP embedding request. Smaller values improve GPU utilization
+    /// at the cost of more round-trips. Default: 16.
+    #[serde(default = "default_embed_batch_size")]
+    pub batch_size: usize,
+    /// Concurrent HTTP embedding requests sent to the provider. Set to match
+    /// OLLAMA_NUM_PARALLEL on the server side. Default: 4.
+    #[serde(default = "default_embed_num_parallel")]
+    pub num_parallel: usize,
 }
 
 fn default_embeddings_base_url() -> String {
@@ -117,6 +125,14 @@ fn default_embeddings_model() -> String {
     "nomic-embed-text".to_string()
 }
 
+fn default_embed_batch_size() -> usize {
+    16
+}
+
+fn default_embed_num_parallel() -> usize {
+    4
+}
+
 impl Default for EmbeddingsConfig {
     fn default() -> Self {
         EmbeddingsConfig {
@@ -125,6 +141,8 @@ impl Default for EmbeddingsConfig {
             base_url: default_embeddings_base_url(),
             model: default_embeddings_model(),
             api_key: String::new(),
+            batch_size: default_embed_batch_size(),
+            num_parallel: default_embed_num_parallel(),
         }
     }
 }
