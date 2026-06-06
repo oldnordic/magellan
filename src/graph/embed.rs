@@ -405,4 +405,96 @@ mod tests {
         assert!(text.contains("function"));
         assert!(text.contains("rust"));
     }
+
+    #[test]
+    fn test_symbol_embed_text_with_body() {
+        let entity = sqlitegraph::GraphEntity {
+            id: 2,
+            kind: "Symbol".to_string(),
+            name: "my_function".to_string(),
+            file_path: Some("src/lib.rs".to_string()),
+            data: serde_json::json!({
+                "fqn": "my_crate::my_function",
+                "kind_normalized": "function",
+                "language": "rust",
+            }),
+        };
+        let text_no_body = symbol_embed_text(&entity, None);
+        let text_with_body = symbol_embed_text(&entity, Some("fn my_function() -> i32 { 42 }"));
+
+        assert!(
+            !text_no_body.contains("fn my_function()"),
+            "no-body should not contain source: {:?}",
+            text_no_body
+        );
+        assert!(
+            text_with_body.contains("fn my_function()"),
+            "with-body should contain source: {:?}",
+            text_with_body
+        );
+        assert!(
+            text_with_body.contains("42"),
+            "with-body should contain function body"
+        );
+        assert!(
+            text_with_body.contains("my_crate::my_function"),
+            "with-body should still have fqn"
+        );
+    }
+
+    #[test]
+    fn test_symbol_fact_embed_text_with_body() {
+        let name = Some("compute_value".to_string());
+        let text_no_body = symbol_fact_embed_text(&name, "src/calc.rs", "fn", None);
+        let text_with_body = symbol_fact_embed_text(
+            &name,
+            "src/calc.rs",
+            "fn",
+            Some("fn compute_value(x: i32) -> i32 { x * 2 + 1 }"),
+        );
+
+        assert!(
+            text_no_body.contains("Symbol"),
+            "should start with Symbol marker"
+        );
+        assert!(
+            text_no_body.contains("compute_value"),
+            "should contain name"
+        );
+        assert!(
+            !text_no_body.contains("x * 2"),
+            "no-body should not contain source body"
+        );
+
+        assert!(
+            text_with_body.contains("compute_value"),
+            "with-body should contain name"
+        );
+        assert!(
+            text_with_body.contains("fn compute_value"),
+            "with-body should contain function signature"
+        );
+        assert!(
+            text_with_body.contains("x * 2 + 1"),
+            "with-body should contain function body expression"
+        );
+    }
+
+    #[test]
+    fn test_symbol_fact_embed_text_body_truncation() {
+        let long_body = "fn big_fn() { ".to_string() + &"let x = 1; ".repeat(200) + "}";
+        let name = Some("big_fn".to_string());
+        let text = symbol_fact_embed_text(&name, "src/big.rs", "fn", Some(&long_body));
+
+        assert!(
+            text.contains("big_fn"),
+            "should contain name even with truncated body"
+        );
+        // Body should be truncated to ~1024 chars, not the full ~1800 chars
+        assert!(
+            text.len() < 1200,
+            "text should be under ~1200 chars with truncation, got {}",
+            text.len()
+        );
+    }
 }

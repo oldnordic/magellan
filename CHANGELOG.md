@@ -11,9 +11,10 @@ Project adheres to [Semantic Versioning](https://sememver.org/spec/v2.0.0.html).
   - Embeds indexed symbols from DB into the HNSW vector index without re-parsing
     source files. Reads entity metadata from `graph_entities`, extracts source bodies
     via byte offsets, and calls `embed_batch` in configurable batch sizes (default 64).
-  - `--force` flag to re-embed all symbols regardless of existing vectors.
+  - `--force` flag clears existing HNSW index before re-embedding (no duplicates).
   - `--batch-size N` to control embedding throughput.
   - Progress reporting per file group (Human/JSON/Pretty output).
+  - Reuses `symbol_fact_embed_text` from HG-1 for consistent embed text with bodies.
   - Typical rebuild: ~2 min for 10k entities vs 15 min with `watch --scan-initial`.
 
 ### Fixed
@@ -25,6 +26,17 @@ Project adheres to [Semantic Versioning](https://sememver.org/spec/v2.0.0.html).
     to embed instead of just `"Symbol fn_name path.rs fn"`.
   - During indexing (`ops.rs`), the body is extracted via `extract_symbol_content_safe`
     using `byte_start`/`byte_end` offsets already available at the call site.
+
+- **`--force` no longer creates duplicate vectors** (`search.rs:clear_search_index`):
+  - Previous implementation inserted vectors without clearing existing ones, causing
+    duplicate entries for the same entity_id. Now uses `delete_hnsw_index` to remove
+    both in-memory and persistent HNSW state before re-embedding.
+
+### Tests
+
+- 3 new unit tests for embed text body inclusion and truncation
+  (`test_symbol_embed_text_with_body`, `test_symbol_fact_embed_text_with_body`,
+  `test_symbol_fact_embed_text_body_truncation`).
 
 ## [4.4.0] - 2026-06-06
 

@@ -624,8 +624,11 @@ impl CodeGraph {
 
         let total = entities.len();
 
-        // Step 2: Find which entity IDs already have HNSW vectors
+        // Step 2: If force, clear existing HNSW vectors for the 'symbols' index.
+        // Otherwise, find which entity IDs already have vectors and skip them.
         let skip_ids: HashSet<i64> = if force {
+            let sg = self.symbols.sqlite_graph()?;
+            search::clear_search_index(sg)?;
             HashSet::new()
         } else {
             let conn = self.side_conn.lock().unwrap();
@@ -702,9 +705,9 @@ impl CodeGraph {
                 }
             };
 
-            let source_str = String::from_utf8_lossy(&source);
+            let source_bytes = &source;
 
-            // Build embed texts
+            // Build embed texts using symbol_fact_embed_text with source body
             let mut texts = Vec::with_capacity(file_entities.len());
             let mut ids = Vec::with_capacity(file_entities.len());
 
@@ -719,32 +722,29 @@ impl CodeGraph {
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown");
 
-                let mut parts = vec![
-                    "Symbol".to_string(),
-                    name.clone(),
-                    file_path.clone(),
-                    kind_normalized.to_string(),
-                ];
-                if let Some(fqn) = data.get("fqn").and_then(|v| v.as_str()) {
-                    parts.push(fqn.to_string());
-                }
-                // Extract body
-                if byte_end > byte_start && byte_end <= source_str.len() {
-                    let body = source_str[byte_start..byte_end].trim();
-                    if !body.is_empty() {
-                        const MAX_BODY: usize = 1024;
-                        if body.len() > MAX_BODY {
-                            let mut end = MAX_BODY;
-                            while !body.is_char_boundary(end) && end > 0 {
-                                end -= 1;
-                            }
-                            parts.push(body[..end].to_string());
-                        } else {
-                            parts.push(body.to_string());
-                        }
+                // Extract body using byte offsets from the raw source bytes
+                let body = if byte_end > byte_start && byte_end <= source_bytes.len() {
+                    let body_raw = crate::common::extract_symbol_content_safe(
+                        source_bytes,
+                        byte_start,
+                        byte_end,
+                    );
+                    match body_raw {
+                        Some(b) if !b.trim().is_empty() => Some(b),
+                        _ => None,
                     }
-                }
-                texts.push(parts.join(" "));
+                } else {
+                    None
+                };
+
+                let name_opt = Some(name.clone());
+                let text = embed::symbol_fact_embed_text(
+                    &name_opt,
+                    file_path,
+                    kind_normalized,
+                    body.as_deref(),
+                );
+                texts.push(text);
                 ids.push(*id);
             }
 

@@ -95,6 +95,15 @@ pub fn remove_from_search_index(_graph: &SqliteGraph, _entity_id: i64) -> Result
     Ok(())
 }
 
+/// Clear all vectors from the 'symbols' HNSW index (both in-memory and persistent).
+/// Used by `embed --force` to avoid duplicate vectors on re-embed.
+pub fn clear_search_index(graph: &SqliteGraph) -> Result<()> {
+    graph
+        .delete_hnsw_index(SEARCH_INDEX_NAME)
+        .map_err(|e| anyhow::anyhow!("failed to delete HNSW index: {}", e))?;
+    Ok(())
+}
+
 pub fn search_symbols(
     graph: &SqliteGraph,
     embedder: &dyn TextEmbedder,
