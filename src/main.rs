@@ -18,6 +18,7 @@ mod db_resolver;
 mod dead_code_cmd;
 mod delete_cmd;
 mod doctor_cmd;
+mod embed_cmd;
 mod enrich_cmd;
 mod explore_cmd;
 mod export_cmd;
@@ -1140,6 +1141,18 @@ fn main() -> ExitCode {
             output_format,
         }) => {
             if let Err(e) = hopgraph_cmd::run_hopgraph(db_path, query, k, output_format) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::Embed {
+            db_path,
+            force,
+            batch_size,
+            output_format,
+        }) => {
+            if let Err(e) = embed_cmd::run_embed(db_path, force, batch_size, output_format) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }

@@ -201,10 +201,16 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
             let texts: Vec<String> = indexed_symbols
                 .iter()
                 .map(|(fact, _)| {
+                    let body = crate::common::extract_symbol_content_safe(
+                        source,
+                        fact.byte_start,
+                        fact.byte_end,
+                    );
                     crate::graph::embed::symbol_fact_embed_text(
                         &fact.name,
                         path,
                         &fact.kind_normalized,
+                        body.as_deref(),
                     )
                 })
                 .collect();

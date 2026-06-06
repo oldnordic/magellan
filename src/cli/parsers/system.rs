@@ -220,6 +220,7 @@ where
         "explore" => parse_explore_args(&args[2..]),
         "telemetry" => parse_telemetry_args(&args[2..]),
         "hopgraph" => parse_hopgraph_args(&args[2..]),
+        "embed" => parse_embed_args(&args[2..]),
         "features" => parse_features_args(&args[2..]),
         "service-daemon" => Ok(Command::ServiceDaemon),
         _ => Err(anyhow::anyhow!("Unknown command: {}", command)),

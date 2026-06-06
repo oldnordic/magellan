@@ -489,6 +489,13 @@ pub enum Command {
         k: usize,
         output_format: OutputFormat,
     },
+    /// Embed symbols from DB into HNSW index
+    Embed {
+        db_path: PathBuf,
+        force: bool,
+        batch_size: Option<usize>,
+        output_format: OutputFormat,
+    },
 }
 
 // ============================================================================

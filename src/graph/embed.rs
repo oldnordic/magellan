@@ -170,11 +170,7 @@ impl TextEmbedder for OpenAICompatEmbedder {
 
 // ── Shared helpers ──
 
-fn http_post_json(
-    url: &str,
-    body: &serde_json::Value,
-    api_key: &str,
-) -> Result<serde_json::Value> {
+fn http_post_json(url: &str, body: &serde_json::Value, api_key: &str) -> Result<serde_json::Value> {
     let mut req = ureq::post(url)
         .config()
         .timeout_global(Some(std::time::Duration::from_secs(120)))
@@ -251,9 +247,7 @@ pub fn create_embedder(
         return Box::new(HashEmbedder::new(128));
     }
     match provider {
-        crate::config::EmbedProvider::Ollama => {
-            Box::new(OllamaEmbedder::new(base_url, model))
-        }
+        crate::config::EmbedProvider::Ollama => Box::new(OllamaEmbedder::new(base_url, model)),
         crate::config::EmbedProvider::OpenAi => {
             Box::new(OpenAICompatEmbedder::new(base_url, model, api_key))
         }
@@ -261,7 +255,7 @@ pub fn create_embedder(
     }
 }
 
-pub fn symbol_embed_text(entity: &sqlitegraph::GraphEntity) -> String {
+pub fn symbol_embed_text(entity: &sqlitegraph::GraphEntity, body: Option<&str>) -> String {
     let mut parts = vec![entity.kind.clone(), entity.name.clone()];
     for key in &[
         "fqn",
@@ -277,13 +271,30 @@ pub fn symbol_embed_text(entity: &sqlitegraph::GraphEntity) -> String {
     if let Some(lang) = entity.data.get("language").and_then(|v| v.as_str()) {
         parts.push(lang.to_string());
     }
+    if let Some(body) = body {
+        let truncated = if body.len() > EMBED_BODY_MAX_CHARS {
+            let mut end = EMBED_BODY_MAX_CHARS;
+            while !body.is_char_boundary(end) && end > 0 {
+                end -= 1;
+            }
+            &body[..end]
+        } else {
+            body
+        };
+        parts.push(truncated.to_string());
+    }
     parts.join(" ")
 }
+
+/// Maximum source body length included in embedding text.
+/// Prevents extremely large function bodies from dominating the embedding.
+const EMBED_BODY_MAX_CHARS: usize = 1024;
 
 pub fn symbol_fact_embed_text(
     name: &Option<String>,
     file_path: &str,
     kind_normalized: &str,
+    body: Option<&str>,
 ) -> String {
     let mut parts = vec!["Symbol".to_string()];
     if let Some(name) = name {
@@ -291,6 +302,19 @@ pub fn symbol_fact_embed_text(
     }
     parts.push(file_path.to_string());
     parts.push(kind_normalized.to_string());
+    if let Some(body) = body {
+        let truncated = if body.len() > EMBED_BODY_MAX_CHARS {
+            // Find the last char boundary at or before the limit
+            let mut end = EMBED_BODY_MAX_CHARS;
+            while !body.is_char_boundary(end) && end > 0 {
+                end -= 1;
+            }
+            &body[..end]
+        } else {
+            body
+        };
+        parts.push(truncated.to_string());
+    }
     parts.join(" ")
 }
 
@@ -374,7 +398,7 @@ mod tests {
                 "language": "rust",
             }),
         };
-        let text = symbol_embed_text(&entity);
+        let text = symbol_embed_text(&entity, None);
         assert!(text.contains("Symbol"));
         assert!(text.contains("parse_rust"));
         assert!(text.contains("magellan::parse_rust"));

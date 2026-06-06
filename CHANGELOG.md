@@ -3,6 +3,29 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://sememver.org/spec/v2.0.0.html).
 
+## [4.5.0] - 2026-06-06
+
+### Added
+
+- **`magellan embed` subcommand** (`src/embed_cmd.rs`, `CodeGraph::embed_from_db`):
+  - Embeds indexed symbols from DB into the HNSW vector index without re-parsing
+    source files. Reads entity metadata from `graph_entities`, extracts source bodies
+    via byte offsets, and calls `embed_batch` in configurable batch sizes (default 64).
+  - `--force` flag to re-embed all symbols regardless of existing vectors.
+  - `--batch-size N` to control embedding throughput.
+  - Progress reporting per file group (Human/JSON/Pretty output).
+  - Typical rebuild: ~2 min for 10k entities vs 15 min with `watch --scan-initial`.
+
+### Fixed
+
+- **Embedding text now includes source body** (`embed.rs:299`, `ops.rs:204`):
+  - `symbol_fact_embed_text` and `symbol_embed_text` now accept an optional `body`
+    parameter. When present, the source body (truncated to 1024 chars) is appended
+    to the embedding text. This gives the code model (qodo-embed-1.5b) actual source
+    to embed instead of just `"Symbol fn_name path.rs fn"`.
+  - During indexing (`ops.rs`), the body is extracted via `extract_symbol_content_safe`
+    using `byte_start`/`byte_end` offsets already available at the call site.
+
 ## [4.4.0] - 2026-06-06
 
 ### Added

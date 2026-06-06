@@ -906,3 +906,65 @@ pub fn parse_hopgraph_args(args: &[String]) -> Result<Command> {
         output_format,
     })
 }
+
+pub fn parse_embed_args(args: &[String]) -> Result<Command> {
+    let mut db_path: Option<PathBuf> = None;
+    let mut force = false;
+    let mut batch_size: Option<usize> = None;
+    let mut output_format = OutputFormat::Human;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--db" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--db requires an argument"));
+                }
+                db_path = Some(PathBuf::from(&args[i + 1]));
+                i += 2;
+            }
+            "--force" => {
+                force = true;
+                i += 1;
+            }
+            "--batch-size" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--batch-size requires a number"));
+                }
+                batch_size = Some(
+                    args[i + 1]
+                        .parse()
+                        .map_err(|_| anyhow::anyhow!("Invalid batch-size: {}", args[i + 1]))?,
+                );
+                i += 2;
+            }
+            "--output" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--output requires an argument"));
+                }
+                output_format = match args[i + 1].as_str() {
+                    "human" => OutputFormat::Human,
+                    "json" => OutputFormat::Json,
+                    "pretty" => OutputFormat::Pretty,
+                    _ => return Err(anyhow::anyhow!("Invalid output format: {}", args[i + 1])),
+                };
+                i += 2;
+            }
+            other => {
+                return Err(anyhow::anyhow!(
+                    "Unknown argument: '{}'. Usage: magellan embed [--db PATH] [--force] [--batch-size N]",
+                    other
+                ));
+            }
+        }
+    }
+
+    let db_path = resolve_db_path(db_path)?;
+
+    Ok(Command::Embed {
+        db_path,
+        force,
+        batch_size,
+        output_format,
+    })
+}

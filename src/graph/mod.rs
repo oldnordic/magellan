@@ -244,7 +244,8 @@ impl CodeGraph {
         api_key: &str,
     ) {
         self.embeddings_enabled = enabled;
-        self.embedder = crate::graph::embed::create_embedder(provider, enabled, base_url, model, api_key);
+        self.embedder =
+            crate::graph::embed::create_embedder(provider, enabled, base_url, model, api_key);
     }
 
     #[cfg(test)]
@@ -519,7 +520,13 @@ impl CodeGraph {
             side_conn,
             batch_mode: true,
             embeddings_enabled: false,
-            embedder: crate::graph::embed::create_embedder(&crate::config::EmbedProvider::Hash, false, "", "", ""),
+            embedder: crate::graph::embed::create_embedder(
+                &crate::config::EmbedProvider::Hash,
+                false,
+                "",
+                "",
+                "",
+            ),
             db_path: db_path_buf,
         };
 
@@ -576,6 +583,196 @@ impl CodeGraph {
         conn.execute("INSERT INTO symbol_fts(symbol_fts) VALUES('rebuild')", [])
             .map_err(|e| anyhow::anyhow!("FTS5 rebuild failed: {}", e))?;
         Ok(())
+    }
+
+    /// Embed symbols from DB without re-parsing source files.
+    ///
+    /// Reads entity metadata from the database, finds symbols missing HNSW vectors,
+    /// reads each source file once, extracts bodies via byte offsets, and embeds
+    /// in batches. Returns (embedded_count, skipped_count, failed_count).
+    ///
+    /// If `force` is true, re-embeds all symbols regardless of existing vectors.
+    /// `progress_callback` is called per file group with (file_path, symbols_in_file, file_index, total_files).
+    pub fn embed_from_db(
+        &mut self,
+        force: bool,
+        batch_size: usize,
+        mut progress_callback: impl FnMut(&str, usize, usize, usize),
+    ) -> Result<(usize, usize, usize)> {
+        use std::collections::{HashMap, HashSet};
+
+        if !self.embeddings_enabled {
+            anyhow::bail!("Embeddings not enabled");
+        }
+
+        // Step 1: Query all Symbol entities from side_conn
+        let entities: Vec<(i64, String, String, String)> = {
+            let conn = self.side_conn.lock().unwrap();
+            let mut stmt = conn.prepare_cached(
+                "SELECT id, name, file_path, data FROM graph_entities WHERE kind = 'Symbol' ORDER BY file_path, id"
+            )?;
+            let mapped = stmt.query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            })?;
+            mapped.collect::<Result<Vec<_>, _>>()?
+        };
+
+        let total = entities.len();
+
+        // Step 2: Find which entity IDs already have HNSW vectors
+        let skip_ids: HashSet<i64> = if force {
+            HashSet::new()
+        } else {
+            let conn = self.side_conn.lock().unwrap();
+            let index_exists: bool = conn
+                .query_row(
+                    "SELECT COUNT(*) > 0 FROM hnsw_indexes WHERE name = 'symbols'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap_or(false);
+            if !index_exists {
+                HashSet::new()
+            } else {
+                let mut stmt = conn.prepare_cached(
+                    "SELECT v.metadata FROM hnsw_vectors v JOIN hnsw_indexes i ON v.index_id = i.id WHERE i.name = 'symbols'"
+                )?;
+                let meta_strings: Vec<String> = stmt
+                    .query_map([], |row| row.get::<_, String>(0))?
+                    .filter_map(|r| r.ok())
+                    .collect();
+                meta_strings
+                    .into_iter()
+                    .filter_map(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+                    .filter_map(|v| v.get("entity_id")?.as_i64())
+                    .collect()
+            }
+        };
+
+        // Step 3: Filter to entities that need embedding
+        let to_embed: Vec<(i64, String, String, String)> = entities
+            .into_iter()
+            .filter(|(id, _, _, _)| !skip_ids.contains(id))
+            .collect();
+
+        let skipped = total - to_embed.len();
+
+        if to_embed.is_empty() {
+            return Ok((0, skipped, 0));
+        }
+
+        // Step 4: Group by file_path
+        let mut by_file: HashMap<String, Vec<(i64, String, String, String)>> = HashMap::new();
+        for ent in to_embed {
+            by_file.entry(ent.2.clone()).or_default().push(ent);
+        }
+        let mut file_groups: Vec<_> = by_file.into_iter().collect();
+        file_groups.sort_by(|a, b| a.0.cmp(&b.0));
+        let total_files = file_groups.len();
+
+        // Step 5: Embed per file
+        let mut embedded_count = 0usize;
+        let mut failed_count = 0usize;
+
+        // Resolve project root from db_path
+        let root = self
+            .db_path
+            .parent()
+            .and_then(|p| p.parent())
+            .unwrap_or(Path::new("."));
+
+        for (file_idx, (file_path, file_entities)) in file_groups.iter().enumerate() {
+            let full_path = if file_path.starts_with('/') {
+                PathBuf::from(file_path)
+            } else {
+                root.join(file_path)
+            };
+
+            let source = match std::fs::read(&full_path) {
+                Ok(s) => s,
+                Err(_) => {
+                    failed_count += file_entities.len();
+                    progress_callback(file_path, file_entities.len(), file_idx, total_files);
+                    continue;
+                }
+            };
+
+            let source_str = String::from_utf8_lossy(&source);
+
+            // Build embed texts
+            let mut texts = Vec::with_capacity(file_entities.len());
+            let mut ids = Vec::with_capacity(file_entities.len());
+
+            for (id, name, _, data_str) in file_entities {
+                let data: serde_json::Value =
+                    serde_json::from_str(data_str).unwrap_or_else(|_| serde_json::json!({}));
+                let byte_start =
+                    data.get("byte_start").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                let byte_end = data.get("byte_end").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                let kind_normalized = data
+                    .get("kind_normalized")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+
+                let mut parts = vec![
+                    "Symbol".to_string(),
+                    name.clone(),
+                    file_path.clone(),
+                    kind_normalized.to_string(),
+                ];
+                if let Some(fqn) = data.get("fqn").and_then(|v| v.as_str()) {
+                    parts.push(fqn.to_string());
+                }
+                // Extract body
+                if byte_end > byte_start && byte_end <= source_str.len() {
+                    let body = source_str[byte_start..byte_end].trim();
+                    if !body.is_empty() {
+                        const MAX_BODY: usize = 1024;
+                        if body.len() > MAX_BODY {
+                            let mut end = MAX_BODY;
+                            while !body.is_char_boundary(end) && end > 0 {
+                                end -= 1;
+                            }
+                            parts.push(body[..end].to_string());
+                        } else {
+                            parts.push(body.to_string());
+                        }
+                    }
+                }
+                texts.push(parts.join(" "));
+                ids.push(*id);
+            }
+
+            // Embed in batches
+            for chunk_start in (0..texts.len()).step_by(batch_size) {
+                let chunk_end = (chunk_start + batch_size).min(texts.len());
+                let chunk_texts = &texts[chunk_start..chunk_end];
+                let chunk_ids = &ids[chunk_start..chunk_end];
+
+                let text_refs: Vec<&str> = chunk_texts.iter().map(|s| s.as_str()).collect();
+                match self.embedder.embed_batch(&text_refs) {
+                    Ok(vectors) => {
+                        for (vec, entity_id) in vectors.iter().zip(chunk_ids.iter()) {
+                            let sg = self.symbols.sqlite_graph()?;
+                            search::add_to_search_index_with_vector(sg, *entity_id, vec)?;
+                            embedded_count += 1;
+                        }
+                    }
+                    Err(_) => {
+                        failed_count += chunk_texts.len();
+                    }
+                }
+            }
+
+            progress_callback(file_path, file_entities.len(), file_idx, total_files);
+        }
+
+        Ok((embedded_count, skipped, failed_count))
     }
 
     /// Index a file into the graph (idempotent)

@@ -47,7 +47,7 @@ pub fn ensure_search_index(
     }
     ensure_index_in_memory(graph, embedder.dimension())?;
     for entity in entities {
-        let text = symbol_embed_text(entity);
+        let text = symbol_embed_text(entity, None);
         let vector = embedder.embed(&text)?;
         let entity_id = entity.id;
         let _ = graph.get_hnsw_index_mut(SEARCH_INDEX_NAME, move |idx| {
@@ -63,7 +63,7 @@ pub fn add_to_search_index(
     entity: &sqlitegraph::GraphEntity,
 ) -> Result<()> {
     ensure_index_in_memory(graph, embedder.dimension())?;
-    let text = symbol_embed_text(entity);
+    let text = symbol_embed_text(entity, None);
     let vector = embedder.embed(&text)?;
     let entity_id = entity.id;
     graph
@@ -154,7 +154,7 @@ mod tests {
                 "kind_normalized": "function",
             }),
         };
-        let text = symbol_embed_text(&entity);
+        let text = symbol_embed_text(&entity, None);
         assert!(text.contains("parse_rust"));
         assert!(text.contains("magellan::parse_rust"));
     }
