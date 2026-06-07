@@ -3,6 +3,37 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://sememver.org/spec/v2.0.0.html).
 
+## [4.7.2] - 2026-06-07
+
+### Changed
+
+- **HPC: `parking_lot::Mutex` for shared side-table connection** (`mod.rs`, `side_tables.rs`, `navigator.rs`, `execution_log.rs`, `metrics/mod.rs`, `telemetry.rs`):
+  - Replaced `std::sync::Mutex<rusqlite::Connection>` with `parking_lot::Mutex` for the shared `side_conn` across all 5 modules.
+  - Eliminates poison handling overhead (`.unwrap_or_else(|e| e.into_inner())` pattern removed from all call sites).
+  - `parking_lot::Mutex` uses smaller lock word and avoids syscall in uncontended case.
+  - `SqliteSideTables::with_mutex` renamed to `with_shared` for clarity.
+  - Note: `RwLock` was evaluated but rejected because `rusqlite::Connection` is `!Sync` (contains `RefCell` internally), making `RwLock<Connection>` incompatible with the `SideTables: Send + Sync` trait bound.
+
+- **HPC: Lock-free atomic dimension detection in embedders** (`embed.rs`):
+  - Replaced `RwLock<usize>` with `AtomicUsize` for dimension caching in `OllamaEmbedder` and `OpenAICompatEmbedder`.
+  - `auto_detect_dim` now uses `AtomicUsize::load`/`store` with `Ordering::Relaxed` instead of read/write lock guards.
+  - Eliminates lock contention on every `dimension()` call during parallel embedding.
+
+- **HPC: `parking_lot::Mutex` for remaining sync sites** (`generation/mod.rs`, `telemetry.rs`, `watcher/mod.rs`, `indexer/watch.rs`):
+  - Replaced all remaining `std::sync::Mutex` with `parking_lot::Mutex` across production code.
+  - `ChunkStore::Shared` backend, `TelemetryOps::ring_buffer`, `FileWatcher` pending state, and `PipelineSharedState::dirty_paths`.
+  - Eliminates all poison-recovery patterns (`.map_err(|e| ... "mutex poisoned" ...)`) from the codebase.
+  - `service/admin_socket.rs` uses `tokio::sync::Mutex` (async) — correctly left unchanged.
+  - Test-only static locks in `refresh_cmd.rs` and `init_cmd.rs` left as `std::sync::Mutex` (no perf concern).
+
+- **HPC: Thread-safe LRU query caches for navigator** (`cache.rs`, `navigator.rs`, `mod.rs`, `ops.rs`):
+  - Added `ThreadSafeCache<K,V>` wrapper: `LruCache` inside `parking_lot::Mutex` for `&self` access.
+  - Three navigator caches (256 entries each): `entity_cache` (by ID), `name_cache` (by name), `expand_cache` (edge expansion).
+  - `info()`, `resolve()`, and `expand()` now check cache before hitting the database.
+  - Caches auto-invalidated on mutations: `index_file`, `delete_file`, `delete_file_facts` all call `clear_query_caches()`.
+  - `full_cache_stats()` aggregates hit/miss/size across all cache layers.
+  - 5 new unit tests for `ThreadSafeCache` including concurrent access from 4 threads.
+
 ## [4.7.0] - 2026-06-07
 
 ### Added

@@ -1,6 +1,6 @@
 # Magellan Manual
 
-**Version:** 4.7.0
+**Version:** 4.7.2
 
 This manual documents the current user-facing Magellan CLI. The supported normal
 workflow uses a SQLite `.db` database.

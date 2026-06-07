@@ -112,7 +112,7 @@ pub use cfg_extractor::{BlockKind, CfgExtractor, TerminatorKind};
 pub use cfg_ops::CfgOps;
 pub use multi_db::MultiDbContext;
 
-pub use cache::CacheStats;
+pub use cache::{CacheStats, EntityCacheKey, ExpandCacheKey, NameCacheKey, ThreadSafeCache};
 pub use db_compat::MAGELLAN_SCHEMA_VERSION;
 pub use db_compat::{
     ensure_ast_schema, ensure_candidate_fact_schema, ensure_cfg_schema, ensure_coverage_schema,
@@ -194,6 +194,11 @@ pub struct CodeGraph {
     /// File node cache for frequently accessed files
     file_node_cache: cache::FileNodeCache,
 
+    /// Navigator query caches (thread-safe for `&self` access)
+    entity_cache: cache::ThreadSafeCache<cache::EntityCacheKey, navigator::SymbolInfo>,
+    name_cache: cache::ThreadSafeCache<cache::NameCacheKey, Vec<navigator::SymbolInfo>>,
+    expand_cache: cache::ThreadSafeCache<cache::ExpandCacheKey, Vec<navigator::TypedEdgeHop>>,
+
     /// CFG block operations module
     pub cfg_ops: cfg_ops::CfgOps,
 
@@ -202,7 +207,8 @@ pub struct CodeGraph {
 
     /// Shared SQLite connection for Magellan side-table operations.
     /// Eliminates redundant connections opened by schema checks and diagnostics.
-    pub(crate) side_conn: Arc<std::sync::Mutex<rusqlite::Connection>>,
+    /// Uses `parking_lot::Mutex` for fast uncontended locking without poison overhead.
+    pub(crate) side_conn: Arc<parking_lot::Mutex<rusqlite::Connection>>,
 
     /// Whether to use batch SQLite transactions for indexing.
     ///
@@ -309,7 +315,7 @@ impl CodeGraph {
         // Resolve all entity_ids to symbol metadata
         let all_ids: Vec<i64> = hit_scores.keys().copied().collect();
         let resolved = {
-            let conn = self.side_conn.lock().unwrap_or_else(|e| e.into_inner());
+            let conn = self.side_conn.lock();
             navigator::SymbolNavigator::resolve_entities_with_conn(&conn, &all_ids)?
         };
 
@@ -463,26 +469,22 @@ impl CodeGraph {
                 anyhow::anyhow!("Failed to open shared side-table connection: {}", e)
             })?;
             side_conn.pragma_update(None, "busy_timeout", 5000)?;
-            let side_conn_arc = Arc::new(std::sync::Mutex::new(side_conn));
+            let side_conn_arc = Arc::new(parking_lot::Mutex::new(side_conn));
 
             // Check whether DDL needs to run at all.
-            let needs_ddl = db_compat::needs_schema_upgrade(
-                &side_conn_arc.lock().unwrap_or_else(|e| e.into_inner()),
-            )
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            let needs_ddl = db_compat::needs_schema_upgrade(&side_conn_arc.lock())
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
             // Phase 3a: Magellan-owned DB compatibility metadata.
             // MUST run after sqlitegraph open and before any other Magellan side-table writes.
-            db_compat::ensure_magellan_meta(
-                &side_conn_arc.lock().unwrap_or_else(|e| e.into_inner()),
-                &db_path_buf,
-            )
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            db_compat::ensure_magellan_meta(&side_conn_arc.lock(), &db_path_buf)
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
             // Create SQLite side tables reusing the shared connection
-            let side_tables: Arc<dyn side_tables::SideTables> = Arc::new(
-                side_tables::sqlite_impl::SqliteSideTables::with_mutex(Arc::clone(&side_conn_arc))?,
-            );
+            let side_tables: Arc<dyn side_tables::SideTables> =
+                Arc::new(side_tables::sqlite_impl::SqliteSideTables::with_shared(
+                    Arc::clone(&side_conn_arc),
+                )?);
 
             // Open a shared connection for ChunkStore to enable transactional operations
             // This allows chunk operations to participate in transactions with graph operations
@@ -508,48 +510,33 @@ impl CodeGraph {
             // Only run AST / CFG / coverage DDL when the schema is new or was upgraded.
             // On warm opens this skips ~6 redundant CREATE TABLE IF NOT EXISTS calls.
             if needs_ddl {
-                db_compat::ensure_ast_schema(
-                    &side_conn_arc.lock().unwrap_or_else(|e| e.into_inner()),
-                )
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                db_compat::ensure_cfg_schema(
-                    &side_conn_arc.lock().unwrap_or_else(|e| e.into_inner()),
-                )
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                db_compat::ensure_metrics_schema(
-                    &side_conn_arc.lock().unwrap_or_else(|e| e.into_inner()),
-                )
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                db_compat::ensure_source_inventory_schema(
-                    &side_conn_arc.lock().unwrap_or_else(|e| e.into_inner()),
-                )
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                db_compat::ensure_candidate_fact_schema(
-                    &side_conn_arc.lock().unwrap_or_else(|e| e.into_inner()),
-                )
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                db_compat::ensure_ast_schema(&side_conn_arc.lock())
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                db_compat::ensure_cfg_schema(&side_conn_arc.lock())
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                db_compat::ensure_metrics_schema(&side_conn_arc.lock())
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                db_compat::ensure_source_inventory_schema(&side_conn_arc.lock())
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                db_compat::ensure_candidate_fact_schema(&side_conn_arc.lock())
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
             }
 
             // Coverage schema is not versioned in magellan_meta; always ensure it.
-            db_compat::ensure_coverage_schema(
-                &side_conn_arc.lock().unwrap_or_else(|e| e.into_inner()),
-                &db_path_buf,
-            )
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            db_compat::ensure_coverage_schema(&side_conn_arc.lock(), &db_path_buf)
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
             // Detect if this is an upgrade (metrics tables exist but are empty)
             let needs_backfill = {
                 // Check if metrics tables are empty
                 let metric_count: i64 = side_conn_arc
                     .lock()
-                    .unwrap_or_else(|e| e.into_inner())
                     .query_row("SELECT COUNT(*) FROM file_metrics", [], |row| row.get(0))
                     .unwrap_or(0);
 
                 // Also check if we have symbols (indicating existing database)
                 let symbol_count: i64 = side_conn_arc
                     .lock()
-                    .unwrap_or_else(|e| e.into_inner())
                     .query_row(
                         "SELECT COUNT(*) FROM graph_entities WHERE kind = 'Symbol'",
                         [],
@@ -574,6 +561,11 @@ impl CodeGraph {
 
         // Initialize file node cache with capacity of 128 entries
         let file_node_cache = cache::FileNodeCache::new(128);
+
+        // Initialize navigator query caches (thread-safe)
+        let entity_cache = cache::ThreadSafeCache::new(256);
+        let name_cache = cache::ThreadSafeCache::new(256);
+        let expand_cache = cache::ThreadSafeCache::new(256);
 
         // Initialize module resolver
         let project_root = db_path_buf
@@ -610,6 +602,9 @@ impl CodeGraph {
             metrics,
             telemetry,
             file_node_cache,
+            entity_cache,
+            name_cache,
+            expand_cache,
             cfg_ops: cfg_ops::CfgOps::new(chunks),
             side_tables,
             side_conn,
@@ -659,10 +654,7 @@ impl CodeGraph {
 
     /// Checkpoint the SQLite WAL to prevent unbounded growth.
     pub fn checkpoint_wal(&self) -> Result<()> {
-        let conn = self
-            .side_conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Mutex poisoned: {}", e))?;
+        let conn = self.side_conn.lock();
         wal::checkpoint_conn(&conn).map_err(|e| anyhow::anyhow!("WAL checkpoint failed: {}", e))
     }
 
@@ -673,10 +665,7 @@ impl CodeGraph {
     /// preventing uncoordinated WAL access that can corrupt the database on
     /// process termination.
     pub fn rebuild_fts5(&self) -> Result<()> {
-        let conn = self
-            .side_conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Mutex poisoned: {}", e))?;
+        let conn = self.side_conn.lock();
         conn.execute("INSERT INTO symbol_fts(symbol_fts) VALUES('rebuild')", [])
             .map_err(|e| anyhow::anyhow!("FTS5 rebuild failed: {}", e))?;
         Ok(())
@@ -706,7 +695,7 @@ impl CodeGraph {
 
         // Step 1: Query all Symbol entities from side_conn
         let entities: Vec<(i64, String, String, String)> = {
-            let conn = self.side_conn.lock().unwrap();
+            let conn = self.side_conn.lock();
             let mut stmt = conn.prepare_cached(
                 "SELECT id, name, file_path, data FROM graph_entities WHERE kind = 'Symbol' ORDER BY file_path, id"
             )?;
@@ -733,13 +722,13 @@ impl CodeGraph {
             // Reset AUTOINCREMENT counters so new inserts start from 1.
             // Without this, IDs resume from the old high-water mark, causing
             // a mismatch between global vector IDs and local layer IDs.
-            let conn = self.side_conn.lock().unwrap();
+            let conn = self.side_conn.lock();
             conn.execute_batch(
                 "DELETE FROM sqlite_sequence WHERE name IN ('hnsw_vectors', 'hnsw_layers')",
             )?;
             HashSet::new()
         } else {
-            let conn = self.side_conn.lock().unwrap();
+            let conn = self.side_conn.lock();
             let index_exists: bool = conn
                 .query_row(
                     "SELECT COUNT(*) > 0 FROM hnsw_indexes WHERE name = 'symbols'",
@@ -1422,6 +1411,24 @@ impl CodeGraph {
         self.file_node_cache.stats()
     }
 
+    /// Get combined cache statistics (file node + navigator query caches).
+    ///
+    /// Aggregates hits, misses, and sizes across all cache layers.
+    pub fn full_cache_stats(&self) -> CacheStats {
+        let file_stats = self.file_node_cache.stats();
+        let entity_stats = self.entity_cache.stats();
+        let name_stats = self.name_cache.stats();
+        let expand_stats = self.expand_cache.stats();
+        CacheStats {
+            hits: file_stats.hits + entity_stats.hits + name_stats.hits + expand_stats.hits,
+            misses: file_stats.misses
+                + entity_stats.misses
+                + name_stats.misses
+                + expand_stats.misses,
+            size: file_stats.size + entity_stats.size + name_stats.size + expand_stats.size,
+        }
+    }
+
     /// Invalidate cache entry for a specific file path
     ///
     /// This should be called when a file is modified or deleted to ensure
@@ -1438,6 +1445,16 @@ impl CodeGraph {
     /// This resets the cache to empty state, useful for testing or after bulk operations.
     pub fn clear_cache(&mut self) {
         self.file_node_cache.clear();
+    }
+
+    /// Clear all navigator query caches.
+    ///
+    /// Call after mutations that change symbols or edges (scan, embed, refresh)
+    /// to prevent stale results.
+    pub fn clear_query_caches(&self) {
+        self.entity_cache.clear();
+        self.name_cache.clear();
+        self.expand_cache.clear();
     }
 
     /// Get backend for testing/benchmarking

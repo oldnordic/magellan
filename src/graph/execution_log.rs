@@ -6,7 +6,7 @@
 use anyhow::Result;
 use rusqlite::{params, OptionalExtension};
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 /// Execution log entry
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -32,7 +32,7 @@ enum ExecutionLogBackend {
     /// SQLite database path (opens new connection per operation)
     Sqlite(std::path::PathBuf),
     /// Shared connection from CodeGraph (avoids opening new connections)
-    Shared(Arc<Mutex<rusqlite::Connection>>),
+    Shared(Arc<parking_lot::Mutex<rusqlite::Connection>>),
     /// SideTables abstraction (V3 backend)
     SideTables(Arc<dyn super::side_tables::SideTables>),
 }
@@ -58,7 +58,7 @@ impl ExecutionLog {
     /// Create an ExecutionLog using a shared connection.
     ///
     /// This eliminates redundant connection opens by reusing CodeGraph's side_conn.
-    pub fn with_connection(conn: Arc<Mutex<rusqlite::Connection>>) -> Self {
+    pub fn with_connection(conn: Arc<parking_lot::Mutex<rusqlite::Connection>>) -> Self {
         let log = Self {
             backend: ExecutionLogBackend::Shared(conn),
         };
@@ -173,10 +173,7 @@ impl ExecutionLog {
                 Self::ensure_schema_sqlite(&conn)
             }
             ExecutionLogBackend::Shared(conn_arc) => {
-                let conn = match conn_arc.lock() {
-                    Ok(guard) => guard,
-                    Err(poisoned) => poisoned.into_inner(),
-                };
+                let conn = conn_arc.lock();
                 Self::ensure_schema_sqlite(&conn)
             }
             ExecutionLogBackend::SideTables(_) => {
@@ -232,10 +229,7 @@ impl ExecutionLog {
                 Self::start_execution_sqlite(&conn, execution_id, tool_version, args, root, db_path)
             }
             ExecutionLogBackend::Shared(conn_arc) => {
-                let conn = match conn_arc.lock() {
-                    Ok(guard) => guard,
-                    Err(poisoned) => poisoned.into_inner(),
-                };
+                let conn = conn_arc.lock();
                 Self::start_execution_sqlite(&conn, execution_id, tool_version, args, root, db_path)
             }
             ExecutionLogBackend::SideTables(side_tables) => {
@@ -320,10 +314,7 @@ impl ExecutionLog {
                 )
             }
             ExecutionLogBackend::Shared(conn_arc) => {
-                let conn = match conn_arc.lock() {
-                    Ok(guard) => guard,
-                    Err(poisoned) => poisoned.into_inner(),
-                };
+                let conn = conn_arc.lock();
                 Self::finish_execution_sqlite(
                     &conn,
                     execution_id,
@@ -384,10 +375,7 @@ impl ExecutionLog {
                 Ok(result)
             }
             ExecutionLogBackend::Shared(conn_arc) => {
-                let conn = match conn_arc.lock() {
-                    Ok(guard) => guard,
-                    Err(poisoned) => poisoned.into_inner(),
-                };
+                let conn = conn_arc.lock();
                 let result = conn
                     .query_row(
                         "SELECT id, execution_id, tool_version, args, root, db_path,
@@ -429,10 +417,7 @@ impl ExecutionLog {
                 Ok(records)
             }
             ExecutionLogBackend::Shared(conn_arc) => {
-                let conn = match conn_arc.lock() {
-                    Ok(guard) => guard,
-                    Err(poisoned) => poisoned.into_inner(),
-                };
+                let conn = conn_arc.lock();
                 let mut stmt = conn.prepare(&sql)?;
                 let records = stmt
                     .query_map([], Self::row_to_execution_record)?

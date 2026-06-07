@@ -101,8 +101,8 @@ impl<'a> SymbolNavigator<'a> {
             .map(|b| b.graph())
     }
 
-    fn conn(&self) -> std::sync::MutexGuard<'_, rusqlite::Connection> {
-        self.graph.side_conn.lock().unwrap()
+    fn conn(&self) -> parking_lot::MutexGuard<'_, rusqlite::Connection> {
+        self.graph.side_conn.lock()
     }
 
     fn resolve_entity_with_conn(
@@ -140,6 +140,11 @@ impl<'a> SymbolNavigator<'a> {
     }
 
     pub fn resolve(&self, name: &str) -> Result<Vec<SymbolInfo>> {
+        use crate::graph::cache::NameCacheKey;
+        let key = NameCacheKey(name.to_string());
+        if let Some(cached) = self.graph.name_cache.get_cloned(&key) {
+            return Ok(cached);
+        }
         let conn = self.conn();
         let mut stmt = conn.prepare_cached(
             "SELECT id, kind, name, file_path, data FROM graph_entities WHERE name = ?1 ORDER BY id",
@@ -149,6 +154,7 @@ impl<'a> SymbolNavigator<'a> {
         for row in rows {
             results.push(row?);
         }
+        self.graph.name_cache.put(key, results.clone());
         Ok(results)
     }
 
@@ -167,11 +173,25 @@ impl<'a> SymbolNavigator<'a> {
     }
 
     pub fn info(&self, id: i64) -> Result<Option<SymbolInfo>> {
+        use crate::graph::cache::EntityCacheKey;
+        let key = EntityCacheKey(id);
+        if let Some(cached) = self.graph.entity_cache.get_cloned(&key) {
+            return Ok(Some(cached));
+        }
         let conn = self.conn();
-        Self::resolve_entity_with_conn(&conn, id)
+        let result = Self::resolve_entity_with_conn(&conn, id)?;
+        if let Some(ref info) = result {
+            self.graph.entity_cache.put(key, info.clone());
+        }
+        Ok(result)
     }
 
     pub fn expand(&self, id: i64) -> Result<Vec<TypedEdgeHop>> {
+        use crate::graph::cache::ExpandCacheKey;
+        let key = ExpandCacheKey(id);
+        if let Some(cached) = self.graph.expand_cache.get_cloned(&key) {
+            return Ok(cached);
+        }
         let conn = self.conn();
 
         let mut stmt = conn.prepare_cached(
@@ -209,6 +229,7 @@ impl<'a> SymbolNavigator<'a> {
                 });
             }
         }
+        self.graph.expand_cache.put(key, hops.clone());
         Ok(hops)
     }
 

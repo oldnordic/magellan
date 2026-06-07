@@ -5,10 +5,11 @@
 //! and real-time access (in-memory ring buffer).
 
 use anyhow::Result;
+use parking_lot::Mutex;
 use rusqlite::{params, OptionalExtension};
 use std::collections::VecDeque;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 /// Telemetry event types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -66,7 +67,7 @@ enum TelemetryBackend {
     /// SQLite database path (opens new connection per operation)
     Sqlite(std::path::PathBuf),
     /// Shared connection from CodeGraph (avoids opening new connections)
-    Shared(Arc<Mutex<rusqlite::Connection>>),
+    Shared(Arc<parking_lot::Mutex<rusqlite::Connection>>),
 }
 
 /// Telemetry operations for tracking performance metrics
@@ -77,7 +78,7 @@ enum TelemetryBackend {
 pub struct TelemetryOps {
     backend: TelemetryBackend,
     /// In-memory ring buffer for real-time access to recent events
-    ring_buffer: Arc<Mutex<VecDeque<TelemetryEvent>>>,
+    ring_buffer: Arc<parking_lot::Mutex<VecDeque<TelemetryEvent>>>,
     /// Maximum number of events to keep in the ring buffer
     ring_capacity: usize,
 }
@@ -87,7 +88,7 @@ impl TelemetryOps {
     pub fn new(db_path: &Path) -> Self {
         Self {
             backend: TelemetryBackend::Sqlite(db_path.to_path_buf()),
-            ring_buffer: Arc::new(Mutex::new(VecDeque::with_capacity(
+            ring_buffer: Arc::new(parking_lot::Mutex::new(VecDeque::with_capacity(
                 DEFAULT_RING_BUFFER_CAPACITY,
             ))),
             ring_capacity: DEFAULT_RING_BUFFER_CAPACITY,
@@ -97,10 +98,10 @@ impl TelemetryOps {
     /// Create a TelemetryOps using a shared connection
     ///
     /// This eliminates redundant connection opens by reusing CodeGraph's side_conn
-    pub fn with_connection(conn: Arc<Mutex<rusqlite::Connection>>) -> Self {
+    pub fn with_connection(conn: Arc<parking_lot::Mutex<rusqlite::Connection>>) -> Self {
         let ops = Self {
             backend: TelemetryBackend::Shared(conn),
-            ring_buffer: Arc::new(Mutex::new(VecDeque::with_capacity(
+            ring_buffer: Arc::new(parking_lot::Mutex::new(VecDeque::with_capacity(
                 DEFAULT_RING_BUFFER_CAPACITY,
             ))),
             ring_capacity: DEFAULT_RING_BUFFER_CAPACITY,
@@ -126,7 +127,7 @@ impl TelemetryOps {
 
         let ops = Self {
             backend: TelemetryBackend::Sqlite(db_path),
-            ring_buffer: Arc::new(Mutex::new(VecDeque::with_capacity(
+            ring_buffer: Arc::new(parking_lot::Mutex::new(VecDeque::with_capacity(
                 DEFAULT_RING_BUFFER_CAPACITY,
             ))),
             ring_capacity: DEFAULT_RING_BUFFER_CAPACITY,
@@ -197,10 +198,7 @@ impl TelemetryOps {
                 Self::ensure_schema_sqlite(&conn)
             }
             TelemetryBackend::Shared(conn_arc) => {
-                let conn = match conn_arc.lock() {
-                    Ok(guard) => guard,
-                    Err(poisoned) => poisoned.into_inner(),
-                };
+                let conn = conn_arc.lock();
                 Self::ensure_schema_sqlite(&conn)
             }
         }
@@ -214,12 +212,11 @@ impl TelemetryOps {
     }
 
     fn push_to_ring(&self, event: TelemetryEvent) {
-        if let Ok(mut buf) = self.ring_buffer.lock() {
-            if buf.len() >= self.ring_capacity {
-                buf.pop_front();
-            }
-            buf.push_back(event);
+        let mut buf = self.ring_buffer.lock();
+        if buf.len() >= self.ring_capacity {
+            buf.pop_front();
         }
+        buf.push_back(event);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -283,10 +280,7 @@ impl TelemetryOps {
                 )?
             }
             TelemetryBackend::Shared(conn_arc) => {
-                let conn = match conn_arc.lock() {
-                    Ok(guard) => guard,
-                    Err(poisoned) => poisoned.into_inner(),
-                };
+                let conn = conn_arc.lock();
                 Self::insert_event_sqlite(
                     &conn,
                     execution_id,
@@ -352,10 +346,7 @@ impl TelemetryOps {
                 .map_err(|e| anyhow::anyhow!("Failed to query phase start: {}", e))?
             }
             TelemetryBackend::Shared(conn_arc) => {
-                let conn = match conn_arc.lock() {
-                    Ok(guard) => guard,
-                    Err(poisoned) => poisoned.into_inner(),
-                };
+                let conn = conn_arc.lock();
                 conn.query_row(
                     "SELECT timestamp_ns FROM telemetry_events
                      WHERE execution_id = ?1 AND event_type = 'phase_start' AND event_name = ?2
@@ -498,10 +489,7 @@ impl TelemetryOps {
                 Ok(events)
             }
             TelemetryBackend::Shared(conn_arc) => {
-                let conn = match conn_arc.lock() {
-                    Ok(guard) => guard,
-                    Err(poisoned) => poisoned.into_inner(),
-                };
+                let conn = conn_arc.lock();
                 let mut stmt = conn.prepare(sql)?;
                 let events = stmt
                     .query_map(params![execution_id], Self::row_to_event)?
@@ -534,10 +522,7 @@ impl TelemetryOps {
                 Ok(rows)
             }
             TelemetryBackend::Shared(conn_arc) => {
-                let conn = match conn_arc.lock() {
-                    Ok(guard) => guard,
-                    Err(poisoned) => poisoned.into_inner(),
-                };
+                let conn = conn_arc.lock();
                 let mut stmt = conn.prepare(sql)?;
                 let rows = stmt
                     .query_map(params![execution_id], |row| {
@@ -572,10 +557,7 @@ impl TelemetryOps {
                 Ok(events)
             }
             TelemetryBackend::Shared(conn_arc) => {
-                let conn = match conn_arc.lock() {
-                    Ok(guard) => guard,
-                    Err(poisoned) => poisoned.into_inner(),
-                };
+                let conn = conn_arc.lock();
                 let mut stmt = conn.prepare(&sql)?;
                 let events = stmt
                     .query_map([], Self::row_to_event)?
@@ -590,10 +572,8 @@ impl TelemetryOps {
     ///
     /// This is the real-time API — no database query, just memory access
     pub fn snapshot_ring_buffer(&self) -> Vec<TelemetryEvent> {
-        match self.ring_buffer.lock() {
-            Ok(buf) => buf.iter().cloned().collect(),
-            Err(poisoned) => poisoned.into_inner().iter().cloned().collect(),
-        }
+        let buf = self.ring_buffer.lock();
+        buf.iter().cloned().collect()
     }
 }
 

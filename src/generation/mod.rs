@@ -6,7 +6,7 @@
 //!
 //! # :memory: Database Path Retrieval
 //!
-//! ChunkStore uses SQLite Shared connections (via `Arc<Mutex<Connection>>`), which
+//! ChunkStore uses SQLite Shared connections (via `Arc<parking_lot::Mutex<Connection>>`), which
 //! don't work with `:memory:` databases. Each thread would get its own separate
 //! in-memory database, breaking the shared state assumption.
 //!
@@ -22,7 +22,7 @@ pub mod schema;
 use anyhow::Result;
 use rusqlite::{params, OptionalExtension};
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 pub use schema::CodeChunk;
 
@@ -36,8 +36,8 @@ enum ChunkStoreBackend {
     /// Owned connection source - ChunkStore opens connections as needed
     Owned(std::path::PathBuf),
     /// Shared connection - provided by CodeGraph for transactional operations
-    /// Thread-safe: uses Arc<Mutex<>> instead of Rc<RefCell<>>
-    Shared(Arc<Mutex<rusqlite::Connection>>),
+    /// Thread-safe: uses parking_lot::Mutex for fast uncontended locking
+    Shared(Arc<parking_lot::Mutex<rusqlite::Connection>>),
     /// SideTables abstraction - for V3 backend (no SQLite dependency)
     SideTables(Arc<dyn crate::graph::side_tables::SideTables>),
 }
@@ -86,10 +86,10 @@ impl ChunkStore {
     /// shared with CodeGraph. All operations will use this shared connection.
     ///
     /// # Arguments
-    /// * `conn` - Shared SQLite connection wrapped in Arc<Mutex<>> for thread-safe interior mutability
+    /// * `conn` - Shared SQLite connection wrapped in Arc<parking_lot::Mutex<>> for thread-safe interior mutability
     pub fn with_connection(conn: rusqlite::Connection) -> Self {
         Self {
-            backend: ChunkStoreBackend::Shared(Arc::new(Mutex::new(conn))),
+            backend: ChunkStoreBackend::Shared(Arc::new(parking_lot::Mutex::new(conn))),
         }
     }
 
@@ -278,11 +278,7 @@ impl ChunkStore {
             ChunkStoreBackend::Shared(arc) => {
                 // Open a new connection to the same database.
                 // We need to extract the path from the existing connection.
-                let conn = arc.lock().map_err(|_| {
-                    rusqlite::Error::InvalidParameterName(
-                        "Shared connection lock failed".to_string(),
-                    )
-                })?;
+                let conn = arc.lock();
                 // Get the database path from the existing connection
                 let path = conn.path().ok_or_else(|| {
                     rusqlite::Error::InvalidParameterName(
@@ -316,9 +312,7 @@ impl ChunkStore {
                 Ok(result)
             }
             ChunkStoreBackend::Shared(arc) => {
-                let conn = arc
-                    .lock()
-                    .map_err(|_| anyhow::anyhow!("Shared connection lock poisoned"))?;
+                let conn = arc.lock();
                 let result = f(&conn)?;
                 Ok(result)
             }
@@ -342,9 +336,7 @@ impl ChunkStore {
                 Ok(result)
             }
             ChunkStoreBackend::Shared(arc) => {
-                let mut conn = arc
-                    .lock()
-                    .map_err(|_| anyhow::anyhow!("Shared connection lock poisoned"))?;
+                let mut conn = arc.lock();
                 let result = f(&mut conn)?;
                 Ok(result)
             }

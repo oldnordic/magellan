@@ -282,8 +282,8 @@ pub fn run_indexer_n(root_path: PathBuf, db_path: PathBuf, max_events: usize) ->
             }
             Ok(None) => {}
             Err(e) => {
-                // Mutex poisoned - fail fast
-                return Err(e.context("watcher mutex poisoned during event recv"));
+                // Watcher event channel closed or unavailable — fail fast
+                return Err(e.context("watcher event recv failed"));
             }
         }
 

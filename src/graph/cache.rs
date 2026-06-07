@@ -5,21 +5,15 @@
 //!
 //! # Thread Safety
 //!
-//! **This cache is NOT thread-safe.**
+//! `LruCache<K, V>` is NOT thread-safe (single-threaded, `&mut self` access).
 //!
-//! `LruCache<K, V>` and `FileNodeCache` are designed for single-threaded use:
-//! - All methods require `&mut self` (exclusive mutable access)
-//! - `HashMap` and `VecDeque` have no synchronization primitives
-//! - No `Send` or `Sync` impls
+//! `ThreadSafeCache<K, V>` wraps `LruCache` in `parking_lot::Mutex` for safe
+//! concurrent access from `&self` methods (e.g., `SymbolNavigator` queries).
 //!
 //! # Usage Pattern
 //!
-//! `FileNodeCache` is accessed exclusively through `CodeGraph`, which
-//! enforces single-threaded access. Do not share the cache directly
-//! across threads.
-//!
-//! For concurrent caching, wrap in `Mutex<LruCache<...>>` or use
-//! a thread-safe cache library (e.g., `moka`).
+//! - `FileNodeCache` (single-threaded): accessed through `CodeGraph` with `&mut self`
+//! - Navigator caches (thread-safe): accessed through `SymbolNavigator` with `&self`
 
 use std::collections::{HashMap, VecDeque};
 use std::hash::Hash;
@@ -164,6 +158,76 @@ pub type FileNodeCache = LruCache<String, crate::graph::schema::FileNode>;
 #[expect(dead_code)] // Future use: symbol vector caching
 pub type SymbolCache = LruCache<String, Vec<crate::ingest::SymbolFact>>;
 
+/// Thread-safe LRU cache wrapper for concurrent access from `&self` methods.
+///
+/// Wraps `LruCache` in `parking_lot::Mutex` so that navigator queries
+/// (which borrow `&CodeGraph`) can update cache state without requiring
+/// `&mut self`.
+pub struct ThreadSafeCache<K, V> {
+    inner: parking_lot::Mutex<LruCache<K, V>>,
+}
+
+impl<K: Hash + Eq + Clone, V> ThreadSafeCache<K, V> {
+    /// Create a new thread-safe LRU cache with the specified capacity.
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            inner: parking_lot::Mutex::new(LruCache::new(capacity)),
+        }
+    }
+
+    /// Get a cloned value from the cache.
+    ///
+    /// Returns `Some(V)` on hit (cloned to release the lock immediately),
+    /// `None` on miss.
+    pub fn get_cloned(&self, key: &K) -> Option<V>
+    where
+        V: Clone,
+    {
+        let mut guard = self.inner.lock();
+        guard.get(key).cloned()
+    }
+
+    /// Insert a key-value pair into the cache.
+    pub fn put(&self, key: K, value: V) {
+        let mut guard = self.inner.lock();
+        guard.put(key, value);
+    }
+
+    /// Invalidate a specific cache entry.
+    pub fn invalidate(&self, key: &K) {
+        let mut guard = self.inner.lock();
+        guard.invalidate(key);
+    }
+
+    /// Clear all entries from the cache.
+    pub fn clear(&self) {
+        let mut guard = self.inner.lock();
+        guard.clear();
+    }
+
+    /// Get cache statistics.
+    pub fn stats(&self) -> CacheStats {
+        let guard = self.inner.lock();
+        guard.stats()
+    }
+}
+
+// ThreadSafeCache is Send+Sync because parking_lot::Mutex provides synchronization
+unsafe impl<K: Send, V: Send> Send for ThreadSafeCache<K, V> {}
+unsafe impl<K: Send + Sync, V: Send + Sync> Sync for ThreadSafeCache<K, V> {}
+
+/// Cache key for navigator entity lookups by ID.
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+pub struct EntityCacheKey(pub i64);
+
+/// Cache key for navigator symbol resolution by name.
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+pub struct NameCacheKey(pub String);
+
+/// Cache key for navigator edge expansion by entity ID.
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+pub struct ExpandCacheKey(pub i64);
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -299,5 +363,87 @@ mod tests {
         cache.get(&"a".to_string());
         cache.get(&"b".to_string());
         assert_eq!(cache._hit_rate(), 0.0);
+    }
+
+    #[test]
+    fn test_thread_safe_cache_basic() {
+        let cache: ThreadSafeCache<String, i32> = ThreadSafeCache::new(3);
+
+        // Empty cache returns None
+        assert_eq!(cache.get_cloned(&"a".to_string()), None);
+
+        // Insert and get
+        cache.put("a".to_string(), 1);
+        cache.put("b".to_string(), 2);
+        assert_eq!(cache.get_cloned(&"a".to_string()), Some(1));
+        assert_eq!(cache.get_cloned(&"b".to_string()), Some(2));
+
+        let stats = cache.stats();
+        assert_eq!(stats.size, 2);
+    }
+
+    #[test]
+    fn test_thread_safe_cache_eviction() {
+        let cache: ThreadSafeCache<String, i32> = ThreadSafeCache::new(2);
+
+        cache.put("a".to_string(), 1);
+        cache.put("b".to_string(), 2);
+
+        // Access 'a' to make it more recently used
+        cache.get_cloned(&"a".to_string());
+
+        // Insert 'c' — should evict 'b'
+        cache.put("c".to_string(), 3);
+
+        assert_eq!(cache.get_cloned(&"a".to_string()), Some(1));
+        assert_eq!(cache.get_cloned(&"b".to_string()), None);
+        assert_eq!(cache.get_cloned(&"c".to_string()), Some(3));
+    }
+
+    #[test]
+    fn test_thread_safe_cache_invalidate() {
+        let cache: ThreadSafeCache<String, i32> = ThreadSafeCache::new(3);
+        cache.put("a".to_string(), 1);
+        cache.put("b".to_string(), 2);
+
+        cache.invalidate(&"a".to_string());
+        assert_eq!(cache.get_cloned(&"a".to_string()), None);
+        assert_eq!(cache.get_cloned(&"b".to_string()), Some(2));
+        assert_eq!(cache.stats().size, 1);
+    }
+
+    #[test]
+    fn test_thread_safe_cache_clear() {
+        let cache: ThreadSafeCache<String, i32> = ThreadSafeCache::new(3);
+        cache.put("a".to_string(), 1);
+        cache.put("b".to_string(), 2);
+
+        cache.clear();
+        assert_eq!(cache.stats().size, 0);
+        assert_eq!(cache.get_cloned(&"a".to_string()), None);
+    }
+
+    #[test]
+    fn test_thread_safe_cache_concurrent_access() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let cache = Arc::new(ThreadSafeCache::<String, i32>::new(100));
+        let mut handles = Vec::new();
+
+        for i in 0..4 {
+            let c = Arc::clone(&cache);
+            handles.push(thread::spawn(move || {
+                let key = format!("key_{}", i);
+                c.put(key.clone(), i);
+                assert_eq!(c.get_cloned(&key), Some(i));
+            }));
+        }
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        assert_eq!(cache.stats().size, 4);
     }
 }

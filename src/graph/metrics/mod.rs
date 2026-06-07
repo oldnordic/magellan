@@ -36,7 +36,7 @@ enum MetricsOpsBackend {
     /// SQLite database path
     Sqlite(std::path::PathBuf),
     /// Shared connection from CodeGraph (avoids opening new connections)
-    Shared(Arc<std::sync::Mutex<rusqlite::Connection>>),
+    Shared(Arc<parking_lot::Mutex<rusqlite::Connection>>),
     /// SideTables abstraction (V3 backend)
     SideTables(Arc<dyn super::side_tables::SideTables>),
 }
@@ -72,7 +72,7 @@ impl MetricsOps {
     ///
     /// This avoids opening a separate connection to the same database,
     /// reducing connection overhead and WAL contention.
-    pub fn with_connection(conn: Arc<std::sync::Mutex<rusqlite::Connection>>) -> Self {
+    pub fn with_connection(conn: Arc<parking_lot::Mutex<rusqlite::Connection>>) -> Self {
         let metrics = Self {
             backend: MetricsOpsBackend::Shared(conn),
         };
@@ -118,10 +118,7 @@ impl MetricsOps {
                     .map_err(|e| anyhow::anyhow!("Failed to ensure metrics schema: {}", e))
             }
             MetricsOpsBackend::Shared(conn_arc) => {
-                let conn = match conn_arc.lock() {
-                    Ok(guard) => guard,
-                    Err(poisoned) => poisoned.into_inner(),
-                };
+                let conn = conn_arc.lock();
                 crate::graph::db_compat::ensure_metrics_schema(&conn)
                     .map_err(|e| anyhow::anyhow!("Failed to ensure metrics schema: {}", e))
             }
@@ -153,10 +150,7 @@ impl MetricsOps {
                 f(&conn)
             }
             MetricsOpsBackend::Shared(conn_arc) => {
-                let conn = match conn_arc.lock() {
-                    Ok(guard) => guard,
-                    Err(poisoned) => poisoned.into_inner(),
-                };
+                let conn = conn_arc.lock();
                 f(&conn)
             }
             MetricsOpsBackend::SideTables(_) => {
@@ -173,10 +167,7 @@ impl MetricsOps {
                 Self::upsert_file_metrics_conn(&conn, metrics)
             }
             MetricsOpsBackend::Shared(conn_arc) => {
-                let conn = match conn_arc.lock() {
-                    Ok(guard) => guard,
-                    Err(poisoned) => poisoned.into_inner(),
-                };
+                let conn = conn_arc.lock();
                 Self::upsert_file_metrics_conn(&conn, metrics)
             }
             MetricsOpsBackend::SideTables(side_tables) => side_tables.store_file_metrics(metrics),
@@ -212,10 +203,7 @@ impl MetricsOps {
                 Self::upsert_symbol_metrics_conn(&conn, metrics)
             }
             MetricsOpsBackend::Shared(conn_arc) => {
-                let conn = match conn_arc.lock() {
-                    Ok(guard) => guard,
-                    Err(poisoned) => poisoned.into_inner(),
-                };
+                let conn = conn_arc.lock();
                 Self::upsert_symbol_metrics_conn(&conn, metrics)
             }
             MetricsOpsBackend::SideTables(side_tables) => side_tables.store_symbol_metrics(metrics),
@@ -257,10 +245,7 @@ impl MetricsOps {
                 Self::delete_file_metrics_conn(&conn, file_path)
             }
             MetricsOpsBackend::Shared(conn_arc) => {
-                let conn = match conn_arc.lock() {
-                    Ok(guard) => guard,
-                    Err(poisoned) => poisoned.into_inner(),
-                };
+                let conn = conn_arc.lock();
                 Self::delete_file_metrics_conn(&conn, file_path)
             }
             MetricsOpsBackend::SideTables(side_tables) => {
@@ -294,10 +279,7 @@ impl MetricsOps {
                 Self::get_file_metrics_conn(&conn, file_path)
             }
             MetricsOpsBackend::Shared(conn_arc) => {
-                let conn = match conn_arc.lock() {
-                    Ok(guard) => guard,
-                    Err(poisoned) => poisoned.into_inner(),
-                };
+                let conn = conn_arc.lock();
                 Self::get_file_metrics_conn(&conn, file_path)
             }
             MetricsOpsBackend::SideTables(side_tables) => side_tables.get_file_metrics(file_path),
@@ -342,10 +324,7 @@ impl MetricsOps {
                 Self::get_symbol_metrics_conn(&conn, symbol_id)
             }
             MetricsOpsBackend::Shared(conn_arc) => {
-                let conn = match conn_arc.lock() {
-                    Ok(guard) => guard,
-                    Err(poisoned) => poisoned.into_inner(),
-                };
+                let conn = conn_arc.lock();
                 Self::get_symbol_metrics_conn(&conn, symbol_id)
             }
             MetricsOpsBackend::SideTables(side_tables) => side_tables.get_symbol_metrics(symbol_id),
@@ -401,10 +380,7 @@ impl MetricsOps {
                 Self::get_hotspots_conn(&conn, limit, min_loc, min_fan_in, min_fan_out)
             }
             MetricsOpsBackend::Shared(conn_arc) => {
-                let conn = match conn_arc.lock() {
-                    Ok(guard) => guard,
-                    Err(poisoned) => poisoned.into_inner(),
-                };
+                let conn = conn_arc.lock();
                 Self::get_hotspots_conn(&conn, limit, min_loc, min_fan_in, min_fan_out)
             }
             MetricsOpsBackend::SideTables(side_tables) => {

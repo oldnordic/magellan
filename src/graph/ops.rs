@@ -456,6 +456,7 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
 
     // Invalidate cache for this file since it was just modified
     graph.invalidate_cache(path);
+    graph.clear_query_caches();
 
     Ok(symbol_facts.len())
 }
@@ -720,6 +721,7 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
 
         // Invalidate cache for this file
         graph.invalidate_cache(path);
+        graph.clear_query_caches();
 
         Ok(DeleteResult {
             symbols_deleted,
@@ -785,6 +787,7 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
 
         // Invalidate cache for this file (even if no file node existed)
         graph.invalidate_cache(path);
+        graph.clear_query_caches();
 
         // No file node to remove from index
         Ok(DeleteResult {

@@ -269,8 +269,9 @@ pub use crate::graph::telemetry::{TelemetryEvent, TelemetryEventType};
 #[cfg(feature = "sqlite-backend")]
 pub mod sqlite_impl {
     use super::*;
+    use parking_lot::{Mutex, MutexGuard};
     use rusqlite::{params, Connection, OptionalExtension};
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
 
     /// SQLite-based side tables implementation
     pub struct SqliteSideTables {
@@ -278,25 +279,22 @@ pub mod sqlite_impl {
     }
 
     impl SqliteSideTables {
-        /// Lock the shared connection, recovering from poison if necessary.
-        fn lock_conn(&self) -> std::sync::MutexGuard<'_, Connection> {
-            match self.conn.lock() {
-                Ok(guard) => guard,
-                Err(poisoned) => poisoned.into_inner(),
-            }
+        /// Lock the shared connection.
+        fn lock_conn(&self) -> MutexGuard<'_, Connection> {
+            self.conn.lock()
         }
 
         /// Open or create side tables in SQLite database
         pub fn open(db_path: &Path) -> Result<Self> {
             let conn = Connection::open(db_path)?;
-            Self::with_mutex(Arc::new(Mutex::new(conn)))
+            Self::with_shared(Arc::new(Mutex::new(conn)))
         }
 
-        /// Create from an existing connection reference-counted mutex.
+        /// Create from an existing connection reference-counted Mutex.
         ///
         /// This allows `CodeGraph` to share its `side_conn` with `SqliteSideTables`,
         /// eliminating redundant connection opens.
-        pub fn with_mutex(conn: Arc<Mutex<Connection>>) -> Result<Self> {
+        pub fn with_shared(conn: Arc<Mutex<Connection>>) -> Result<Self> {
             let tables = Self { conn };
             tables.ensure_schema()?;
             Ok(tables)

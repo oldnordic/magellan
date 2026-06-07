@@ -7,12 +7,11 @@
 //! # Threading Design
 //!
 //! This watcher uses thread-safe synchronization for concurrent access.
-//! The legacy pending state fields use `Arc<Mutex<T>>` to allow safe access
+//! The legacy pending state fields use `Arc<parking_lot::Mutex<T>>` to allow safe access
 //! from multiple threads during concurrent operations and shutdown.
 //!
-//! **Thread safety:** `Arc<Mutex<T>>` provides runtime mutual exclusion
-//! and is safe to share across threads. The mutex will panic if poisoned
-//! (consistent with RefCell behavior).
+//! **Thread safety:** `Arc<parking_lot::Mutex<T>>` provides runtime mutual exclusion
+//! and is safe to share across threads. parking_lot Mutex does not poison on panic.
 //!
 //! # Global Lock Ordering
 //!
@@ -32,13 +31,14 @@ pub mod async_watcher;
 
 use anyhow::Result;
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, HashMap};
 use std::mem::ManuallyDrop;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -106,10 +106,10 @@ pub struct FileSystemWatcher {
     _watcher_thread: ManuallyDrop<thread::JoinHandle<()>>,
     batch_receiver: Receiver<WatcherBatch>,
     /// Legacy compatibility: pending batch to emit one path at a time
-    /// Thread-safe: wrapped in `Arc<Mutex<T>>` for concurrent access
+    /// Thread-safe: wrapped in `Arc<parking_lot::Mutex<T>>` for concurrent access
     legacy_pending_batch: Arc<Mutex<Option<WatcherBatch>>>,
     /// Legacy compatibility: current index into pending batch
-    /// Thread-safe: wrapped in `Arc<Mutex<T>>` for concurrent access
+    /// Thread-safe: wrapped in `Arc<parking_lot::Mutex<T>>` for concurrent access
     legacy_pending_index: Arc<Mutex<usize>>,
 }
 
@@ -194,17 +194,10 @@ impl FileSystemWatcher {
     /// Use `try_recv_batch()` instead for deterministic batch processing.
     ///
     /// # Errors
-    /// Returns an error if a mutex is poisoned (thread panicked while holding the lock).
     pub fn try_recv_event(&self) -> Result<Option<FileEvent>> {
         {
-            let mut pending_batch = self
-                .legacy_pending_batch
-                .lock()
-                .map_err(|e| anyhow::anyhow!("legacy_pending_batch mutex poisoned: {}", e))?;
-            let mut pending_index = self
-                .legacy_pending_index
-                .lock()
-                .map_err(|e| anyhow::anyhow!("legacy_pending_index mutex poisoned: {}", e))?;
+            let mut pending_batch = self.legacy_pending_batch.lock();
+            let mut pending_index = self.legacy_pending_index.lock();
 
             if let Some(ref batch) = *pending_batch {
                 if *pending_index < batch.paths.len() {
@@ -231,14 +224,8 @@ impl FileSystemWatcher {
 
             if batch.paths.len() > 1 {
                 let path = batch.paths[0].clone();
-                let mut pending_batch = self
-                    .legacy_pending_batch
-                    .lock()
-                    .map_err(|e| anyhow::anyhow!("legacy_pending_batch mutex poisoned: {}", e))?;
-                let mut pending_index = self
-                    .legacy_pending_index
-                    .lock()
-                    .map_err(|e| anyhow::anyhow!("legacy_pending_index mutex poisoned: {}", e))?;
+                let mut pending_batch = self.legacy_pending_batch.lock();
+                let mut pending_index = self.legacy_pending_index.lock();
                 *pending_batch = Some(batch);
                 *pending_index = 1;
                 drop(pending_batch);
@@ -268,17 +255,10 @@ impl FileSystemWatcher {
     /// Use `recv_batch()` instead for deterministic batch processing.
     ///
     /// # Errors
-    /// Returns an error if a mutex is poisoned (thread panicked while holding the lock).
     pub fn recv_event(&self) -> Result<Option<FileEvent>> {
         {
-            let mut pending_batch = self
-                .legacy_pending_batch
-                .lock()
-                .map_err(|e| anyhow::anyhow!("legacy_pending_batch mutex poisoned: {}", e))?;
-            let mut pending_index = self
-                .legacy_pending_index
-                .lock()
-                .map_err(|e| anyhow::anyhow!("legacy_pending_index mutex poisoned: {}", e))?;
+            let mut pending_batch = self.legacy_pending_batch.lock();
+            let mut pending_index = self.legacy_pending_index.lock();
 
             if let Some(ref batch) = *pending_batch {
                 if *pending_index < batch.paths.len() {
@@ -305,14 +285,8 @@ impl FileSystemWatcher {
 
             if batch.paths.len() > 1 {
                 let path = batch.paths[0].clone();
-                let mut pending_batch = self
-                    .legacy_pending_batch
-                    .lock()
-                    .map_err(|e| anyhow::anyhow!("legacy_pending_batch mutex poisoned: {}", e))?;
-                let mut pending_index = self
-                    .legacy_pending_index
-                    .lock()
-                    .map_err(|e| anyhow::anyhow!("legacy_pending_index mutex poisoned: {}", e))?;
+                let mut pending_batch = self.legacy_pending_batch.lock();
+                let mut pending_index = self.legacy_pending_index.lock();
                 *pending_batch = Some(batch);
                 *pending_index = 1;
                 drop(pending_batch);

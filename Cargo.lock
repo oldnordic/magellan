@@ -1388,7 +1388,7 @@ dependencies = [
 
 [[package]]
 name = "magellan"
-version = "4.7.1"
+version = "4.7.2"
 dependencies = [
  "ahash",
  "anyhow",
@@ -1409,6 +1409,7 @@ dependencies = [
  "lsp-types 0.95.1",
  "memchr",
  "notify",
+ "parking_lot",
  "petgraph",
  "protobuf",
  "rayon",
@@ -2200,9 +2201,9 @@ dependencies = [
 
 [[package]]
 name = "sqlitegraph"
-version = "3.2.2"
+version = "3.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "50bc5fefde7ba6805e8802bae6b3b7ad425e72b3d7c681f73584f9accd8c2bc7"
+checksum = "9299ac769950666e24b333c0910cd18de6ba9ac1733440c48e4abc4094e3363e"
 dependencies = [
  "ahash",
  "arc-swap",

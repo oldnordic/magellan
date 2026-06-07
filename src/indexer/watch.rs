@@ -97,7 +97,7 @@ impl WatchPipelineConfig {
 #[derive(Clone)]
 struct PipelineSharedState {
     /// Dirty paths collected during scan/watch (sorted deterministically)
-    dirty_paths: Arc<std::sync::Mutex<BTreeSet<PathBuf>>>,
+    dirty_paths: Arc<parking_lot::Mutex<BTreeSet<PathBuf>>>,
     /// Wakeup channel (bounded, capacity 1)
     wakeup_tx: std::sync::mpsc::SyncSender<()>,
 }
@@ -108,7 +108,7 @@ impl PipelineSharedState {
         let (wakeup_tx, wakeup_rx) = std::sync::mpsc::sync_channel(1);
         (
             Self {
-                dirty_paths: Arc::new(std::sync::Mutex::new(BTreeSet::new())),
+                dirty_paths: Arc::new(parking_lot::Mutex::new(BTreeSet::new())),
                 wakeup_tx,
             },
             wakeup_rx,
@@ -132,10 +132,7 @@ impl PipelineSharedState {
     ///
     /// By holding lock during send, we ensure data isn't drained before wakeup.
     fn insert_dirty_paths(&self, paths: &[PathBuf]) -> Result<()> {
-        let mut dirty_paths = self
-            .dirty_paths
-            .lock()
-            .map_err(|e| anyhow::anyhow!("dirty_paths mutex poisoned: {}", e))?;
+        let mut dirty_paths = self.dirty_paths.lock();
         dirty_paths.extend(paths.iter().cloned());
         // Try to send wakeup tick, but don't block if channel is full
         let _ = self.wakeup_tx.try_send(());
@@ -151,10 +148,7 @@ impl PipelineSharedState {
     ///
     /// Returns all dirty paths in lexicographic order and clears the set.
     fn drain_dirty_paths(&self) -> Result<Vec<PathBuf>> {
-        let mut paths = self
-            .dirty_paths
-            .lock()
-            .map_err(|e| anyhow::anyhow!("dirty_paths mutex poisoned: {}", e))?;
+        let mut paths = self.dirty_paths.lock();
         let snapshot: Vec<PathBuf> = std::mem::take(&mut *paths).into_iter().collect();
         Ok(snapshot)
     }

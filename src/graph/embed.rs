@@ -54,7 +54,7 @@ impl TextEmbedder for HashEmbedder {
 pub struct OllamaEmbedder {
     base_url: String,
     model: String,
-    dim: std::sync::RwLock<usize>,
+    dim: std::sync::atomic::AtomicUsize,
     num_ctx: usize,
 }
 
@@ -63,7 +63,7 @@ impl OllamaEmbedder {
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             model: model.to_string(),
-            dim: std::sync::RwLock::new(0),
+            dim: std::sync::atomic::AtomicUsize::new(0),
             num_ctx,
         }
     }
@@ -115,7 +115,7 @@ pub struct OpenAICompatEmbedder {
     base_url: String,
     model: String,
     api_key: String,
-    dim: std::sync::RwLock<usize>,
+    dim: std::sync::atomic::AtomicUsize,
 }
 
 impl OpenAICompatEmbedder {
@@ -124,7 +124,7 @@ impl OpenAICompatEmbedder {
             base_url: base_url.trim_end_matches('/').to_string(),
             model: model.to_string(),
             api_key: api_key.to_string(),
-            dim: std::sync::RwLock::new(0),
+            dim: std::sync::atomic::AtomicUsize::new(0),
         }
     }
 }
@@ -220,24 +220,26 @@ fn parse_vector_arrays(
     Ok(results)
 }
 
-fn auto_detect_dim<F>(dim_lock: &std::sync::RwLock<usize>, probe: F) -> usize
+fn auto_detect_dim<F>(dim: &std::sync::atomic::AtomicUsize, probe: F) -> usize
 where
     F: FnOnce() -> Option<Vec<Vec<f32>>>,
 {
-    let d = *dim_lock.read().unwrap();
+    use std::sync::atomic::Ordering;
+
+    let d = dim.load(Ordering::Relaxed);
     if d > 0 {
         return d;
     }
     if let Some(vectors) = probe() {
         if let Some(first) = vectors.first() {
             let detected = first.len();
-            *dim_lock.write().unwrap() = detected;
+            dim.store(detected, Ordering::Relaxed);
             return detected;
         }
     }
     // Fallback: nomic-embed-text default
     let fallback = 768;
-    *dim_lock.write().unwrap() = fallback;
+    dim.store(fallback, Ordering::Relaxed);
     fallback
 }
 
