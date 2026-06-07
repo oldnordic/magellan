@@ -245,8 +245,9 @@ impl CodeGraph {
         num_ctx: usize,
     ) {
         self.embeddings_enabled = enabled;
-        self.embedder =
-            crate::graph::embed::create_embedder(provider, enabled, base_url, model, api_key, num_ctx);
+        self.embedder = crate::graph::embed::create_embedder(
+            provider, enabled, base_url, model, api_key, num_ctx,
+        );
     }
 
     #[cfg(test)]
@@ -734,7 +735,7 @@ impl CodeGraph {
             // a mismatch between global vector IDs and local layer IDs.
             let conn = self.side_conn.lock().unwrap();
             conn.execute_batch(
-                "DELETE FROM sqlite_sequence WHERE name IN ('hnsw_vectors', 'hnsw_layers')"
+                "DELETE FROM sqlite_sequence WHERE name IN ('hnsw_vectors', 'hnsw_layers')",
             )?;
             HashSet::new()
         } else {
