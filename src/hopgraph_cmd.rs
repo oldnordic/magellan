@@ -12,6 +12,12 @@ pub fn run_hopgraph(
     output_format: OutputFormat,
 ) -> Result<()> {
     let graph = CodeGraph::open(&db_path)?;
+
+    // Warn if embeddings are stale compared to the graph index
+    if let Ok(Some(warning)) = graph.check_embedding_staleness() {
+        eprintln!("{}", warning);
+    }
+
     let hits = graph.hopgraph_search(&query, k, hops)?;
 
     match output_format {

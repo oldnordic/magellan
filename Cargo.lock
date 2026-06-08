@@ -2201,9 +2201,9 @@ dependencies = [
 
 [[package]]
 name = "sqlitegraph"
-version = "3.2.3"
+version = "3.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9299ac769950666e24b333c0910cd18de6ba9ac1733440c48e4abc4094e3363e"
+checksum = "a3f56315955acdcc7ca1e76b48cb55b20be8a6aa696b017000c77e17f91682e8"
 dependencies = [
  "ahash",
  "arc-swap",

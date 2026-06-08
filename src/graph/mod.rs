@@ -262,6 +262,61 @@ impl CodeGraph {
         self.embedder = Box::new(crate::graph::embed::HashEmbedder::new(128));
     }
 
+    /// Check whether embeddings are stale relative to the graph index.
+    ///
+    /// Compares the most recent file index time (`file_metrics.last_updated`)
+    /// against the most recent embedding time (`hnsw_vectors.updated_at`).
+    /// Returns a human-readable warning when the graph has been updated more
+    /// recently than the embeddings.
+    pub fn check_embedding_staleness(&self) -> anyhow::Result<Option<String>> {
+        let conn = self.side_conn.lock();
+
+        let max_embed_time: Option<i64> = conn
+            .query_row(
+                "SELECT MAX(updated_at) FROM hnsw_vectors",
+                [],
+                |row| row.get(0),
+            )
+            .ok();
+
+        let max_index_time: Option<i64> = conn
+            .query_row(
+                "SELECT MAX(last_updated) FROM file_metrics",
+                [],
+                |row| row.get(0),
+            )
+            .ok();
+
+        match (max_embed_time, max_index_time) {
+            (Some(embed), Some(index)) if index > embed + 60 => {
+                let stale_secs = index - embed;
+                let mins = stale_secs / 60;
+                let msg = if mins > 0 {
+                    format!(
+                        "⚠️  Embeddings are ~{} minutes stale. Run `magellan embed --db {}` to refresh.",
+                        mins,
+                        self.db_path.display()
+                    )
+                } else {
+                    format!(
+                        "⚠️  Embeddings are ~{} seconds stale. Run `magellan embed --db {}` to refresh.",
+                        stale_secs,
+                        self.db_path.display()
+                    )
+                };
+                Ok(Some(msg))
+            }
+            (None, Some(_)) => {
+                // No embeddings at all
+                Ok(Some(format!(
+                    "⚠️  No embeddings found. Run `magellan embed --db {}` to enable HopGraph.",
+                    self.db_path.display()
+                )))
+            }
+            _ => Ok(None),
+        }
+    }
+
     pub fn hopgraph_search(
         &self,
         query: &str,
@@ -885,6 +940,7 @@ impl CodeGraph {
 
             let embedder_ref: &dyn embed::TextEmbedder = self.embedder.as_ref();
 
+            let t_embed_start = std::time::Instant::now();
             let chunk_results: Vec<ChunkResult> = pool.install(|| {
                 use rayon::prelude::*;
                 chunks
@@ -900,7 +956,9 @@ impl CodeGraph {
                     })
                     .collect()
             });
+            let t_embed = t_embed_start.elapsed();
 
+            let t_insert_start = std::time::Instant::now();
             for result in chunk_results {
                 match result {
                     Ok(entries) => {
@@ -919,6 +977,14 @@ impl CodeGraph {
                     }
                 }
             }
+            let t_insert = t_insert_start.elapsed();
+            eprintln!(
+                "[embed timing] file={} chunks={} embed={:?} insert={:?}",
+                file_path,
+                chunks.len(),
+                t_embed,
+                t_insert
+            );
 
             progress_callback(file_path, file_entities.len(), file_idx, total_files);
         }
