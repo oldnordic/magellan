@@ -3,6 +3,16 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://sememver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **HopGraph staleness warning** (`hopgraph_cmd.rs`, `graph/mod.rs`):
+  - `CodeGraph::check_embedding_staleness()` compares `MAX(file_metrics.last_updated)` against `MAX(hnsw_vectors.updated_at)`.
+  - If the graph index has been updated more recently than embeddings by >60 seconds, `magellan hopgraph` prints a warning telling the user to run `magellan embed --db <path>`.
+  - Also warns when no embeddings exist at all (`hnsw_vectors` is empty).
+  - Prevents silent stale results: `magellan watch` updates the graph structure automatically, but embeddings are not refreshed on every save. This warning closes the UX gap.
+
 ## [4.7.2] - 2026-06-07
 
 ### Changed
