@@ -1388,7 +1388,7 @@ dependencies = [
 
 [[package]]
 name = "magellan"
-version = "4.7.2"
+version = "4.7.3"
 dependencies = [
  "ahash",
  "anyhow",
