@@ -83,6 +83,9 @@ target/release/magellan backfill --db .magellan/code.db
 target/release/magellan embed --db .magellan/code.db
 target/release/magellan hopgraph "error handling" --db .magellan/code.db --k 5
 target/release/magellan hopgraph "parse arguments" --db .magellan/code.db --k 5 --hops 1
+
+# Re-embed after significant code changes so HopGraph stays current
+# (magellan watch updates the graph, but not embeddings automatically)
 ```
 
 ## Coverage

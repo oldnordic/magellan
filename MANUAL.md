@@ -476,7 +476,27 @@ Each result shows:
 - **File and line** — where to find it, shortened to the `src/...` path
 - **Score** — how close the match is (lower is better; this is cosine distance, not similarity)
 
-#### Step 4: Expand results through the graph (--hops)
+#### Step 4: Keep embeddings fresh
+
+`magellan watch` updates the graph structure automatically when files change,
+but it **does not update embeddings**. After significant coding, your HopGraph
+results may be stale. HopGraph will warn you when this happens:
+
+```text
+⚠️  Embeddings are ~5 minutes stale. Run `magellan embed --db code.db` to refresh.
+```
+
+To keep semantic search accurate, re-embed after major changes:
+
+```bash
+# Incremental: skips symbols already embedded (fast)
+magellan embed --db code.db
+
+# Force full re-embed (slow, use after large refactors)
+magellan embed --db code.db --force
+```
+
+#### Step 5: Expand results through the graph (--hops)
 
 Sometimes the best match isn't the function itself, but something connected to
 it. `--hops N` expands your results by following the reference graph — the same
