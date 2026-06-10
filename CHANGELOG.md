@@ -3,6 +3,16 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://sememver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Cross-tool `[integrations]` section in `~/.config/magellan/config.toml`** (`config.rs`, `config_cmd.rs`):
+  - `IntegrationConfig` with `enabled`, `db`, `meta_db`, and `url` fields.
+  - `IntegrationsConfig` containing `atheneum`, `envoy`, and `auto_export_discoveries`.
+  - All integration flags default to `false`; magellan remains standalone by default.
+  - `magellan config show` now displays Atheneum/Envoy integration status.
+
 ## [4.7.3] - 2026-06-08
 
 ### Added

@@ -272,19 +272,15 @@ impl CodeGraph {
         let conn = self.side_conn.lock();
 
         let max_embed_time: Option<i64> = conn
-            .query_row(
-                "SELECT MAX(updated_at) FROM hnsw_vectors",
-                [],
-                |row| row.get(0),
-            )
+            .query_row("SELECT MAX(updated_at) FROM hnsw_vectors", [], |row| {
+                row.get(0)
+            })
             .ok();
 
         let max_index_time: Option<i64> = conn
-            .query_row(
-                "SELECT MAX(last_updated) FROM file_metrics",
-                [],
-                |row| row.get(0),
-            )
+            .query_row("SELECT MAX(last_updated) FROM file_metrics", [], |row| {
+                row.get(0)
+            })
             .ok();
 
         match (max_embed_time, max_index_time) {

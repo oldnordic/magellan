@@ -31,6 +31,10 @@ pub fn run_config_show(output_format: OutputFormat) -> Result<()> {
             println!("  Auto-scan: {}", cfg.registry.auto_scan);
             println!("  Scan roots: {:?}", cfg.registry.scan_roots);
             println!();
+            println!("Integrations:");
+            println!("  Atheneum enabled: {}", cfg.integrations.atheneum.enabled);
+            println!("  Envoy enabled: {}", cfg.integrations.envoy.enabled);
+            println!();
             println!("Config path: {}", config::default_config_path().display());
         }
     }

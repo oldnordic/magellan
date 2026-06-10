@@ -5,7 +5,7 @@
 //! # Config File Format
 //!
 //! ```toml
-//! [llm]
+//! [language-model]
 //! provider = "ollama"  # ollama, openai, anthropic, custom
 //! base_url = "http://localhost:11434"
 //! model = "codellama"
@@ -74,15 +74,41 @@ impl Default for RegistryConfig {
     }
 }
 
+/// Integration opt-in for another tool.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct IntegrationConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub db: Option<String>,
+    #[serde(default)]
+    pub meta_db: Option<String>,
+    #[serde(default)]
+    pub url: Option<String>,
+}
+
+/// Cross-tool integrations section.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct IntegrationsConfig {
+    #[serde(default)]
+    pub atheneum: IntegrationConfig,
+    #[serde(default)]
+    pub envoy: IntegrationConfig,
+    #[serde(default)]
+    pub auto_export_discoveries: bool,
+}
+
 /// Root Magellan configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
-    #[serde(default)]
+    #[serde(default, rename = "language-model")]
     pub llm: LlmConfig,
     #[serde(default)]
     pub registry: RegistryConfig,
     #[serde(default)]
     pub embeddings: EmbeddingsConfig,
+    #[serde(default)]
+    pub integrations: IntegrationsConfig,
 }
 
 /// Embedding provider type
@@ -253,5 +279,46 @@ model = "custom-model"
         assert_eq!(config.embeddings.model, "custom-model");
         assert_eq!(config.embeddings.provider, EmbedProvider::OpenAi);
         assert_eq!(config.embeddings.base_url, "http://localhost:11434");
+    }
+
+    #[test]
+    fn test_default_integrations_disabled() {
+        let config = Config::default();
+        assert!(!config.integrations.atheneum.enabled);
+        assert!(!config.integrations.envoy.enabled);
+        assert!(!config.integrations.auto_export_discoveries);
+    }
+
+    #[test]
+    fn test_parse_integrations() {
+        let toml_str = r#"
+[integrations.atheneum]
+enabled = true
+db = "~/.local/share/atheneum/atheneum.db"
+meta_db = "~/.local/share/atheneum/meta.db"
+
+[integrations.envoy]
+enabled = true
+url = "http://localhost:9876"
+
+[integrations]
+auto_export_discoveries = true
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert!(config.integrations.atheneum.enabled);
+        assert_eq!(
+            config.integrations.atheneum.db.as_deref(),
+            Some("~/.local/share/atheneum/atheneum.db")
+        );
+        assert_eq!(
+            config.integrations.atheneum.meta_db.as_deref(),
+            Some("~/.local/share/atheneum/meta.db")
+        );
+        assert!(config.integrations.envoy.enabled);
+        assert_eq!(
+            config.integrations.envoy.url.as_deref(),
+            Some("http://localhost:9876")
+        );
+        assert!(config.integrations.auto_export_discoveries);
     }
 }

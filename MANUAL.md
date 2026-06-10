@@ -650,6 +650,37 @@ magellan config init
 
 Config is stored in `~/.config/magellan/config.toml`.
 
+Example with cross-tool integrations (all opt-in):
+
+```toml
+[language-model]
+provider = "ollama"
+base_url = "http://localhost:11434"
+model = "codellama"
+
+[registry]
+auto_scan = true
+scan_roots = ["/home/feanor/Projects"]
+
+[embeddings]
+enabled = true
+base_url = "http://localhost:11434"
+model = "nomic-embed-text"
+
+[integrations]
+# Cross-tool integration is opt-in; magellan works standalone by default.
+[integrations.atheneum]
+enabled = false
+db = "~/.local/share/atheneum/atheneum.db"
+meta_db = "~/.local/share/atheneum/meta.db"
+
+[integrations.envoy]
+enabled = false
+url = "http://localhost:9876"
+
+auto_export_discoveries = false
+```
+
 ## Service Daemon
 
 The daemon provides a long-running indexer with per-project filesystem watchers
