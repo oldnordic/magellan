@@ -296,61 +296,33 @@ impl GoParser {
             Some(t) => t,
             None => return Vec::new(),
         };
-
-        let root_node = tree.root_node();
-        let mut references = Vec::new();
-        Self::walk_tree_for_references(&root_node, source, &file_path, symbols, &mut references);
-        references
+        Self::extract_references_from_tree(&tree, file_path, source, symbols)
     }
 
-    fn walk_tree_for_references(
-        node: &tree_sitter::Node,
+    /// Extract reference facts from a pre-parsed tree.
+    pub fn extract_references_from_tree(
+        tree: &tree_sitter::Tree,
+        file_path: PathBuf,
         source: &[u8],
-        file_path: &Path,
         symbols: &[SymbolFact],
-        references: &mut Vec<ReferenceFact>,
-    ) {
-        if let Some(reference) = Self::extract_reference(node, source, file_path, symbols) {
-            references.push(reference);
-        }
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            Self::walk_tree_for_references(&child, source, file_path, symbols, references);
-        }
-    }
-
-    fn extract_reference(
-        node: &tree_sitter::Node,
-        source: &[u8],
-        file_path: &Path,
-        symbols: &[SymbolFact],
-    ) -> Option<ReferenceFact> {
-        if node.kind() != "identifier" && node.kind() != "type_identifier" {
-            return None;
-        }
-
-        let text_bytes = &source[node.start_byte()..node.end_byte()];
-        let text = std::str::from_utf8(text_bytes).ok()?;
-
-        let referenced_symbol = symbols
-            .iter()
-            .find(|s| s.name.as_ref().map(|n| n == text).unwrap_or(false))?;
-
-        let ref_start = node.start_byte();
-        if ref_start < referenced_symbol.byte_end {
-            return None;
-        }
-
-        Some(ReferenceFact {
-            file_path: file_path.to_path_buf(),
-            referenced_symbol: text.to_string(),
-            byte_start: ref_start,
-            byte_end: node.end_byte(),
-            start_line: node.start_position().row + 1,
-            start_col: node.start_position().column,
-            end_line: node.end_position().row + 1,
-            end_col: node.end_position().column,
-        })
+    ) -> Vec<ReferenceFact> {
+        use crate::ingest::generic_extraction;
+        generic_extraction::extract_references_from_tree(
+            tree,
+            file_path,
+            source,
+            symbols,
+            |node| {
+                matches!(
+                    node.kind(),
+                    "identifier" | "type_identifier" | "selector_expression"
+                )
+            },
+            |node, source| {
+                let text = std::str::from_utf8(&source[node.start_byte()..node.end_byte()]).ok()?;
+                Some((text.to_string(), node.kind()))
+            },
+        )
     }
 
     /// Extract function call facts from Go source code.
@@ -373,140 +345,50 @@ impl GoParser {
         source: &[u8],
         symbols: &[SymbolFact],
     ) -> Vec<CallFact> {
-        let root_node = tree.root_node();
-        let mut calls = Vec::new();
-        let symbol_map: std::collections::HashMap<String, &SymbolFact> = symbols
-            .iter()
-            .filter_map(|s| s.name.as_ref().map(|name| (name.clone(), s)))
-            .collect();
-        let functions: Vec<&SymbolFact> = symbols
-            .iter()
-            .filter(|s| s.kind == SymbolKind::Function || s.kind == SymbolKind::Method)
-            .collect();
-        Self::walk_tree_for_calls(
-            &root_node,
+        use crate::ingest::generic_extraction;
+        generic_extraction::extract_calls_from_tree(
+            tree,
+            file_path,
             source,
-            &file_path,
-            &symbol_map,
-            &functions,
-            &mut calls,
-        );
-        calls
-    }
-
-    fn walk_tree_for_calls(
-        node: &tree_sitter::Node,
-        source: &[u8],
-        file_path: &Path,
-        symbol_map: &std::collections::HashMap<String, &SymbolFact>,
-        _functions: &[&SymbolFact],
-        calls: &mut Vec<CallFact>,
-    ) {
-        Self::walk_tree_for_calls_with_caller(node, source, file_path, symbol_map, None, calls);
-    }
-
-    fn walk_tree_for_calls_with_caller(
-        node: &tree_sitter::Node,
-        source: &[u8],
-        file_path: &Path,
-        symbol_map: &std::collections::HashMap<String, &SymbolFact>,
-        current_caller: Option<&SymbolFact>,
-        calls: &mut Vec<CallFact>,
-    ) {
-        let kind = node.kind();
-
-        let caller: Option<&SymbolFact> =
-            if kind == "function_declaration" || kind == "method_declaration" {
-                Self::extract_function_name(node, source)
-                    .and_then(|name| symbol_map.get(&name).copied())
-            } else {
-                current_caller
-            };
-
-        if kind == "call_expression" {
-            if let Some(caller_fact) = caller {
-                Self::extract_calls_in_node(
-                    node,
-                    source,
-                    file_path,
-                    caller_fact,
-                    symbol_map,
-                    calls,
-                );
-            }
-        }
-
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            Self::walk_tree_for_calls_with_caller(
-                &child, source, file_path, symbol_map, caller, calls,
-            );
-        }
-    }
-
-    fn extract_function_name(node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
-        Self::extract_name(node, source)
-    }
-
-    fn extract_calls_in_node(
-        node: &tree_sitter::Node,
-        source: &[u8],
-        file_path: &Path,
-        caller: &SymbolFact,
-        symbol_map: &std::collections::HashMap<String, &SymbolFact>,
-        calls: &mut Vec<CallFact>,
-    ) {
-        if node.kind() == "call_expression" {
-            if let Some(callee_name) = Self::extract_callee_from_call(node, source) {
-                if symbol_map.contains_key(&callee_name) {
-                    let node_start = node.start_byte();
-                    let node_end = node.end_byte();
-                    let call_fact = CallFact {
-                        file_path: file_path.to_path_buf(),
-                        caller: caller.name.clone().unwrap_or_default(),
-                        callee: callee_name,
-                        caller_symbol_id: None,
-                        callee_symbol_id: None,
-                        byte_start: node_start,
-                        byte_end: node_end,
-                        start_line: node.start_position().row + 1,
-                        start_col: node.start_position().column,
-                        end_line: node.end_position().row + 1,
-                        end_col: node.end_position().column,
-                    };
-                    calls.push(call_fact);
+            symbols,
+            |node| matches!(node.kind(), "function_declaration" | "method_declaration"),
+            Self::extract_name,
+            "call_expression",
+            |node, source| {
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    match child.kind() {
+                        "identifier" | "field_identifier" | "selector_expression" => {
+                            let text = if child.kind() == "selector_expression" {
+                                Self::extract_selector_name(&child, source)?
+                            } else {
+                                std::str::from_utf8(&source[child.start_byte()..child.end_byte()])
+                                    .ok()?
+                                    .to_string()
+                            };
+                            return Some((text, child.kind()));
+                        }
+                        _ => {}
+                    }
                 }
-            }
-        }
-    }
-
-    fn extract_callee_from_call(node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            if child.kind() == "identifier"
-                || child.kind() == "field_identifier"
-                || child.kind() == "selector_expression"
-            {
-                // For selector_expression (e.g., pkg.Func), extract the rightmost identifier
-                if child.kind() == "selector_expression" {
-                    return Self::extract_selector_name(&child, source);
-                }
-                let name_bytes = &source[child.start_byte()..child.end_byte()];
-                return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
-            }
-        }
-        None
+                None
+            },
+        )
     }
 
     fn extract_selector_name(node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
+        // selector_expression is parenthesised expression in Go grammar? Actually Go's
+        // tree-sitter uses selector_expression for "pkg.Field" or "obj.Method". The field
+        // name is the rightmost identifier/field_identifier child.
         let mut cursor = node.walk();
+        let mut last_name: Option<String> = None;
         for child in node.children(&mut cursor) {
-            if child.kind() == "field_identifier" {
-                let name_bytes = &source[child.start_byte()..child.end_byte()];
-                return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
+            if matches!(child.kind(), "identifier" | "field_identifier") {
+                let bytes = safe_slice(source, child.start_byte(), child.end_byte())?;
+                last_name = std::str::from_utf8(bytes).ok().map(|s| s.to_string());
             }
         }
-        None
+        last_name
     }
 }
 

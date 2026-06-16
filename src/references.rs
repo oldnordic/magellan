@@ -98,6 +98,20 @@ impl ReferenceExtractor {
         source: &[u8],
         symbols: &[SymbolFact],
     ) -> Vec<ReferenceFact> {
+        self.extract_references_with_fqn(file_path, source, symbols, None)
+    }
+
+    /// Extract reference facts with optional fully-qualified symbol map.
+    ///
+    /// The FQN map enables accurate cross-file resolution of qualified identifiers
+    /// such as `math::add`, `pkg.Func`, or `Class::method`.
+    pub fn extract_references_with_fqn(
+        &mut self,
+        file_path: PathBuf,
+        source: &[u8],
+        symbols: &[SymbolFact],
+        fqn_to_symbol: Option<&HashMap<String, &SymbolFact>>,
+    ) -> Vec<ReferenceFact> {
         let tree = match self.parser.parse(source, None) {
             Some(t) => t,
             None => return Vec::new(),
@@ -106,8 +120,14 @@ impl ReferenceExtractor {
         let root_node = tree.root_node();
         let mut references = Vec::new();
 
-        // Walk tree and find references
-        self.walk_tree_for_references(&root_node, source, &file_path, symbols, &mut references);
+        self.walk_tree_for_references(
+            &root_node,
+            source,
+            &file_path,
+            symbols,
+            fqn_to_symbol,
+            &mut references,
+        );
 
         references
     }
@@ -119,14 +139,16 @@ impl ReferenceExtractor {
         source: &[u8],
         file_path: &PathBuf,
         symbols: &[SymbolFact],
+        fqn_to_symbol: Option<&HashMap<String, &SymbolFact>>,
         references: &mut Vec<ReferenceFact>,
     ) {
         // Check if this node is a reference we care about
-        if let Some(reference) = self.extract_reference(node, source, file_path, symbols) {
+        if let Some(reference) =
+            self.extract_reference(node, source, file_path, symbols, fqn_to_symbol)
+        {
             references.push(reference);
 
             // Don't recurse into scoped_identifier - we've already handled it
-            // This prevents extracting child identifier nodes within it
             if node.kind() == "scoped_identifier" {
                 return;
             }
@@ -135,7 +157,14 @@ impl ReferenceExtractor {
         // Recurse into children
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            self.walk_tree_for_references(&child, source, file_path, symbols, references);
+            self.walk_tree_for_references(
+                &child,
+                source,
+                file_path,
+                symbols,
+                fqn_to_symbol,
+                references,
+            );
         }
     }
 
@@ -146,6 +175,7 @@ impl ReferenceExtractor {
         source: &[u8],
         file_path: &PathBuf,
         symbols: &[SymbolFact],
+        fqn_to_symbol: Option<&HashMap<String, &SymbolFact>>,
     ) -> Option<ReferenceFact> {
         let kind = node.kind();
 
@@ -160,18 +190,25 @@ impl ReferenceExtractor {
         let text_bytes = safe_slice(source, node.start_byte(), node.end_byte())?;
         let text = std::str::from_utf8(text_bytes).ok()?;
 
-        // For scoped_identifier (e.g., a::foo), extract the final component
-        let symbol_name = if kind == "scoped_identifier" {
-            // Split by :: and take the last part
-            text.split("::").last().unwrap_or(text)
+        // Resolve the referenced symbol. Prefer FQN-aware resolution for qualified identifiers.
+        let referenced_symbol = if kind == "scoped_identifier" {
+            let symbols_ref: Vec<&SymbolFact> = symbols.iter().collect();
+            crate::ingest::resolve_qualified_symbol(
+                text,
+                kind,
+                file_path,
+                fqn_to_symbol.unwrap_or(&HashMap::new()),
+                &symbols_ref,
+            )
         } else {
-            text
+            symbols
+                .iter()
+                .find(|s| s.name.as_ref().map(|n| n == text).unwrap_or(false))
+                .map(|s| s as &SymbolFact)
         };
 
-        // Find if this matches any symbol
-        let referenced_symbol = symbols
-            .iter()
-            .find(|s| s.name.as_ref().map(|n| n == symbol_name).unwrap_or(false))?;
+        let referenced_symbol = referenced_symbol?;
+        let symbol_name = referenced_symbol.name.as_deref().unwrap_or(text);
 
         // Check if reference is OUTSIDE the symbol's defining span
         let ref_start = node.start_byte();
@@ -241,6 +278,21 @@ impl crate::ingest::Parser {
         extractor.extract_calls(file_path, source, symbols)
     }
 
+    /// Extract function call facts with optional FQN-aware symbol map.
+    ///
+    /// The FQN map enables accurate resolution of qualified calls such as
+    /// `math::add()` across files.
+    pub fn extract_calls_with_fqn(
+        &mut self,
+        file_path: PathBuf,
+        source: &[u8],
+        symbols: &[SymbolFact],
+        fqn_to_symbol: &HashMap<String, &SymbolFact>,
+    ) -> Vec<CallFact> {
+        let mut extractor = CallExtractor::new().expect("Failed to create call extractor"); // M-UNWRAP: tree-sitter language is a build-time invariant
+        extractor.extract_calls_with_fqn(file_path, source, symbols, fqn_to_symbol)
+    }
+
     /// Extract function call facts from a pre-parsed tree.
     ///
     /// Avoids redundant parsing when the tree is already available.
@@ -252,6 +304,18 @@ impl crate::ingest::Parser {
     ) -> Vec<CallFact> {
         let mut extractor = CallExtractor::new().expect("Failed to create call extractor"); // M-UNWRAP: tree-sitter language is a build-time invariant
         extractor.extract_calls_from_tree(tree, file_path, source, symbols)
+    }
+
+    /// Extract function call facts from a pre-parsed tree with FQN map.
+    pub fn extract_calls_from_tree_with_fqn(
+        tree: &tree_sitter::Tree,
+        file_path: PathBuf,
+        source: &[u8],
+        symbols: &[SymbolFact],
+        fqn_to_symbol: &HashMap<String, &SymbolFact>,
+    ) -> Vec<CallFact> {
+        let mut extractor = CallExtractor::new().expect("Failed to create call extractor"); // M-UNWRAP: tree-sitter language is a build-time invariant
+        extractor.extract_calls_from_tree_with_fqn(tree, file_path, source, symbols, fqn_to_symbol)
     }
 }
 
@@ -285,11 +349,47 @@ impl CallExtractor {
         source: &[u8],
         symbols: &[SymbolFact],
     ) -> Vec<CallFact> {
+        let fqn_map = crate::ingest::build_fqn_map(symbols);
+        self.extract_calls_with_fqn(file_path, source, symbols, &fqn_map)
+    }
+
+    /// Extract function call facts with an explicit FQN symbol map.
+    pub fn extract_calls_with_fqn(
+        &mut self,
+        file_path: PathBuf,
+        source: &[u8],
+        symbols: &[SymbolFact],
+        fqn_to_symbol: &HashMap<String, &SymbolFact>,
+    ) -> Vec<CallFact> {
         let tree = match self.parser.parse(source, None) {
             Some(t) => t,
             None => return Vec::new(),
         };
 
+        self.extract_calls_from_tree_with_fqn(&tree, file_path, source, symbols, fqn_to_symbol)
+    }
+
+    /// Extract function call facts from a pre-parsed tree.
+    pub fn extract_calls_from_tree(
+        &mut self,
+        tree: &tree_sitter::Tree,
+        file_path: PathBuf,
+        source: &[u8],
+        symbols: &[SymbolFact],
+    ) -> Vec<CallFact> {
+        let fqn_map = crate::ingest::build_fqn_map(symbols);
+        self.extract_calls_from_tree_with_fqn(tree, file_path, source, symbols, &fqn_map)
+    }
+
+    /// Extract function call facts from a pre-parsed tree with FQN map.
+    pub fn extract_calls_from_tree_with_fqn(
+        &mut self,
+        tree: &tree_sitter::Tree,
+        file_path: PathBuf,
+        source: &[u8],
+        symbols: &[SymbolFact],
+        fqn_to_symbol: &HashMap<String, &SymbolFact>,
+    ) -> Vec<CallFact> {
         let root_node = tree.root_node();
         let mut calls = Vec::new();
 
@@ -311,39 +411,7 @@ impl CallExtractor {
             source,
             &file_path,
             &symbol_map,
-            &functions,
-            &mut calls,
-        );
-
-        calls
-    }
-
-    /// Extract function call facts from a pre-parsed tree.
-    pub fn extract_calls_from_tree(
-        &mut self,
-        tree: &tree_sitter::Tree,
-        file_path: PathBuf,
-        source: &[u8],
-        symbols: &[SymbolFact],
-    ) -> Vec<CallFact> {
-        let root_node = tree.root_node();
-        let mut calls = Vec::new();
-
-        let symbol_map: HashMap<String, &SymbolFact> = symbols
-            .iter()
-            .filter_map(|s| s.name.as_ref().map(|name| (name.clone(), s)))
-            .collect();
-
-        let functions: Vec<&SymbolFact> = symbols
-            .iter()
-            .filter(|s| s.kind == SymbolKind::Function)
-            .collect();
-
-        Self::walk_tree_for_calls(
-            &root_node,
-            source,
-            &file_path,
-            &symbol_map,
+            fqn_to_symbol,
             &functions,
             &mut calls,
         );
@@ -357,10 +425,19 @@ impl CallExtractor {
         source: &[u8],
         file_path: &PathBuf,
         symbol_map: &HashMap<String, &SymbolFact>,
+        fqn_to_symbol: &HashMap<String, &SymbolFact>,
         _functions: &[&SymbolFact],
         calls: &mut Vec<CallFact>,
     ) {
-        Self::walk_tree_for_calls_with_caller(node, source, file_path, symbol_map, None, calls);
+        Self::walk_tree_for_calls_with_caller(
+            node,
+            source,
+            file_path,
+            symbol_map,
+            fqn_to_symbol,
+            None,
+            calls,
+        );
     }
 
     /// Walk tree-sitter tree and extract function calls, tracking current function
@@ -369,6 +446,7 @@ impl CallExtractor {
         source: &[u8],
         file_path: &PathBuf,
         symbol_map: &HashMap<String, &SymbolFact>,
+        fqn_to_symbol: &HashMap<String, &SymbolFact>,
         current_caller: Option<&SymbolFact>,
         calls: &mut Vec<CallFact>,
     ) {
@@ -392,6 +470,7 @@ impl CallExtractor {
                     file_path,
                     caller_fact,
                     symbol_map,
+                    fqn_to_symbol,
                     calls,
                 );
             }
@@ -401,7 +480,13 @@ impl CallExtractor {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             Self::walk_tree_for_calls_with_caller(
-                &child, source, file_path, symbol_map, caller, calls,
+                &child,
+                source,
+                file_path,
+                symbol_map,
+                fqn_to_symbol,
+                caller,
+                calls,
             );
         }
     }
@@ -425,6 +510,7 @@ impl CallExtractor {
         file_path: &Path,
         caller: &SymbolFact,
         symbol_map: &HashMap<String, &SymbolFact>,
+        fqn_to_symbol: &HashMap<String, &SymbolFact>,
         calls: &mut Vec<CallFact>,
     ) {
         // Look for call_expression nodes or identifier nodes
@@ -432,44 +518,83 @@ impl CallExtractor {
 
         if kind == "call_expression" {
             // Extract the function being called
-            if let Some(callee_name) = Self::extract_callee_from_call(node, source) {
+            if let Some((callee_text, callee_node_kind)) =
+                Self::extract_callee_from_call(node, source)
+            {
+                // Resolve the callee. For qualified identifiers, use FQN-aware resolution.
+                let all_symbols: Vec<&SymbolFact> = symbol_map.values().copied().collect();
+                let resolved = if callee_node_kind == "scoped_identifier"
+                    || callee_node_kind == "field_expression"
+                    || callee_node_kind == "method_expression"
+                {
+                    crate::ingest::resolve_qualified_symbol(
+                        &callee_text,
+                        callee_node_kind,
+                        file_path,
+                        fqn_to_symbol,
+                        &all_symbols,
+                    )
+                } else {
+                    symbol_map.get(&callee_text).copied()
+                };
+
                 // Only create call if callee is a known function symbol
-                if symbol_map.contains_key(&callee_name) {
-                    let node_start = node.start_byte();
-                    let node_end = node.end_byte();
-                    let call_fact = CallFact {
-                        file_path: file_path.to_path_buf(),
-                        caller: caller.name.clone().unwrap_or_default(),
-                        callee: callee_name,
-                        caller_symbol_id: None,
-                        callee_symbol_id: None,
-                        byte_start: node_start,
-                        byte_end: node_end,
-                        start_line: node.start_position().row + 1,
-                        start_col: node.start_position().column,
-                        end_line: node.end_position().row + 1,
-                        end_col: node.end_position().column,
-                    };
-                    calls.push(call_fact);
+                if let Some(callee_fact) = resolved {
+                    if callee_fact.kind == SymbolKind::Function {
+                        let node_start = node.start_byte();
+                        let node_end = node.end_byte();
+                        let callee_name = callee_fact
+                            .name
+                            .as_ref()
+                            .cloned()
+                            .unwrap_or_else(|| callee_text.clone());
+                        let call_fact = CallFact {
+                            file_path: file_path.to_path_buf(),
+                            caller: caller.name.clone().unwrap_or_default(),
+                            callee: callee_name,
+                            caller_symbol_id: None,
+                            callee_symbol_id: None,
+                            byte_start: node_start,
+                            byte_end: node_end,
+                            start_line: node.start_position().row + 1,
+                            start_col: node.start_position().column,
+                            end_line: node.end_position().row + 1,
+                            end_col: node.end_position().column,
+                        };
+                        calls.push(call_fact);
+                    }
                 }
             }
         }
     }
 
-    /// Extract callee name from a call_expression node
-    fn extract_callee_from_call(node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
+    /// Extract callee text and node kind from a call_expression node.
+    ///
+    /// The node kind tells the caller whether the callee is a simple
+    /// identifier or a qualified expression, so resolution can use the FQN map.
+    fn extract_callee_from_call(
+        node: &tree_sitter::Node,
+        source: &[u8],
+    ) -> Option<(String, &'static str)> {
         // The callee is typically the first child (identifier) or a scoped_identifier
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             let kind = child.kind();
             if kind == "identifier" {
                 let name_bytes = safe_slice(source, child.start_byte(), child.end_byte())?;
-                return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
+                let name = std::str::from_utf8(name_bytes).ok()?.to_string();
+                return Some((name, "identifier"));
             }
-            // Handle method calls like obj.method() - we want the method name
+            // Handle qualified calls like math::add() and method calls like obj.method()
+            if kind == "scoped_identifier" {
+                let text_bytes = safe_slice(source, child.start_byte(), child.end_byte())?;
+                let text = std::str::from_utf8(text_bytes).ok()?.to_string();
+                return Some((text, "scoped_identifier"));
+            }
             if kind == "field_expression" || kind == "method_expression" {
                 // For a.b(), extract "b"
-                return Self::extract_method_name(&child, source);
+                let method_name = Self::extract_method_name(&child, source)?;
+                return Some((method_name, kind));
             }
         }
         None

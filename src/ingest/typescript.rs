@@ -485,77 +485,33 @@ impl TypeScriptParser {
             Some(t) => t,
             None => return Vec::new(),
         };
-
-        let root_node = tree.root_node();
-        let mut references = Vec::new();
-
-        // Walk tree and find references
-        self.walk_tree_for_references(&root_node, source, &file_path, symbols, &mut references);
-
-        references
+        Self::extract_references_from_tree(&tree, file_path, source, symbols)
     }
 
-    /// Walk tree-sitter tree recursively and extract references
-    fn walk_tree_for_references(
-        &self,
-        node: &tree_sitter::Node,
+    /// Extract reference facts from a pre-parsed tree.
+    pub fn extract_references_from_tree(
+        tree: &tree_sitter::Tree,
+        file_path: PathBuf,
         source: &[u8],
-        file_path: &Path,
         symbols: &[SymbolFact],
-        references: &mut Vec<ReferenceFact>,
-    ) {
-        // Check if this node is a reference we care about
-        if let Some(reference) = self.extract_reference(node, source, file_path, symbols) {
-            references.push(reference);
-        }
-
-        // Recurse into children
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            self.walk_tree_for_references(&child, source, file_path, symbols, references);
-        }
-    }
-
-    /// Extract a reference fact from a tree-sitter node, if applicable
-    fn extract_reference(
-        &self,
-        node: &tree_sitter::Node,
-        source: &[u8],
-        file_path: &Path,
-        symbols: &[SymbolFact],
-    ) -> Option<ReferenceFact> {
-        // Only process identifier nodes
-        if node.kind() != "identifier" {
-            return None;
-        }
-
-        // Get the text of this node
-        let text_bytes = safe_slice(source, node.start_byte(), node.end_byte())?;
-        let text = std::str::from_utf8(text_bytes).ok()?;
-
-        // Find if this matches any symbol
-        let referenced_symbol = symbols
-            .iter()
-            .find(|s| s.name.as_ref().map(|n| n == text).unwrap_or(false))?;
-
-        // Check if reference is OUTSIDE the symbol's defining span
-        let ref_start = node.start_byte();
-
-        // Reference must start after the symbol's definition ends
-        if ref_start < referenced_symbol.byte_end {
-            return None; // Reference is within defining span
-        }
-
-        Some(ReferenceFact {
-            file_path: file_path.to_path_buf(),
-            referenced_symbol: text.to_string(),
-            byte_start: ref_start,
-            byte_end: node.end_byte(),
-            start_line: node.start_position().row + 1,
-            start_col: node.start_position().column,
-            end_line: node.end_position().row + 1,
-            end_col: node.end_position().column,
-        })
+    ) -> Vec<ReferenceFact> {
+        use crate::ingest::generic_extraction;
+        generic_extraction::extract_references_from_tree(
+            tree,
+            file_path,
+            source,
+            symbols,
+            |node| {
+                matches!(
+                    node.kind(),
+                    "identifier" | "type_identifier" | "property_identifier" | "member_expression"
+                )
+            },
+            |node, source| {
+                let text = std::str::from_utf8(&source[node.start_byte()..node.end_byte()]).ok()?;
+                Some((text.to_string(), node.kind()))
+            },
+        )
     }
 
     /// Extract function call facts from TypeScript source code.
@@ -586,160 +542,50 @@ impl TypeScriptParser {
         source: &[u8],
         symbols: &[SymbolFact],
     ) -> Vec<CallFact> {
-        let root_node = tree.root_node();
-        let mut calls = Vec::new();
-        let symbol_map: std::collections::HashMap<String, &SymbolFact> = symbols
-            .iter()
-            .filter_map(|s| s.name.as_ref().map(|name| (name.clone(), s)))
-            .collect();
-        let functions: Vec<&SymbolFact> = symbols
-            .iter()
-            .filter(|s| s.kind == SymbolKind::Function)
-            .collect();
-        Self::walk_tree_for_calls(
-            &root_node,
+        use crate::ingest::generic_extraction;
+        generic_extraction::extract_calls_from_tree(
+            tree,
+            file_path,
             source,
-            &file_path,
-            &symbol_map,
-            &functions,
-            &mut calls,
-        );
-        calls
-    }
-
-    /// Walk tree-sitter tree and extract function calls
-    fn walk_tree_for_calls(
-        node: &tree_sitter::Node,
-        source: &[u8],
-        file_path: &Path,
-        symbol_map: &std::collections::HashMap<String, &SymbolFact>,
-        _functions: &[&SymbolFact],
-        calls: &mut Vec<CallFact>,
-    ) {
-        Self::walk_tree_for_calls_with_caller(node, source, file_path, symbol_map, None, calls);
-    }
-
-    /// Walk tree-sitter tree and extract function calls, tracking current function
-    fn walk_tree_for_calls_with_caller(
-        node: &tree_sitter::Node,
-        source: &[u8],
-        file_path: &Path,
-        symbol_map: &std::collections::HashMap<String, &SymbolFact>,
-        current_caller: Option<&SymbolFact>,
-        calls: &mut Vec<CallFact>,
-    ) {
-        let kind = node.kind();
-
-        // Track which function we're inside (if any)
-        let caller: Option<&SymbolFact> = if kind == "function_declaration" {
-            Self::extract_function_name(node, source)
-                .and_then(|name| symbol_map.get(&name).copied())
-        } else {
-            current_caller
-        };
-
-        // If we have a caller and this is a call, extract the call
-        if kind == "call_expression" {
-            if let Some(caller_fact) = caller {
-                Self::extract_calls_in_node(
-                    node,
-                    source,
-                    file_path,
-                    caller_fact,
-                    symbol_map,
-                    calls,
-                );
-            }
-        }
-
-        // Recurse into children
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            Self::walk_tree_for_calls_with_caller(
-                &child, source, file_path, symbol_map, caller, calls,
-            );
-        }
-    }
-
-    /// Extract function name from a function_declaration node
-    fn extract_function_name(node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            if child.kind() == "identifier" {
-                let name_bytes = safe_slice(source, child.start_byte(), child.end_byte())?;
-                return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
-            }
-        }
-        None
-    }
-
-    /// Extract calls within a node (function body)
-    fn extract_calls_in_node(
-        node: &tree_sitter::Node,
-        source: &[u8],
-        file_path: &Path,
-        caller: &SymbolFact,
-        symbol_map: &std::collections::HashMap<String, &SymbolFact>,
-        calls: &mut Vec<CallFact>,
-    ) {
-        // Look for call_expression nodes
-        let kind = node.kind();
-
-        if kind == "call_expression" {
-            // Extract the function being called
-            if let Some(callee_name) = Self::extract_callee_from_call(node, source) {
-                // Only create call if callee is a known function symbol
-                if symbol_map.contains_key(&callee_name) {
-                    let node_start = node.start_byte();
-                    let node_end = node.end_byte();
-                    let call_fact = CallFact {
-                        file_path: file_path.to_path_buf(),
-                        caller: caller.name.clone().unwrap_or_default(),
-                        callee: callee_name,
-                        caller_symbol_id: None,
-                        callee_symbol_id: None,
-                        byte_start: node_start,
-                        byte_end: node_end,
-                        start_line: node.start_position().row + 1,
-                        start_col: node.start_position().column,
-                        end_line: node.end_position().row + 1,
-                        end_col: node.end_position().column,
-                    };
-                    calls.push(call_fact);
+            symbols,
+            |node| {
+                matches!(
+                    node.kind(),
+                    "function_declaration" | "method_definition" | "arrow_function"
+                )
+            },
+            Self::extract_function_name_static,
+            "call_expression",
+            |node, source| {
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    match child.kind() {
+                        "identifier"
+                        | "type_identifier"
+                        | "property_identifier"
+                        | "member_expression" => {
+                            let text =
+                                std::str::from_utf8(&source[child.start_byte()..child.end_byte()])
+                                    .ok()?;
+                            return Some((text.to_string(), child.kind()));
+                        }
+                        _ => {}
+                    }
                 }
-            }
-        }
+                None
+            },
+        )
     }
 
-    /// Extract callee name from a call_expression node
-    fn extract_callee_from_call(node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
-        // The callee is typically an identifier child
+    fn extract_function_name_static(node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            if child.kind() == "identifier" {
-                let name_bytes = safe_slice(source, child.start_byte(), child.end_byte())?;
-                return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
-            }
-            // Handle member_expression calls like obj.method() - we want the property name
-            if child.kind() == "member_expression" {
-                return Self::extract_property_name(&child, source);
-            }
-        }
-        None
-    }
-
-    /// Extract property name from a member_expression node (for obj.method() calls)
-    fn extract_property_name(node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
-        // Find the property_identifier (second child in obj.method)
-        let mut cursor = node.walk();
-        let children: Vec<_> = node.children(&mut cursor).collect();
-        if children.len() >= 2 {
-            // For member_expression, look for property_identifier
-            for child in &children {
-                if child.kind() == "property_identifier" {
+            match child.kind() {
+                "identifier" | "property_identifier" => {
                     let name_bytes = safe_slice(source, child.start_byte(), child.end_byte())?;
                     return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
                 }
+                _ => {}
             }
         }
         None
