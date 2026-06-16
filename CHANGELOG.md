@@ -7,6 +7,14 @@ Project adheres to [Semantic Versioning](https://sememver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **FQN-aware cross-file qualified call/reference resolution for all tree-sitter languages** (`ingest/fqn_resolver.rs`, `ingest/generic_extraction.rs`, `ingest/{c,cpp,cuda,go,java,python,typescript,javascript}.rs`, `references.rs`):
+  - Shared `resolve_qualified_symbol` + `build_fqn_map` resolver in `fqn_resolver.rs` with unit tests.
+  - Generic `extract_calls_from_tree` / `extract_references_from_tree` helpers in `generic_extraction.rs`; language parsers supply only node-kind predicates and name-extraction closures.
+  - C, C++, CUDA, Java, Go, Python, TypeScript, and JavaScript call/reference extraction now delegate through the generic helper.
+  - Qualified identifiers (e.g. `math::add`, `pkg.Func`, `ClassName.method`, `obj.method()`) resolve via FQN fallback when a local name match is insufficient.
+  - TDD integration test in `tests/cross_file_qualified_call_tests.rs` (Rust `math.rs`/`main.rs`) verifies cross-file qualified calls and references.
+  - Fixed a pre-existing compile error in `go.rs` (`extract_selector_name` helper was missing).
+
 - **Cross-tool `[integrations]` section in `~/.config/magellan/config.toml`** (`config.rs`, `config_cmd.rs`):
   - `IntegrationConfig` with `enabled`, `db`, `meta_db`, and `url` fields.
   - `IntegrationsConfig` containing `atheneum`, `envoy`, and `auto_export_discoveries`.

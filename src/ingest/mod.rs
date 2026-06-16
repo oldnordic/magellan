@@ -2,6 +2,8 @@ pub mod c;
 pub mod cpp;
 pub mod cuda;
 pub mod detect;
+pub mod fqn_resolver;
+pub mod generic_extraction;
 pub mod go;
 pub mod imports;
 pub mod java;
@@ -14,6 +16,8 @@ pub mod typescript;
 pub use detect::{detect_language, Language};
 // Re-exports from imports module
 pub use imports::{ImportFact, ImportKind};
+// Re-exports from fqn_resolver module
+pub use fqn_resolver::{build_fqn_map, resolve_qualified_symbol};
 
 use crate::common::safe_slice;
 use serde::{Deserialize, Serialize};
