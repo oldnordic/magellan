@@ -5,6 +5,8 @@ Project adheres to [Semantic Versioning](https://sememver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [4.7.4] - 2026-06-16
+
 ### Added
 
 - **FQN-aware cross-file qualified call/reference resolution for all tree-sitter languages** (`ingest/fqn_resolver.rs`, `ingest/generic_extraction.rs`, `ingest/{c,cpp,cuda,go,java,python,typescript,javascript}.rs`, `references.rs`):
