@@ -5,6 +5,8 @@ Project adheres to [Semantic Versioning](https://sememver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [4.7.5] - 2026-06-18
+
 ### Fixed
 
 - **Stale symbol lookup after incremental file reindex** (`graph/ops.rs`, `graph/symbol_lookup.rs`):
@@ -12,6 +14,10 @@ Project adheres to [Semantic Versioning](https://sememver.org/spec/v2.0.0.html).
   - The subsequent `index_references()` then created ambiguity/reference edges (`alias_of`, `RESOLVES`) targeting those dead endpoints, which sqlitegraph's `validate_endpoints_exist()` rejected with `edge endpoints must exist`, aborting the reconcile transaction and leaving the edited file stale in the index.
   - `delete_file_facts()` now calls `lookup.remove()` for each deleted symbol, matching the maintenance already performed by `delete_file_symbols()`. The service silently emitted hundreds of these errors per session on actively-edited files before the fix.
   - Regression tests added: `test_delete_file_facts_clears_symbol_lookup` and `test_reconcile_file_no_dangling_lookup_entries`.
+
+### Changed
+
+- **Bump `git2` 0.20 → 0.21** (`Cargo.toml`): clears two new unsound RustSec advisories (RUSTSEC-2026-0183, RUSTSEC-2026-0184) in libgit2 bindings. Also drops `libssh2-sys` and `openssl-sys` from the dependency graph.
 
 ## [4.7.4] - 2026-06-16
 
