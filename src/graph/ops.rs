@@ -649,6 +649,14 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         symbols_deleted = symbol_ids_sorted.len();
         deleted_entity_ids.extend(symbol_ids_sorted.iter().copied());
 
+        // Remove deleted symbols from the in-memory lookup index.
+        // Without this, stale (deleted) entity_ids persist in the lookup and
+        // cause "edge endpoints must exist" errors when index_references()
+        // creates ambiguity/reference edges targeting those dead entities.
+        for entity_id in &symbol_ids_sorted {
+            graph.symbols.lookup.remove(*entity_id);
+        }
+
         // Assert symbol count matches expected
         assert_eq!(
             symbols_deleted, expected_symbols,
@@ -1575,6 +1583,111 @@ mod tests {
                 hit.hop_distance, 0,
                 "hops=0 results should all have hop_distance=0, got {} for {}",
                 hit.hop_distance, hit.name
+            );
+        }
+    }
+
+    #[test]
+    fn test_delete_file_facts_clears_symbol_lookup() {
+        // Regression: delete_file_facts must remove symbols from the in-memory
+        // lookup index. Without this, stale (deleted) entity_ids remain and
+        // cause "edge endpoints must exist" errors when index_references()
+        // creates ambiguity/reference edges targeting those dead entities.
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test.db");
+        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
+
+        // Index a file with multiple symbols
+        let src = b"fn alpha() -> u32 { 42 }\nfn beta() -> u32 { 99 }";
+        graph.index_file("test.rs", src).unwrap();
+
+        // Verify symbols are in the lookup
+        let facts_before = graph.symbols.lookup.all_symbol_facts();
+        assert!(
+            !facts_before.is_empty(),
+            "lookup should contain indexed symbols"
+        );
+
+        // Delete file facts — must clear the lookup too
+        graph.delete_file_facts("test.rs").unwrap();
+
+        // Verify lookup no longer contains the deleted symbols
+        let facts_after = graph.symbols.lookup.all_symbol_facts();
+        assert!(
+            facts_after.is_empty(),
+            "lookup should be empty after delete_file_facts, but still has {} entries: {:?}",
+            facts_after.len(),
+            facts_after
+                .iter()
+                .map(|f| f.fqn.as_deref().unwrap_or("?"))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_reconcile_file_no_dangling_lookup_entries() {
+        // Regression: reconciling an edited file must not leave stale symbol
+        // entity_ids in the in-memory lookup. Before the fix, delete_file_facts
+        // deleted symbols from the backend but not from the lookup, so the
+        // subsequent index_references() created edges referencing dead entities
+        // ("edge endpoints must exist"), rolling back the entire file reconcile.
+        use std::fs;
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let file_a = dir.path().join("a.rs");
+        let file_b = dir.path().join("b.rs");
+
+        // Two files with same-named symbols to exercise ambiguity + ref paths
+        fs::write(&file_a, b"fn shared_fn() -> u32 { 1 }").unwrap();
+        fs::write(&file_b, b"fn shared_fn() -> u32 { 2 }").unwrap();
+
+        let db_path = dir.path().join("test.db");
+        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
+
+        graph
+            .index_file("a.rs", b"fn shared_fn() -> u32 { 1 }")
+            .unwrap();
+        graph
+            .index_file("b.rs", b"fn shared_fn() -> u32 { 2 }")
+            .unwrap();
+
+        // Modify file A and reconcile — must not error
+        fs::write(&file_a, b"fn shared_fn() -> u32 { 999 }").unwrap();
+        let outcome = graph.reconcile_file_path_with_source(
+            &file_a,
+            "a.rs",
+            b"fn shared_fn() -> u32 { 999 }",
+        );
+        assert!(
+            outcome.is_ok(),
+            "reconcile should succeed, but failed: {:?}",
+            outcome.err()
+        );
+
+        // Verify no dead entity_ids leaked into the lookup: every id_to_fqn
+        // key must correspond to a live entity in the backend.
+        let backend_ids: std::collections::HashSet<i64> = graph
+            .symbols
+            .backend
+            .entity_ids()
+            .unwrap()
+            .into_iter()
+            .collect();
+        let lookup_ids: Vec<i64> = graph
+            .symbols
+            .lookup
+            .entity_to_symbol_id()
+            .keys()
+            .copied()
+            .collect();
+        for id in &lookup_ids {
+            assert!(
+                backend_ids.contains(id),
+                "stale entity_id {} in lookup after reconcile — not in backend",
+                id
             );
         }
     }
