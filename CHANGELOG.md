@@ -5,6 +5,14 @@ Project adheres to [Semantic Versioning](https://sememver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Stale symbol lookup after incremental file reindex** (`graph/ops.rs`, `graph/symbol_lookup.rs`):
+  - `delete_file_facts()` removed symbol entities from the database but left their entries in the in-memory `SymbolLookup`, so after every watcher-driven file edit the lookup held dead `entity_id`s.
+  - The subsequent `index_references()` then created ambiguity/reference edges (`alias_of`, `RESOLVES`) targeting those dead endpoints, which sqlitegraph's `validate_endpoints_exist()` rejected with `edge endpoints must exist`, aborting the reconcile transaction and leaving the edited file stale in the index.
+  - `delete_file_facts()` now calls `lookup.remove()` for each deleted symbol, matching the maintenance already performed by `delete_file_symbols()`. The service silently emitted hundreds of these errors per session on actively-edited files before the fix.
+  - Regression tests added: `test_delete_file_facts_clears_symbol_lookup` and `test_reconcile_file_no_dangling_lookup_entries`.
+
 ## [4.7.4] - 2026-06-16
 
 ### Added
