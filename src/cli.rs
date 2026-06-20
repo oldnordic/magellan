@@ -368,6 +368,12 @@ pub enum Command {
         symbol_name: String,
         output_format: OutputFormat,
     },
+    Orient {
+        db_path: PathBuf,
+        repo_path: Option<PathBuf>,
+        top_n: usize,
+        output_format: OutputFormat,
+    },
     Chunks {
         db_path: PathBuf,
         output_format: OutputFormat,

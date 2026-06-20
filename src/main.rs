@@ -37,6 +37,7 @@ mod init_cmd;
 mod label_cmd;
 mod migrate_cmd;
 mod navigate_cmd;
+mod orient_cmd;
 mod path_enumeration_cmd;
 mod project_metadata_cmd;
 mod query_cmd;
@@ -743,6 +744,18 @@ fn main() -> ExitCode {
             if let Err(e) =
                 temporal_query_cmd::run_as_of(db_path, commit_oid, symbol_name, output_format)
             {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::Orient {
+            db_path,
+            repo_path,
+            top_n,
+            output_format,
+        }) => {
+            if let Err(e) = orient_cmd::run_orient(db_path, repo_path, top_n, output_format) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }

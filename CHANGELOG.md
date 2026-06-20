@@ -3,6 +3,12 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://sememver.org/spec/v2.0.0.html).
 
+## [4.9.0] - 2026-06-20
+
+### Added
+
+- **`magellan orient` command** (`src/orient_cmd.rs`): single-command codebase orientation snapshot. Reports DB entity counts, temporal coverage (snapshot range), top-churn symbols ranked by snapshot appearances, and contributor commit counts from `git log`. Accepts `--db`, `--repo` (optional, skips contributors if absent), `--top N` (default 10), and `--output human|json|pretty`. Requires `temporal-sweep` to have been run for churn data; succeeds gracefully without it.
+
 ## [4.8.1] - 2026-06-20
 
 ### Fixed

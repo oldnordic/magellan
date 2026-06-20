@@ -82,6 +82,7 @@ where
         "temporal-status" => parse_temporal_status_args(&args[2..]),
         "temporal-barcode" => parse_temporal_barcode_args(&args[2..]),
         "as-of" => parse_as_of_args(&args[2..]),
+        "orient" => parse_orient_args(&args[2..]),
         "chunks" => parse_chunks_args(&args[2..]),
         "chunk-by-span" => parse_chunk_by_span_args(&args[2..]),
         "chunk-by-symbol" => parse_chunk_by_symbol_args(&args[2..]),
@@ -401,6 +402,38 @@ pub fn parse_as_of_args(args: &[String]) -> Result<Command> {
         db_path,
         commit_oid,
         symbol_name,
+        output_format,
+    })
+}
+
+pub fn parse_orient_args(args: &[String]) -> Result<Command> {
+    let mut db_path: Option<PathBuf> = None;
+    let mut repo_path: Option<PathBuf> = None;
+    let mut top_n: usize = 10;
+    let mut output_format = OutputFormat::Human;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--db" => db_path = Some(parse_path_arg(args, &mut i, "--db")?),
+            "--repo" => repo_path = Some(parse_path_arg(args, &mut i, "--repo")?),
+            "--top" => {
+                top_n = parse_required_arg(args, &mut i, "--top")?.parse()?;
+            }
+            "--output" => {
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output_format = parse_output_format(&value)?;
+            }
+            _ => return Err(anyhow::anyhow!("Unknown argument: {}", args[i])),
+        }
+    }
+
+    let db_path = resolve_db_path(db_path)?;
+
+    Ok(Command::Orient {
+        db_path,
+        repo_path,
+        top_n,
         output_format,
     })
 }
