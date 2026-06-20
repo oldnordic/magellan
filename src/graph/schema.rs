@@ -157,27 +157,6 @@ pub struct CfgBlock {
     /// Column where block ends (0-indexed)
     pub end_col: u64,
 
-    // --- 4D Spatial-Temporal Coordinates (Schema v10+) ---
-    /// X coordinate: Dominator depth (structural hierarchy depth)
-    /// 0 = entry block, increases with nesting depth
-    #[serde(default)]
-    pub coord_x: i64,
-
-    /// Y coordinate: Loop nesting level (iterative complexity)
-    /// 0 = no loops, increases with nested loop depth
-    #[serde(default)]
-    pub coord_y: i64,
-
-    /// Z coordinate: Branch count (decision density)
-    /// Number of branch decisions from entry to this block
-    #[serde(default)]
-    pub coord_z: i64,
-
-    /// T coordinate: Time/version (git commit or trace timestamp)
-    /// None for current version, Some(commit_hash) for historical queries
-    #[serde(default)]
-    pub coord_t: Option<String>,
-
     /// CFG condition: `#[cfg(...)]` attribute that gates this block.
     /// If present, the block is only live when the condition evaluates true
     /// against the project's active features.

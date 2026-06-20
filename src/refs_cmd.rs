@@ -556,7 +556,7 @@ fn run_refs_all(
 
     if enabled.is_empty() {
         println!("No enabled projects in registry.");
-        println!("Hint: use `magellan registry scan` to discover projects, then `magellan registry enable <name>` to activate.");
+        println!("Hint: use `magellan catalog` to list registered projects, then `magellan watch` to index one.");
         return Ok(());
     }
 

@@ -6,6 +6,7 @@ mod ask_cmd;
 mod ast_cmd;
 mod backfill_cmd;
 mod candidate_fact_cmd;
+mod catalog_cmd;
 mod cli;
 mod collisions_cmd;
 mod condense_cmd;
@@ -42,7 +43,6 @@ mod query_cmd;
 mod reachable_cmd;
 mod refresh_cmd;
 mod refs_cmd;
-mod registry_cmd;
 mod service;
 mod service_cmd;
 mod slice_cmd;
@@ -139,21 +139,18 @@ fn main() -> ExitCode {
             }
             ExitCode::SUCCESS
         }
-        Ok(Command::RegistryScan {
-            root,
-            output_format,
-        }) => {
-            if let Err(e) = registry_cmd::run_registry_scan(root, output_format) {
+        Ok(Command::Catalog { output_format }) => {
+            if let Err(e) = catalog_cmd::run_catalog(output_format) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
             ExitCode::SUCCESS
         }
-        Ok(Command::RegistryList {
-            root,
+        Ok(Command::CatalogDescribe {
+            name,
             output_format,
         }) => {
-            if let Err(e) = registry_cmd::run_registry_list(root, output_format) {
+            if let Err(e) = catalog_cmd::run_catalog_describe(&name, output_format) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }

@@ -114,7 +114,6 @@ pub fn ensure_magellan_meta(
                             current_version = 9;
                         }
                         9 => {
-                            ensure_4d_coordinates_columns(conn)?;
                             current_version = 10;
                         }
                         10 => {
@@ -211,10 +210,6 @@ pub fn ensure_cfg_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatErro
         end_col INTEGER NOT NULL,
         cfg_hash TEXT,
         statements TEXT,
-        coord_x INTEGER DEFAULT 0,
-        coord_y INTEGER DEFAULT 0,
-        coord_z INTEGER DEFAULT 0,
-        coord_t TEXT DEFAULT NULL,
         cfg_condition TEXT,
         FOREIGN KEY (function_id) REFERENCES graph_entities(id) ON DELETE CASCADE
     )",
@@ -457,81 +452,6 @@ pub fn ensure_statements_column(conn: &rusqlite::Connection) -> Result<(), DbCom
         conn.execute("ALTER TABLE cfg_blocks ADD COLUMN statements TEXT", [])
             .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
     }
-    Ok(())
-}
-
-/// Add 4D spatial-temporal coordinate columns to cfg_blocks table
-///
-/// This enables the 4D SSoT (Single Source of Truth) feature where:
-/// - X (coord_x): Dominator depth (structural hierarchy)
-/// - Y (coord_y): Loop nesting level (iterative complexity)
-/// - Z (coord_z): Branch count (decision density)
-/// - T (coord_t): Git commit hash or trace timestamp
-pub fn ensure_4d_coordinates_columns(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
-    // Check and add coord_x column
-    let has_x: bool = conn
-        .query_row(
-            "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='coord_x'",
-            [],
-            |_| Ok(true),
-        )
-        .unwrap_or(false);
-    if !has_x {
-        conn.execute(
-            "ALTER TABLE cfg_blocks ADD COLUMN coord_x INTEGER DEFAULT 0",
-            [],
-        )
-        .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
-    }
-
-    // Check and add coord_y column
-    let has_y: bool = conn
-        .query_row(
-            "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='coord_y'",
-            [],
-            |_| Ok(true),
-        )
-        .unwrap_or(false);
-    if !has_y {
-        conn.execute(
-            "ALTER TABLE cfg_blocks ADD COLUMN coord_y INTEGER DEFAULT 0",
-            [],
-        )
-        .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
-    }
-
-    // Check and add coord_z column
-    let has_z: bool = conn
-        .query_row(
-            "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='coord_z'",
-            [],
-            |_| Ok(true),
-        )
-        .unwrap_or(false);
-    if !has_z {
-        conn.execute(
-            "ALTER TABLE cfg_blocks ADD COLUMN coord_z INTEGER DEFAULT 0",
-            [],
-        )
-        .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
-    }
-
-    // Check and add coord_t column
-    let has_t: bool = conn
-        .query_row(
-            "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='coord_t'",
-            [],
-            |_| Ok(true),
-        )
-        .unwrap_or(false);
-    if !has_t {
-        conn.execute(
-            "ALTER TABLE cfg_blocks ADD COLUMN coord_t TEXT DEFAULT NULL",
-            [],
-        )
-        .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
-    }
-
     Ok(())
 }
 

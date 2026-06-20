@@ -86,15 +86,12 @@ where
         "reachable" => parse_reachable_args(&args[2..]),
         "dead-code" => parse_dead_code_args(&args[2..]),
         "cycles" => parse_cycles_args(&args[2..]),
-        "registry" => {
-            // Registry has subcommands
-            if args.len() < 3 {
-                return Err(anyhow::anyhow!("registry subcommand required: scan, list"));
-            }
-            match args[2].as_str() {
-                "scan" => parse_registry_scan_args(&args[3..]),
-                "list" => parse_registry_list_args(&args[3..]),
-                _ => Err(anyhow::anyhow!("Unknown registry subcommand: {}", args[2])),
+        "catalog" => {
+            // catalog [describe <name>] [--output <fmt>]
+            if args.len() >= 3 && args[2] == "describe" {
+                parse_catalog_describe_args(&args[3..])
+            } else {
+                parse_catalog_args(&args[2..])
             }
         }
         "config" => {

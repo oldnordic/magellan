@@ -150,12 +150,11 @@ pub enum Command {
         fqn: String,
         output_format: OutputFormat,
     },
-    RegistryScan {
-        root: PathBuf,
+    Catalog {
         output_format: OutputFormat,
     },
-    RegistryList {
-        root: PathBuf,
+    CatalogDescribe {
+        name: String,
         output_format: OutputFormat,
     },
     ConfigShow {

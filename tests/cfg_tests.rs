@@ -250,6 +250,120 @@ fn simple() {
 }
 
 #[test]
+fn test_direct_call_icfg_edges_stitch_call_block_to_callee_entry() {
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+
+    let callee_source = r#"
+fn callee(x: i32) -> i32 {
+    x + 1
+}
+"#;
+
+    let caller_source = r#"
+fn caller() -> i32 {
+    callee(41)
+}
+"#;
+
+    let mut graph = CodeGraph::open(&db_path).unwrap();
+    graph
+        .index_file("callee.rs", callee_source.as_bytes())
+        .unwrap();
+    graph
+        .index_file("caller.rs", caller_source.as_bytes())
+        .unwrap();
+
+    let stitched = graph.direct_call_icfg_edges("caller.rs", "caller").unwrap();
+    assert_eq!(
+        stitched.len(),
+        1,
+        "caller should stitch exactly one direct call"
+    );
+
+    let edge = &stitched[0];
+    assert_eq!(edge.call.caller, "caller");
+    assert_eq!(edge.call.callee, "callee");
+
+    let caller_id = graph
+        .symbol_id_by_name("caller.rs", "caller")
+        .unwrap()
+        .expect("caller symbol should exist");
+    let callee_id = graph
+        .symbol_id_by_name("callee.rs", "callee")
+        .unwrap()
+        .expect("callee symbol should exist");
+
+    assert_eq!(edge.caller_symbol_id, caller_id);
+    assert_eq!(edge.callee_symbol_id, callee_id);
+
+    let caller_blocks = graph.cfg_ops.get_cfg_for_function(caller_id).unwrap();
+    let callee_blocks = graph.cfg_ops.get_cfg_for_function(callee_id).unwrap();
+
+    assert_eq!(caller_blocks[edge.caller_block_idx].kind, "call");
+    assert_eq!(caller_blocks[edge.caller_block_idx].terminator, "call");
+    assert_eq!(callee_blocks[edge.callee_entry_block_idx].kind, "entry");
+}
+
+#[test]
+fn test_direct_call_icfg_edges_include_callee_returns_and_caller_resume() {
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+
+    let callee_source = r#"
+fn callee(x: i32) -> i32 {
+    return x + 1;
+}
+"#;
+
+    let caller_source = r#"
+fn caller() -> i32 {
+    let y = callee(41);
+    return y + 1;
+}
+"#;
+
+    let mut graph = CodeGraph::open(&db_path).unwrap();
+    graph
+        .index_file("callee.rs", callee_source.as_bytes())
+        .unwrap();
+    graph
+        .index_file("caller.rs", caller_source.as_bytes())
+        .unwrap();
+
+    let stitched = graph.direct_call_icfg_edges("caller.rs", "caller").unwrap();
+    assert_eq!(
+        stitched.len(),
+        1,
+        "caller should have one stitched direct call"
+    );
+
+    let edge = &stitched[0];
+    assert_eq!(
+        edge.callee_return_block_indices.len(),
+        1,
+        "callee should expose its explicit return block"
+    );
+
+    let caller_blocks = graph
+        .cfg_ops
+        .get_cfg_for_function(edge.caller_symbol_id)
+        .unwrap();
+    let callee_blocks = graph
+        .cfg_ops
+        .get_cfg_for_function(edge.callee_symbol_id)
+        .unwrap();
+
+    let resume_idx = edge
+        .caller_resume_block_idx
+        .expect("call should resume into the caller continuation");
+    assert_eq!(caller_blocks[resume_idx].kind, "return");
+
+    let return_idx = edge.callee_return_block_indices[0];
+    assert_eq!(callee_blocks[return_idx].kind, "return");
+}
+
+#[test]
 fn test_cfg_condition_extracted_from_cfg_attribute() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");

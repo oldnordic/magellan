@@ -6,6 +6,7 @@ use anyhow::Result;
 use magellan::output::generate_execution_id;
 use magellan::CodeGraph;
 use magellan::OutputFormat;
+use rusqlite::Connection;
 use serde::Serialize;
 use std::fs;
 use std::path::PathBuf;
@@ -26,6 +27,49 @@ struct DoctorReport {
     issues_found: usize,
     issues_fixed: usize,
     checks: Vec<CheckResult>,
+}
+
+fn check_cfg_blocks_contract(conn: &Connection) -> Result<CheckResult> {
+    let columns: Vec<String> = conn
+        .prepare("PRAGMA table_info(cfg_blocks)")?
+        .query_map([], |row| row.get(1))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+
+    if columns.is_empty() {
+        return Ok(CheckResult {
+            name: "CFG schema contract".to_string(),
+            status: "missing".to_string(),
+            message: Some("cfg_blocks table not found".to_string()),
+            fix_hint: Some("Re-open database to trigger schema migration".to_string()),
+        });
+    }
+
+    let legacy_columns: Vec<&str> = ["coord_x", "coord_y", "coord_z", "coord_t"]
+        .into_iter()
+        .filter(|column| columns.iter().any(|existing| existing == column))
+        .collect();
+
+    if legacy_columns.is_empty() {
+        Ok(CheckResult {
+            name: "CFG schema contract".to_string(),
+            status: "ok".to_string(),
+            message: Some("cfg_blocks matches the Magellan source-of-truth schema".to_string()),
+            fix_hint: None,
+        })
+    } else {
+        Ok(CheckResult {
+            name: "CFG schema contract".to_string(),
+            status: "warning".to_string(),
+            message: Some(format!(
+                "Legacy cfg_blocks columns present: {}",
+                legacy_columns.join(", ")
+            )),
+            fix_hint: Some(
+                "Rebuild the database with current Magellan to remove legacy CFG columns"
+                    .to_string(),
+            ),
+        })
+    }
 }
 
 /// Run the doctor command
@@ -419,6 +463,36 @@ pub fn run_doctor(db_path: PathBuf, fix: bool, output_format: OutputFormat) -> R
                     issues_found += 1;
                 }
             }
+
+            // Check 13: CFG schema contract
+            match Connection::open(&db_path) {
+                Ok(conn) => match check_cfg_blocks_contract(&conn) {
+                    Ok(check) => {
+                        if check.status != "ok" {
+                            issues_found += 1;
+                        }
+                        checks.push(check);
+                    }
+                    Err(e) => {
+                        checks.push(CheckResult {
+                            name: "CFG schema contract".to_string(),
+                            status: "error".to_string(),
+                            message: Some(e.to_string()),
+                            fix_hint: Some("Inspect cfg_blocks table schema".to_string()),
+                        });
+                        issues_found += 1;
+                    }
+                },
+                Err(e) => {
+                    checks.push(CheckResult {
+                        name: "CFG schema contract".to_string(),
+                        status: "error".to_string(),
+                        message: Some(e.to_string()),
+                        fix_hint: Some("Inspect cfg_blocks table schema".to_string()),
+                    });
+                    issues_found += 1;
+                }
+            }
         }
         Err(e) => {
             checks.push(CheckResult {
@@ -508,4 +582,70 @@ pub fn run_doctor(db_path: PathBuf, fix: bool, output_format: OutputFormat) -> R
     graph.telemetry().record_phase_end(&exec_id, "output")?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::check_cfg_blocks_contract;
+
+    #[test]
+    fn cfg_blocks_contract_accepts_canonical_magellan_schema() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE cfg_blocks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                function_id INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                terminator TEXT NOT NULL,
+                byte_start INTEGER NOT NULL,
+                byte_end INTEGER NOT NULL,
+                start_line INTEGER NOT NULL,
+                start_col INTEGER NOT NULL,
+                end_line INTEGER NOT NULL,
+                end_col INTEGER NOT NULL,
+                cfg_hash TEXT,
+                statements TEXT,
+                cfg_condition TEXT
+            );",
+        )
+        .unwrap();
+
+        let result = check_cfg_blocks_contract(&conn).unwrap();
+        assert_eq!(result.status, "ok");
+    }
+
+    #[test]
+    fn cfg_blocks_contract_flags_legacy_coordinate_columns() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE cfg_blocks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                function_id INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                terminator TEXT NOT NULL,
+                byte_start INTEGER NOT NULL,
+                byte_end INTEGER NOT NULL,
+                start_line INTEGER NOT NULL,
+                start_col INTEGER NOT NULL,
+                end_line INTEGER NOT NULL,
+                end_col INTEGER NOT NULL,
+                cfg_hash TEXT,
+                statements TEXT,
+                coord_x INTEGER DEFAULT 0,
+                coord_y INTEGER DEFAULT 0,
+                coord_z INTEGER DEFAULT 0,
+                coord_t TEXT DEFAULT NULL,
+                cfg_condition TEXT
+            );",
+        )
+        .unwrap();
+
+        let result = check_cfg_blocks_contract(&conn).unwrap();
+        assert_eq!(result.status, "warning");
+        assert!(result
+            .message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("coord_x"));
+    }
 }

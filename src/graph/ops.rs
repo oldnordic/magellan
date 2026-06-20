@@ -404,10 +404,9 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
                     .iter()
                     .find(|(_, _, start, end)| func_start >= *start && func_end <= *end)
                 {
-                    // Use the new 4D coordinate function that accepts a function node
                     let _ = graph
                         .cfg_ops
-                        .index_cfg_with_4d_coordinates_from_node(&func_node, source, *entity_id);
+                        .index_cfg_from_node(&func_node, source, *entity_id);
                 }
             }
         }

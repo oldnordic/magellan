@@ -1,7 +1,7 @@
-//! CFG block storage and retrieval operations
+//! CFG block storage and retrieval operations.
 //!
 //! This module handles persistence of CFG (Control Flow Graph) data
-//! extracted from AST nodes or MIR, plus 4D spatial-temporal analysis.
+//! extracted from AST nodes or MIR.
 
 use anyhow::Result;
 // use fixedbitset::FixedBitSet; // removed: migrated to petgraph dominators
@@ -27,29 +27,8 @@ impl CfgOps {
         Self { chunks }
     }
 
-    /// Extract and store CFG blocks for a function
-    ///
-    /// DEPRECATED: This is a compatibility shim. Use `index_cfg_with_4d_coordinates_from_node`
-    /// for new code.
-    pub fn index_cfg_for_function(
-        &self,
-        func_node: &tree_sitter::Node,
-        source: &[u8],
-        function_id: i64,
-    ) -> Result<usize> {
-        self.index_cfg_with_4d_coordinates_from_node(func_node, source, function_id)
-    }
-
-    /// Extract and store CFG with 4D spatial coordinates (from function node)
-    ///
-    /// This is the modern entry point that combines:
-    /// 1. CFG extraction with edges from a function node
-    /// 2. 4D coordinate computation (X, Y, Z)
-    /// 3. Database persistence
-    ///
-    /// This function is designed to work with function nodes from a file's AST,
-    /// making it compatible with the existing indexing pipeline.
-    pub fn index_cfg_with_4d_coordinates_from_node(
+    /// Extract and store CFG blocks from a function node.
+    pub fn index_cfg_from_node(
         &self,
         func_node: &tree_sitter::Node,
         source: &[u8],
@@ -62,14 +41,11 @@ impl CfgOps {
             .map_err(|e| anyhow::anyhow!("Invalid UTF-8 in function source: {}", e))?;
 
         // Extract CFG with edges from function node
-        let mut cfg = extract_cfg_from_function_node(func_node, function_id, source_str);
+        let cfg = extract_cfg_from_function_node(func_node, function_id, source_str);
 
         if cfg.blocks.is_empty() {
             return Ok(0);
         }
-
-        // Compute 4D coordinates
-        compute_4d_coordinates(&mut cfg);
 
         // Persist to database
         self.insert_cfg_blocks(&cfg.blocks)?;
@@ -80,12 +56,8 @@ impl CfgOps {
         Ok(cfg.blocks.len())
     }
 
-    /// Extract and store CFG with 4D spatial coordinates (from function source)
-    ///
-    /// This is an alternative entry point that accepts just the function source code
-    /// and language, parsing it to extract the CFG. This is useful for standalone
-    /// function analysis or when you don't have a function node.
-    pub fn index_cfg_with_4d_coordinates(
+    /// Extract and store CFG blocks from function source text.
+    pub fn index_cfg(
         &self,
         source: &str,
         function_id: i64,
@@ -94,14 +66,11 @@ impl CfgOps {
         use crate::graph::cfg_edges_extract::extract_cfg_with_edges;
 
         // Extract CFG with edges
-        let mut cfg = extract_cfg_with_edges(source, function_id, language);
+        let cfg = extract_cfg_with_edges(source, function_id, language);
 
         if cfg.blocks.is_empty() {
             return Ok(0);
         }
-
-        // Compute 4D coordinates
-        compute_4d_coordinates(&mut cfg);
 
         // Persist to database
         self.insert_cfg_blocks(&cfg.blocks)?;
@@ -124,9 +93,8 @@ impl CfgOps {
                         end_line, end_col,
                         cfg_hash,
                         statements,
-                        coord_x, coord_y, coord_z, coord_t,
                         cfg_condition
-                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
                 )?;
 
                 for block in blocks {
@@ -162,10 +130,6 @@ impl CfgOps {
                         block.end_col,
                         cfg_hash,
                         statements_json,
-                        block.coord_x,
-                        block.coord_y,
-                        block.coord_z,
-                        block.coord_t.as_ref(),
                         block.cfg_condition.as_ref(),
                     ])?;
                 }
@@ -347,7 +311,6 @@ impl CfgOps {
                         start_line, start_col,
                         end_line, end_col,
                         cfg_hash, statements,
-                        coord_x, coord_y, coord_z, coord_t,
                         cfg_condition
                  FROM cfg_blocks
                  WHERE function_id = ?1
@@ -371,11 +334,7 @@ impl CfgOps {
                         end_col: row.get(8)?,
                         cfg_hash: row.get(9)?,
                         statements,
-                        coord_x: row.get(11)?,
-                        coord_y: row.get(12)?,
-                        coord_z: row.get(13)?,
-                        coord_t: row.get(14)?,
-                        cfg_condition: row.get(15)?,
+                        cfg_condition: row.get(11)?,
                     })
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
@@ -393,7 +352,6 @@ impl CfgOps {
                         c.start_line, c.start_col,
                         c.end_line, c.end_col,
                         c.cfg_hash, c.statements,
-                        c.coord_x, c.coord_y, c.coord_z, c.coord_t,
                         c.cfg_condition
                  FROM cfg_blocks c
                  JOIN graph_entities e ON c.function_id = e.id
@@ -420,11 +378,7 @@ impl CfgOps {
                     end_col: row.get(9)?,
                     cfg_hash: row.get(10)?,
                     statements,
-                    coord_x: row.get(12)?,
-                    coord_y: row.get(13)?,
-                    coord_z: row.get(14)?,
-                    coord_t: row.get(15)?,
-                    cfg_condition: row.get(16)?,
+                    cfg_condition: row.get(12)?,
                 };
                 Ok((function_id, block))
             })?;
@@ -532,511 +486,9 @@ pub fn evaluate_cfg_condition(condition: &str, active_features: &HashSet<String>
     true
 }
 
-/// Compute dominator depth (X coordinate) for all CFG blocks
-///
-/// Dominator depth represents structural hierarchy depth in the control flow.
-/// Entry block has depth 0, its immediate children have depth 1, etc.
-/// Compute dominator depth (X coordinate) for all CFG blocks
-///
-/// The dominator depth is the count of strict dominators from the entry block.
-/// Entry block has depth 0, blocks directly dominated by entry have depth 1, etc.
-/// Unreachable blocks (no path from entry, but present in the edge list) receive depth -1.
-pub fn compute_dominator_depth(cfg: &CfgWithEdges) -> HashMap<usize, i64> {
-    let n = cfg.blocks.len();
-    if n == 0 {
-        return HashMap::new();
-    }
-    let entry_idx = 0;
-
-    // Build petgraph DiGraph from CfgWithEdges
-    let mut graph = Graph::<(), ()>::new();
-    let nodes: Vec<_> = (0..n).map(|_| graph.add_node(())).collect();
-    for edge in &cfg.edges {
-        if edge.source_idx < n && edge.target_idx < n {
-            graph.add_edge(nodes[edge.source_idx], nodes[edge.target_idx], ());
-        }
-    }
-
-    // Run simple_fast dominator algorithm
-    let dom = simple_fast(&graph, nodes[entry_idx]);
-
-    // Compute depth by counting strict dominators along immediate-dominator chain.
-    let mut depth = HashMap::new();
-    depth.insert(entry_idx, 0i64);
-    for (i, &node) in nodes.iter().enumerate().take(n).skip(1) {
-        // petgraph returns None for unreachable nodes.
-        match dom.strict_dominators(node) {
-            Some(iter) => {
-                let d = iter.count() as i64;
-                depth.insert(i, d);
-            }
-            None => {
-                // Unreachable block
-                depth.insert(i, -1i64);
-            }
-        }
-    }
-
-    depth
-}
-
-/// Compute loop nesting level (Y coordinate) for all CFG blocks
-///
-/// Loop nesting represents iterative complexity depth.
-/// 0 = no loops, 1 = inside one loop, 2 = inside nested loop, etc.
-///
-/// Algorithm: Detect back-edges and compute nesting depth
-pub fn compute_loop_nesting(cfg: &CfgWithEdges) -> HashMap<usize, i64> {
-    let mut nesting = HashMap::new();
-
-    if cfg.blocks.is_empty() {
-        return nesting;
-    }
-
-    // Find back-edges (edges that go to a dominator)
-    let mut back_edges: Vec<(usize, usize)> = Vec::new();
-    let mut successors: HashMap<usize, Vec<usize>> = HashMap::new();
-
-    for edge in &cfg.edges {
-        successors
-            .entry(edge.source_idx)
-            .or_default()
-            .push(edge.target_idx);
-
-        if edge.edge_type == CfgEdgeType::BackEdge {
-            back_edges.push((edge.source_idx, edge.target_idx));
-        }
-    }
-
-    // Build loop headers (targets of back-edges)
-    let mut loop_headers: HashSet<usize> = HashSet::new();
-    for (_, header) in &back_edges {
-        loop_headers.insert(*header);
-    }
-
-    // Compute nesting using DFS from each block
-    fn compute_nesting_depth(
-        block: usize,
-        loop_headers: &HashSet<usize>,
-        successors: &HashMap<usize, Vec<usize>>,
-        visited: &mut HashSet<usize>,
-        cache: &mut HashMap<usize, i64>,
-        entry_idx: usize,
-    ) -> i64 {
-        if let Some(&depth) = cache.get(&block) {
-            return depth;
-        }
-
-        if visited.contains(&block) {
-            return 0;
-        }
-
-        visited.insert(block);
-
-        // Base depth: 1 if this is a loop header (but not entry block)
-        let base_depth = if loop_headers.contains(&block) && block != entry_idx {
-            1
-        } else {
-            0
-        };
-
-        // Max depth among successors
-        let mut max_child_depth = 0;
-        if let Some(succs) = successors.get(&block) {
-            for &succ in succs {
-                let child_depth = compute_nesting_depth(
-                    succ,
-                    loop_headers,
-                    successors,
-                    visited,
-                    cache,
-                    entry_idx,
-                );
-                max_child_depth = max_child_depth.max(child_depth);
-            }
-        }
-
-        let depth = base_depth + max_child_depth;
-        cache.insert(block, depth);
-        depth
-    }
-
-    for i in 0..cfg.blocks.len() {
-        let depth = compute_nesting_depth(
-            i,
-            &loop_headers,
-            &successors,
-            &mut HashSet::new(),
-            &mut HashMap::new(),
-            0, // entry block is always at index 0
-        );
-        nesting.insert(i, depth);
-    }
-
-    nesting
-}
-
-/// Compute branch distance (Z coordinate) for all CFG blocks
-///
-/// Branch distance represents decision density from entry.
-/// Counts the number of conditional branches on the shortest path.
-///
-/// Algorithm: BFS from entry block, counting conditional edges
-pub fn compute_branch_distance(cfg: &CfgWithEdges) -> HashMap<usize, i64> {
-    let mut distance = HashMap::new();
-
-    if cfg.blocks.is_empty() {
-        return distance;
-    }
-
-    let entry_idx = 0;
-    let mut queue = VecDeque::new();
-    let mut visited = HashSet::new();
-
-    queue.push_back((entry_idx, 0i64));
-    visited.insert(entry_idx);
-
-    // Build adjacency list
-    let mut successors: HashMap<usize, Vec<(usize, bool)>> = HashMap::new();
-    for edge in &cfg.edges {
-        let is_conditional = matches!(
-            edge.edge_type,
-            CfgEdgeType::ConditionalTrue | CfgEdgeType::ConditionalFalse
-        );
-        successors
-            .entry(edge.source_idx)
-            .or_default()
-            .push((edge.target_idx, is_conditional));
-    }
-
-    while let Some((block, dist)) = queue.pop_front() {
-        distance.insert(block, dist);
-
-        if let Some(succs) = successors.get(&block) {
-            for &(succ, is_cond) in succs {
-                if !visited.contains(&succ) {
-                    visited.insert(succ);
-                    let new_dist = dist + if is_cond { 1 } else { 0 };
-                    queue.push_back((succ, new_dist));
-                }
-            }
-        }
-    }
-
-    // Fill in unreachable blocks with 0
-    for i in 0..cfg.blocks.len() {
-        distance.entry(i).or_insert(0);
-    }
-
-    distance
-}
-
-/// Compute all 4D coordinates for a CFG and update blocks
-///
-/// This is the main entry point for 4D coordinate computation.
-/// It calculates X, Y, Z coordinates and updates the CfgBlock structs.
-/// Get current git commit hash for the T coordinate
-///
-/// Returns the current HEAD commit hash if in a git repository,
-/// or None if not in a repository or git is not available.
-pub fn get_current_git_commit() -> Option<String> {
-    use git2::Repository;
-
-    // Try to open the current directory as a git repository
-    if let Ok(repo) = Repository::open(".") {
-        // Get HEAD reference
-        if let Ok(head) = repo.head() {
-            // Get commit hash
-            if let Some(commit_oid) = head.target() {
-                return Some(commit_oid.to_string());
-            }
-        }
-    }
-
-    None
-}
-
-/// Compute all 4D coordinates for a CFG and update blocks
-///
-/// This is the main entry point for 4D coordinate computation.
-/// It calculates X, Y, Z coordinates and updates the CfgBlock structs.
-/// The T coordinate (git commit) is set if available.
-pub fn compute_4d_coordinates(cfg: &mut CfgWithEdges) {
-    compute_4d_coordinates_with_commit(cfg, get_current_git_commit())
-}
-
-/// Compute all 4D coordinates for a CFG with explicit commit hash
-///
-/// Same as `compute_4d_coordinates` but allows specifying the commit hash
-/// explicitly for time-travel queries or testing.
-pub fn compute_4d_coordinates_with_commit(cfg: &mut CfgWithEdges, commit: Option<String>) {
-    let dom_depth = compute_dominator_depth(cfg);
-    let loop_nest = compute_loop_nesting(cfg);
-    let branch_dist = compute_branch_distance(cfg);
-
-    for (i, block) in cfg.blocks.iter_mut().enumerate() {
-        block.coord_x = dom_depth.get(&i).copied().unwrap_or(0);
-        block.coord_y = loop_nest.get(&i).copied().unwrap_or(0);
-        block.coord_z = branch_dist.get(&i).copied().unwrap_or(0);
-        block.coord_t = commit.clone();
-    }
-}
-
 #[cfg(test)]
 mod spatial_tests {
     use super::*;
-
-    fn get_test_language() -> tree_sitter::Language {
-        // Use tree-sitter-rust language for testing
-        tree_sitter_rust::LANGUAGE.into()
-    }
-
-    #[test]
-    fn test_compute_dominator_depth_simple() {
-        let source = r#"
-        fn main() {
-            let x = 1;
-            if x > 0 {
-                println!("positive");
-            } else {
-                println!("non-positive");
-            }
-        }
-        "#;
-
-        let cfg =
-            crate::graph::cfg_edges_extract::extract_cfg_with_edges(source, 1, get_test_language());
-        let depths = compute_dominator_depth(&cfg);
-
-        // Entry block should have depth 0
-        assert_eq!(depths.get(&0), Some(&0));
-
-        // All blocks should have a depth
-        assert_eq!(depths.len(), cfg.blocks.len());
-    }
-
-    #[test]
-    fn test_compute_dominator_depth_linear_chain() {
-        // Manually construct a 4-block linear chain to verify idom selection
-        let cfg = CfgWithEdges {
-            function_id: 1,
-            blocks: vec![
-                CfgBlock {
-                    function_id: 1,
-                    kind: "ENTRY".to_string(),
-                    terminator: "FALLTHROUGH".to_string(),
-                    byte_start: 0,
-                    byte_end: 10,
-                    start_line: 1,
-                    start_col: 0,
-                    end_line: 1,
-                    end_col: 10,
-                    cfg_hash: None,
-                    statements: None,
-                    coord_x: 0,
-                    coord_y: 0,
-                    coord_z: 0,
-                    coord_t: None,
-                    cfg_condition: None,
-                },
-                CfgBlock {
-                    function_id: 1,
-                    kind: "BASIC".to_string(),
-                    terminator: "FALLTHROUGH".to_string(),
-                    byte_start: 10,
-                    byte_end: 20,
-                    start_line: 2,
-                    start_col: 0,
-                    end_line: 2,
-                    end_col: 10,
-                    cfg_hash: None,
-                    statements: None,
-                    coord_x: 0,
-                    coord_y: 0,
-                    coord_z: 0,
-                    coord_t: None,
-                    cfg_condition: None,
-                },
-                CfgBlock {
-                    function_id: 1,
-                    kind: "BASIC".to_string(),
-                    terminator: "FALLTHROUGH".to_string(),
-                    byte_start: 20,
-                    byte_end: 30,
-                    start_line: 3,
-                    start_col: 0,
-                    end_line: 3,
-                    end_col: 10,
-                    cfg_hash: None,
-                    statements: None,
-                    coord_x: 0,
-                    coord_y: 0,
-                    coord_z: 0,
-                    coord_t: None,
-                    cfg_condition: None,
-                },
-                CfgBlock {
-                    function_id: 1,
-                    kind: "EXIT".to_string(),
-                    terminator: "RETURN".to_string(),
-                    byte_start: 30,
-                    byte_end: 40,
-                    start_line: 4,
-                    start_col: 0,
-                    end_line: 4,
-                    end_col: 10,
-                    cfg_hash: None,
-                    statements: None,
-                    coord_x: 0,
-                    coord_y: 0,
-                    coord_z: 0,
-                    coord_t: None,
-                    cfg_condition: None,
-                },
-            ],
-            edges: vec![
-                CfgEdge {
-                    source_idx: 0,
-                    target_idx: 1,
-                    edge_type: CfgEdgeType::Fallthrough,
-                },
-                CfgEdge {
-                    source_idx: 1,
-                    target_idx: 2,
-                    edge_type: CfgEdgeType::Fallthrough,
-                },
-                CfgEdge {
-                    source_idx: 2,
-                    target_idx: 3,
-                    edge_type: CfgEdgeType::Fallthrough,
-                },
-            ],
-        };
-
-        let depths = compute_dominator_depth(&cfg);
-
-        // Entry block has depth 0
-        assert_eq!(depths.get(&0), Some(&0), "entry should have depth 0");
-        // Block 1 is directly dominated by entry
-        assert_eq!(depths.get(&1), Some(&1), "block 1 should have depth 1");
-        // Block 2 is dominated by entry -> block 1
-        assert_eq!(depths.get(&2), Some(&2), "block 2 should have depth 2");
-        // Block 3 is dominated by entry -> block 1 -> block 2
-        assert_eq!(depths.get(&3), Some(&3), "block 3 should have depth 3");
-    }
-
-    #[test]
-    fn test_compute_loop_nesting_simple() {
-        let source = r#"
-        fn main() {
-            let mut x = 0;
-            while x < 10 {
-                x += 1;
-            }
-        }
-        "#;
-
-        let cfg =
-            crate::graph::cfg_edges_extract::extract_cfg_with_edges(source, 1, get_test_language());
-        let nesting = compute_loop_nesting(&cfg);
-
-        // All blocks should have nesting level
-        assert_eq!(nesting.len(), cfg.blocks.len());
-
-        // All nesting levels should be non-negative
-        for depth in nesting.values() {
-            assert!(depth >= &0);
-        }
-    }
-
-    #[test]
-    fn test_compute_branch_distance_simple() {
-        let source = r#"
-        fn main() {
-            let x = 1;
-            if x > 0 {
-                println!("positive");
-            }
-        }
-        "#;
-
-        let cfg =
-            crate::graph::cfg_edges_extract::extract_cfg_with_edges(source, 1, get_test_language());
-        let distance = compute_branch_distance(&cfg);
-
-        // Entry block should have distance 0
-        assert_eq!(distance.get(&0), Some(&0));
-
-        // All blocks should have distance
-        assert_eq!(distance.len(), cfg.blocks.len());
-    }
-
-    #[test]
-    fn test_compute_4d_coordinates_integration() {
-        let source = r#"
-        fn example() {
-            let mut x = 0;
-            if x > 0 {
-                while x < 10 {
-                    x += 1;
-                }
-            } else {
-                x = 5;
-            }
-        }
-        "#;
-
-        let mut cfg =
-            crate::graph::cfg_edges_extract::extract_cfg_with_edges(source, 1, get_test_language());
-        compute_4d_coordinates(&mut cfg);
-
-        // All blocks should have coordinates set
-        for block in &cfg.blocks {
-            // X, Y, Z should be set (coord_t may be None if not in git repo)
-            // coord_x can be -1 for unreachable blocks (no predecessors)
-            // coord_y and coord_z should always be non-negative
-            assert!(block.coord_x >= -1);
-            assert!(block.coord_y >= 0);
-            assert!(block.coord_z >= 0);
-        }
-    }
-
-    #[test]
-    fn test_git_commit_tracking() {
-        // Test that git commit tracking works
-        let commit = get_current_git_commit();
-
-        // In a git repository, we should get Some(commit_hash)
-        // Outside of git, we get None
-        if let Some(hash) = commit {
-            // Should be a valid git hash (40 hex characters)
-            assert_eq!(hash.len(), 40);
-            assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
-        } else {
-            // Not in a git repository - that's okay for testing
-        }
-    }
-
-    #[test]
-    fn test_compute_4d_coordinates_with_explicit_commit() {
-        let source = r#"
-        fn example() {
-            let x = 1;
-        }
-        "#;
-
-        let mut cfg =
-            crate::graph::cfg_edges_extract::extract_cfg_with_edges(source, 1, get_test_language());
-
-        // Test with explicit commit hash
-        let test_commit = Some("abc123def456789".repeat(2)); // 40 chars
-        compute_4d_coordinates_with_commit(&mut cfg, test_commit.clone());
-
-        // All blocks should have the specified commit
-        for block in &cfg.blocks {
-            assert_eq!(block.coord_t, test_commit);
-        }
-    }
 
     #[test]
     fn test_cfg_edges_roundtrip() {
@@ -1058,10 +510,6 @@ mod spatial_tests {
                 end_col: 10,
                 cfg_hash: None,
                 statements: None,
-                coord_x: 0,
-                coord_y: 0,
-                coord_z: 0,
-                coord_t: None,
                 cfg_condition: None,
             },
             CfgBlock {
@@ -1076,10 +524,6 @@ mod spatial_tests {
                 end_col: 10,
                 cfg_hash: None,
                 statements: None,
-                coord_x: 1,
-                coord_y: 0,
-                coord_z: 1,
-                coord_t: None,
                 cfg_condition: None,
             },
         ];
@@ -1118,101 +562,6 @@ mod spatial_tests {
         // Verify edges are also deleted
         let after_delete = ops.get_cfg_edges_for_function(42).unwrap();
         assert!(after_delete.is_empty());
-    }
-
-    #[test]
-    fn test_compute_dominator_depth_unreachable_block() {
-        // Construct a CFG with an unreachable block (no predecessors)
-        // Block 0 (entry) -> Block 1
-        // Block 2 is unreachable (no incoming edges)
-        let cfg = CfgWithEdges {
-            function_id: 1,
-            blocks: vec![
-                CfgBlock {
-                    function_id: 1,
-                    kind: "ENTRY".to_string(),
-                    terminator: "FALLTHROUGH".to_string(),
-                    byte_start: 0,
-                    byte_end: 10,
-                    start_line: 1,
-                    start_col: 0,
-                    end_line: 1,
-                    end_col: 10,
-                    cfg_hash: None,
-                    statements: None,
-                    coord_x: 0,
-                    coord_y: 0,
-                    coord_z: 0,
-                    coord_t: None,
-                    cfg_condition: None,
-                },
-                CfgBlock {
-                    function_id: 1,
-                    kind: "EXIT".to_string(),
-                    terminator: "RETURN".to_string(),
-                    byte_start: 10,
-                    byte_end: 20,
-                    start_line: 2,
-                    start_col: 0,
-                    end_line: 2,
-                    end_col: 10,
-                    cfg_hash: None,
-                    statements: None,
-                    coord_x: 0,
-                    coord_y: 0,
-                    coord_z: 0,
-                    coord_t: None,
-                    cfg_condition: None,
-                },
-                CfgBlock {
-                    function_id: 1,
-                    kind: "DEAD".to_string(),
-                    terminator: "UNREACHABLE".to_string(),
-                    byte_start: 20,
-                    byte_end: 30,
-                    start_line: 3,
-                    start_col: 0,
-                    end_line: 3,
-                    end_col: 10,
-                    cfg_hash: None,
-                    statements: None,
-                    coord_x: 0,
-                    coord_y: 0,
-                    coord_z: 0,
-                    coord_t: None,
-                    cfg_condition: None,
-                },
-            ],
-            edges: vec![
-                // Only edge: entry (0) -> exit (1)
-                // Block 2 has no incoming edges - unreachable!
-                CfgEdge {
-                    source_idx: 0,
-                    target_idx: 1,
-                    edge_type: CfgEdgeType::Fallthrough,
-                },
-            ],
-        };
-
-        let depths = compute_dominator_depth(&cfg);
-
-        // Entry block must have depth 0
-        assert_eq!(depths.get(&0), Some(&0), "entry block should have depth 0");
-
-        // Reachable block (exit) should have depth >= 1
-        assert_eq!(
-            depths.get(&1),
-            Some(&1),
-            "reachable exit block should have depth 1"
-        );
-
-        // Unreachable block (no predecessors) should have depth -1, NOT 0
-        // This is the bug we're fixing: unreachable blocks were incorrectly getting depth 0
-        assert_eq!(
-            depths.get(&2),
-            Some(&-1),
-            "unreachable block (no predecessors) should have depth -1"
-        );
     }
 
     #[test]
@@ -1264,18 +613,6 @@ mod spatial_tests {
                 cfg.blocks.len(),
                 cfg.edges.len()
             );
-
-            println!("  Testing dominator depth ...");
-            let dom_depth = compute_dominator_depth(&cfg);
-            println!("    OK - {} entries", dom_depth.len());
-
-            println!("  Testing loop nesting ...");
-            let loop_nest = compute_loop_nesting(&cfg);
-            println!("    OK - {} entries", loop_nest.len());
-
-            println!("  Testing branch distance ...");
-            let branch_dist = compute_branch_distance(&cfg);
-            println!("    OK - {} entries", branch_dist.len());
 
             println!("  PASSED");
         }
@@ -1394,10 +731,6 @@ mod spatial_tests {
                 end_col: 10,
                 cfg_hash: None,
                 statements: None,
-                coord_x: 0,
-                coord_y: 0,
-                coord_z: 0,
-                coord_t: None,
                 cfg_condition: None,
             },
             CfgBlock {
@@ -1412,10 +745,6 @@ mod spatial_tests {
                 end_col: 10,
                 cfg_hash: None,
                 statements: None,
-                coord_x: 1,
-                coord_y: 0,
-                coord_z: 1,
-                coord_t: None,
                 cfg_condition: Some(r#"feature = "tokio""#.to_string()),
             },
             CfgBlock {
@@ -1430,10 +759,6 @@ mod spatial_tests {
                 end_col: 10,
                 cfg_hash: None,
                 statements: None,
-                coord_x: 2,
-                coord_y: 0,
-                coord_z: 2,
-                coord_t: None,
                 cfg_condition: Some(r#"feature = "async-std""#.to_string()),
             },
         ];

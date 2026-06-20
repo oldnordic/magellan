@@ -912,7 +912,7 @@ pub fn parse_context_args(args: &[String]) -> Result<Command> {
         let enabled: Vec<_> = registry.projects.iter().filter(|p| p.enabled).collect();
         if enabled.is_empty() {
             return Err(anyhow::anyhow!(
-                "No enabled projects in registry. Use `magellan registry scan` to discover projects, then `magellan registry enable <name>` to activate."
+                "No enabled projects in registry. Use `magellan catalog` to list registered projects, then `magellan watch` to index one."
             ));
         }
         db_paths = enabled.iter().map(|p| p.db.clone()).collect();

@@ -252,16 +252,26 @@ magellan service pause myproject
 magellan service resume myproject
 ```
 
-For bulk discovery, the `magellan registry scan` command finds Git repositories:
+To see every database magellan knows about, use `magellan catalog`. It reads
+the canonical registry and reports a live table of status, entity/edge counts,
+and stored entity kinds:
 
 ```bash
-magellan registry scan --root /home/feanor/Projects
-magellan registry scan --root . --output json
+magellan catalog
 
-magellan registry list
-magellan registry add --name myproject --root /path/to/project
-magellan registry remove --name myproject
+# Example output:
+#   magellan catalog — 25 databases (21 live, 4 stale)
+#
+#   NAME        STATUS   ENTITY   EDGE   KINDS
+#   envoy       live     3027     3123   Call,Reference,Symbol,Import,File
+#   magellan    live     19436    19724  Call,Reference,Symbol,Import,File
+#   ...
 ```
+
+The catalog is read-only and self-contained — it inspects only magellan's own
+registry (`~/.magellan/meta.db`) and databases. Use `magellan service
+register` / `magellan service unregister` (above) to change which projects are
+indexed.
 
 ### Natural Language Query (`ask`)
 

@@ -2,7 +2,7 @@
 //!
 //! This module is kept for backward compatibility but new code should use
 //! `crate::graph::cfg_edges_extract` which provides:
-//! - 4D spatial coordinates (coord_x, coord_y, coord_z)
+//! - CFG block metadata
 //! - Typed control-flow edges (ConditionalTrue, ConditionalFalse, etc.)
 //! - Better coverage of Rust control-flow constructs
 //!
@@ -231,10 +231,6 @@ impl<'a> CfgExtractor<'a> {
             end_col,
             cfg_hash: None,
             statements: None,
-            coord_x: 0,
-            coord_y: 0,
-            coord_z: 0,
-            coord_t: None,
             cfg_condition: None,
         };
 
@@ -439,10 +435,6 @@ impl<'a> CfgExtractor<'a> {
             end_col,
             cfg_hash: None,
             statements: None,
-            coord_x: 0,
-            coord_y: 0,
-            coord_z: 0,
-            coord_t: None,
             cfg_condition: None,
         };
 
@@ -470,10 +462,6 @@ impl<'a> CfgExtractor<'a> {
             end_col,
             cfg_hash: None,
             statements: None,
-            coord_x: 0,
-            coord_y: 0,
-            coord_z: 0,
-            coord_t: None,
             cfg_condition: None,
         };
 
@@ -501,10 +489,6 @@ impl<'a> CfgExtractor<'a> {
             end_col,
             cfg_hash: None,
             statements: None,
-            coord_x: 0,
-            coord_y: 0,
-            coord_z: 0,
-            coord_t: None,
             cfg_condition: None,
         };
 

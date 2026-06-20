@@ -78,19 +78,7 @@ fn test_new_database_has_v17_schema() {
         "statements column should exist in cfg_blocks (v9)"
     );
 
-    // Verify 4D coordinate columns exist (v10 addition)
-    let has_coord_x: bool = conn
-        .query_row(
-            "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='coord_x'",
-            [],
-            |_| Ok(true),
-        )
-        .unwrap_or(false);
-
-    assert!(
-        has_coord_x,
-        "coord_x column should exist in cfg_blocks (v10)"
-    );
+    // v10 is reserved; legacy 4D CFG columns should not be created for new databases
 
     // v11 geo_index_meta removed — table no longer created, existing tables harmless
 
@@ -172,6 +160,20 @@ fn test_new_database_has_v17_schema() {
         has_cfg_condition,
         "cfg_condition column should exist in cfg_blocks (v16)"
     );
+
+    for legacy_column in ["coord_x", "coord_y", "coord_z", "coord_t"] {
+        let has_legacy_column: bool = conn
+            .query_row(
+                "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name=?1",
+                [legacy_column],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+        assert!(
+            !has_legacy_column,
+            "legacy column {legacy_column} should not exist in cfg_blocks"
+        );
+    }
 }
 
 #[test]
@@ -316,15 +318,20 @@ fn test_migration_v4_to_v17_creates_required_tables() {
         .unwrap_or(false);
     assert!(has_statements, "statements column should be created (v9)");
 
-    // Verify 4D coordinate columns exist (v10)
-    let has_coord_x: bool = conn
-        .query_row(
-            "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='coord_x'",
-            [],
-            |_| Ok(true),
-        )
-        .unwrap_or(false);
-    assert!(has_coord_x, "coord_x column should be created (v10)");
+    // v10 is reserved; legacy 4D CFG columns are not created for new databases
+    for legacy_column in ["coord_x", "coord_y", "coord_z", "coord_t"] {
+        let has_legacy_column: bool = conn
+            .query_row(
+                "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name=?1",
+                [legacy_column],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+        assert!(
+            !has_legacy_column,
+            "legacy column {legacy_column} should not be created"
+        );
+    }
 
     // v11 geo_index_meta removed — no longer created
 
@@ -473,19 +480,20 @@ fn test_opening_v4_database_auto_upgrades_to_v17() {
         "statements column should be created during auto-upgrade (v9)"
     );
 
-    // Verify 4D coordinate columns exist (v10)
-    let has_coord_x: bool = conn
-        .query_row(
-            "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='coord_x'",
-            [],
-            |_| Ok(true),
-        )
-        .unwrap_or(false);
-
-    assert!(
-        has_coord_x,
-        "coord_x column should be created during auto-upgrade (v10)"
-    );
+    // v10 is reserved; legacy 4D CFG columns are not created during auto-upgrade
+    for legacy_column in ["coord_x", "coord_y", "coord_z", "coord_t"] {
+        let has_legacy_column: bool = conn
+            .query_row(
+                "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name=?1",
+                [legacy_column],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+        assert!(
+            !has_legacy_column,
+            "legacy column {legacy_column} should not exist after auto-upgrade"
+        );
+    }
 
     // v11 geo_index_meta removed — no longer created during migration
 

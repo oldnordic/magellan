@@ -39,7 +39,7 @@ Magellan also maintains side tables for data that is easier to query directly:
 
 - `code_chunks`: source snippets keyed by file and byte span
 - `ast_nodes`: tree-sitter AST nodes
-- `cfg_blocks`: CFG blocks with hashes, statements, and 4D coordinates
+- `cfg_blocks`: CFG blocks with hashes, statements, and optional `cfg_condition` metadata
 - `cfg_edges`: typed CFG edges
 - `cfg_block_coverage`: covered CFG blocks from LCOV ingestion
 - `cfg_edge_coverage`: covered CFG edges from LCOV ingestion
@@ -68,6 +68,10 @@ SQLite remains the source of truth for normal operation.
 11. Extract and store CFG blocks/edges where supported.
 12. Extract references and calls.
 13. Scan and store source documents for graph memory (if configured).
+
+Mirage consumes CFG data from Magellan's `cfg_blocks` and `cfg_edges` tables, so
+schema changes in this area must preserve Mirage compatibility or be updated in
+lockstep.
 
 Current parser dispatch covers Rust, Python, C, C++, Java, JavaScript,
 TypeScript, Go, and CUDA. `.hip` files are detected as C++ (HIP is C++ with AMD

@@ -30,6 +30,14 @@ fn is_control_flow(kind: &str) -> bool {
     CONTROL_FLOW_KINDS.contains(&kind)
 }
 
+fn is_cfg_relevant_expression(kind: &str) -> bool {
+    is_control_flow(kind)
+        || matches!(
+            kind,
+            "binary_expression" | "call_expression" | "call_statement"
+        )
+}
+
 /// Scan a node's children for control-flow expressions and extract them.
 /// Used for let/assignment bindings where the RHS may contain control flow.
 pub(super) fn extract_control_flow_children(
@@ -39,14 +47,14 @@ pub(super) fn extract_control_flow_children(
     blocks: &mut Vec<CfgBlock>,
     edges: &mut Vec<CfgEdge>,
     previous_block_idx: &mut Option<usize>,
-    loop_header: Option<usize>,
+    loop_scope: LoopScope,
 ) {
     let mut cursor = node.walk();
     if cursor.goto_first_child() {
         loop {
             let child = cursor.node();
             let kind = child.kind();
-            if is_control_flow(kind) || kind == "binary_expression" {
+            if is_cfg_relevant_expression(kind) {
                 extract_blocks_from_node_with_fallthrough(
                     &child,
                     function_id,
@@ -54,7 +62,7 @@ pub(super) fn extract_control_flow_children(
                     blocks,
                     edges,
                     previous_block_idx,
-                    loop_header,
+                    loop_scope,
                 );
             }
             if !cursor.goto_next_sibling() {
@@ -73,7 +81,7 @@ pub(super) fn extract_blocks_from_node_with_fallthrough(
     blocks: &mut Vec<CfgBlock>,
     edges: &mut Vec<CfgEdge>,
     previous_block_idx: &mut Option<usize>,
-    loop_header: Option<usize>,
+    loop_scope: LoopScope,
 ) {
     let node_kind = node.kind();
 
@@ -87,7 +95,7 @@ pub(super) fn extract_blocks_from_node_with_fallthrough(
                 blocks,
                 edges,
                 previous_block_idx,
-                loop_header,
+                loop_scope,
             );
         }
 
@@ -116,6 +124,7 @@ pub(super) fn extract_blocks_from_node_with_fallthrough(
                 blocks,
                 edges,
                 previous_block_idx,
+                loop_scope,
             );
         }
 
@@ -159,10 +168,10 @@ pub(super) fn extract_blocks_from_node_with_fallthrough(
             }
             *previous_block_idx = None; // Break ends the path
 
-            if let Some(header) = loop_header {
+            if let Some(exit) = loop_scope.exit {
                 edges.push(CfgEdge {
                     source_idx,
-                    target_idx: header,
+                    target_idx: exit,
                     edge_type: CfgEdgeType::Jump,
                 });
             }
@@ -184,7 +193,7 @@ pub(super) fn extract_blocks_from_node_with_fallthrough(
             }
             *previous_block_idx = None; // Continue ends the path
 
-            if let Some(header) = loop_header {
+            if let Some(header) = loop_scope.header {
                 edges.push(CfgEdge {
                     source_idx,
                     target_idx: header,
@@ -207,7 +216,7 @@ pub(super) fn extract_blocks_from_node_with_fallthrough(
                         blocks,
                         edges,
                         previous_block_idx,
-                        loop_header,
+                        loop_scope,
                     );
                     if !cursor.goto_next_sibling() {
                         break;
@@ -218,7 +227,7 @@ pub(super) fn extract_blocks_from_node_with_fallthrough(
 
         // Call expression
         "call_expression" | "call_statement" => {
-            let block = create_block_from_node(node, function_id, source, "call", "fallthrough");
+            let block = create_block_from_node(node, function_id, source, "call", "call");
             let source_idx = blocks.len();
             blocks.push(block);
 
@@ -230,6 +239,13 @@ pub(super) fn extract_blocks_from_node_with_fallthrough(
                     edge_type: CfgEdgeType::Fallthrough,
                 });
             }
+
+            edges.push(CfgEdge {
+                source_idx,
+                target_idx: source_idx,
+                edge_type: CfgEdgeType::Call,
+            });
+
             *previous_block_idx = Some(source_idx); // Call allows fallthrough
         }
 
@@ -247,18 +263,82 @@ pub(super) fn extract_blocks_from_node_with_fallthrough(
                 "macro_invocation" => "macro",
                 _ => "stmt",
             };
-            let block = create_block_from_node(node, function_id, source, kind, "fallthrough");
-            let source_idx = blocks.len();
-            blocks.push(block);
+            let let_else_alternative = matches!(node_kind, "let_declaration" | "let_statement")
+                .then(|| node.child_by_field_name("alternative"))
+                .flatten();
 
-            if let Some(prev_idx) = *previous_block_idx {
+            if let Some(alternative) = let_else_alternative {
+                let block =
+                    create_block_from_node(node, function_id, source, "let_else", "conditional");
+                let source_idx = blocks.len();
+                blocks.push(block);
+
+                if let Some(prev_idx) = *previous_block_idx {
+                    edges.push(CfgEdge {
+                        source_idx: prev_idx,
+                        target_idx: source_idx,
+                        edge_type: CfgEdgeType::Fallthrough,
+                    });
+                }
+
+                let alternative_start_idx = blocks.len();
+                let mut alternative_last_idx = None;
+                extract_blocks_from_node_with_fallthrough(
+                    &alternative,
+                    function_id,
+                    source,
+                    blocks,
+                    edges,
+                    &mut alternative_last_idx,
+                    loop_scope,
+                );
+
+                if alternative_start_idx < blocks.len() {
+                    edges.push(CfgEdge {
+                        source_idx,
+                        target_idx: alternative_start_idx,
+                        edge_type: CfgEdgeType::ConditionalFalse,
+                    });
+                }
+
+                let merge_block = CfgBlock {
+                    function_id,
+                    kind: "merge".to_string(),
+                    terminator: "fallthrough".to_string(),
+                    byte_start: node.end_byte() as u64,
+                    byte_end: node.end_byte() as u64,
+                    start_line: node.end_position().row as u64 + 1,
+                    start_col: node.end_position().column as u64,
+                    end_line: node.end_position().row as u64 + 1,
+                    end_col: node.end_position().column as u64,
+                    cfg_hash: None,
+                    statements: None,
+                    cfg_condition: None,
+                };
+                let merge_idx = blocks.len();
+                blocks.push(merge_block);
+
                 edges.push(CfgEdge {
-                    source_idx: prev_idx,
-                    target_idx: source_idx,
-                    edge_type: CfgEdgeType::Fallthrough,
+                    source_idx,
+                    target_idx: merge_idx,
+                    edge_type: CfgEdgeType::ConditionalTrue,
                 });
+
+                *previous_block_idx = Some(merge_idx);
+            } else {
+                let block = create_block_from_node(node, function_id, source, kind, "fallthrough");
+                let source_idx = blocks.len();
+                blocks.push(block);
+
+                if let Some(prev_idx) = *previous_block_idx {
+                    edges.push(CfgEdge {
+                        source_idx: prev_idx,
+                        target_idx: source_idx,
+                        edge_type: CfgEdgeType::Fallthrough,
+                    });
+                }
+                *previous_block_idx = Some(source_idx);
             }
-            *previous_block_idx = Some(source_idx);
 
             if matches!(
                 node_kind,
@@ -274,7 +354,7 @@ pub(super) fn extract_blocks_from_node_with_fallthrough(
                     blocks,
                     edges,
                     previous_block_idx,
-                    loop_header,
+                    loop_scope,
                 );
             }
         }
@@ -283,7 +363,7 @@ pub(super) fn extract_blocks_from_node_with_fallthrough(
             let mut cursor = node.walk();
             if cursor.goto_first_child() {
                 let inner = cursor.node();
-                if is_control_flow(inner.kind()) {
+                if is_cfg_relevant_expression(inner.kind()) {
                     extract_blocks_from_node_with_fallthrough(
                         &inner,
                         function_id,
@@ -291,7 +371,7 @@ pub(super) fn extract_blocks_from_node_with_fallthrough(
                         blocks,
                         edges,
                         previous_block_idx,
-                        loop_header,
+                        loop_scope,
                     );
                 } else {
                     let block =
@@ -346,7 +426,7 @@ pub(super) fn extract_blocks_from_node_with_fallthrough(
                             blocks,
                             edges,
                             &mut Some(try_idx),
-                            loop_header,
+                            loop_scope,
                         );
                     }
                     if !cursor.goto_next_sibling() {
@@ -391,7 +471,7 @@ pub(super) fn extract_blocks_from_node_with_fallthrough(
                             blocks,
                             edges,
                             &mut Some(await_idx),
-                            loop_header,
+                            loop_scope,
                         );
                     }
                     if !cursor.goto_next_sibling() {
@@ -439,7 +519,7 @@ pub(super) fn extract_blocks_from_node_with_fallthrough(
                     blocks,
                     edges,
                     &mut Some(closure_idx),
-                    loop_header,
+                    loop_scope,
                 );
             }
         }
@@ -462,7 +542,7 @@ pub(super) fn extract_blocks_from_node_with_fallthrough(
                         blocks,
                         edges,
                         previous_block_idx,
-                        loop_header,
+                        loop_scope,
                         true,
                     );
                 }
@@ -474,7 +554,7 @@ pub(super) fn extract_blocks_from_node_with_fallthrough(
                         blocks,
                         edges,
                         previous_block_idx,
-                        loop_header,
+                        loop_scope,
                         false,
                     );
                 }
@@ -487,7 +567,7 @@ pub(super) fn extract_blocks_from_node_with_fallthrough(
                         blocks,
                         edges,
                         previous_block_idx,
-                        loop_header,
+                        loop_scope,
                     );
                 }
             }
@@ -507,7 +587,7 @@ pub(super) fn extract_blocks_from_node_with_fallthrough(
                             blocks,
                             edges,
                             previous_block_idx,
-                            loop_header,
+                            loop_scope,
                         );
                         if !cursor.goto_next_sibling() {
                             break;
@@ -555,7 +635,7 @@ pub(super) fn extract_short_circuit_blocks(
     blocks: &mut Vec<CfgBlock>,
     edges: &mut Vec<CfgEdge>,
     previous_block_idx: &mut Option<usize>,
-    loop_header: Option<usize>,
+    loop_scope: LoopScope,
     is_and: bool,
 ) {
     // Find left and right operands
@@ -607,7 +687,7 @@ pub(super) fn extract_short_circuit_blocks(
             blocks,
             edges,
             &mut Some(left_idx),
-            loop_header,
+            loop_scope,
         );
     }
 
@@ -624,10 +704,6 @@ pub(super) fn extract_short_circuit_blocks(
         end_col: node.end_position().column as u64,
         cfg_hash: None,
         statements: None,
-        coord_x: 0,
-        coord_y: 0,
-        coord_z: 0,
-        coord_t: None,
         cfg_condition: None,
     };
     let merge_idx = blocks.len();
@@ -677,7 +753,7 @@ pub(super) fn extract_short_circuit_blocks(
             blocks,
             edges,
             &mut right_last_idx,
-            loop_header,
+            loop_scope,
         );
 
         // Fallthrough from right branch to merge
@@ -708,7 +784,7 @@ pub(super) fn extract_default_blocks(
     blocks: &mut Vec<CfgBlock>,
     edges: &mut Vec<CfgEdge>,
     previous_block_idx: &mut Option<usize>,
-    loop_header: Option<usize>,
+    loop_scope: LoopScope,
 ) {
     let block = create_block_from_node(node, function_id, source, node.kind(), "fallthrough");
     let idx = blocks.len();
@@ -735,7 +811,7 @@ pub(super) fn extract_default_blocks(
                     blocks,
                     edges,
                     &mut Some(idx),
-                    loop_header,
+                    loop_scope,
                 );
             }
             if !cursor.goto_next_sibling() {

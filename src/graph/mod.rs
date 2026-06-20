@@ -137,6 +137,25 @@ pub struct GraphStats {
     pub cfg_block_count: usize,
 }
 
+/// A stitched interprocedural edge from a caller CFG block to a callee entry block.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DirectCallIcfgEdge {
+    /// Persisted call-site fact.
+    pub call: CallFact,
+    /// Caller function symbol ID.
+    pub caller_symbol_id: i64,
+    /// Callee function symbol ID.
+    pub callee_symbol_id: i64,
+    /// Index of the caller CFG block containing the call site.
+    pub caller_block_idx: usize,
+    /// Index of the callee CFG entry block.
+    pub callee_entry_block_idx: usize,
+    /// Index of the caller CFG block that resumes after the call, if any.
+    pub caller_resume_block_idx: Option<usize>,
+    /// Indices of callee CFG blocks that return control to the caller.
+    pub callee_return_block_indices: Vec<usize>,
+}
+
 /// Progress callback for scan_directory
 ///
 /// Receives (current_count, total_count, current_file_path) as scanning progresses
@@ -1161,6 +1180,50 @@ impl CodeGraph {
         calls::callers_of_symbol(self, path, name)
     }
 
+    /// Stitch direct call sites from a function CFG to callee entry CFG blocks.
+    pub fn direct_call_icfg_edges(
+        &mut self,
+        path: &str,
+        name: &str,
+    ) -> Result<Vec<DirectCallIcfgEdge>> {
+        let Some(caller_symbol_id) = self.symbol_id_by_name(path, name)? else {
+            return Ok(Vec::new());
+        };
+
+        let caller_blocks = self.cfg_ops.get_cfg_for_function(caller_symbol_id)?;
+        let caller_edges = self.cfg_ops.get_cfg_edges_for_function(caller_symbol_id)?;
+        let resolved_calls = self.calls.resolved_calls_from_symbol(caller_symbol_id)?;
+
+        let mut stitched = Vec::new();
+        for (call, callee_symbol_id) in resolved_calls {
+            let Some(caller_block_idx) = find_call_block_index(&caller_blocks, &call) else {
+                continue;
+            };
+            let caller_resume_block_idx =
+                find_resume_block_index(&caller_edges, caller_block_idx, caller_blocks.len());
+
+            let callee_blocks = self.cfg_ops.get_cfg_for_function(callee_symbol_id)?;
+            let Some(callee_entry_block_idx) =
+                callee_blocks.iter().position(|block| block.kind == "entry")
+            else {
+                continue;
+            };
+            let callee_return_block_indices = find_return_block_indices(&callee_blocks);
+
+            stitched.push(DirectCallIcfgEdge {
+                call,
+                caller_symbol_id,
+                callee_symbol_id,
+                caller_block_idx,
+                callee_entry_block_idx,
+                caller_resume_block_idx,
+                callee_return_block_indices,
+            });
+        }
+
+        Ok(stitched)
+    }
+
     /// Count total number of files in the graph
     pub fn count_files(&self) -> Result<usize> {
         count::count_files(self)
@@ -1636,4 +1699,53 @@ impl CodeGraph {
     pub fn get_labels_for_entity(&self, entity_id: i64) -> Result<Vec<String>> {
         self.side_tables.get_labels_for_entity(entity_id)
     }
+}
+
+fn find_call_block_index(blocks: &[CfgBlock], call: &CallFact) -> Option<usize> {
+    let call_start = call.byte_start as u64;
+    let call_end = call.byte_end as u64;
+
+    blocks
+        .iter()
+        .enumerate()
+        .find(|(_, block)| {
+            block.kind == "call" && block.byte_start <= call_start && call_end <= block.byte_end
+        })
+        .map(|(idx, _)| idx)
+        .or_else(|| {
+            blocks
+                .iter()
+                .enumerate()
+                .find(|(_, block)| block.byte_start <= call_start && call_end <= block.byte_end)
+                .map(|(idx, _)| idx)
+        })
+}
+
+fn find_resume_block_index(
+    edges: &[cfg_edges_extract::CfgEdge],
+    caller_block_idx: usize,
+    block_count: usize,
+) -> Option<usize> {
+    let mut candidates: Vec<usize> = edges
+        .iter()
+        .filter(|edge| {
+            edge.source_idx == caller_block_idx
+                && edge.edge_type == cfg_edges_extract::CfgEdgeType::Fallthrough
+                && edge.target_idx < block_count
+                && edge.target_idx != caller_block_idx
+        })
+        .map(|edge| edge.target_idx)
+        .collect();
+    candidates.sort_unstable();
+    candidates.dedup();
+    candidates.into_iter().next()
+}
+
+fn find_return_block_indices(blocks: &[CfgBlock]) -> Vec<usize> {
+    blocks
+        .iter()
+        .enumerate()
+        .filter(|(_, block)| block.kind == "return" || block.terminator == "return")
+        .map(|(idx, _)| idx)
+        .collect()
 }

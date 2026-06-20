@@ -18,8 +18,7 @@ use std::path::{Path, PathBuf};
 /// v7: CFG blocks table for control flow graph storage
 /// v8: cfg_blocks.cfg_hash column for cache invalidation
 /// v9: cfg_blocks.statements column for AST snippets
-/// v10: cfg_blocks 4D spatial-temporal coordinate columns
-/// v10: CFG coordinate columns (coord_x, coord_y, coord_z, coord_t)
+/// v10: reserved migration slot (legacy 4D CFG columns removed from new schema)
 /// v11: (removed — geo_index_meta table no longer created)
 /// v12: FTS5 full-text search index
 /// v12: symbol_fts FTS5 virtual table for fast symbol search
@@ -291,20 +290,7 @@ fn migrate_from_version(tx: &Transaction, old_version: i64) -> Result<()> {
     }
 
     if old_version < 10 {
-        // v9 -> v10: Add 4D spatial-temporal coordinate columns to cfg_blocks
-        tx.execute(
-            "ALTER TABLE cfg_blocks ADD COLUMN coord_x INTEGER DEFAULT 0",
-            [],
-        )?;
-        tx.execute(
-            "ALTER TABLE cfg_blocks ADD COLUMN coord_y INTEGER DEFAULT 0",
-            [],
-        )?;
-        tx.execute(
-            "ALTER TABLE cfg_blocks ADD COLUMN coord_z INTEGER DEFAULT 0",
-            [],
-        )?;
-        tx.execute("ALTER TABLE cfg_blocks ADD COLUMN coord_t TEXT", [])?;
+        // v9 -> v10: reserved migration slot; legacy 4D CFG columns are no longer created
     }
 
     if old_version < 11 {
