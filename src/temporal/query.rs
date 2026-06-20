@@ -101,6 +101,28 @@ pub fn load_temporal_status(db_path: &Path) -> Result<TemporalStatus> {
 
 pub fn load_symbol_barcode(db_path: &Path, stable_id: &str) -> Result<SymbolBarcode> {
     let conn = open_temporal_db(db_path)?;
+
+    let resolved: String = {
+        let exists: Option<String> = conn
+            .query_row(
+                "SELECT stable_id FROM symbol_versions WHERE stable_id = ?1 LIMIT 1",
+                params![stable_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        match exists {
+            Some(_) => stable_id.to_string(),
+            None => conn
+                .query_row(
+                    "SELECT stable_id FROM symbol_versions WHERE name = ?1 LIMIT 1",
+                    params![stable_id],
+                    |row| row.get(0),
+                )
+                .optional()?
+                .ok_or_else(|| anyhow::anyhow!("No symbol history found for '{}'", stable_id))?,
+        }
+    };
+
     let mut stmt = conn.prepare(
         "SELECT rs.id, rs.commit_oid, sv.file_path, sv.name, sv.kind
          FROM symbol_versions sv
@@ -108,7 +130,7 @@ pub fn load_symbol_barcode(db_path: &Path, stable_id: &str) -> Result<SymbolBarc
          WHERE sv.stable_id = ?1
          ORDER BY rs.commit_time, rs.id",
     )?;
-    let rows = stmt.query_map(params![stable_id], |row| {
+    let rows = stmt.query_map(params![resolved], |row| {
         Ok(SymbolBarcodePoint {
             snapshot_id: row.get(0)?,
             commit_oid: row.get(1)?,
@@ -124,11 +146,11 @@ pub fn load_symbol_barcode(db_path: &Path, stable_id: &str) -> Result<SymbolBarc
     }
 
     if points.is_empty() {
-        anyhow::bail!("No symbol history found for stable ID {}", stable_id);
+        anyhow::bail!("No symbol history found for '{}'", stable_id);
     }
 
     Ok(SymbolBarcode {
-        stable_id: stable_id.to_string(),
+        stable_id: resolved,
         snapshot_count: points.len(),
         first_commit_oid: points.first().map(|point| point.commit_oid.clone()),
         last_commit_oid: points.last().map(|point| point.commit_oid.clone()),
