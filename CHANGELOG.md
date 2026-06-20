@@ -3,6 +3,12 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://sememver.org/spec/v2.0.0.html).
 
+## [4.9.1] - 2026-06-20
+
+### Fixed
+
+- **`magellan orient`**: no longer errors on DBs without temporal tables. Shows DB stats and contributors, prints hint to run `temporal-sweep` for history data.
+
 ## [4.9.0] - 2026-06-20
 
 ### Added

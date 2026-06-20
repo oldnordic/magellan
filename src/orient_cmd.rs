@@ -72,47 +72,59 @@ pub fn run_orient(
         |r| r.get(0),
     )?;
 
-    // Temporal
-    let temporal_status = load_temporal_status(&db_path)?;
-    let (first_commit, last_commit, top_churn) = if temporal_status.snapshot_count > 0 {
-        let first: Option<String> = conn
-            .query_row(
-                "SELECT commit_oid FROM repo_snapshots ORDER BY commit_time ASC LIMIT 1",
-                [],
-                |r| r.get(0),
-            )
-            .ok();
-        let last: Option<String> = conn
-            .query_row(
-                "SELECT commit_oid FROM repo_snapshots ORDER BY commit_time DESC LIMIT 1",
-                [],
-                |r| r.get(0),
-            )
-            .ok();
-
-        let mut stmt = conn.prepare(
-            "SELECT sv.name, sv.kind, sv.file_path, COUNT(*) as cnt
-                 FROM symbol_versions sv
-                 GROUP BY sv.stable_id
-                 ORDER BY cnt DESC
-                 LIMIT ?1",
-        )?;
-        let churn: Vec<ChurnEntry> = stmt
-            .query_map(params![top_n as i64], |r| {
-                Ok(ChurnEntry {
-                    name: r.get(0)?,
-                    kind: r.get(1)?,
-                    file_path: r.get(2)?,
-                    snapshot_count: r.get(3)?,
-                })
-            })?
-            .filter_map(|r| r.ok())
-            .collect();
-
-        (first, last, churn)
-    } else {
-        (None, None, vec![])
+    // Temporal — tables only exist after temporal-sweep; absence is not an error
+    let temporal_status = match load_temporal_status(&db_path) {
+        Ok(s) => Some(s),
+        Err(e) if e.to_string().contains("no such table") => None,
+        Err(e) => return Err(e),
     };
+    let (snapshot_count, first_commit, last_commit, top_churn) =
+        match temporal_status.as_ref().filter(|s| s.snapshot_count > 0) {
+            Some(_) => {
+                let first: Option<String> = conn
+                    .query_row(
+                        "SELECT commit_oid FROM repo_snapshots ORDER BY commit_time ASC LIMIT 1",
+                        [],
+                        |r| r.get(0),
+                    )
+                    .ok();
+                let last: Option<String> = conn
+                    .query_row(
+                        "SELECT commit_oid FROM repo_snapshots ORDER BY commit_time DESC LIMIT 1",
+                        [],
+                        |r| r.get(0),
+                    )
+                    .ok();
+                let mut stmt = conn.prepare(
+                    "SELECT sv.name, sv.kind, sv.file_path, COUNT(*) as cnt
+                     FROM symbol_versions sv
+                     GROUP BY sv.stable_id
+                     ORDER BY cnt DESC
+                     LIMIT ?1",
+                )?;
+                let churn: Vec<ChurnEntry> = stmt
+                    .query_map(params![top_n as i64], |r| {
+                        Ok(ChurnEntry {
+                            name: r.get(0)?,
+                            kind: r.get(1)?,
+                            file_path: r.get(2)?,
+                            snapshot_count: r.get(3)?,
+                        })
+                    })?
+                    .filter_map(|r| r.ok())
+                    .collect();
+                (
+                    temporal_status
+                        .as_ref()
+                        .map(|s| s.snapshot_count as u64)
+                        .unwrap_or(0),
+                    first,
+                    last,
+                    churn,
+                )
+            }
+            None => (0, None, None, vec![]),
+        };
 
     // Contributors from git log
     let contributors = match &repo_path {
@@ -128,7 +140,7 @@ pub fn run_orient(
             file_count,
         },
         temporal: OrientTemporal {
-            snapshot_count: temporal_status.snapshot_count as u64,
+            snapshot_count,
             first_commit,
             last_commit,
         },
