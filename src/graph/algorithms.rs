@@ -271,7 +271,10 @@ fn enumerate_paths(
 }
 
 /// DFS helper for path enumeration
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "DFS helper carries traversal state accumulators and bound counters"
+)]
 fn dfs_enumerate(
     backend: &dyn GraphBackend,
     node: i64,

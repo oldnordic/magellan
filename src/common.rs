@@ -78,6 +78,44 @@ pub fn resolve_path(file_path: &PathBuf, root: &Option<PathBuf>) -> String {
     normalize_path(&resolved).unwrap_or_else(|_| resolved.to_string_lossy().to_string())
 }
 
+fn normalize_path_components(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                normalized.pop();
+            }
+            other => normalized.push(other),
+        }
+    }
+    normalized
+}
+
+/// Normalize a source file path relative to a repository root when possible.
+///
+/// This is used for temporal identity so the same symbol hashed from two
+/// different worktrees of the same repository produces the same key.
+pub fn normalize_repo_relative_path(path: &Path, repo_root: Option<&Path>) -> String {
+    let normalized_path = normalize_path_components(path);
+
+    if !normalized_path.is_absolute() {
+        return normalized_path.to_string_lossy().to_string();
+    }
+
+    let root = repo_root
+        .map(normalize_path_components)
+        .unwrap_or_else(detect_project_root);
+    let normalized_root = normalize_path_components(&root);
+
+    normalized_path
+        .strip_prefix(&normalized_root)
+        .map(normalize_path_components)
+        .unwrap_or(normalized_path)
+        .to_string_lossy()
+        .to_string()
+}
+
 /// Format a SymbolKind for display
 ///
 /// # Arguments

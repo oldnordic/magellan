@@ -627,7 +627,10 @@ pub(super) fn extract_blocks_from_node_with_fallthrough(
 ///
 /// - Block for `a` with conditional: true -> merge, false -> `b`
 /// - Block for `b` with fallthrough -> merge
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "short-circuit extraction threads mutable CFG assembly state through recursion"
+)]
 pub(super) fn extract_short_circuit_blocks(
     node: &Node,
     function_id: i64,

@@ -71,13 +71,15 @@ pub mod manifest;
 pub mod output;
 pub mod project_config;
 pub mod references;
+pub mod temporal;
 pub mod validation;
 pub mod verify;
 pub mod watcher;
 
 pub use common::{
     detect_language_from_path, detect_project_root, extract_context_safe,
-    extract_symbol_content_safe, format_symbol_kind, parse_symbol_kind, resolve_path,
+    extract_symbol_content_safe, format_symbol_kind, normalize_repo_relative_path,
+    parse_symbol_kind, resolve_path,
 };
 pub use diagnostics::{DiagnosticStage, SkipReason, WatchDiagnostic};
 pub use framework::{FrameworkSymbol, MagellanFramework, ProjectHandle};
@@ -114,6 +116,7 @@ pub use ingest::{ImplRelation, Parser, SymbolFact, SymbolKind};
 pub use output::command::{MigrateResponse, ReferenceMatch, Span, SymbolMatch};
 pub use output::{generate_execution_id, output_json, JsonResponse, OutputFormat};
 pub use references::{CallFact, ReferenceFact};
+pub use temporal::{SnapshotFileInput, SnapshotIngestStats, SnapshotSpec};
 pub use validation::{
     canonicalize_path, normalize_path, validate_path_within_root, PathValidationError,
 };

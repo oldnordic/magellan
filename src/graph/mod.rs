@@ -65,7 +65,7 @@ pub mod search;
 pub mod side_tables;
 mod symbol_index;
 mod symbol_lookup;
-mod symbols;
+pub(crate) mod symbols;
 pub mod telemetry;
 pub mod validation;
 pub mod wal;
@@ -116,7 +116,7 @@ pub use cache::{CacheStats, EntityCacheKey, ExpandCacheKey, NameCacheKey, Thread
 pub use db_compat::MAGELLAN_SCHEMA_VERSION;
 pub use db_compat::{
     ensure_ast_schema, ensure_candidate_fact_schema, ensure_cfg_schema, ensure_coverage_schema,
-    ensure_source_inventory_schema, CFG_EDGE,
+    ensure_source_inventory_schema, ensure_telemetry_schema, ensure_temporal_schema, CFG_EDGE,
 };
 pub use execution_log::ExecutionLog;
 pub use export::{ExportConfig, ExportFormat};
@@ -250,6 +250,14 @@ impl CodeGraph {
     /// Get the database file path
     pub fn db_path(&self) -> &Path {
         &self.db_path
+    }
+
+    pub(crate) fn side_connection(&self) -> &Arc<parking_lot::Mutex<rusqlite::Connection>> {
+        &self.side_conn
+    }
+
+    pub(crate) fn compute_content_hash(&self, source: &[u8]) -> String {
+        self.files.compute_hash(source)
     }
 
     pub fn navigator(&self) -> navigator::SymbolNavigator<'_> {
@@ -589,6 +597,10 @@ impl CodeGraph {
                 db_compat::ensure_source_inventory_schema(&side_conn_arc.lock())
                     .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 db_compat::ensure_candidate_fact_schema(&side_conn_arc.lock())
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                db_compat::ensure_telemetry_schema(&side_conn_arc.lock())
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                db_compat::ensure_temporal_schema(&side_conn_arc.lock())
                     .map_err(|e| anyhow::anyhow!(e.to_string()))?;
             }
 
@@ -1028,6 +1040,20 @@ impl CodeGraph {
         ops::index_file(self, path, source)
     }
 
+    pub fn register_snapshot(&self, spec: &crate::temporal::SnapshotSpec) -> Result<i64> {
+        let mut conn = self.side_conn.lock();
+        crate::temporal::register_snapshot(&mut conn, spec)
+    }
+
+    pub fn ingest_snapshot_sources(
+        &self,
+        snapshot_id: i64,
+        repo_root: &Path,
+        files: &[crate::temporal::SnapshotFileInput],
+    ) -> Result<crate::temporal::SnapshotIngestStats> {
+        crate::temporal::ingest_snapshot_sources(self, snapshot_id, repo_root, files)
+    }
+
     /// Delete a file and all derived data from the graph
     ///
     /// This delegates to `delete_file_facts` which removes *all* file-derived facts
@@ -1098,6 +1124,11 @@ impl CodeGraph {
     /// and maintains determinism. No new indexes or caching.
     pub fn symbol_id_by_name(&mut self, path: &str, name: &str) -> Result<Option<i64>> {
         query::symbol_id_by_name(self, path, name)
+    }
+
+    /// Query the persisted stable symbol ID of a specific symbol by file path and symbol name.
+    pub fn stable_symbol_id_by_name(&mut self, path: &str, name: &str) -> Result<Option<String>> {
+        query::stable_symbol_id_by_name(self, path, name)
     }
 
     /// Index references for a file into the graph

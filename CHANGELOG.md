@@ -3,6 +3,25 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://sememver.org/spec/v2.0.0.html).
 
+## [4.8.0] - 2026-06-20
+
+### Added
+
+- **Temporal repository history support**:
+  - Added schema v18 repository snapshot tables for temporal tracking and migration coverage.
+  - Added `magellan temporal-sweep --db <db> --repo <path>` to ingest sampled commit history through detached temporary worktrees.
+  - Added `magellan temporal-status`, `magellan as-of --commit <oid> --symbol <name>`, and `magellan temporal-barcode` for symbol, edge, and SCC lifetime queries.
+  - Added per-snapshot SCC extraction and persistence reporting for temporal architecture analysis.
+
+### Changed
+
+- **Bounded context output**:
+  - `magellan context summary`, `context symbol`, `context impact`, and `context affected` now support bounded output controls (`--token-budget`, `--detail`, `--concise`) for agent-sized responses.
+- **Stable temporal identity**:
+  - Stable symbol IDs now normalize path-bearing semantic names so detached worktree indexing preserves identity across snapshots.
+- **Consumer compatibility**:
+  - This release is the Magellan side of the schema-v18 rollout consumed by current `llmgrep` and `mirage` updates.
+
 ## [4.7.7] - 2026-06-20
 
 ### Removed

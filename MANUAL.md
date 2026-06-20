@@ -1,6 +1,6 @@
 # Magellan Manual
 
-**Version:** 4.7.2
+**Version:** 4.8.0
 
 This manual documents the current user-facing Magellan CLI. The supported normal
 workflow uses a SQLite `.db` database.
@@ -150,11 +150,41 @@ magellan migrate --db code.db --dry-run
 magellan migrate --db code.db --no-backup
 ```
 
-Current Magellan schema version: `17`.
+Current Magellan schema version: `18`.
 
 **Schema v12 changes:** Added FTS5 full-text search index for fast prefix search.
 Migration is automatic and creates a backup. See [docs/SCHEMA_SQLITE.md](docs/SCHEMA_SQLITE.md)
 for FTS5 performance details and limitations.
+
+**Schema v18 changes:** Added repository snapshot tables and temporal query support for commit-history analysis in the same SQLite database.
+
+## Temporal Commands
+
+### Sweep Repository History
+
+```bash
+magellan temporal-sweep --db code.db --repo .
+magellan temporal-sweep --db code.db --repo . --every 10
+magellan temporal-sweep --db code.db --repo . --tags-only
+magellan temporal-sweep --db code.db --repo . --merge-commits-only
+magellan temporal-sweep --db code.db --repo . --since 1718841600 --until 1718928000
+```
+
+`temporal-sweep` ingests sampled commits through detached temporary worktrees and persists snapshot, file, symbol, and edge history.
+
+### Inspect Temporal State
+
+```bash
+magellan temporal-status --db code.db
+magellan as-of --db code.db --commit <oid> --symbol parse_args
+magellan temporal-barcode --db code.db --symbol <stable-id>
+magellan temporal-barcode --db code.db --edge-source <stable-id> --edge-target <stable-id> --kind CALLS
+magellan temporal-barcode --db code.db --scc
+```
+
+- `temporal-status` reports snapshot and version-table counts
+- `as-of` resolves symbol matches in a specific stored commit snapshot
+- `temporal-barcode` reports symbol, edge, or SCC lifetime across snapshots
 
 ## Query Commands
 

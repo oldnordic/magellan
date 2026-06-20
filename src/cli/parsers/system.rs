@@ -78,6 +78,10 @@ where
         "collisions" => parse_collisions_args(&args[2..]),
         "migrate" => parse_migrate_args(&args[2..]),
         "migrate-backend" => parse_migrate_backend_args(&args[2..]),
+        "temporal-sweep" => parse_temporal_sweep_args(&args[2..]),
+        "temporal-status" => parse_temporal_status_args(&args[2..]),
+        "temporal-barcode" => parse_temporal_barcode_args(&args[2..]),
+        "as-of" => parse_as_of_args(&args[2..]),
         "chunks" => parse_chunks_args(&args[2..]),
         "chunk-by-span" => parse_chunk_by_span_args(&args[2..]),
         "chunk-by-symbol" => parse_chunk_by_symbol_args(&args[2..]),
@@ -222,6 +226,183 @@ where
         "service-daemon" => Ok(Command::ServiceDaemon),
         _ => Err(anyhow::anyhow!("Unknown command: {}", command)),
     }
+}
+
+pub fn parse_temporal_sweep_args(args: &[String]) -> Result<Command> {
+    let mut db_path: Option<PathBuf> = None;
+    let mut repo_path: Option<PathBuf> = None;
+    let mut every_n: Option<usize> = None;
+    let mut tags_only = false;
+    let mut merge_commits_only = false;
+    let mut since_commit_time: Option<i64> = None;
+    let mut until_commit_time: Option<i64> = None;
+    let mut output_format = OutputFormat::Human;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--db" => db_path = Some(parse_path_arg(args, &mut i, "--db")?),
+            "--repo" => repo_path = Some(parse_path_arg(args, &mut i, "--repo")?),
+            "--every" => {
+                every_n = Some(parse_required_arg(args, &mut i, "--every")?.parse()?);
+            }
+            "--tags-only" => {
+                tags_only = true;
+                i += 1;
+            }
+            "--merge-commits-only" => {
+                merge_commits_only = true;
+                i += 1;
+            }
+            "--since" => {
+                since_commit_time = Some(parse_required_arg(args, &mut i, "--since")?.parse()?);
+            }
+            "--until" => {
+                until_commit_time = Some(parse_required_arg(args, &mut i, "--until")?.parse()?);
+            }
+            "--output" => {
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output_format = parse_output_format(&value)?;
+            }
+            _ => return Err(anyhow::anyhow!("Unknown argument: {}", args[i])),
+        }
+    }
+
+    let db_path = resolve_db_path(db_path)?;
+    let repo_path = repo_path.ok_or_else(|| anyhow::anyhow!("--repo is required"))?;
+
+    Ok(Command::TemporalSweep {
+        db_path,
+        repo_path,
+        every_n,
+        tags_only,
+        merge_commits_only,
+        since_commit_time,
+        until_commit_time,
+        output_format,
+    })
+}
+
+pub fn parse_temporal_status_args(args: &[String]) -> Result<Command> {
+    let mut db_path: Option<PathBuf> = None;
+    let mut output_format = OutputFormat::Human;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--db" => db_path = Some(parse_path_arg(args, &mut i, "--db")?),
+            "--output" => {
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output_format = parse_output_format(&value)?;
+            }
+            _ => return Err(anyhow::anyhow!("Unknown argument: {}", args[i])),
+        }
+    }
+
+    let db_path = resolve_db_path(db_path)?;
+    Ok(Command::TemporalStatus {
+        db_path,
+        output_format,
+    })
+}
+
+pub fn parse_temporal_barcode_args(args: &[String]) -> Result<Command> {
+    let mut db_path: Option<PathBuf> = None;
+    let mut stable_id: Option<String> = None;
+    let mut edge_source: Option<String> = None;
+    let mut edge_target: Option<String> = None;
+    let mut edge_kind: Option<String> = None;
+    let mut scc = false;
+    let mut output_format = OutputFormat::Human;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--db" => db_path = Some(parse_path_arg(args, &mut i, "--db")?),
+            "--symbol" => stable_id = Some(parse_required_arg(args, &mut i, "--symbol")?),
+            "--edge-source" => {
+                edge_source = Some(parse_required_arg(args, &mut i, "--edge-source")?)
+            }
+            "--edge-target" => {
+                edge_target = Some(parse_required_arg(args, &mut i, "--edge-target")?)
+            }
+            "--kind" => edge_kind = Some(parse_required_arg(args, &mut i, "--kind")?),
+            "--scc" => {
+                scc = true;
+                i += 1;
+            }
+            "--output" => {
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output_format = parse_output_format(&value)?;
+            }
+            _ => return Err(anyhow::anyhow!("Unknown argument: {}", args[i])),
+        }
+    }
+
+    let db_path = resolve_db_path(db_path)?;
+    let edge_mode = edge_source.is_some() || edge_target.is_some() || edge_kind.is_some();
+    if scc && (stable_id.is_some() || edge_mode) {
+        return Err(anyhow::anyhow!(
+            "Use exactly one selector: --symbol, --scc, or --edge-source/--edge-target"
+        ));
+    }
+    if edge_mode && (edge_source.is_none() || edge_target.is_none()) {
+        return Err(anyhow::anyhow!(
+            "--edge-source and --edge-target are both required for edge barcode queries"
+        ));
+    }
+    if !scc && stable_id.is_none() && !edge_mode {
+        return Err(anyhow::anyhow!(
+            "Provide --symbol, --scc, or --edge-source/--edge-target"
+        ));
+    }
+    if stable_id.is_some() && edge_mode {
+        return Err(anyhow::anyhow!(
+            "Use either --symbol or --edge-source/--edge-target, not both"
+        ));
+    }
+
+    Ok(Command::TemporalBarcode {
+        db_path,
+        stable_id,
+        edge_source,
+        edge_target,
+        edge_kind,
+        scc,
+        output_format,
+    })
+}
+
+pub fn parse_as_of_args(args: &[String]) -> Result<Command> {
+    let mut db_path: Option<PathBuf> = None;
+    let mut commit_oid: Option<String> = None;
+    let mut symbol_name: Option<String> = None;
+    let mut output_format = OutputFormat::Human;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--db" => db_path = Some(parse_path_arg(args, &mut i, "--db")?),
+            "--commit" => commit_oid = Some(parse_required_arg(args, &mut i, "--commit")?),
+            "--symbol" => symbol_name = Some(parse_required_arg(args, &mut i, "--symbol")?),
+            "--output" => {
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output_format = parse_output_format(&value)?;
+            }
+            _ => return Err(anyhow::anyhow!("Unknown argument: {}", args[i])),
+        }
+    }
+
+    let db_path = resolve_db_path(db_path)?;
+    let commit_oid = commit_oid.ok_or_else(|| anyhow::anyhow!("--commit is required"))?;
+    let symbol_name = symbol_name.ok_or_else(|| anyhow::anyhow!("--symbol is required"))?;
+
+    Ok(Command::AsOf {
+        db_path,
+        commit_oid,
+        symbol_name,
+        output_format,
+    })
 }
 
 /// Convenience wrapper around `parse_args_impl` that uses the version module

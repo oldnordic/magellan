@@ -250,12 +250,6 @@ pub fn verify_import_counts(
     Ok(())
 }
 
-/// Get entity and edge counts from a graph backend
-pub fn get_graph_counts(_backend: &Arc<dyn GraphBackend>) -> Result<(i64, i64)> {
-    // Placeholder - actual counts available from snapshot_export() return value
-    Ok((0, 0))
-}
-
 /// Result of a backend migration operation
 #[derive(Debug, Clone)]
 pub struct BackendMigrationResult {
@@ -306,6 +300,8 @@ pub fn run_migrate_backend(
     export_dir: Option<PathBuf>,
     dry_run: bool,
 ) -> Result<BackendMigrationResult> {
+    let cleanup_export_dir = export_dir.is_none();
+
     // Validate input_db exists
     if !input_db.exists() {
         return Ok(BackendMigrationResult {
@@ -427,8 +423,9 @@ pub fn run_migrate_backend(
         )
     })?;
 
-    // Clean up export directory (optional - keeping for now for debugging)
-    // let _ = fs::remove_dir_all(&export_dir);
+    if cleanup_export_dir {
+        let _ = fs::remove_dir_all(&export_dir);
+    }
 
     Ok(BackendMigrationResult {
         success: true,

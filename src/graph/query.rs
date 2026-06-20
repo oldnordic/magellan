@@ -277,6 +277,19 @@ pub fn symbol_id_by_name(graph: &mut CodeGraph, path: &str, name: &str) -> Resul
     Ok(None)
 }
 
+/// Query the persisted stable symbol ID of a specific symbol by file path and symbol name.
+pub fn stable_symbol_id_by_name(
+    graph: &mut CodeGraph,
+    path: &str,
+    name: &str,
+) -> Result<Option<String>> {
+    let entries = symbol_nodes_in_file_with_ids(graph, path)?;
+    Ok(entries
+        .into_iter()
+        .find(|(_node_id, fact, _stable_id)| fact.name.as_deref() == Some(name))
+        .and_then(|(_node_id, _fact, stable_id)| stable_id))
+}
+
 /// Query a symbol by its stable SymbolId
 ///
 /// # Arguments

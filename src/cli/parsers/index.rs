@@ -524,7 +524,57 @@ pub fn parse_context_args(args: &[String]) -> Result<Command> {
     let subcommand_name = args.first().map_or("", |s| s.as_str());
     let subcommand = match subcommand_name {
         "build" => ContextSubcommand::Build,
-        "summary" => ContextSubcommand::Summary,
+        "summary" => {
+            let mut token_budget: Option<usize> = None;
+            let mut detail: Option<String> = None;
+            let mut concise = false;
+
+            let mut i = 1;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--db" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--db requires an argument"));
+                        }
+                        db_paths.extend(parse_db_paths(&args[i + 1])?);
+                        i += 2;
+                    }
+                    "--token-budget" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--token-budget requires an argument"));
+                        }
+                        token_budget = Some(args[i + 1].parse().map_err(|_| {
+                            anyhow::anyhow!("--token-budget must be a positive integer")
+                        })?);
+                        i += 2;
+                    }
+                    "--detail" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--detail requires an argument"));
+                        }
+                        detail = Some(args[i + 1].clone());
+                        i += 2;
+                    }
+                    "--concise" => {
+                        concise = true;
+                        i += 1;
+                    }
+                    "--all" => {
+                        all = true;
+                        i += 1;
+                    }
+                    _ => {
+                        return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
+                    }
+                }
+            }
+
+            ContextSubcommand::Summary {
+                token_budget,
+                detail,
+                concise,
+            }
+        }
         "list" => {
             let mut kind: Option<String> = None;
             let mut page: Option<usize> = None;
@@ -621,6 +671,9 @@ pub fn parse_context_args(args: &[String]) -> Result<Command> {
             let mut with_source = false;
             let mut depth: Option<usize> = None;
             let mut project: Option<String> = None;
+            let mut token_budget: Option<usize> = None;
+            let mut detail: Option<String> = None;
+            let mut concise = false;
 
             let mut i = 1;
             while i < args.len() {
@@ -682,6 +735,26 @@ pub fn parse_context_args(args: &[String]) -> Result<Command> {
                         project = Some(args[i + 1].clone());
                         i += 2;
                     }
+                    "--token-budget" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--token-budget requires an argument"));
+                        }
+                        token_budget = Some(args[i + 1].parse().map_err(|_| {
+                            anyhow::anyhow!("--token-budget must be a positive integer")
+                        })?);
+                        i += 2;
+                    }
+                    "--detail" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--detail requires an argument"));
+                        }
+                        detail = Some(args[i + 1].clone());
+                        i += 2;
+                    }
+                    "--concise" => {
+                        concise = true;
+                        i += 1;
+                    }
                     "--all" => {
                         all = true;
                         i += 1;
@@ -703,6 +776,9 @@ pub fn parse_context_args(args: &[String]) -> Result<Command> {
                 with_source,
                 depth,
                 project,
+                token_budget,
+                detail,
+                concise,
             }
         }
         "file" => {
@@ -745,6 +821,9 @@ pub fn parse_context_args(args: &[String]) -> Result<Command> {
             let mut depth: usize = 3;
             let mut project: Option<String> = None;
             let mut output_format = OutputFormat::Human;
+            let mut token_budget: Option<usize> = None;
+            let mut detail: Option<String> = None;
+            let mut concise = false;
 
             let mut i = 1;
             while i < args.len() {
@@ -792,6 +871,26 @@ pub fn parse_context_args(args: &[String]) -> Result<Command> {
                         }
                         output_format = parse_output_format(&args[i + 1])?;
                         i += 2;
+                    }
+                    "--token-budget" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--token-budget requires an argument"));
+                        }
+                        token_budget = Some(args[i + 1].parse().map_err(|_| {
+                            anyhow::anyhow!("--token-budget must be a positive integer")
+                        })?);
+                        i += 2;
+                    }
+                    "--detail" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--detail requires an argument"));
+                        }
+                        detail = Some(args[i + 1].clone());
+                        i += 2;
+                    }
+                    "--concise" => {
+                        concise = true;
+                        i += 1;
                     }
                     "--all" => {
                         all = true;
@@ -811,6 +910,9 @@ pub fn parse_context_args(args: &[String]) -> Result<Command> {
                 depth,
                 project,
                 output_format,
+                token_budget,
+                detail,
+                concise,
             }
         }
         "affected" => {
@@ -819,6 +921,9 @@ pub fn parse_context_args(args: &[String]) -> Result<Command> {
             let mut depth: usize = 3;
             let mut project: Option<String> = None;
             let mut output_format = OutputFormat::Human;
+            let mut token_budget: Option<usize> = None;
+            let mut detail: Option<String> = None;
+            let mut concise = false;
 
             let mut i = 1;
             while i < args.len() {
@@ -867,6 +972,26 @@ pub fn parse_context_args(args: &[String]) -> Result<Command> {
                         output_format = parse_output_format(&args[i + 1])?;
                         i += 2;
                     }
+                    "--token-budget" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--token-budget requires an argument"));
+                        }
+                        token_budget = Some(args[i + 1].parse().map_err(|_| {
+                            anyhow::anyhow!("--token-budget must be a positive integer")
+                        })?);
+                        i += 2;
+                    }
+                    "--detail" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--detail requires an argument"));
+                        }
+                        detail = Some(args[i + 1].clone());
+                        i += 2;
+                    }
+                    "--concise" => {
+                        concise = true;
+                        i += 1;
+                    }
                     "--all" => {
                         all = true;
                         i += 1;
@@ -885,6 +1010,9 @@ pub fn parse_context_args(args: &[String]) -> Result<Command> {
                 depth,
                 project,
                 output_format,
+                token_budget,
+                detail,
+                concise,
             }
         }
         _ => {

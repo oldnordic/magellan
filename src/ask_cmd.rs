@@ -256,6 +256,9 @@ fn route_impact(db_path: PathBuf, name: String, output_format: OutputFormat) -> 
         3,    // depth
         None, // project_filter
         output_format,
+        None,  // token_budget
+        None,  // detail
+        false, // concise
     )
     .with_context(|| "Ask → impact routing failed")
 }

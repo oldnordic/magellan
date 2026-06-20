@@ -541,7 +541,10 @@ fn output_json_mode(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "registry fan-out path mirrors CLI flag surface"
+)]
 fn run_refs_all(
     _name: &str,
     direction: &str,

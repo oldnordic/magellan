@@ -219,7 +219,10 @@ impl TelemetryOps {
         buf.push_back(event);
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "event insertion mirrors telemetry_events table columns"
+    )]
     fn insert_event_sqlite(
         conn: &rusqlite::Connection,
         execution_id: &str,
@@ -252,7 +255,10 @@ impl TelemetryOps {
         Ok(conn.last_insert_rowid())
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "public helper forwards telemetry_events fields to the backend"
+    )]
     fn insert_event(
         &self,
         execution_id: &str,

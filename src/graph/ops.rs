@@ -166,7 +166,9 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
     // This uses sqlitegraph's bulk_insert_entities/bulk_insert_edges wrapped
     // in a TransactionGuard (BEGIN IMMEDIATE...COMMIT), reducing WAL frames
     // from O(symbols) to O(1) per file.
-    let symbol_ids = graph.symbols.insert_symbol_nodes_batch(&symbol_facts)?;
+    let symbol_ids = graph
+        .symbols
+        .insert_symbol_nodes_batch(&symbol_facts, source)?;
     graph
         .symbols
         .insert_defines_edges_batch(file_id, &symbol_ids)?;

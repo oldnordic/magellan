@@ -140,6 +140,10 @@ pub fn ensure_magellan_meta(
                             ensure_telemetry_schema(conn)?;
                             current_version = 17;
                         }
+                        17 => {
+                            ensure_temporal_schema(conn)?;
+                            current_version = 18;
+                        }
                         _ => {
                             return Err(DbCompatError::MagellanSchemaMismatch {
                                 path: db_path.to_path_buf(),
@@ -433,6 +437,146 @@ pub fn ensure_telemetry_schema(conn: &rusqlite::Connection) -> Result<(), DbComp
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_telemetry_events_timestamp
          ON telemetry_events(timestamp_ns)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    Ok(())
+}
+
+/// Create repository snapshot tables for temporal tracking (v18).
+pub fn ensure_temporal_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS repo_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            repo_root TEXT NOT NULL,
+            commit_oid TEXT NOT NULL UNIQUE,
+            tree_oid TEXT NOT NULL,
+            author_time INTEGER NOT NULL,
+            commit_time INTEGER NOT NULL,
+            commit_message TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        )",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_repo_snapshots_commit
+         ON repo_snapshots(commit_oid)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS repo_snapshot_parents (
+            snapshot_id INTEGER NOT NULL,
+            parent_oid TEXT NOT NULL,
+            FOREIGN KEY (snapshot_id) REFERENCES repo_snapshots(id) ON DELETE CASCADE,
+            PRIMARY KEY (snapshot_id, parent_oid)
+        )",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS file_versions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            snapshot_id INTEGER NOT NULL,
+            file_path TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            size_bytes INTEGER NOT NULL,
+            is_deleted INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (snapshot_id) REFERENCES repo_snapshots(id) ON DELETE CASCADE
+        )",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_file_versions_snapshot
+         ON file_versions(snapshot_id)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_file_versions_path
+         ON file_versions(file_path)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS symbol_versions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            snapshot_id INTEGER NOT NULL,
+            stable_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            start_line INTEGER NOT NULL,
+            start_col INTEGER NOT NULL,
+            end_line INTEGER NOT NULL,
+            end_col INTEGER NOT NULL,
+            body_hash TEXT,
+            FOREIGN KEY (snapshot_id) REFERENCES repo_snapshots(id) ON DELETE CASCADE
+        )",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_symbol_versions_snapshot
+         ON symbol_versions(snapshot_id)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_symbol_versions_stable
+         ON symbol_versions(stable_id)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_symbol_versions_name
+         ON symbol_versions(name)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS edge_versions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            snapshot_id INTEGER NOT NULL,
+            source_stable_id TEXT NOT NULL,
+            target_stable_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            FOREIGN KEY (snapshot_id) REFERENCES repo_snapshots(id) ON DELETE CASCADE
+        )",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_edge_versions_snapshot
+         ON edge_versions(snapshot_id)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_edge_versions_source
+         ON edge_versions(source_stable_id)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_edge_versions_target
+         ON edge_versions(target_stable_id)",
         [],
     )
     .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;

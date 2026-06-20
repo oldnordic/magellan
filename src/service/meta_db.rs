@@ -357,7 +357,10 @@ impl MetaDb {
     // ── Phase 4: pattern_cross_refs ──
 
     /// Insert a cross-project similarity pair.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "row shape matches pattern_cross_refs table columns"
+    )]
     pub fn insert_cross_ref(
         &mut self,
         project_a: &str,

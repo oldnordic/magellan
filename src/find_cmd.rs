@@ -740,7 +740,10 @@ fn run_glob_listing(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "registry fan-out path mirrors CLI flag surface"
+)]
 /// Run find across all enabled projects in the registry
 fn run_find_all(
     name: &Option<String>,

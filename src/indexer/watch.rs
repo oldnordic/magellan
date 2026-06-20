@@ -30,7 +30,10 @@ macro_rules! debug_print {
 )]
 macro_rules! debug_print {
     ($($arg:tt)*) => {{
-        #[allow(clippy::unused_unit)]
+        #[allow(
+            clippy::unused_unit,
+            reason = "macro must expand to unit in expression position when disabled"
+        )]
         ()
     }};
 }

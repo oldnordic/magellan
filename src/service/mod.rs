@@ -7,7 +7,7 @@
 //! - Dispatcher: tagged batch queue -> worker pool
 //! - Shutdown: signal_hook + tokio::sync::watch
 //!
-//! Phase 1: worker_loop -> CodeGraph reconcile. TODO: remove allow(dead_code) when stable.
+//! Phase 1: worker_loop -> CodeGraph reconcile.
 
 use anyhow::{Context, Result};
 use signal_hook::{consts::SIGTERM, iterator::Signals};
