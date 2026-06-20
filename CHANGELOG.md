@@ -3,6 +3,12 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://sememver.org/spec/v2.0.0.html).
 
+## [4.8.1] - 2026-06-20
+
+### Fixed
+
+- `temporal-barcode --symbol` now accepts a plain symbol name in addition to a stable ID hash. Resolves the name via `symbol_versions.name` lookup when no exact stable ID match is found.
+
 ## [4.8.0] - 2026-06-20
 
 ### Added
