@@ -740,7 +740,10 @@ fn run_glob_listing(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "registry fan-out path mirrors CLI flag surface"
+)]
 /// Run find across all enabled projects in the registry
 fn run_find_all(
     name: &Option<String>,
@@ -757,7 +760,7 @@ fn run_find_all(
 
     if enabled_projects.is_empty() {
         println!("No enabled projects in registry.");
-        println!("Hint: use `magellan registry scan` to discover projects, then `magellan registry enable <name>` to activate.");
+        println!("Hint: use `magellan catalog` to list registered projects, then `magellan watch` to index one.");
         return Ok(());
     }
 

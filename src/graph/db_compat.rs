@@ -114,7 +114,6 @@ pub fn ensure_magellan_meta(
                             current_version = 9;
                         }
                         9 => {
-                            ensure_4d_coordinates_columns(conn)?;
                             current_version = 10;
                         }
                         10 => {
@@ -140,6 +139,10 @@ pub fn ensure_magellan_meta(
                         16 => {
                             ensure_telemetry_schema(conn)?;
                             current_version = 17;
+                        }
+                        17 => {
+                            ensure_temporal_schema(conn)?;
+                            current_version = 18;
                         }
                         _ => {
                             return Err(DbCompatError::MagellanSchemaMismatch {
@@ -211,10 +214,6 @@ pub fn ensure_cfg_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatErro
         end_col INTEGER NOT NULL,
         cfg_hash TEXT,
         statements TEXT,
-        coord_x INTEGER DEFAULT 0,
-        coord_y INTEGER DEFAULT 0,
-        coord_z INTEGER DEFAULT 0,
-        coord_t TEXT DEFAULT NULL,
         cfg_condition TEXT,
         FOREIGN KEY (function_id) REFERENCES graph_entities(id) ON DELETE CASCADE
     )",
@@ -445,6 +444,146 @@ pub fn ensure_telemetry_schema(conn: &rusqlite::Connection) -> Result<(), DbComp
     Ok(())
 }
 
+/// Create repository snapshot tables for temporal tracking (v18).
+pub fn ensure_temporal_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS repo_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            repo_root TEXT NOT NULL,
+            commit_oid TEXT NOT NULL UNIQUE,
+            tree_oid TEXT NOT NULL,
+            author_time INTEGER NOT NULL,
+            commit_time INTEGER NOT NULL,
+            commit_message TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        )",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_repo_snapshots_commit
+         ON repo_snapshots(commit_oid)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS repo_snapshot_parents (
+            snapshot_id INTEGER NOT NULL,
+            parent_oid TEXT NOT NULL,
+            FOREIGN KEY (snapshot_id) REFERENCES repo_snapshots(id) ON DELETE CASCADE,
+            PRIMARY KEY (snapshot_id, parent_oid)
+        )",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS file_versions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            snapshot_id INTEGER NOT NULL,
+            file_path TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            size_bytes INTEGER NOT NULL,
+            is_deleted INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (snapshot_id) REFERENCES repo_snapshots(id) ON DELETE CASCADE
+        )",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_file_versions_snapshot
+         ON file_versions(snapshot_id)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_file_versions_path
+         ON file_versions(file_path)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS symbol_versions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            snapshot_id INTEGER NOT NULL,
+            stable_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            start_line INTEGER NOT NULL,
+            start_col INTEGER NOT NULL,
+            end_line INTEGER NOT NULL,
+            end_col INTEGER NOT NULL,
+            body_hash TEXT,
+            FOREIGN KEY (snapshot_id) REFERENCES repo_snapshots(id) ON DELETE CASCADE
+        )",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_symbol_versions_snapshot
+         ON symbol_versions(snapshot_id)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_symbol_versions_stable
+         ON symbol_versions(stable_id)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_symbol_versions_name
+         ON symbol_versions(name)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS edge_versions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            snapshot_id INTEGER NOT NULL,
+            source_stable_id TEXT NOT NULL,
+            target_stable_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            FOREIGN KEY (snapshot_id) REFERENCES repo_snapshots(id) ON DELETE CASCADE
+        )",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_edge_versions_snapshot
+         ON edge_versions(snapshot_id)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_edge_versions_source
+         ON edge_versions(source_stable_id)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_edge_versions_target
+         ON edge_versions(target_stable_id)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    Ok(())
+}
+
 pub fn ensure_statements_column(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
     let has_col: bool = conn
         .query_row(
@@ -457,81 +596,6 @@ pub fn ensure_statements_column(conn: &rusqlite::Connection) -> Result<(), DbCom
         conn.execute("ALTER TABLE cfg_blocks ADD COLUMN statements TEXT", [])
             .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
     }
-    Ok(())
-}
-
-/// Add 4D spatial-temporal coordinate columns to cfg_blocks table
-///
-/// This enables the 4D SSoT (Single Source of Truth) feature where:
-/// - X (coord_x): Dominator depth (structural hierarchy)
-/// - Y (coord_y): Loop nesting level (iterative complexity)
-/// - Z (coord_z): Branch count (decision density)
-/// - T (coord_t): Git commit hash or trace timestamp
-pub fn ensure_4d_coordinates_columns(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
-    // Check and add coord_x column
-    let has_x: bool = conn
-        .query_row(
-            "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='coord_x'",
-            [],
-            |_| Ok(true),
-        )
-        .unwrap_or(false);
-    if !has_x {
-        conn.execute(
-            "ALTER TABLE cfg_blocks ADD COLUMN coord_x INTEGER DEFAULT 0",
-            [],
-        )
-        .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
-    }
-
-    // Check and add coord_y column
-    let has_y: bool = conn
-        .query_row(
-            "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='coord_y'",
-            [],
-            |_| Ok(true),
-        )
-        .unwrap_or(false);
-    if !has_y {
-        conn.execute(
-            "ALTER TABLE cfg_blocks ADD COLUMN coord_y INTEGER DEFAULT 0",
-            [],
-        )
-        .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
-    }
-
-    // Check and add coord_z column
-    let has_z: bool = conn
-        .query_row(
-            "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='coord_z'",
-            [],
-            |_| Ok(true),
-        )
-        .unwrap_or(false);
-    if !has_z {
-        conn.execute(
-            "ALTER TABLE cfg_blocks ADD COLUMN coord_z INTEGER DEFAULT 0",
-            [],
-        )
-        .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
-    }
-
-    // Check and add coord_t column
-    let has_t: bool = conn
-        .query_row(
-            "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='coord_t'",
-            [],
-            |_| Ok(true),
-        )
-        .unwrap_or(false);
-    if !has_t {
-        conn.execute(
-            "ALTER TABLE cfg_blocks ADD COLUMN coord_t TEXT DEFAULT NULL",
-            [],
-        )
-        .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
-    }
-
     Ok(())
 }
 

@@ -35,7 +35,10 @@ struct ReferenceExtraction<'a> {
 /// * `extract_function_name` - closure that extracts the function name from a function node
 /// * `call_node_kind` - tree-sitter node kind that represents a call
 /// * `extract_callee` - closure that returns `(callee_text, node_kind)` for the callee child
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "language extraction adapters pass parser callbacks and source context together"
+)]
 pub fn extract_calls_from_tree(
     tree: &tree_sitter::Tree,
     file_path: PathBuf,
@@ -73,7 +76,10 @@ pub fn extract_calls_from_tree(
     calls
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "recursive walker threads parse state and symbol maps through each visit"
+)]
 fn walk_tree_for_calls(
     node: &tree_sitter::Node,
     source: &[u8],
@@ -116,7 +122,10 @@ fn walk_tree_for_calls(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "call resolution needs both caller context and symbol lookup tables"
+)]
 fn extract_call_in_node(
     node: &tree_sitter::Node,
     source: &[u8],

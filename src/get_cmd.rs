@@ -484,8 +484,8 @@ pub fn run_chunk_by_symbol(
         &db_path_str,
     )?;
 
-    // For global symbol search, we need to use SQLite directly for now
-    // Geo backend requires file_path for chunk lookup
+    // Global symbol search uses SQLite directly because the graph backend's
+    // chunk lookup API requires a file_path filter.
 
     let chunks = {
         use rusqlite::Connection;

@@ -2,7 +2,7 @@
 //!
 //! This module is kept for backward compatibility but new code should use
 //! `crate::graph::cfg_edges_extract` which provides:
-//! - 4D spatial coordinates (coord_x, coord_y, coord_z)
+//! - CFG block metadata
 //! - Typed control-flow edges (ConditionalTrue, ConditionalFalse, etc.)
 //! - Better coverage of Rust control-flow constructs
 //!
@@ -231,10 +231,6 @@ impl<'a> CfgExtractor<'a> {
             end_col,
             cfg_hash: None,
             statements: None,
-            coord_x: 0,
-            coord_y: 0,
-            coord_z: 0,
-            coord_t: None,
             cfg_condition: None,
         };
 
@@ -439,10 +435,6 @@ impl<'a> CfgExtractor<'a> {
             end_col,
             cfg_hash: None,
             statements: None,
-            coord_x: 0,
-            coord_y: 0,
-            coord_z: 0,
-            coord_t: None,
             cfg_condition: None,
         };
 
@@ -470,10 +462,6 @@ impl<'a> CfgExtractor<'a> {
             end_col,
             cfg_hash: None,
             statements: None,
-            coord_x: 0,
-            coord_y: 0,
-            coord_z: 0,
-            coord_t: None,
             cfg_condition: None,
         };
 
@@ -501,10 +489,6 @@ impl<'a> CfgExtractor<'a> {
             end_col,
             cfg_hash: None,
             statements: None,
-            coord_x: 0,
-            coord_y: 0,
-            coord_z: 0,
-            coord_t: None,
             cfg_condition: None,
         };
 
@@ -559,17 +543,13 @@ mod tests {
         parser.parse(source, None).unwrap()
     }
 
-    #[allow(clippy::manual_find)]
     fn find_first_function(tree: &tree_sitter::Tree) -> Option<Node<'_>> {
         let root = tree.root_node();
         let mut cursor = root.walk();
-
-        for child in root.children(&mut cursor) {
-            if child.kind() == "function_item" {
-                return Some(child);
-            }
-        }
-        None
+        let first_function = root
+            .children(&mut cursor)
+            .find(|child| child.kind() == "function_item");
+        first_function
     }
 
     #[test]
@@ -782,7 +762,7 @@ pub mod llvm_cfg {
     /// - Template instantiation
     /// - Inline expansion
     ///
-    /// **Status:** Stub implementation - full extraction deferred
+    /// **Status:** API surface is present, but LLVM IR extraction is not implemented yet.
     pub struct LlvmCfgExtractor {
         /// Path to clang binary for IR generation
         clang_path: std::path::PathBuf,
@@ -820,28 +800,25 @@ pub mod llvm_cfg {
         /// * `function_id` - Database ID for storing blocks
         ///
         /// # Returns
-        /// Vector of CFG blocks (stub for now)
+        /// CFG blocks extracted from the requested function.
         pub fn extract_cfg_from_ir(
             &self,
-            _ir_file: &std::path::Path,
+            ir_file: &std::path::Path,
             function_name: &str,
             function_id: i64,
         ) -> Result<Vec<CfgBlock>> {
-            // STUB: Return empty vector for now
-            // Full implementation requires:
-            // 1. Compile to IR: clang -S -emit-llvm input.c -o input.ll
-            // 2. Parse IR: inkwell::module::Module::parse_ir_string()
-            // 3. Walk functions: module.get_function(function_name)
-            // 4. Iterate basic blocks: func.get_basic_blocks()
-            // 5. Extract terminators: block.get_terminator()
-
             tracing::warn!(
-                "LlvmCfgExtractor::extract_cfg_from_ir called for '{}' \
-                but is not yet implemented (stub only)",
-                function_name
+                "LlvmCfgExtractor::extract_cfg_from_ir called for '{}' in '{}' but LLVM IR CFG extraction is not implemented",
+                function_name,
+                ir_file.display()
             );
 
-            Ok(vec![])
+            let _ = function_id;
+            Err(anyhow::anyhow!(
+                "LLVM IR CFG extraction is not implemented for '{}' in '{}'",
+                function_name,
+                ir_file.display()
+            ))
         }
 
         /// Generate LLVM IR from C/C++ source file
@@ -916,14 +893,14 @@ pub mod llvm_cfg {
         }
 
         #[test]
-        fn test_stub_returns_empty() {
+        fn test_extract_cfg_from_ir_reports_unimplemented() {
             let extractor = LlvmCfgExtractor::new();
-            // Even if creation fails, we can test the stub behavior
+            // Even if creation fails, we can still validate the current API behavior.
             if let Ok(ext) = extractor {
-                let blocks = ext
+                let err = ext
                     .extract_cfg_from_ir(std::path::Path::new("test.c"), "test_function", 1)
-                    .unwrap();
-                assert!(blocks.is_empty(), "Stub should return empty vector");
+                    .expect_err("LLVM extractor should fail explicitly until implemented");
+                assert!(err.to_string().contains("not implemented"));
             }
         }
     }

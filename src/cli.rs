@@ -70,7 +70,11 @@ pub enum ContextSubcommand {
     /// Build context index
     Build,
     /// Show project summary
-    Summary,
+    Summary {
+        token_budget: Option<usize>,
+        detail: Option<String>,
+        concise: bool,
+    },
     /// List symbols (paginated)
     List {
         kind: Option<String>,
@@ -90,6 +94,9 @@ pub enum ContextSubcommand {
         with_source: bool,
         depth: Option<usize>,
         project: Option<String>,
+        token_budget: Option<usize>,
+        detail: Option<String>,
+        concise: bool,
     },
     /// Show file context
     File { path: String },
@@ -100,6 +107,9 @@ pub enum ContextSubcommand {
         depth: usize,
         project: Option<String>,
         output_format: OutputFormat,
+        token_budget: Option<usize>,
+        detail: Option<String>,
+        concise: bool,
     },
     /// Affected analysis — what the symbol transitively calls
     Affected {
@@ -108,6 +118,9 @@ pub enum ContextSubcommand {
         depth: usize,
         project: Option<String>,
         output_format: OutputFormat,
+        token_budget: Option<usize>,
+        detail: Option<String>,
+        concise: bool,
     },
 }
 
@@ -150,12 +163,11 @@ pub enum Command {
         fqn: String,
         output_format: OutputFormat,
     },
-    RegistryScan {
-        root: PathBuf,
+    Catalog {
         output_format: OutputFormat,
     },
-    RegistryList {
-        root: PathBuf,
+    CatalogDescribe {
+        name: String,
         output_format: OutputFormat,
     },
     ConfigShow {
@@ -325,6 +337,35 @@ pub enum Command {
         output_db: PathBuf,
         export_dir: Option<PathBuf>,
         dry_run: bool,
+        output_format: OutputFormat,
+    },
+    TemporalSweep {
+        db_path: PathBuf,
+        repo_path: PathBuf,
+        every_n: Option<usize>,
+        tags_only: bool,
+        merge_commits_only: bool,
+        since_commit_time: Option<i64>,
+        until_commit_time: Option<i64>,
+        output_format: OutputFormat,
+    },
+    TemporalStatus {
+        db_path: PathBuf,
+        output_format: OutputFormat,
+    },
+    TemporalBarcode {
+        db_path: PathBuf,
+        stable_id: Option<String>,
+        edge_source: Option<String>,
+        edge_target: Option<String>,
+        edge_kind: Option<String>,
+        scc: bool,
+        output_format: OutputFormat,
+    },
+    AsOf {
+        db_path: PathBuf,
+        commit_oid: String,
+        symbol_name: String,
         output_format: OutputFormat,
     },
     Chunks {

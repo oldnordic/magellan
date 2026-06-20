@@ -9,7 +9,7 @@ pub(super) fn extract_if_blocks_with_fallthrough(
     blocks: &mut Vec<CfgBlock>,
     edges: &mut Vec<CfgEdge>,
     previous_block_idx: &mut Option<usize>,
-    loop_header: Option<usize>,
+    loop_scope: LoopScope,
 ) {
     // Find then and else blocks FIRST (before creating blocks)
     let mut then_node = None;
@@ -72,7 +72,7 @@ pub(super) fn extract_if_blocks_with_fallthrough(
             blocks,
             edges,
             &mut None,
-            loop_header,
+            loop_scope,
         );
     }
     let then_end_idx = blocks.len().saturating_sub(1);
@@ -87,7 +87,7 @@ pub(super) fn extract_if_blocks_with_fallthrough(
             blocks,
             edges,
             &mut None,
-            loop_header,
+            loop_scope,
         );
     }
     let else_end_idx = blocks.len().saturating_sub(1);
@@ -138,10 +138,6 @@ pub(super) fn extract_if_blocks_with_fallthrough(
         end_col: merge_end_col,
         cfg_hash: None,
         statements: None,
-        coord_x: 0,
-        coord_y: 0,
-        coord_z: 0,
-        coord_t: None,
         cfg_condition: None,
     };
     blocks.push(merge_block);
@@ -214,8 +210,27 @@ pub(super) fn extract_loop_blocks_with_fallthrough(
         }
     }
 
-    // Extract body blocks with loop_header set
+    // Create exit block before the body so nested break statements can target it.
+    let exit_idx = blocks.len();
+    let exit_block = CfgBlock {
+        function_id,
+        kind: "exit".to_string(),
+        terminator: "fallthrough".to_string(),
+        byte_start: node.end_byte() as u64,
+        byte_end: node.end_byte() as u64,
+        start_line: node.end_position().row as u64 + 1,
+        start_col: node.end_position().column as u64,
+        end_line: node.end_position().row as u64 + 1,
+        end_col: node.end_position().column as u64,
+        cfg_hash: None,
+        statements: None,
+        cfg_condition: None,
+    };
+    blocks.push(exit_block);
+
+    // Extract body blocks with loop_scope set.
     let body_start_idx = blocks.len();
+    let mut body_last_idx = None;
     if let Some(body) = body_node {
         extract_blocks_from_node_with_fallthrough(
             &body,
@@ -223,42 +238,25 @@ pub(super) fn extract_loop_blocks_with_fallthrough(
             source,
             blocks,
             edges,
-            &mut None,        // Start fresh in body
-            Some(header_idx), // Set loop header for break/continue
+            &mut body_last_idx,
+            LoopScope {
+                header: Some(header_idx),
+                exit: Some(exit_idx),
+            },
         );
     }
-    let body_end_idx = blocks.len().saturating_sub(1);
 
     // Create back-edge from end of body to header
-    if body_node.is_some() && body_end_idx >= body_start_idx {
+    if body_node.is_some()
+        && body_last_idx.is_some()
+        && body_last_idx.unwrap_or(body_start_idx) >= body_start_idx
+    {
         edges.push(CfgEdge {
-            source_idx: body_end_idx,
+            source_idx: body_last_idx.unwrap_or(body_start_idx),
             target_idx: header_idx,
             edge_type: CfgEdgeType::BackEdge,
         });
     }
-
-    // Create exit block
-    let exit_idx = blocks.len();
-    let exit_block = CfgBlock {
-        function_id,
-        kind: "exit".to_string(),
-        terminator: "fallthrough".to_string(),
-        byte_start: 0,
-        byte_end: 0,
-        start_line: 0,
-        start_col: 0,
-        end_line: 0,
-        end_col: 0,
-        cfg_hash: None,
-        statements: None,
-        coord_x: 0,
-        coord_y: 0,
-        coord_z: 0,
-        coord_t: None,
-        cfg_condition: None,
-    };
-    blocks.push(exit_block);
 
     // Edge from header to exit (loop exit on false condition)
     edges.push(CfgEdge {
@@ -279,6 +277,7 @@ pub(super) fn extract_match_blocks_with_fallthrough(
     blocks: &mut Vec<CfgBlock>,
     edges: &mut Vec<CfgEdge>,
     previous_block_idx: &mut Option<usize>,
+    loop_scope: LoopScope,
 ) {
     // Create fallthrough edge from previous block to match
     let dispatch_idx = blocks.len();
@@ -385,7 +384,7 @@ pub(super) fn extract_match_blocks_with_fallthrough(
                 blocks,
                 edges,
                 &mut None, // Each arm starts fresh
-                None,      // No loop context in match
+                loop_scope,
             );
             let arm_end_idx = blocks.len().saturating_sub(1);
             arm_indices.push((arm_start_idx, arm_end_idx));
@@ -411,7 +410,7 @@ pub(super) fn extract_match_blocks_with_fallthrough(
                 blocks,
                 edges,
                 &mut None,
-                None,
+                loop_scope,
             );
             let arm_end_idx = blocks.len().saturating_sub(1);
             arm_indices.push((arm_start_idx, arm_end_idx));
@@ -452,7 +451,7 @@ pub(super) fn extract_match_blocks_with_fallthrough(
                 blocks,
                 edges,
                 &mut None,
-                None,
+                loop_scope,
             );
             let arm_end_idx = blocks.len().saturating_sub(1);
             arm_indices.push((arm_start_idx, arm_end_idx));
@@ -509,7 +508,7 @@ pub(super) fn extract_match_blocks_with_fallthrough(
                 blocks,
                 edges,
                 &mut Some(guard_idx),
-                None,
+                loop_scope,
             );
         }
         let arm_end_idx = blocks.len().saturating_sub(1);
@@ -569,10 +568,6 @@ pub(super) fn extract_match_blocks_with_fallthrough(
         end_col: merge_end_col,
         cfg_hash: None,
         statements: None,
-        coord_x: 0,
-        coord_y: 0,
-        coord_z: 0,
-        coord_t: None,
         cfg_condition: None,
     };
     blocks.push(merge_block);

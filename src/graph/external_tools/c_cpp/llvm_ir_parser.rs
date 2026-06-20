@@ -138,10 +138,6 @@ pub fn extract_cfg_from_llvm_ir(ll_content: &str) -> Result<HashMap<String, CfgW
                         start_col: 0,
                         end_line: 0,
                         end_col: 0,
-                        coord_x: 0,
-                        coord_y: 0,
-                        coord_z: 0,
-                        coord_t: None,
                         cfg_condition: None,
                     };
 
@@ -305,10 +301,6 @@ fn build_cfg_from_blocks(_func_name: &str, blocks: &[LlvmBlock]) -> Result<CfgWi
             start_col: 0,
             end_line: block.line as u64,
             end_col: 0,
-            coord_x: 0,
-            coord_y: 0,
-            coord_z: 0,
-            coord_t: None,
             cfg_condition: None,
         });
     }

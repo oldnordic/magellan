@@ -56,6 +56,7 @@ Commands:
   delete          Remove a file from the index
   cross-file-refs Show references to a symbol from other files
   registry        Discover and list Magellan databases (scan, list)
+  catalog         Enumerate all indexed databases with schema + capabilities
   export          Export graph data to JSON/JSONL/CSV/SCIP
   status          Show database statistics
   features        Show active Cargo features from project metadata

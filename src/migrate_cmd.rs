@@ -18,8 +18,7 @@ use std::path::{Path, PathBuf};
 /// v7: CFG blocks table for control flow graph storage
 /// v8: cfg_blocks.cfg_hash column for cache invalidation
 /// v9: cfg_blocks.statements column for AST snippets
-/// v10: cfg_blocks 4D spatial-temporal coordinate columns
-/// v10: CFG coordinate columns (coord_x, coord_y, coord_z, coord_t)
+/// v10: reserved migration slot (legacy 4D CFG columns removed from new schema)
 /// v11: (removed — geo_index_meta table no longer created)
 /// v12: FTS5 full-text search index
 /// v12: symbol_fts FTS5 virtual table for fast symbol search
@@ -28,7 +27,8 @@ use std::path::{Path, PathBuf};
 /// v15: magellan_meta.project_name and project_metadata columns
 /// v16: cfg_blocks.cfg_condition column for feature-gated blocks
 /// v17: telemetry_events table for performance telemetry
-pub const MAGELLAN_SCHEMA_VERSION: i64 = 17;
+/// v18: repository snapshot tables for temporal tracking
+pub const MAGELLAN_SCHEMA_VERSION: i64 = 18;
 
 /// Migration result summary
 #[derive(Debug, Clone)]
@@ -291,20 +291,7 @@ fn migrate_from_version(tx: &Transaction, old_version: i64) -> Result<()> {
     }
 
     if old_version < 10 {
-        // v9 -> v10: Add 4D spatial-temporal coordinate columns to cfg_blocks
-        tx.execute(
-            "ALTER TABLE cfg_blocks ADD COLUMN coord_x INTEGER DEFAULT 0",
-            [],
-        )?;
-        tx.execute(
-            "ALTER TABLE cfg_blocks ADD COLUMN coord_y INTEGER DEFAULT 0",
-            [],
-        )?;
-        tx.execute(
-            "ALTER TABLE cfg_blocks ADD COLUMN coord_z INTEGER DEFAULT 0",
-            [],
-        )?;
-        tx.execute("ALTER TABLE cfg_blocks ADD COLUMN coord_t TEXT", [])?;
+        // v9 -> v10: reserved migration slot; legacy 4D CFG columns are no longer created
     }
 
     if old_version < 11 {
@@ -413,6 +400,160 @@ fn migrate_from_version(tx: &Transaction, old_version: i64) -> Result<()> {
         if !has_cfg_condition {
             tx.execute("ALTER TABLE cfg_blocks ADD COLUMN cfg_condition TEXT", [])?;
         }
+    }
+
+    if old_version < 17 {
+        // v16 -> v17: Add telemetry_events table for performance telemetry
+        tx.execute(
+            "CREATE TABLE IF NOT EXISTS telemetry_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                execution_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                event_name TEXT NOT NULL,
+                timestamp_ns INTEGER NOT NULL,
+                duration_ns INTEGER,
+                value REAL,
+                unit TEXT,
+                metadata TEXT
+            )",
+            [],
+        )?;
+
+        tx.execute(
+            "CREATE INDEX IF NOT EXISTS idx_telemetry_events_execution
+             ON telemetry_events(execution_id)",
+            [],
+        )?;
+
+        tx.execute(
+            "CREATE INDEX IF NOT EXISTS idx_telemetry_events_type_name
+             ON telemetry_events(event_type, event_name)",
+            [],
+        )?;
+    }
+
+    if old_version < 18 {
+        // v17 -> v18: Add repository snapshot tables for temporal tracking
+        tx.execute(
+            "CREATE TABLE IF NOT EXISTS repo_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                repo_root TEXT NOT NULL,
+                commit_oid TEXT NOT NULL UNIQUE,
+                tree_oid TEXT NOT NULL,
+                author_time INTEGER NOT NULL,
+                commit_time INTEGER NOT NULL,
+                commit_message TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            )",
+            [],
+        )?;
+
+        tx.execute(
+            "CREATE INDEX IF NOT EXISTS idx_repo_snapshots_commit
+             ON repo_snapshots(commit_oid)",
+            [],
+        )?;
+
+        tx.execute(
+            "CREATE TABLE IF NOT EXISTS repo_snapshot_parents (
+                snapshot_id INTEGER NOT NULL,
+                parent_oid TEXT NOT NULL,
+                FOREIGN KEY (snapshot_id) REFERENCES repo_snapshots(id) ON DELETE CASCADE,
+                PRIMARY KEY (snapshot_id, parent_oid)
+            )",
+            [],
+        )?;
+
+        tx.execute(
+            "CREATE TABLE IF NOT EXISTS file_versions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                snapshot_id INTEGER NOT NULL,
+                file_path TEXT NOT NULL,
+                content_hash TEXT NOT NULL,
+                size_bytes INTEGER NOT NULL,
+                is_deleted INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (snapshot_id) REFERENCES repo_snapshots(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+
+        tx.execute(
+            "CREATE INDEX IF NOT EXISTS idx_file_versions_snapshot
+             ON file_versions(snapshot_id)",
+            [],
+        )?;
+
+        tx.execute(
+            "CREATE INDEX IF NOT EXISTS idx_file_versions_path
+             ON file_versions(file_path)",
+            [],
+        )?;
+
+        tx.execute(
+            "CREATE TABLE IF NOT EXISTS symbol_versions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                snapshot_id INTEGER NOT NULL,
+                stable_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                start_line INTEGER NOT NULL,
+                start_col INTEGER NOT NULL,
+                end_line INTEGER NOT NULL,
+                end_col INTEGER NOT NULL,
+                body_hash TEXT,
+                FOREIGN KEY (snapshot_id) REFERENCES repo_snapshots(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+
+        tx.execute(
+            "CREATE INDEX IF NOT EXISTS idx_symbol_versions_snapshot
+             ON symbol_versions(snapshot_id)",
+            [],
+        )?;
+
+        tx.execute(
+            "CREATE INDEX IF NOT EXISTS idx_symbol_versions_stable
+             ON symbol_versions(stable_id)",
+            [],
+        )?;
+
+        tx.execute(
+            "CREATE INDEX IF NOT EXISTS idx_symbol_versions_name
+             ON symbol_versions(name)",
+            [],
+        )?;
+
+        tx.execute(
+            "CREATE TABLE IF NOT EXISTS edge_versions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                snapshot_id INTEGER NOT NULL,
+                source_stable_id TEXT NOT NULL,
+                target_stable_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                FOREIGN KEY (snapshot_id) REFERENCES repo_snapshots(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+
+        tx.execute(
+            "CREATE INDEX IF NOT EXISTS idx_edge_versions_snapshot
+             ON edge_versions(snapshot_id)",
+            [],
+        )?;
+
+        tx.execute(
+            "CREATE INDEX IF NOT EXISTS idx_edge_versions_source
+             ON edge_versions(source_stable_id)",
+            [],
+        )?;
+
+        tx.execute(
+            "CREATE INDEX IF NOT EXISTS idx_edge_versions_target
+             ON edge_versions(target_stable_id)",
+            [],
+        )?;
     }
 
     Ok(())

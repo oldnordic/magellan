@@ -541,7 +541,10 @@ fn output_json_mode(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "registry fan-out path mirrors CLI flag surface"
+)]
 fn run_refs_all(
     _name: &str,
     direction: &str,
@@ -556,7 +559,7 @@ fn run_refs_all(
 
     if enabled.is_empty() {
         println!("No enabled projects in registry.");
-        println!("Hint: use `magellan registry scan` to discover projects, then `magellan registry enable <name>` to activate.");
+        println!("Hint: use `magellan catalog` to list registered projects, then `magellan watch` to index one.");
         return Ok(());
     }
 

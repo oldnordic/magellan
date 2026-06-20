@@ -92,6 +92,50 @@ fn with_loop() -> i32 {
 }
 
 #[test]
+fn test_break_targets_loop_exit_not_header() {
+    let source = r#"
+fn with_break(flag: bool) {
+    loop {
+        if flag {
+            break;
+        }
+    }
+}
+"#;
+
+    let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::LANGUAGE.into());
+
+    let break_idx = result
+        .blocks
+        .iter()
+        .position(|b| b.kind == "break")
+        .expect("Should have break block");
+    let loop_idx = result
+        .blocks
+        .iter()
+        .position(|b| b.kind == "loop")
+        .expect("Should have loop header block");
+    let exit_idx = result
+        .blocks
+        .iter()
+        .position(|b| b.kind == "exit")
+        .expect("Should have loop exit block");
+
+    let break_jump_targets: Vec<_> = result
+        .edges
+        .iter()
+        .filter(|e| e.source_idx == break_idx && e.edge_type == CfgEdgeType::Jump)
+        .map(|e| e.target_idx)
+        .collect();
+
+    assert_eq!(
+        break_jump_targets,
+        vec![exit_idx],
+        "break should jump to loop exit, not back to header {loop_idx}"
+    );
+}
+
+#[test]
 fn test_extract_cfg_with_edges_return() {
     let source = r#"
 fn with_return(x: i32) -> i32 {
@@ -110,6 +154,66 @@ fn with_return(x: i32) -> i32 {
         .iter()
         .any(|e| matches!(e.edge_type, CfgEdgeType::Return));
     assert!(has_return, "Should have return edges");
+}
+
+#[test]
+fn test_extract_call_expression_emits_call_edge() {
+    let source = r#"
+fn helper(x: i32) -> i32 { x + 1 }
+
+fn caller() -> i32 {
+    let y = helper(41);
+    helper(y)
+}
+"#;
+
+    let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::LANGUAGE.into());
+
+    let call_blocks: Vec<_> = result.blocks.iter().filter(|b| b.kind == "call").collect();
+    assert!(
+        !call_blocks.is_empty(),
+        "Should extract call blocks for ordinary call expressions"
+    );
+
+    let has_call_edge = result
+        .edges
+        .iter()
+        .any(|e| matches!(e.edge_type, CfgEdgeType::Call));
+    assert!(has_call_edge, "Should emit at least one typed Call edge");
+}
+
+#[test]
+fn test_extract_let_else_creates_conditional_flow() {
+    let source = r#"
+fn parse(maybe: Option<i32>) -> i32 {
+    let Some(value) = maybe else {
+        return 0;
+    };
+    value + 1
+}
+"#;
+
+    let result = extract_cfg_with_edges(source, 1, tree_sitter_rust::LANGUAGE.into());
+
+    let has_conditional_edge = result.edges.iter().any(|e| {
+        matches!(
+            e.edge_type,
+            CfgEdgeType::ConditionalTrue | CfgEdgeType::ConditionalFalse
+        )
+    });
+    assert!(
+        has_conditional_edge,
+        "let-else should produce conditional control-flow edges"
+    );
+
+    let has_return_edge = result
+        .edges
+        .iter()
+        .any(|e| matches!(e.edge_type, CfgEdgeType::Return));
+    assert!(
+        has_return_edge,
+        "let-else failure branch should produce a return edge"
+    );
 }
 
 #[test]

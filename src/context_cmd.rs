@@ -3,7 +3,7 @@
 //! Provides summarized, paginated context queries for LLMs.
 
 use anyhow::Result;
-use magellan::context::{build_context_index, ListQuery};
+use magellan::context::{build_context_index, ListQuery, SymbolRelation};
 use magellan::graph::multi_db::MultiDbContext;
 use magellan::output::{generate_execution_id, ContextResponse, OutputFormat};
 use magellan::CodeGraph;
@@ -39,7 +39,12 @@ pub fn run_context_build(db_paths: Vec<PathBuf>) -> Result<()> {
 }
 
 /// Run the context summary command (multi-DB)
-pub fn run_context_summary(db_paths: Vec<PathBuf>) -> Result<()> {
+pub fn run_context_summary(
+    db_paths: Vec<PathBuf>,
+    token_budget: Option<usize>,
+    detail: Option<String>,
+    concise: bool,
+) -> Result<()> {
     let exec_id = generate_execution_id();
     let mut mdb = MultiDbContext::from_paths(&db_paths)?;
 
@@ -53,31 +58,9 @@ pub fn run_context_summary(db_paths: Vec<PathBuf>) -> Result<()> {
     // Phase: output
     mdb.telemetry().record_phase_start(&exec_id, "output")?;
 
-    for (project, summary) in &summaries {
-        println!("Project: {} {}", summary.name, summary.version);
-        println!("Language: {}", summary.language);
-        println!("Files: {}", summary.total_files);
-        println!("Symbols: {}", summary.total_symbols);
-        println!();
-        println!("Symbol Breakdown:");
-        println!("  Functions: {}", summary.symbol_counts.functions);
-        println!("  Methods: {}", summary.symbol_counts.methods);
-        println!("  Structs: {}", summary.symbol_counts.structs);
-        println!("  Traits: {}", summary.symbol_counts.traits);
-        println!("  Enums: {}", summary.symbol_counts.enums);
-        println!("  Modules: {}", summary.symbol_counts.modules);
-
-        if !summary.entry_points.is_empty() {
-            println!();
-            println!("Entry Points:");
-            for entry in &summary.entry_points {
-                println!("  - {}", entry);
-            }
-        }
-
-        println!("Project ID: {}", project);
-        println!("---");
-    }
+    let limits = OutputLimits::new(&detail, concise);
+    let output = prune_and_format_summary_response(summaries, &limits, token_budget)?;
+    print!("{}", output);
 
     // End output phase
     mdb.telemetry().record_phase_end(&exec_id, "output")?;
@@ -229,6 +212,9 @@ pub fn run_context_symbol(
     with_source: bool,
     depth: Option<usize>,
     project_filter: Option<String>,
+    token_budget: Option<usize>,
+    detail: Option<String>,
+    concise: bool,
 ) -> Result<()> {
     if db_paths.is_empty() {
         anyhow::bail!("No database paths provided. Use --db <path> to specify.");
@@ -272,7 +258,6 @@ pub fn run_context_symbol(
                     projects: vec![],
                     matches: vec![],
                 };
-                let exec_id = generate_execution_id();
                 let json_response = magellan::output::JsonResponse::new(response, &exec_id);
                 magellan::output::output_json(&json_response, output_format)?;
             }
@@ -284,79 +269,29 @@ pub fn run_context_symbol(
         }
         return Ok(());
     }
+
     // Output results
-    match output_format {
-        OutputFormat::Json | OutputFormat::Pretty => {
-            // Phase: build_response
-            mdb.telemetry()
-                .record_phase_start(&exec_id, "build_response")?;
+    let phase = match output_format {
+        OutputFormat::Json | OutputFormat::Pretty => "build_response",
+        OutputFormat::Human => "output",
+    };
+    mdb.telemetry().record_phase_start(&exec_id, phase)?;
 
-            let response = ContextResponse {
-                query: name.clone(),
-                projects: project_names,
-                matches: all_matches,
-            };
-            let exec_id = generate_execution_id();
-            let json_response = magellan::output::JsonResponse::new(response, &exec_id);
-            magellan::output::output_json(&json_response, output_format)?;
+    let limits = OutputLimits::new(&detail, concise);
+    let output = prune_and_format_symbol_response(
+        ContextResponse {
+            query: name.clone(),
+            projects: project_names,
+            matches: all_matches,
+        },
+        &exec_id,
+        output_format,
+        &limits,
+        token_budget,
+    )?;
+    println!("{}", output);
 
-            mdb.telemetry()
-                .record_phase_end(&exec_id, "build_response")?;
-        }
-        OutputFormat::Human => {
-            // Phase: output
-            mdb.telemetry().record_phase_start(&exec_id, "output")?;
-
-            for (i, m) in all_matches.iter().enumerate() {
-                if i > 0 {
-                    println!();
-                    println!("---");
-                }
-                println!("Project: {}", m.project);
-                println!("Symbol: {}", m.name);
-                println!("Kind: {}", m.kind);
-                println!("File: {}:{}", m.span.file_path, m.span.start_line);
-
-                if let Some(ref callers) = m.callers {
-                    if !callers.is_empty() {
-                        println!();
-                        println!("Callers ({}):", callers.len());
-                        for c in callers {
-                            let depth_str =
-                                c.depth.map_or(String::new(), |d| format!("[depth={}]", d));
-                            println!("  - {} ({}:{}) {}", c.name, c.file_path, c.line, depth_str);
-                        }
-                    }
-                }
-
-                if let Some(ref callees) = m.callees {
-                    if !callees.is_empty() {
-                        println!();
-                        println!("Callees ({}):", callees.len());
-                        for c in callees {
-                            let depth_str =
-                                c.depth.map_or(String::new(), |d| format!("[depth={}]", d));
-                            println!("  - {} ({}:{}) {}", c.name, c.file_path, c.line, depth_str);
-                        }
-                    }
-                }
-
-                if let Some(ref source) = m.source {
-                    println!();
-                    println!(
-                        "Source ({}:{}-{}):",
-                        m.span.file_path, m.span.start_line, m.span.end_line
-                    );
-                    for line in source.lines() {
-                        println!("  {}", line);
-                    }
-                }
-            }
-
-            // End output phase
-            mdb.telemetry().record_phase_end(&exec_id, "output")?;
-        }
-    }
+    mdb.telemetry().record_phase_end(&exec_id, phase)?;
 
     Ok(())
 }
@@ -439,6 +374,10 @@ fn read_source_lines(file_path: &str, start_line: usize, end_line: usize) -> Opt
 }
 
 /// Run the context impact command (multi-DB)
+#[allow(
+    clippy::too_many_arguments,
+    reason = "CLI command surface: each arg maps to a flag"
+)]
 pub fn run_context_impact(
     db_paths: Vec<PathBuf>,
     symbol_name: String,
@@ -446,6 +385,9 @@ pub fn run_context_impact(
     depth: usize,
     project_filter: Option<String>,
     output_format: OutputFormat,
+    token_budget: Option<usize>,
+    detail: Option<String>,
+    concise: bool,
 ) -> Result<()> {
     if db_paths.is_empty() {
         anyhow::bail!("No database paths provided. Use --db <path> to specify.");
@@ -464,19 +406,20 @@ pub fn run_context_impact(
         all_impacted.retain(|(proj, _)| proj == filter);
     }
 
+    let target = format!(
+        "{}{}",
+        symbol_name,
+        file.as_ref()
+            .map(|f| format!(" (in {})", f))
+            .unwrap_or_default()
+    );
+
     if all_impacted.is_empty() {
         match output_format {
             OutputFormat::Json | OutputFormat::Pretty => {
-                let target = format!(
-                    "{}{}",
-                    symbol_name,
-                    file.as_ref()
-                        .map(|f| format!(" (in {})", f))
-                        .unwrap_or_default()
-                );
                 let response = serde_json::json!({
                     "schema_version": "1.0",
-                    "execution_id": generate_execution_id(),
+                    "execution_id": exec_id,
                     "command": "context impact",
                     "data": {
                         "target": target,
@@ -502,87 +445,36 @@ pub fn run_context_impact(
         return Ok(());
     }
 
-    let target = format!(
-        "{}{}",
-        symbol_name,
-        file.as_ref()
-            .map(|f| format!(" (in {})", f))
-            .unwrap_or_default()
-    );
+    let phase = match output_format {
+        OutputFormat::Json | OutputFormat::Pretty => "build_response",
+        OutputFormat::Human => "output",
+    };
+    mdb.telemetry().record_phase_start(&exec_id, phase)?;
 
-    match output_format {
-        OutputFormat::Json | OutputFormat::Pretty => {
-            // Phase: build_response
-            mdb.telemetry()
-                .record_phase_start(&exec_id, "build_response")?;
+    let limits = OutputLimits::new(&detail, concise);
+    let output = prune_and_format_relation_response(
+        "context impact",
+        &target,
+        depth,
+        all_impacted,
+        &exec_id,
+        output_format,
+        &limits,
+        token_budget,
+    )?;
+    println!("{}", output);
 
-            let impacted_json: Vec<serde_json::Value> = all_impacted
-                .iter()
-                .map(|(proj, r)| {
-                    serde_json::json!({
-                        "project": proj,
-                        "name": r.name,
-                        "file": r.file,
-                        "line": r.line,
-                        "depth": r.depth,
-                    })
-                })
-                .collect();
-            let response = serde_json::json!({
-                "schema_version": "1.0",
-                "execution_id": generate_execution_id(),
-                "command": "context impact",
-                "data": {
-                    "target": target,
-                    "depth_limit": depth,
-                    "total_impacted": all_impacted.len(),
-                    "impacted": impacted_json,
-                },
-            });
-            let formatted = if matches!(output_format, OutputFormat::Pretty) {
-                serde_json::to_string_pretty(&response)?
-            } else {
-                serde_json::to_string(&response)?
-            };
-            println!("{}", formatted);
-
-            mdb.telemetry()
-                .record_phase_end(&exec_id, "build_response")?;
-        }
-        OutputFormat::Human => {
-            // Phase: output
-            mdb.telemetry().record_phase_start(&exec_id, "output")?;
-
-            println!("Impact analysis: {} (depth limit: {})", target, depth);
-            println!(
-                "{} symbol(s) affected across {} DB(s)\n",
-                all_impacted.len(),
-                db_paths.len()
-            );
-
-            let mut last_project = String::new();
-            for (proj, r) in &all_impacted {
-                if *proj != last_project {
-                    if !last_project.is_empty() {
-                        println!();
-                    }
-                    println!("Project: {}", proj);
-                    last_project = proj.clone();
-                }
-                let depth_str = r.depth.map_or(String::new(), |d| format!(" [depth={}]", d));
-                println!("  {} ({}:{}){}", r.name, r.file, r.line, depth_str);
-            }
-
-            // End output phase
-            mdb.telemetry().record_phase_end(&exec_id, "output")?;
-        }
-    }
+    mdb.telemetry().record_phase_end(&exec_id, phase)?;
 
     Ok(())
 }
 
 /// Run the context affected command (multi-DB)
 /// Forward reachability: find all symbols the target transitively calls
+#[allow(
+    clippy::too_many_arguments,
+    reason = "CLI command surface: each arg maps to a flag"
+)]
 pub fn run_context_affected(
     db_paths: Vec<PathBuf>,
     symbol_name: String,
@@ -590,6 +482,9 @@ pub fn run_context_affected(
     depth: usize,
     project_filter: Option<String>,
     output_format: OutputFormat,
+    token_budget: Option<usize>,
+    detail: Option<String>,
+    concise: bool,
 ) -> Result<()> {
     if db_paths.is_empty() {
         anyhow::bail!("No database paths provided. Use --db <path> to specify.");
@@ -622,7 +517,7 @@ pub fn run_context_affected(
             OutputFormat::Json | OutputFormat::Pretty => {
                 let response = serde_json::json!({
                     "schema_version": "1.0",
-                    "execution_id": generate_execution_id(),
+                    "execution_id": exec_id,
                     "command": "context affected",
                     "data": {
                         "target": target,
@@ -645,13 +540,427 @@ pub fn run_context_affected(
         return Ok(());
     }
 
+    let phase = match output_format {
+        OutputFormat::Json | OutputFormat::Pretty => "build_response",
+        OutputFormat::Human => "output",
+    };
+    mdb.telemetry().record_phase_start(&exec_id, phase)?;
+
+    let limits = OutputLimits::new(&detail, concise);
+    let output = prune_and_format_relation_response(
+        "context affected",
+        &target,
+        depth,
+        all_affected,
+        &exec_id,
+        output_format,
+        &limits,
+        token_budget,
+    )?;
+    println!("{}", output);
+
+    mdb.telemetry().record_phase_end(&exec_id, phase)?;
+
+    Ok(())
+}
+
+// Bounded Output Controls Helper Structures and Functions
+
+struct OutputLimits {
+    max_callers: usize,
+    max_callees: usize,
+    max_source_lines: usize,
+    max_items: usize,
+}
+
+impl OutputLimits {
+    fn new(detail: &Option<String>, concise: bool) -> Self {
+        let is_concise = concise || detail.as_deref() == Some("concise");
+        let is_deep = detail.as_deref() == Some("deep");
+        if is_concise {
+            Self {
+                max_callers: 5,
+                max_callees: 5,
+                max_source_lines: 15,
+                max_items: 5,
+            }
+        } else if is_deep {
+            Self {
+                max_callers: 50,
+                max_callees: 50,
+                max_source_lines: 100,
+                max_items: 50,
+            }
+        } else {
+            Self {
+                max_callers: 15,
+                max_callees: 15,
+                max_source_lines: 40,
+                max_items: 20,
+            }
+        }
+    }
+}
+
+fn prune_and_format_summary_response(
+    mut summaries: Vec<(String, magellan::context::ProjectSummary)>,
+    limits: &OutputLimits,
+    token_budget: Option<usize>,
+) -> Result<String> {
+    let mut is_partial = false;
+
+    // 1. Initial structural pruning based on detail level
+    for (_, summary) in &mut summaries {
+        if summary.entry_points.len() > limits.max_items {
+            summary.entry_points.truncate(limits.max_items);
+            is_partial = true;
+        }
+    }
+
+    // 2. Token budget check and iterative pruning if needed
+    if let Some(budget) = token_budget {
+        let char_limit = budget * 4;
+        let mut entry_points_limit = limits.max_items;
+
+        loop {
+            let formatted = format_summary_response(&summaries, is_partial)?;
+            if formatted.len() <= char_limit {
+                return Ok(formatted);
+            }
+
+            is_partial = true;
+
+            if entry_points_limit > 0 {
+                entry_points_limit = if entry_points_limit > 2 {
+                    entry_points_limit / 2
+                } else {
+                    0
+                };
+                for (_, summary) in &mut summaries {
+                    if summary.entry_points.len() > entry_points_limit {
+                        summary.entry_points.truncate(entry_points_limit);
+                    }
+                }
+            } else {
+                let mut truncated = formatted;
+                truncated.truncate(char_limit.saturating_sub(60));
+                truncated.push_str("\n... [Output truncated due to --token-budget]");
+                return Ok(truncated);
+            }
+        }
+    }
+
+    format_summary_response(&summaries, is_partial)
+}
+
+fn format_summary_response(
+    summaries: &[(String, magellan::context::ProjectSummary)],
+    is_partial: bool,
+) -> Result<String> {
+    let mut out = String::new();
+    for (project, summary) in summaries {
+        out.push_str(&format!("Project: {} {}\n", summary.name, summary.version));
+        out.push_str(&format!("Language: {}\n", summary.language));
+        out.push_str(&format!("Files: {}\n", summary.total_files));
+        out.push_str(&format!("Symbols: {}\n", summary.total_symbols));
+        out.push('\n');
+        out.push_str("Symbol Breakdown:\n");
+        out.push_str(&format!(
+            "  Functions: {}\n",
+            summary.symbol_counts.functions
+        ));
+        out.push_str(&format!("  Methods: {}\n", summary.symbol_counts.methods));
+        out.push_str(&format!("  Structs: {}\n", summary.symbol_counts.structs));
+        out.push_str(&format!("  Traits: {}\n", summary.symbol_counts.traits));
+        out.push_str(&format!("  Enums: {}\n", summary.symbol_counts.enums));
+        out.push_str(&format!("  Modules: {}\n\n", summary.symbol_counts.modules));
+
+        if !summary.entry_points.is_empty() {
+            out.push_str("Entry Points:\n");
+            for entry in &summary.entry_points {
+                out.push_str(&format!("  - {}\n", entry));
+            }
+            out.push('\n');
+        }
+
+        out.push_str(&format!("Project ID: {}\n", project));
+        out.push_str("---\n");
+    }
+    if is_partial {
+        out.push_str("\n... [Output truncated due to token budget]\n");
+    }
+    Ok(out)
+}
+
+fn prune_and_format_symbol_response(
+    mut response: ContextResponse,
+    exec_id: &str,
+    output_format: OutputFormat,
+    limits: &OutputLimits,
+    token_budget: Option<usize>,
+) -> Result<String> {
+    let mut is_partial = false;
+
+    // 1. Initial structural pruning based on detail level
+    for m in &mut response.matches {
+        if let Some(ref mut callers) = m.callers {
+            if callers.len() > limits.max_callers {
+                callers.truncate(limits.max_callers);
+                is_partial = true;
+            }
+        }
+        if let Some(ref mut callees) = m.callees {
+            if callees.len() > limits.max_callees {
+                callees.truncate(limits.max_callees);
+                is_partial = true;
+            }
+        }
+        if let Some(ref mut source) = m.source {
+            let lines: Vec<&str> = source.lines().collect();
+            if lines.len() > limits.max_source_lines {
+                let pruned = lines[..limits.max_source_lines].join("\n");
+                m.source = Some(pruned);
+                is_partial = true;
+            }
+        }
+    }
+
+    if response.matches.len() > limits.max_items {
+        response.matches.truncate(limits.max_items);
+        is_partial = true;
+    }
+
+    // 2. Token budget check and iterative pruning if needed
+    if let Some(budget) = token_budget {
+        let char_limit = budget * 4;
+        let mut source_limit = limits.max_source_lines;
+        let mut callers_limit = limits.max_callers;
+        let mut matches_limit = response.matches.len();
+
+        loop {
+            let formatted = format_symbol_response(&response, exec_id, output_format, is_partial)?;
+            if formatted.len() <= char_limit {
+                return Ok(formatted);
+            }
+
+            is_partial = true;
+
+            if source_limit > 0 {
+                source_limit = if source_limit > 5 {
+                    source_limit / 2
+                } else {
+                    0
+                };
+                for m in &mut response.matches {
+                    if let Some(ref mut source) = m.source {
+                        let lines: Vec<&str> = source.lines().collect();
+                        if lines.len() > source_limit {
+                            if source_limit == 0 {
+                                m.source = None;
+                            } else {
+                                m.source = Some(lines[..source_limit].join("\n"));
+                            }
+                        }
+                    }
+                }
+            } else if callers_limit > 0 {
+                callers_limit = if callers_limit > 2 {
+                    callers_limit / 2
+                } else {
+                    0
+                };
+                for m in &mut response.matches {
+                    if let Some(ref mut callers) = m.callers {
+                        if callers.len() > callers_limit {
+                            if callers_limit == 0 {
+                                m.callers = None;
+                            } else {
+                                callers.truncate(callers_limit);
+                            }
+                        }
+                    }
+                    if let Some(ref mut callees) = m.callees {
+                        if callees.len() > callers_limit {
+                            if callers_limit == 0 {
+                                m.callees = None;
+                            } else {
+                                callees.truncate(callers_limit);
+                            }
+                        }
+                    }
+                }
+            } else if matches_limit > 1 {
+                matches_limit -= 1;
+                response.matches.truncate(matches_limit);
+            } else {
+                let mut truncated = formatted;
+                truncated.truncate(char_limit.saturating_sub(60));
+                truncated.push_str("\n... [Output truncated due to --token-budget]");
+                return Ok(truncated);
+            }
+        }
+    }
+
+    format_symbol_response(&response, exec_id, output_format, is_partial)
+}
+
+fn format_symbol_response(
+    response: &ContextResponse,
+    exec_id: &str,
+    output_format: OutputFormat,
+    is_partial: bool,
+) -> Result<String> {
     match output_format {
         OutputFormat::Json | OutputFormat::Pretty => {
-            // Phase: build_response
-            mdb.telemetry()
-                .record_phase_start(&exec_id, "build_response")?;
+            let mut json_response = magellan::output::JsonResponse::new(response.clone(), exec_id);
+            if is_partial {
+                json_response.partial = Some(true);
+            }
+            let s = match output_format {
+                OutputFormat::Json => serde_json::to_string(&json_response)?,
+                OutputFormat::Pretty => serde_json::to_string_pretty(&json_response)?,
+                _ => unreachable!(),
+            };
+            Ok(s)
+        }
+        OutputFormat::Human => {
+            let mut out = String::new();
+            for (i, m) in response.matches.iter().enumerate() {
+                if i > 0 {
+                    out.push_str("\n---\n");
+                }
+                out.push_str(&format!("Project: {}\n", m.project));
+                out.push_str(&format!("Symbol: {}\n", m.name));
+                out.push_str(&format!("Kind: {}\n", m.kind));
+                out.push_str(&format!(
+                    "File: {}:{}\n",
+                    m.span.file_path, m.span.start_line
+                ));
 
-            let affected_json: Vec<serde_json::Value> = all_affected
+                if let Some(ref callers) = m.callers {
+                    if !callers.is_empty() {
+                        out.push_str(&format!("\nCallers ({}):\n", callers.len()));
+                        for c in callers {
+                            let depth_str =
+                                c.depth.map_or(String::new(), |d| format!("[depth={}]", d));
+                            out.push_str(&format!(
+                                "  - {} ({}:{}) {}\n",
+                                c.name, c.file_path, c.line, depth_str
+                            ));
+                        }
+                    }
+                }
+
+                if let Some(ref callees) = m.callees {
+                    if !callees.is_empty() {
+                        out.push_str(&format!("\nCallees ({}):\n", callees.len()));
+                        for c in callees {
+                            let depth_str =
+                                c.depth.map_or(String::new(), |d| format!("[depth={}]", d));
+                            out.push_str(&format!(
+                                "  - {} ({}:{}) {}\n",
+                                c.name, c.file_path, c.line, depth_str
+                            ));
+                        }
+                    }
+                }
+
+                if let Some(ref source) = m.source {
+                    out.push_str(&format!(
+                        "\nSource ({}:{}-{}):\n",
+                        m.span.file_path, m.span.start_line, m.span.end_line
+                    ));
+                    for line in source.lines() {
+                        out.push_str(&format!("  {}\n", line));
+                    }
+                }
+            }
+            if is_partial {
+                out.push_str("\n... [Output truncated due to token budget]\n");
+            }
+            Ok(out)
+        }
+    }
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Formatting helper taking output configuration parameters"
+)]
+fn prune_and_format_relation_response(
+    command_name: &str,
+    target: &str,
+    depth_limit: usize,
+    mut all_relations: Vec<(String, SymbolRelation)>,
+    exec_id: &str,
+    output_format: OutputFormat,
+    limits: &OutputLimits,
+    token_budget: Option<usize>,
+) -> Result<String> {
+    let mut is_partial = false;
+
+    // 1. Initial structural pruning based on detail level
+    if all_relations.len() > limits.max_items {
+        all_relations.truncate(limits.max_items);
+        is_partial = true;
+    }
+
+    // 2. Token budget check and iterative pruning if needed
+    if let Some(budget) = token_budget {
+        let char_limit = budget * 4;
+        let mut relations_limit = all_relations.len();
+
+        loop {
+            let formatted = format_relation_response(
+                command_name,
+                target,
+                depth_limit,
+                &all_relations,
+                exec_id,
+                output_format,
+                is_partial,
+            )?;
+            if formatted.len() <= char_limit {
+                return Ok(formatted);
+            }
+
+            is_partial = true;
+
+            if relations_limit > 1 {
+                relations_limit -= 1;
+                all_relations.truncate(relations_limit);
+            } else {
+                let mut truncated = formatted;
+                truncated.truncate(char_limit.saturating_sub(60));
+                truncated.push_str("\n... [Output truncated due to --token-budget]");
+                return Ok(truncated);
+            }
+        }
+    }
+
+    format_relation_response(
+        command_name,
+        target,
+        depth_limit,
+        &all_relations,
+        exec_id,
+        output_format,
+        is_partial,
+    )
+}
+
+fn format_relation_response(
+    command_name: &str,
+    target: &str,
+    depth_limit: usize,
+    records: &[(String, SymbolRelation)],
+    exec_id: &str,
+    output_format: OutputFormat,
+    is_partial: bool,
+) -> Result<String> {
+    match output_format {
+        OutputFormat::Json | OutputFormat::Pretty => {
+            let impacted_json: Vec<serde_json::Value> = records
                 .iter()
                 .map(|(proj, r)| {
                     serde_json::json!({
@@ -663,55 +972,60 @@ pub fn run_context_affected(
                     })
                 })
                 .collect();
-            let response = serde_json::json!({
+            let mut response = serde_json::json!({
                 "schema_version": "1.0",
-                "execution_id": generate_execution_id(),
-                "command": "context affected",
+                "execution_id": exec_id,
+                "command": command_name,
                 "data": {
                     "target": target,
-                    "depth_limit": depth,
-                    "total_affected": all_affected.len(),
-                    "affected": affected_json,
+                    "depth_limit": depth_limit,
+                    "total_records": records.len(),
+                    "records": impacted_json,
                 },
             });
-            let formatted = if matches!(output_format, OutputFormat::Pretty) {
-                serde_json::to_string_pretty(&response)?
-            } else {
-                serde_json::to_string(&response)?
+            if is_partial {
+                response["partial"] = serde_json::json!(true);
+            }
+            let s = match output_format {
+                OutputFormat::Json => serde_json::to_string(&response)?,
+                OutputFormat::Pretty => serde_json::to_string_pretty(&response)?,
+                _ => unreachable!(),
             };
-            println!("{}", formatted);
-
-            mdb.telemetry()
-                .record_phase_end(&exec_id, "build_response")?;
+            Ok(s)
         }
         OutputFormat::Human => {
-            // Phase: output
-            mdb.telemetry().record_phase_start(&exec_id, "output")?;
-
-            println!("Affected analysis: {} (depth limit: {})", target, depth);
-            println!(
-                "{} symbol(s) reached across {} DB(s)\n",
-                all_affected.len(),
-                db_paths.len()
-            );
+            let mut out = String::new();
+            out.push_str(&format!(
+                "{}: {} (depth limit: {})\n",
+                if command_name.contains("impact") {
+                    "Impact analysis"
+                } else {
+                    "Affected analysis"
+                },
+                target,
+                depth_limit
+            ));
+            out.push_str(&format!("{} symbol(s) reached\n\n", records.len(),));
 
             let mut last_project = String::new();
-            for (proj, r) in &all_affected {
-                if *proj != last_project {
+            for (proj, r) in records {
+                if proj != &last_project {
                     if !last_project.is_empty() {
-                        println!();
+                        out.push('\n');
                     }
-                    println!("Project: {}", proj);
+                    out.push_str(&format!("Project: {}\n", proj));
                     last_project = proj.clone();
                 }
                 let depth_str = r.depth.map_or(String::new(), |d| format!(" [depth={}]", d));
-                println!("  {} ({}:{}){}", r.name, r.file, r.line, depth_str);
+                out.push_str(&format!(
+                    "  {} ({}:{}){}\n",
+                    r.name, r.file, r.line, depth_str
+                ));
             }
-
-            // End output phase
-            mdb.telemetry().record_phase_end(&exec_id, "output")?;
+            if is_partial {
+                out.push_str("\n... [Output truncated due to token budget]\n");
+            }
+            Ok(out)
         }
     }
-
-    Ok(())
 }

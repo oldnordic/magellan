@@ -3,11 +3,11 @@
 use tempfile::TempDir;
 
 #[test]
-fn test_new_database_has_v17_schema() {
+fn test_new_database_has_v18_schema() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
 
-    // Open a new database (should create with v17)
+    // Open a new database (should create with v18)
     let _graph = magellan::CodeGraph::open(&db_path).unwrap();
 
     // Verify schema version
@@ -20,7 +20,7 @@ fn test_new_database_has_v17_schema() {
         )
         .unwrap();
 
-    assert_eq!(version, 17, "New databases should have schema version 17");
+    assert_eq!(version, 18, "New databases should have schema version 18");
 
     // Verify ast_nodes table exists
     let has_ast_table: bool = conn
@@ -78,19 +78,7 @@ fn test_new_database_has_v17_schema() {
         "statements column should exist in cfg_blocks (v9)"
     );
 
-    // Verify 4D coordinate columns exist (v10 addition)
-    let has_coord_x: bool = conn
-        .query_row(
-            "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='coord_x'",
-            [],
-            |_| Ok(true),
-        )
-        .unwrap_or(false);
-
-    assert!(
-        has_coord_x,
-        "coord_x column should exist in cfg_blocks (v10)"
-    );
+    // v10 is reserved; legacy 4D CFG columns should not be created for new databases
 
     // v11 geo_index_meta removed — table no longer created, existing tables harmless
 
@@ -172,10 +160,55 @@ fn test_new_database_has_v17_schema() {
         has_cfg_condition,
         "cfg_condition column should exist in cfg_blocks (v16)"
     );
+
+    // Verify telemetry_events table exists (v17 addition)
+    let has_telemetry: bool = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='telemetry_events'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+    assert!(
+        has_telemetry,
+        "telemetry_events table should exist in new databases (v17)"
+    );
+
+    // Verify temporal tables exist (v18 addition)
+    for table in [
+        "repo_snapshots",
+        "repo_snapshot_parents",
+        "file_versions",
+        "symbol_versions",
+        "edge_versions",
+    ] {
+        let has_table: bool = conn
+            .query_row(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1",
+                [table],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+        assert!(has_table, "temporal table {table} should exist (v18)");
+    }
+
+    for legacy_column in ["coord_x", "coord_y", "coord_z", "coord_t"] {
+        let has_legacy_column: bool = conn
+            .query_row(
+                "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name=?1",
+                [legacy_column],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+        assert!(
+            !has_legacy_column,
+            "legacy column {legacy_column} should not exist in cfg_blocks"
+        );
+    }
 }
 
 #[test]
-fn test_fresh_database_creation_v17() {
+fn test_fresh_database_creation_v18() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("fresh.db");
 
@@ -195,59 +228,48 @@ fn test_fresh_database_creation_v17() {
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(version, 17);
+    assert_eq!(version, 18);
 
-    // Check ast_nodes table
-    let count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM ast_nodes", [], |r| r.get(0))
-        .unwrap();
-    assert_eq!(count, 0); // Empty but exists
-
-    // Check cfg_blocks table (v7)
-    let count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM cfg_blocks", [], |r| r.get(0))
-        .unwrap();
-    assert_eq!(count, 0); // Empty but exists
-
-    // v11 geo_index_meta removed — no longer created
-
-    // Check symbol_fts table (v12)
-    let count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM symbol_fts", [], |r| r.get(0))
-        .unwrap();
-    assert_eq!(count, 0); // Empty but exists
-
-    // Check source_documents table (v13)
-    let count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM source_documents", [], |r| r.get(0))
-        .unwrap();
-    assert_eq!(count, 0); // Empty but exists
-
-    // Check candidate_facts table (v14)
-    let count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM candidate_facts", [], |r| r.get(0))
-        .unwrap();
-    assert_eq!(count, 0); // Empty but exists
+    // Check temporal tables exist and are empty
+    for table in [
+        "repo_snapshots",
+        "repo_snapshot_parents",
+        "file_versions",
+        "symbol_versions",
+        "edge_versions",
+    ] {
+        let count: i64 = conn
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 0, "Temporal table {table} should be empty");
+    }
 
     // Check indexes
     let indexes: Vec<String> = conn
-        .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_ast_%'")
+        .prepare("SELECT name FROM sqlite_master WHERE type='index' AND (name LIKE 'idx_repo_%' OR name LIKE 'idx_file_version%' OR name LIKE 'idx_symbol_version%' OR name LIKE 'idx_edge_version%')")
         .unwrap()
         .query_map([], |r| r.get(0))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
 
-    assert!(indexes.contains(&"idx_ast_nodes_parent".to_string()));
-    assert!(indexes.contains(&"idx_ast_nodes_span".to_string()));
+    assert!(indexes.contains(&"idx_repo_snapshots_commit".to_string()));
+    assert!(indexes.contains(&"idx_file_versions_snapshot".to_string()));
+    assert!(indexes.contains(&"idx_file_versions_path".to_string()));
+    assert!(indexes.contains(&"idx_symbol_versions_snapshot".to_string()));
+    assert!(indexes.contains(&"idx_symbol_versions_stable".to_string()));
+    assert!(indexes.contains(&"idx_symbol_versions_name".to_string()));
+    assert!(indexes.contains(&"idx_edge_versions_snapshot".to_string()));
+    assert!(indexes.contains(&"idx_edge_versions_source".to_string()));
+    assert!(indexes.contains(&"idx_edge_versions_target".to_string()));
 }
 
-/// Test that v4->v17 migration creates the required tables
+/// Test that v4->v18 migration creates the required tables
 
 #[test]
-fn test_migration_v4_to_v17_creates_required_tables() {
+fn test_migration_v4_to_v18_creates_required_tables() {
     let temp_dir = TempDir::new().unwrap();
-    let db_path = temp_dir.path().join("test_v4_to_v15.db");
+    let db_path = temp_dir.path().join("test_v4_to_v18.db");
 
     // Create a v4 database (without ast_nodes table)
     let conn = rusqlite::Connection::open(&db_path).unwrap();
@@ -273,7 +295,7 @@ fn test_migration_v4_to_v17_creates_required_tables() {
     let result = magellan::migrate_cmd::run_migrate(db_path.clone(), false, true).unwrap();
     assert!(result.success);
     assert_eq!(result.old_version, 4);
-    assert_eq!(result.new_version, 17);
+    assert_eq!(result.new_version, 18);
 
     // Verify ast_nodes table exists
     let conn = rusqlite::Connection::open(&db_path).unwrap();
@@ -316,15 +338,20 @@ fn test_migration_v4_to_v17_creates_required_tables() {
         .unwrap_or(false);
     assert!(has_statements, "statements column should be created (v9)");
 
-    // Verify 4D coordinate columns exist (v10)
-    let has_coord_x: bool = conn
-        .query_row(
-            "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='coord_x'",
-            [],
-            |_| Ok(true),
-        )
-        .unwrap_or(false);
-    assert!(has_coord_x, "coord_x column should be created (v10)");
+    // v10 is reserved; legacy 4D CFG columns are not created for new databases
+    for legacy_column in ["coord_x", "coord_y", "coord_z", "coord_t"] {
+        let has_legacy_column: bool = conn
+            .query_row(
+                "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name=?1",
+                [legacy_column],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+        assert!(
+            !has_legacy_column,
+            "legacy column {legacy_column} should not be created"
+        );
+    }
 
     // v11 geo_index_meta removed — no longer created
 
@@ -373,6 +400,37 @@ fn test_migration_v4_to_v17_creates_required_tables() {
         "candidate_facts table should be created (v14)"
     );
 
+    // Verify telemetry_events table exists (v17)
+    let has_telemetry: bool = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='telemetry_events'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+    assert!(
+        has_telemetry,
+        "telemetry_events table should be created (v17)"
+    );
+
+    // Verify temporal tables exist (v18)
+    for table in [
+        "repo_snapshots",
+        "repo_snapshot_parents",
+        "file_versions",
+        "symbol_versions",
+        "edge_versions",
+    ] {
+        let has_table: bool = conn
+            .query_row(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1",
+                [table],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+        assert!(has_table, "temporal table {table} should be created (v18)");
+    }
+
     // Verify schema version was updated
     let version: i64 = conn
         .query_row(
@@ -381,12 +439,12 @@ fn test_migration_v4_to_v17_creates_required_tables() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(version, 17, "schema version should be 17 after migration");
+    assert_eq!(version, 18, "schema version should be 18 after migration");
 }
 
-/// Test that opening a v4 database auto-upgrades to v17
+/// Test that opening a v4 database auto-upgrades to v18
 #[test]
-fn test_opening_v4_database_auto_upgrades_to_v17() {
+fn test_opening_v4_database_auto_upgrades_to_v18() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test_v4_auto.db");
 
@@ -413,10 +471,10 @@ fn test_opening_v4_database_auto_upgrades_to_v17() {
     .unwrap();
     drop(conn);
 
-    // Open the database with CodeGraph (should auto-upgrade to v13)
+    // Open the database with CodeGraph (should auto-upgrade to v18)
     let _graph = magellan::CodeGraph::open(&db_path).unwrap();
 
-    // Verify schema version is now 13
+    // Verify schema version is now 18
     let conn = rusqlite::Connection::open(&db_path).unwrap();
     let version: i64 = conn
         .query_row(
@@ -427,8 +485,8 @@ fn test_opening_v4_database_auto_upgrades_to_v17() {
         .unwrap();
 
     assert_eq!(
-        version, 17,
-        "Opening v4 database should auto-upgrade to v17"
+        version, 18,
+        "Opening v4 database should auto-upgrade to v18"
     );
 
     // Verify ast_nodes table exists
@@ -473,19 +531,20 @@ fn test_opening_v4_database_auto_upgrades_to_v17() {
         "statements column should be created during auto-upgrade (v9)"
     );
 
-    // Verify 4D coordinate columns exist (v10)
-    let has_coord_x: bool = conn
-        .query_row(
-            "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='coord_x'",
-            [],
-            |_| Ok(true),
-        )
-        .unwrap_or(false);
-
-    assert!(
-        has_coord_x,
-        "coord_x column should be created during auto-upgrade (v10)"
-    );
+    // v10 is reserved; legacy 4D CFG columns are not created during auto-upgrade
+    for legacy_column in ["coord_x", "coord_y", "coord_z", "coord_t"] {
+        let has_legacy_column: bool = conn
+            .query_row(
+                "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name=?1",
+                [legacy_column],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+        assert!(
+            !has_legacy_column,
+            "legacy column {legacy_column} should not exist after auto-upgrade"
+        );
+    }
 
     // v11 geo_index_meta removed — no longer created during migration
 
@@ -516,4 +575,39 @@ fn test_opening_v4_database_auto_upgrades_to_v17() {
         has_candidate_facts,
         "candidate_facts table should be created during auto-upgrade (v14)"
     );
+
+    // Verify telemetry_events table exists (v17)
+    let has_telemetry: bool = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='telemetry_events'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+
+    assert!(
+        has_telemetry,
+        "telemetry_events table should be created during auto-upgrade (v17)"
+    );
+
+    // Verify temporal tables exist (v18)
+    for table in [
+        "repo_snapshots",
+        "repo_snapshot_parents",
+        "file_versions",
+        "symbol_versions",
+        "edge_versions",
+    ] {
+        let has_table: bool = conn
+            .query_row(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1",
+                [table],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+        assert!(
+            has_table,
+            "temporal table {table} should be created during auto-upgrade (v18)"
+        );
+    }
 }

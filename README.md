@@ -1,6 +1,6 @@
 # Magellan
 
-**Version:** 4.7.2
+**Version:** 4.8.0
 
 Magellan is a deterministic codebase indexing tool. It watches or scans source
 trees, extracts symbols, references, calls, AST nodes, code chunks, CFG data, and
@@ -21,7 +21,7 @@ code.db
 
 Use `.db` files for normal operation.
 
-**Schema version:** 17 (telemetry events, cfg-aware CFG blocks, project metadata, FTS5 full-text search, graph memory tables)
+**Schema version:** 18 (repository snapshots, temporal symbol/edge history, telemetry events, cfg-aware CFG blocks, project metadata, FTS5 full-text search, graph memory tables)
 
 ## Features
 
@@ -39,6 +39,7 @@ Use `.db` files for normal operation.
 - Auto-detect project layout from `Cargo.toml`, `pyproject.toml`, `go.mod`, `package.json`, `tsconfig.json`, `pom.xml`, `CMakeLists.txt`
 - Coverage ingestion from LCOV into CFG coverage side tables
 - Graph algorithms: reachability, dead code, cycles, condensation, paths, slice
+- Temporal history: snapshot ingestion, as-of symbol lookup, barcode-style lifetime queries, and SCC persistence analysis
 - HopGraph v2: embedding-based semantic symbol search with HNSW, name resolution, and `--hops N` graph expansion via BFS on REFERENCES edges
 - Source inventory: index wiki pages, specs, and other non-code documents
 - Candidate facts: structured knowledge triples linked to source documents
@@ -78,6 +79,12 @@ target/release/magellan refresh --db .magellan/code.db
 
 # Recompute derived metrics
 target/release/magellan backfill --db .magellan/code.db
+
+# Build temporal history from git commits
+target/release/magellan temporal-sweep --db .magellan/code.db --repo . --every 10
+target/release/magellan temporal-status --db .magellan/code.db
+target/release/magellan as-of --db .magellan/code.db --commit <oid> --symbol parse_args
+target/release/magellan temporal-barcode --db .magellan/code.db --symbol <stable-id>
 
 # Semantic symbol search (requires embed + configured embeddings)
 target/release/magellan embed --db .magellan/code.db

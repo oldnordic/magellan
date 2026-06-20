@@ -250,12 +250,6 @@ pub fn verify_import_counts(
     Ok(())
 }
 
-/// Get entity and edge counts from a graph backend
-pub fn get_graph_counts(_backend: &Arc<dyn GraphBackend>) -> Result<(i64, i64)> {
-    // Placeholder - actual counts available from snapshot_export() return value
-    Ok((0, 0))
-}
-
 /// Result of a backend migration operation
 #[derive(Debug, Clone)]
 pub struct BackendMigrationResult {
@@ -306,6 +300,8 @@ pub fn run_migrate_backend(
     export_dir: Option<PathBuf>,
     dry_run: bool,
 ) -> Result<BackendMigrationResult> {
+    let cleanup_export_dir = export_dir.is_none();
+
     // Validate input_db exists
     if !input_db.exists() {
         return Ok(BackendMigrationResult {
@@ -427,8 +423,9 @@ pub fn run_migrate_backend(
         )
     })?;
 
-    // Clean up export directory (optional - keeping for now for debugging)
-    // let _ = fs::remove_dir_all(&export_dir);
+    if cleanup_export_dir {
+        let _ = fs::remove_dir_all(&export_dir);
+    }
 
     Ok(BackendMigrationResult {
         success: true,
@@ -735,10 +732,6 @@ fn ensure_table_schema(conn: &rusqlite::Connection, table_name: &str) -> Result<
                     end_col INTEGER NOT NULL,
                     cfg_hash TEXT,
                     statements TEXT,
-                    coord_x INTEGER DEFAULT 0,
-                    coord_y INTEGER DEFAULT 0,
-                    coord_z INTEGER DEFAULT 0,
-                    coord_t TEXT DEFAULT NULL,
                     cfg_condition TEXT
                 )",
                 [],

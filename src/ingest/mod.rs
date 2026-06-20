@@ -1032,7 +1032,10 @@ impl Default for Parser {
 }
 
 #[cfg(test)]
-#[allow(deprecated)]
+#[allow(
+    deprecated,
+    reason = "tests cover legacy serialization paths that remain accepted on input"
+)]
 mod tests {
     use super::*;
 

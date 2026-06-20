@@ -139,7 +139,7 @@ fn run_ask_all(question: String, output_format: OutputFormat) -> Result<()> {
 
     if enabled.is_empty() {
         println!("No enabled projects in registry.");
-        println!("Hint: use `magellan registry scan` to discover projects.");
+        println!("Hint: use `magellan catalog` to list registered projects, then `magellan watch` to index one.");
         return Ok(());
     }
 
@@ -256,6 +256,9 @@ fn route_impact(db_path: PathBuf, name: String, output_format: OutputFormat) -> 
         3,    // depth
         None, // project_filter
         output_format,
+        None,  // token_budget
+        None,  // detail
+        false, // concise
     )
     .with_context(|| "Ask → impact routing failed")
 }

@@ -6,6 +6,7 @@ mod ask_cmd;
 mod ast_cmd;
 mod backfill_cmd;
 mod candidate_fact_cmd;
+mod catalog_cmd;
 mod cli;
 mod collisions_cmd;
 mod condense_cmd;
@@ -42,13 +43,14 @@ mod query_cmd;
 mod reachable_cmd;
 mod refresh_cmd;
 mod refs_cmd;
-mod registry_cmd;
 mod service;
 mod service_cmd;
 mod slice_cmd;
 mod source_inventory_cmd;
 mod status_cmd;
 mod telemetry_cmd;
+mod temporal_query_cmd;
+mod temporal_sweep_cmd;
 mod verify_cmd;
 mod version;
 mod watch_cmd;
@@ -139,21 +141,18 @@ fn main() -> ExitCode {
             }
             ExitCode::SUCCESS
         }
-        Ok(Command::RegistryScan {
-            root,
-            output_format,
-        }) => {
-            if let Err(e) = registry_cmd::run_registry_scan(root, output_format) {
+        Ok(Command::Catalog { output_format }) => {
+            if let Err(e) = catalog_cmd::run_catalog(output_format) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
             ExitCode::SUCCESS
         }
-        Ok(Command::RegistryList {
-            root,
+        Ok(Command::CatalogDescribe {
+            name,
             output_format,
         }) => {
-            if let Err(e) = registry_cmd::run_registry_list(root, output_format) {
+            if let Err(e) = catalog_cmd::run_catalog_describe(&name, output_format) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
@@ -291,7 +290,11 @@ fn main() -> ExitCode {
             use cli::ContextSubcommand;
             let result = match subcommand {
                 ContextSubcommand::Build => context_cmd::run_context_build(db_paths),
-                ContextSubcommand::Summary => context_cmd::run_context_summary(db_paths),
+                ContextSubcommand::Summary {
+                    token_budget,
+                    detail,
+                    concise,
+                } => context_cmd::run_context_summary(db_paths, token_budget, detail, concise),
                 ContextSubcommand::List {
                     kind,
                     page,
@@ -317,6 +320,9 @@ fn main() -> ExitCode {
                     with_source,
                     depth,
                     project,
+                    token_budget,
+                    detail,
+                    concise,
                 } => context_cmd::run_context_symbol(
                     db_paths,
                     name,
@@ -327,6 +333,9 @@ fn main() -> ExitCode {
                     with_source,
                     depth,
                     project,
+                    token_budget,
+                    detail,
+                    concise,
                 ),
                 ContextSubcommand::File { path } => context_cmd::run_context_file(db_paths, path),
                 ContextSubcommand::Impact {
@@ -335,6 +344,9 @@ fn main() -> ExitCode {
                     depth,
                     project,
                     output_format,
+                    token_budget,
+                    detail,
+                    concise,
                 } => context_cmd::run_context_impact(
                     db_paths,
                     symbol,
@@ -342,6 +354,9 @@ fn main() -> ExitCode {
                     depth,
                     project,
                     output_format,
+                    token_budget,
+                    detail,
+                    concise,
                 ),
                 ContextSubcommand::Affected {
                     symbol,
@@ -349,6 +364,9 @@ fn main() -> ExitCode {
                     depth,
                     project,
                     output_format,
+                    token_budget,
+                    detail,
+                    concise,
                 } => context_cmd::run_context_affected(
                     db_paths,
                     symbol,
@@ -356,6 +374,9 @@ fn main() -> ExitCode {
                     depth,
                     project,
                     output_format,
+                    token_budget,
+                    detail,
+                    concise,
                 ),
             };
             if let Err(e) = result {
@@ -648,6 +669,80 @@ fn main() -> ExitCode {
             output_format,
         }) => {
             if let Err(e) = get_cmd::run_get_file(db_path, file_path, output_format) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::TemporalSweep {
+            db_path,
+            repo_path,
+            every_n,
+            tags_only,
+            merge_commits_only,
+            since_commit_time,
+            until_commit_time,
+            output_format,
+        }) => {
+            if let Err(e) = temporal_sweep_cmd::run_temporal_sweep(
+                db_path,
+                repo_path,
+                magellan::temporal::worktrees::TemporalSweepSelection {
+                    every_n,
+                    tags_only,
+                    merge_commits_only,
+                    since_commit_time,
+                    until_commit_time,
+                },
+                output_format,
+            ) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::TemporalStatus {
+            db_path,
+            output_format,
+        }) => {
+            if let Err(e) = temporal_query_cmd::run_temporal_status(db_path, output_format) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::TemporalBarcode {
+            db_path,
+            stable_id,
+            edge_source,
+            edge_target,
+            edge_kind,
+            scc,
+            output_format,
+        }) => {
+            if let Err(e) = temporal_query_cmd::run_temporal_barcode(
+                db_path,
+                stable_id,
+                edge_source,
+                edge_target,
+                edge_kind,
+                scc,
+                output_format,
+            ) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::AsOf {
+            db_path,
+            commit_oid,
+            symbol_name,
+            output_format,
+        }) => {
+            if let Err(e) =
+                temporal_query_cmd::run_as_of(db_path, commit_oid, symbol_name, output_format)
+            {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }

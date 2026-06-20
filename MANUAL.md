@@ -1,6 +1,6 @@
 # Magellan Manual
 
-**Version:** 4.7.2
+**Version:** 4.8.0
 
 This manual documents the current user-facing Magellan CLI. The supported normal
 workflow uses a SQLite `.db` database.
@@ -150,11 +150,41 @@ magellan migrate --db code.db --dry-run
 magellan migrate --db code.db --no-backup
 ```
 
-Current Magellan schema version: `17`.
+Current Magellan schema version: `18`.
 
 **Schema v12 changes:** Added FTS5 full-text search index for fast prefix search.
 Migration is automatic and creates a backup. See [docs/SCHEMA_SQLITE.md](docs/SCHEMA_SQLITE.md)
 for FTS5 performance details and limitations.
+
+**Schema v18 changes:** Added repository snapshot tables and temporal query support for commit-history analysis in the same SQLite database.
+
+## Temporal Commands
+
+### Sweep Repository History
+
+```bash
+magellan temporal-sweep --db code.db --repo .
+magellan temporal-sweep --db code.db --repo . --every 10
+magellan temporal-sweep --db code.db --repo . --tags-only
+magellan temporal-sweep --db code.db --repo . --merge-commits-only
+magellan temporal-sweep --db code.db --repo . --since 1718841600 --until 1718928000
+```
+
+`temporal-sweep` ingests sampled commits through detached temporary worktrees and persists snapshot, file, symbol, and edge history.
+
+### Inspect Temporal State
+
+```bash
+magellan temporal-status --db code.db
+magellan as-of --db code.db --commit <oid> --symbol parse_args
+magellan temporal-barcode --db code.db --symbol <stable-id>
+magellan temporal-barcode --db code.db --edge-source <stable-id> --edge-target <stable-id> --kind CALLS
+magellan temporal-barcode --db code.db --scc
+```
+
+- `temporal-status` reports snapshot and version-table counts
+- `as-of` resolves symbol matches in a specific stored commit snapshot
+- `temporal-barcode` reports symbol, edge, or SCC lifetime across snapshots
 
 ## Query Commands
 
@@ -252,16 +282,26 @@ magellan service pause myproject
 magellan service resume myproject
 ```
 
-For bulk discovery, the `magellan registry scan` command finds Git repositories:
+To see every database magellan knows about, use `magellan catalog`. It reads
+the canonical registry and reports a live table of status, entity/edge counts,
+and stored entity kinds:
 
 ```bash
-magellan registry scan --root /home/feanor/Projects
-magellan registry scan --root . --output json
+magellan catalog
 
-magellan registry list
-magellan registry add --name myproject --root /path/to/project
-magellan registry remove --name myproject
+# Example output:
+#   magellan catalog — 25 databases (21 live, 4 stale)
+#
+#   NAME        STATUS   ENTITY   EDGE   KINDS
+#   envoy       live     3027     3123   Call,Reference,Symbol,Import,File
+#   magellan    live     19436    19724  Call,Reference,Symbol,Import,File
+#   ...
 ```
+
+The catalog is read-only and self-contained — it inspects only magellan's own
+registry (`~/.magellan/meta.db`) and databases. Use `magellan service
+register` / `magellan service unregister` (above) to change which projects are
+indexed.
 
 ### Natural Language Query (`ask`)
 

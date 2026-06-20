@@ -3,7 +3,59 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://sememver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [4.8.0] - 2026-06-20
+
+### Added
+
+- **Temporal repository history support**:
+  - Added schema v18 repository snapshot tables for temporal tracking and migration coverage.
+  - Added `magellan temporal-sweep --db <db> --repo <path>` to ingest sampled commit history through detached temporary worktrees.
+  - Added `magellan temporal-status`, `magellan as-of --commit <oid> --symbol <name>`, and `magellan temporal-barcode` for symbol, edge, and SCC lifetime queries.
+  - Added per-snapshot SCC extraction and persistence reporting for temporal architecture analysis.
+
+### Changed
+
+- **Bounded context output**:
+  - `magellan context summary`, `context symbol`, `context impact`, and `context affected` now support bounded output controls (`--token-budget`, `--detail`, `--concise`) for agent-sized responses.
+- **Stable temporal identity**:
+  - Stable symbol IDs now normalize path-bearing semantic names so detached worktree indexing preserves identity across snapshots.
+- **Consumer compatibility**:
+  - This release is the Magellan side of the schema-v18 rollout consumed by current `llmgrep` and `mirage` updates.
+
+## [4.7.7] - 2026-06-20
+
+### Removed
+
+- **Dead 4D CFG layer** (`graph/schema.rs`, `graph/cfg_ops.rs`, `graph/db_compat.rs`, `migrate_cmd.rs`, `migrate_backend_cmd.rs`, `generation/mod.rs`, `tests/migration_tests.rs`):
+  - Removed legacy `coord_x`, `coord_y`, `coord_z`, and `coord_t` fields from `CfgBlock` and from Magellan's active CFG persistence/query paths.
+  - Removed the old git-stamped `compute_4d_coordinates` / `get_current_git_commit` path; CFG indexing now stores plain CFG blocks and edges only.
+  - New databases and backend migrations no longer create the obsolete 4D CFG columns. The v10 migration slot is retained as a compatibility no-op for existing databases.
+  - Deleted the orphaned `graph/minecraft_blocks.rs` GeometricDB-era 4D block-storage file, which was not wired into Magellan.
+
+### Changed
+
+- **CFG schema contract audit** (`doctor_cmd.rs`, `tests/migration_tests.rs`):
+  - `magellan doctor` now flags legacy `cfg_blocks` coordinate columns (`coord_x`, `coord_y`, `coord_z`, `coord_t`) so old databases no longer silently masquerade as the current contract.
+  - Migration tests now assert that fresh and auto-upgraded databases keep the lean `cfg_blocks` schema without the removed 4D columns.
+- **CFG extraction coverage** (`graph/cfg_edges_extract/extract.rs`, `graph/cfg_edges_extract/tests.rs`):
+  - Ordinary Rust call expressions now emit typed local `Call` CFG edges instead of only anonymous fallthrough.
+  - Rust `let ... else` declarations now extract conditional CFG structure, including the failure branch into the `else` block and the success continuation path.
+  - `break` inside loops now jumps to the real loop-exit block (created ahead of the body) instead of the header, and the header/exit pair is threaded through extraction as a single `LoopScope` (keeps clippy `too_many_arguments` clean without `#[allow]`).
+- **Direct-call ICFG stitching** (`graph/call_ops.rs`, `graph/mod.rs`, `tests/cfg_tests.rs`):
+  - Added `CodeGraph::direct_call_icfg_edges(path, name)` to stitch persisted call sites onto CFG structure using real `CALLER`/`CALLS` edges plus byte-accurate spans.
+  - Direct cross-file calls now resolve to `(caller call block idx, callee entry block idx)` pairs plus the caller resume block and callee return block indices, instead of forcing downstream tools to re-derive that join from raw tables.
+  - Regression tests cover both entry stitching (`caller -> callee entry`) and return stitching (`callee return -> caller continuation`) on real indexed Rust code.
+  - This makes Magellan the authoritative producer for precise callsite/resume ICFG facts that downstream consumers such as Mirage can read directly instead of reconstructing from stale compatibility assumptions.
+
+## [4.7.6] - 2026-06-19
+
+### Added
+
+- **`magellan catalog` command** (`cli/parsers/catalog.rs`, `catalog_cmd.rs`): a live, read-only inventory of every indexed database. It reads magellan's own canonical project registry (`~/.magellan/meta.db`, daemon-maintained by `magellan.service`) and reports, per database: status (live/stale/missing), entity count, edge count, and the entity kinds stored. This is the standalone, self-contained way to see what magellan knows about — it touches no atheneum, envoy, or external service. Example output: `magellan catalog — 25 databases (21 live, 4 stale)` followed by a per-DB table.
+
+### Removed
+
+- **Dead `registry` commands** (`registry_cmd.rs`, `cli/parsers/registry.rs`): `magellan registry scan`, `registry list`, `registry add`, and `registry remove` have been removed. The `registry scan` filesystem scanner was dead code — it always returned an empty list and was never wired to the canonical registry that `magellan.service` actually maintains. `magellan catalog` (above) is the working replacement for inspecting the registry. Use `magellan service register/unregister` to modify the registry.
 
 ## [4.7.5] - 2026-06-18
 

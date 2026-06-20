@@ -127,7 +127,10 @@ macro_rules! debug_print {
         // Optimized out when debug-prints feature is disabled
         // Always return () to work in expression context
         {
-            #[allow(clippy::unused_unit)]
+            #[allow(
+                clippy::unused_unit,
+                reason = "macro must expand to unit in expression position when disabled"
+            )]
             ()
         }
     };

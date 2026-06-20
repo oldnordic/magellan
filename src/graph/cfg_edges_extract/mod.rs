@@ -89,6 +89,24 @@ pub struct CfgEdge {
     pub edge_type: CfgEdgeType,
 }
 
+/// Enclosing loop scope threaded through CFG extraction for `break`/`continue`
+/// resolution. Both fields are `None` when extraction is not inside a loop.
+#[derive(Clone, Copy)]
+pub(super) struct LoopScope {
+    /// Back-edge target (loop header) for `continue`.
+    pub header: Option<usize>,
+    /// Forward jump target (loop exit block) for `break`.
+    pub exit: Option<usize>,
+}
+
+impl LoopScope {
+    /// Scope used when extraction is not nested inside any loop.
+    pub const NONE: LoopScope = LoopScope {
+        header: None,
+        exit: None,
+    };
+}
+
 /// Type of CFG edge
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CfgEdgeType {
@@ -231,7 +249,7 @@ pub fn extract_cfg_from_function_node(
             &mut blocks,
             &mut edges,
             &mut previous_block_idx,
-            None,
+            LoopScope::NONE,
         );
 
         // If there's at least one body block, create edge from entry to first body
@@ -272,10 +290,6 @@ pub(super) fn create_entry_block(func_node: &Node, function_id: i64, _source: &s
         end_col: func_node.end_position().column as u64,
         cfg_hash: None,
         statements: None,
-        coord_x: 0,
-        coord_y: 0,
-        coord_z: 0,
-        coord_t: None,
         cfg_condition: None,
     }
 }
@@ -318,10 +332,6 @@ pub(super) fn create_block_from_node(
         end_col: node.end_position().column as u64,
         cfg_hash: None,
         statements: None,
-        coord_x: 0,
-        coord_y: 0,
-        coord_z: 0,
-        coord_t: None,
         cfg_condition: None,
     }
 }

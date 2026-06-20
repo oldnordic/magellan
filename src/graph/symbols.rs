@@ -31,19 +31,21 @@ use sha2::{Digest, Sha256};
 use sqlitegraph::{
     BackendDirection, EdgeSpec, GraphBackend, NeighborQuery, NodeId, NodeSpec, SnapshotId,
 };
+use std::path::Path;
 use std::sync::Arc;
 
+use crate::common::{normalize_repo_relative_path, safe_slice};
 use crate::detect_language;
 use crate::graph::schema::SymbolNode;
 use crate::ingest::SymbolFact;
 
-/// Generate a stable symbol ID from (language, fqn, span_id)
+/// Generate a deterministic symbol ID from three identity components.
 ///
 /// Uses SHA-256 for platform-independent, deterministic symbol IDs.
 ///
 /// # Algorithm
 ///
-/// The hash is computed from: `language + ":" + fqn + ":" + span_id`
+/// The hash is computed from: `language + ":" + identity + ":" + disambiguator`
 /// The first 8 bytes (64 bits) of the hash are formatted as 16 hex characters.
 ///
 /// # Properties
@@ -58,31 +60,31 @@ use crate::ingest::SymbolFact;
 /// ```
 /// use magellan::graph::generate_symbol_id;
 ///
-/// let id1 = generate_symbol_id("rust", "my_crate::main", "a1b2c3d4e5f6g7h8");
-/// let id2 = generate_symbol_id("rust", "my_crate::main", "a1b2c3d4e5f6g7h8");
-/// let id3 = generate_symbol_id("python", "my_module.main", "a1b2c3d4e5f6g7h8");
+/// let id1 = generate_symbol_id("rust", "src/lib.rs:fn:my_crate::main", "");
+/// let id2 = generate_symbol_id("rust", "src/lib.rs:fn:my_crate::main", "");
+/// let id3 = generate_symbol_id("python", "src/main.py:fn:my_module.main", "");
 ///
 /// assert_eq!(id1, id2);  // Same inputs = same ID
 /// assert_ne!(id1, id3);  // Different language = different ID
 /// assert_eq!(id1.len(), 16);  // Always 16 hex characters
 /// ```
-pub fn generate_symbol_id(language: &str, fqn: &str, span_id: &str) -> String {
+pub fn generate_symbol_id(language: &str, identity: &str, disambiguator: &str) -> String {
     let mut hasher = Sha256::new();
 
     // Hash language
     hasher.update(language.as_bytes());
 
-    // Separator to distinguish language from fqn
+    // Separator to distinguish language from identity
     hasher.update(b":");
 
-    // Hash fully-qualified name
-    hasher.update(fqn.as_bytes());
+    // Hash semantic identity
+    hasher.update(identity.as_bytes());
 
-    // Separator to distinguish fqn from span_id
+    // Separator to distinguish identity from disambiguator
     hasher.update(b":");
 
-    // Hash span_id
-    hasher.update(span_id.as_bytes());
+    // Hash disambiguator
+    hasher.update(disambiguator.as_bytes());
 
     // Take first 8 bytes (64 bits) and format as hex
     let result = hasher.finalize();
@@ -90,6 +92,59 @@ pub fn generate_symbol_id(language: &str, fqn: &str, span_id: &str) -> String {
         "{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
         result[0], result[1], result[2], result[3], result[4], result[5], result[6], result[7]
     )
+}
+
+fn hash_symbol_body(source: &[u8], byte_start: usize, byte_end: usize) -> Option<String> {
+    let bytes = safe_slice(source, byte_start, byte_end)?;
+    let mut hasher = Hasher::new();
+    hasher.update(bytes);
+    let hex = hasher.finalize().to_hex().to_string();
+    Some(hex[..32].to_string())
+}
+
+fn generate_span_fallback_id(file_path: &str, byte_start: usize, byte_end: usize) -> String {
+    generate_span_id(file_path, byte_start, byte_end)
+}
+
+fn normalize_semantic_name(
+    semantic_name: &str,
+    fact_file_path: &Path,
+    repo_relative_path: &str,
+) -> String {
+    let absolute_path = fact_file_path.to_string_lossy();
+    semantic_name.replace(absolute_path.as_ref(), repo_relative_path)
+}
+
+pub(crate) fn stable_symbol_id_for_fact(
+    fact: &SymbolFact,
+    source: &[u8],
+    repo_root: Option<&Path>,
+) -> String {
+    let language = detect_language(&fact.file_path)
+        .map(|l| l.as_str().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+    let repo_relative_path = normalize_repo_relative_path(&fact.file_path, repo_root);
+    let semantic_name = fact
+        .canonical_fqn
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .or(fact.fqn.as_deref().filter(|value| !value.is_empty()))
+        .or(fact.name.as_deref().filter(|value| !value.is_empty()))
+        .map(|value| normalize_semantic_name(value, &fact.file_path, &repo_relative_path));
+    let fallback_body_hash = hash_symbol_body(source, fact.byte_start, fact.byte_end);
+    let fallback_span =
+        generate_span_fallback_id(&repo_relative_path, fact.byte_start, fact.byte_end);
+    let disambiguator = semantic_name
+        .as_ref()
+        .map(|_| String::new())
+        .unwrap_or_else(|| fallback_body_hash.unwrap_or(fallback_span));
+    let semantic_component = semantic_name.as_deref().unwrap_or("<anonymous>");
+    let identity = format!(
+        "{}:{}:{}",
+        repo_relative_path, fact.kind_normalized, semantic_component
+    );
+
+    generate_symbol_id(&language, &identity, &disambiguator)
 }
 
 /// Generate a SymbolId using BLAKE3 from semantic inputs (v1.5)
@@ -218,20 +273,9 @@ impl SymbolOps {
             })
     }
 
-    pub fn insert_symbol_node(&mut self, fact: &SymbolFact) -> Result<NodeId> {
-        // Detect language (default to "unknown" if detection fails)
-        let language = detect_language(&fact.file_path)
-            .map(|l| l.as_str().to_string())
-            .unwrap_or_else(|| "unknown".to_string());
-
-        // Generate span_id for the symbol's defining location
+    pub fn insert_symbol_node(&mut self, fact: &SymbolFact, source: &[u8]) -> Result<NodeId> {
         let file_path_str = fact.file_path.to_string_lossy();
-        let span_id = generate_span_id(&file_path_str, fact.byte_start, fact.byte_end);
-
-        // Generate stable symbol_id from (language, FQN, span_id)
-        // FQN prevents collisions; span_id ensures uniqueness within FQN
-        let fqn_for_id = fact.fqn.as_deref().unwrap_or("");
-        let symbol_id = generate_symbol_id(&language, fqn_for_id, &span_id);
+        let symbol_id = stable_symbol_id_for_fact(fact, source, None);
         let stable_symbol_id = symbol_id.clone(); // Clone for lookup index
 
         let symbol_node = SymbolNode {
@@ -283,12 +327,13 @@ impl SymbolOps {
     pub fn insert_symbol_nodes_batch(
         &mut self,
         facts: &[crate::ingest::SymbolFact],
+        source: &[u8],
     ) -> Result<Vec<NodeId>> {
         if !self.batch_mode {
             // Watch mode: individual inserts to avoid BEGIN IMMEDIATE deadlock
             let mut ids = Vec::with_capacity(facts.len());
             for fact in facts {
-                ids.push(self.insert_symbol_node(fact)?);
+                ids.push(self.insert_symbol_node(fact, source)?);
             }
             return Ok(ids);
         }
@@ -296,7 +341,7 @@ impl SymbolOps {
             // Fallback to individual inserts if sqlite backend is not available
             let mut ids = Vec::with_capacity(facts.len());
             for fact in facts {
-                ids.push(self.insert_symbol_node(fact)?);
+                ids.push(self.insert_symbol_node(fact, source)?);
             }
             return Ok(ids);
         };
@@ -307,13 +352,8 @@ impl SymbolOps {
         let mut entries = Vec::with_capacity(facts.len());
         let mut stable_ids = Vec::with_capacity(facts.len());
         for fact in facts {
-            let language = crate::ingest::detect_language(&fact.file_path)
-                .map(|l| l.as_str().to_string())
-                .unwrap_or_else(|| "unknown".to_string());
             let file_path_str = fact.file_path.to_string_lossy();
-            let span_id = generate_span_id(&file_path_str, fact.byte_start, fact.byte_end);
-            let fqn_for_id = fact.fqn.as_deref().unwrap_or("");
-            let symbol_id = generate_symbol_id(&language, fqn_for_id, &span_id);
+            let symbol_id = stable_symbol_id_for_fact(fact, source, None);
             let stable_symbol_id = symbol_id.clone();
 
             let symbol_node = SymbolNode {

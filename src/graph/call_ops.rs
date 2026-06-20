@@ -498,6 +498,59 @@ impl CallOps {
         Ok(calls)
     }
 
+    /// Query all resolved direct calls FROM a specific symbol.
+    ///
+    /// Returns each persisted CallFact paired with the resolved callee symbol ID
+    /// from the CALLS edge, preserving duplicate call sites.
+    pub fn resolved_calls_from_symbol(&mut self, symbol_id: i64) -> Result<Vec<(CallFact, i64)>> {
+        let snapshot = SnapshotId::current();
+        let neighbor_ids = self.backend.neighbors(
+            snapshot,
+            symbol_id,
+            NeighborQuery {
+                direction: BackendDirection::Outgoing,
+                edge_type: Some("CALLER".to_string()),
+            },
+        )?;
+
+        let mut resolved = Vec::new();
+        for call_node_id in neighbor_ids {
+            let Some(call) = self.call_fact_from_node(call_node_id)? else {
+                continue;
+            };
+
+            let mut callee_ids: Vec<i64> = self
+                .backend
+                .neighbors(
+                    snapshot,
+                    call_node_id,
+                    NeighborQuery {
+                        direction: BackendDirection::Outgoing,
+                        edge_type: Some("CALLS".to_string()),
+                    },
+                )?
+                .into_iter()
+                .collect();
+            callee_ids.sort_unstable();
+
+            for callee_id in callee_ids {
+                resolved.push((call.clone(), callee_id));
+            }
+        }
+
+        resolved.sort_by(|(left_call, left_callee), (right_call, right_callee)| {
+            left_call
+                .file_path
+                .cmp(&right_call.file_path)
+                .then_with(|| left_call.byte_start.cmp(&right_call.byte_start))
+                .then_with(|| left_call.byte_end.cmp(&right_call.byte_end))
+                .then_with(|| left_call.callee.cmp(&right_call.callee))
+                .then_with(|| left_callee.cmp(right_callee))
+        });
+
+        Ok(resolved)
+    }
+
     /// Insert a call node from CallFact
     fn insert_call_node(&self, call: &CallFact) -> Result<NodeId> {
         let call_node = CallNode {
