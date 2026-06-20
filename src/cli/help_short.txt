@@ -20,6 +20,13 @@ Common commands:
   index       Index single file: magellan index --db code.db --file src/lib.rs
   cross-file-refs  Cross-file refs: magellan cross-file-refs --db code.db --fqn foo::bar
   context     Symbol context: magellan context symbol --db code.db --name main
+  navigate    Bundled context packet: magellan navigate "who calls parse_args" --db code.db
+  orient      Codebase snapshot: magellan orient --db code.db --repo .
+  temporal-sweep   Index git history: magellan temporal-sweep --db code.db --repo .
+  temporal-status  History coverage: magellan temporal-status --db code.db
+  temporal-barcode Symbol lifetime: magellan temporal-barcode --db code.db --symbol parse_args
+  as-of       Symbol at commit: magellan as-of --db code.db --commit <oid> --symbol parse_args
+  hopgraph    Semantic search: magellan hopgraph --db code.db "error handling retry"
 
 Global: --output <human|json|pretty>
 

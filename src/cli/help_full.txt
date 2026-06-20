@@ -48,6 +48,12 @@ Usage:
   magellan context impact --db <FILE> --name <NAME> [--file <PATH>] [--depth <N>] [--output <FORMAT>]
   magellan context affected --db <FILE> --name <NAME> [--file <PATH>] [--depth <N>] [--output <FORMAT>]
   magellan hopgraph --db <FILE> <QUERY> [--k <N>] [--output <FORMAT>]
+  magellan navigate <TASK> --db <FILE> [--concise] [--budget <N>] [--limit <N>] [--depth <N>] [--with-llmgrep] [--with-mirage] [--output <FORMAT>]
+  magellan orient --db <FILE> [--repo <DIR>] [--top <N>] [--output <FORMAT>]
+  magellan temporal-sweep --db <FILE> --repo <DIR> [--every <N>] [--tags-only] [--merge-commits-only] [--since <UNIX>] [--until <UNIX>] [--output <FORMAT>]
+  magellan temporal-status --db <FILE> [--output <FORMAT>]
+  magellan temporal-barcode --db <FILE> (--symbol <NAME|ID> | --scc | --edge-source <ID> --edge-target <ID> [--kind <KIND>]) [--output <FORMAT>]
+  magellan as-of --db <FILE> --commit <OID> --symbol <NAME> [--output <FORMAT>]
 
 Commands:
   watch           Watch directory and index changes
@@ -87,6 +93,12 @@ Commands:
   candidate-fact  Submit, validate, and manage candidate facts for graph memory
   context         Code context queries for LLM consumption (build, summary, list, symbol, file, impact, affected)
   hopgraph        Embedding-based semantic symbol search (nomic-embed-text via ollama)
+  navigate        Bundled context packet for a task or question (symbols, callers, callees, impact)
+  orient          Single-screen codebase snapshot: DB stats, churn symbols, contributors
+  temporal-sweep  Index git commit history into snapshot and version tables
+  temporal-status Show temporal coverage: snapshot count, version-table sizes, latest commit
+  temporal-barcode Symbol, edge, or SCC lifetime across all stored snapshots
+  as-of           Look up symbol state at a specific stored commit snapshot
 
 Global arguments:
   --output <FORMAT>   Output format: human (default), json (compact), or pretty (formatted)
@@ -297,4 +309,39 @@ Hopgraph arguments:
   <QUERY>             Natural-language query (required)
   --db <FILE>         Path to sqlitegraph database
   --k <N>             Number of results to return (default: 10)
+  --output <FORMAT>   Output format: human (default), json, pretty
+
+Orient arguments:
+  --db <FILE>         Path to sqlitegraph database (required)
+  --repo <DIR>        Repository root for git contributor data (optional)
+  --top <N>           Number of churn symbols and contributors to show (default: 10)
+  --output <FORMAT>   Output format: human (default), json, pretty
+
+Temporal-sweep arguments:
+  --db <FILE>         Path to sqlitegraph database (required)
+  --repo <DIR>        Repository root to sweep (required)
+  --every <N>         Sample every N commits (default: all commits)
+  --tags-only         Only index commits that are tagged
+  --merge-commits-only Only index merge commits
+  --since <UNIX>      Start time as Unix timestamp (inclusive)
+  --until <UNIX>      End time as Unix timestamp (inclusive)
+  --output <FORMAT>   Output format: human (default), json, pretty
+
+Temporal-status arguments:
+  --db <FILE>         Path to sqlitegraph database (required)
+  --output <FORMAT>   Output format: human (default), json, pretty
+
+Temporal-barcode arguments:
+  --db <FILE>         Path to sqlitegraph database (required)
+  --symbol <NAME|ID>  Symbol name or stable_id to barcode (accepts either form)
+  --scc               Show SCC lineage barcodes across all snapshots
+  --edge-source <ID>  Source stable_id for edge barcode (requires --edge-target)
+  --edge-target <ID>  Target stable_id for edge barcode (requires --edge-source)
+  --kind <KIND>       Edge kind filter for edge barcode (optional, e.g. CALLS)
+  --output <FORMAT>   Output format: human (default), json, pretty
+
+As-of arguments:
+  --db <FILE>         Path to sqlitegraph database (required)
+  --commit <OID>      Commit SHA to look up (required; must be a stored snapshot)
+  --symbol <NAME>     Symbol name to resolve at that commit (required)
   --output <FORMAT>   Output format: human (default), json, pretty
