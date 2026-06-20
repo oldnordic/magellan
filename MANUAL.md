@@ -1,6 +1,6 @@
 # Magellan Manual
 
-**Version:** 4.8.0
+**Version:** 4.9.1
 
 This manual documents the current user-facing Magellan CLI. The supported normal
 workflow uses a SQLite `.db` database.
@@ -158,6 +158,30 @@ for FTS5 performance details and limitations.
 
 **Schema v18 changes:** Added repository snapshot tables and temporal query support for commit-history analysis in the same SQLite database.
 
+## Orient — Codebase Snapshot
+
+`orient` prints a single-screen orientation snapshot useful when starting work on an unfamiliar codebase or after a long break.
+
+```bash
+magellan orient --db code.db
+magellan orient --db code.db --repo .
+magellan orient --db code.db --repo . --top 15
+magellan orient --db code.db --repo . --output json
+```
+
+Output sections:
+
+| Section | Content |
+|---------|---------|
+| DB | Symbol count, call-edge count, indexed file count |
+| Temporal | Snapshot coverage range (first..last commit). Absent if `temporal-sweep` has not been run — prints a hint instead. |
+| Top churn | Symbols present in the most commit snapshots, ranked descending. Requires temporal data. |
+| Contributors | Commit counts per author from `git log`. Requires `--repo`. |
+
+`--top N` controls how many churn symbols and contributors to show (default 10).
+
+`--repo` is optional. Omitting it skips the Contributors section. `--db` is required.
+
 ## Temporal Commands
 
 ### Sweep Repository History
@@ -184,7 +208,7 @@ magellan temporal-barcode --db code.db --scc
 
 - `temporal-status` reports snapshot and version-table counts
 - `as-of` resolves symbol matches in a specific stored commit snapshot
-- `temporal-barcode` reports symbol, edge, or SCC lifetime across snapshots
+- `temporal-barcode` reports symbol, edge, or SCC lifetime across snapshots. `--symbol` accepts either a symbol name (e.g. `parse_args`) or a raw stable ID hash — name resolution is automatic.
 
 ## Query Commands
 

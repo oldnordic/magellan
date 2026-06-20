@@ -1,6 +1,6 @@
 # Magellan
 
-**Version:** 4.8.0
+**Version:** 4.9.1
 
 Magellan is a deterministic codebase indexing tool. It watches or scans source
 trees, extracts symbols, references, calls, AST nodes, code chunks, CFG data, and
@@ -47,19 +47,42 @@ Use `.db` files for normal operation.
 - LSIF import/export and SCIP export
 - `doctor` checks for schema and database health
 
+## Install
+
+**From crates.io (recommended):**
+
+```bash
+cargo install magellan --locked
+```
+
+**One-line install with service + pre-commit hook setup:**
+
+```bash
+# bash / zsh
+curl -sSf https://raw.githubusercontent.com/oldnordic/magellan/main/install/install.sh | bash
+
+# fish
+curl -sSf https://raw.githubusercontent.com/oldnordic/magellan/main/install/install.fish | fish
+```
+
+Both scripts install the binary, create `~/.magellan/`, set up a systemd user service (Linux), and install a pre-commit blast-radius warning hook. Pass `--no-service` or `--no-hook` to skip either step.
+
+**Requires:** Rust toolchain ([rustup.rs](https://rustup.rs)), git, jq (for the hook).
+
 ## Quick Start
 
 ```bash
-cargo build --release
+# Orient on an existing project (see what is indexed)
+magellan orient --db ~/.magellan/<project>/<project>.db --repo /path/to/project
 
 # Initialize project configuration
-target/release/magellan init --path .
+magellan init --path /path/to/project
 
 # Build an index
-target/release/magellan watch --root ./src --db .magellan/code.db --scan-initial
+magellan watch --root /path/to/project/src --db ~/.magellan/<project>/<project>.db --scan-initial
 
 # Check database contents
-target/release/magellan status --db .magellan/code.db
+magellan status --db ~/.magellan/<project>/<project>.db
 
 # Query symbols in a file
 target/release/magellan query --db .magellan/code.db --file src/main.rs
