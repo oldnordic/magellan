@@ -856,7 +856,6 @@ fn main() -> ExitCode {
             scan_initial,
             validate,
             validate_only,
-            frontend,
             output_format,
         }) => {
             if let Err(e) = watch_cmd::run_watch(
@@ -866,7 +865,6 @@ fn main() -> ExitCode {
                 scan_initial,
                 validate,
                 validate_only,
-                frontend,
                 output_format,
             ) {
                 eprintln!("Error: {}", e);

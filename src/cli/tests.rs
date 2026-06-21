@@ -33,7 +33,6 @@ fn test_parse_watch_command() {
         validate: false,
         validate_only: false,
         output_format: OutputFormat::Human,
-        frontend: None,
     };
 
     // Verify we can construct the command

@@ -77,7 +77,6 @@ pub fn run_watch(
     scan_initial: bool,
     validate: bool,
     validate_only: bool,
-    frontend: Option<String>,
     _output_format: OutputFormat,
 ) -> Result<()> {
     // Build args for execution tracking
@@ -190,8 +189,7 @@ pub fn run_watch(
     let _ = magellan::ingest::pool::warmup_parsers();
 
     // Create pipeline configuration
-    let pipeline_config = WatchPipelineConfig::new(root_path, db_path.clone(), config, scan_initial)
-        .with_frontend(frontend);
+    let pipeline_config = WatchPipelineConfig::new(root_path, db_path.clone(), config, scan_initial);
 
     // Run the deterministic watch pipeline
     let result = magellan::run_watch_pipeline(pipeline_config, shutdown);

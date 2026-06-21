@@ -243,9 +243,6 @@ pub struct CodeGraph {
     /// pooled connection deadlock with the flush cycle.
     pub(crate) batch_mode: bool,
 
-    /// CFG frontend selection ("ast" or "mir")
-    pub(crate) frontend: Option<String>,
-
     embeddings_enabled: bool,
     embedder: Box<dyn crate::graph::embed::TextEmbedder>,
 
@@ -257,11 +254,6 @@ impl CodeGraph {
     /// Get the database file path
     pub fn db_path(&self) -> &Path {
         &self.db_path
-    }
-
-    /// Set the CFG frontend selection
-    pub fn set_frontend(&mut self, frontend: Option<String>) {
-        self.frontend = frontend;
     }
 
     pub(crate) fn side_connection(&self) -> &Arc<parking_lot::Mutex<rusqlite::Connection>> {
@@ -700,7 +692,6 @@ impl CodeGraph {
             side_tables,
             side_conn,
             batch_mode: true,
-            frontend: None,
             embeddings_enabled: false,
             embedder: crate::graph::embed::create_embedder(
                 &crate::config::EmbedProvider::Hash,

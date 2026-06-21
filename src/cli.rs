@@ -137,7 +137,6 @@ pub enum Command {
         scan_initial: bool,
         validate: bool,
         validate_only: bool,
-        frontend: Option<String>,
         output_format: OutputFormat,
     },
     Export {
