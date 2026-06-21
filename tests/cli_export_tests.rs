@@ -63,10 +63,10 @@ fn distance(p1: &Point, p2: &Point) -> i32 {
     // Debug: print what we got
     eprintln!("DEBUG test_export_json_basic: stdout length = {}", stdout.len());
     eprintln!("DEBUG test_export_json_basic: stderr length = {}", stderr.len());
-    if stdout.len() > 0 {
+    if !stdout.is_empty() {
         eprintln!("DEBUG test_export_json_basic: stdout preview = {}", &stdout.chars().take(200).collect::<String>());
     }
-    if stderr.len() > 0 {
+    if !stderr.is_empty() {
         eprintln!("DEBUG test_export_json_basic: stderr preview = {}", &stderr.chars().take(200).collect::<String>());
     }
 

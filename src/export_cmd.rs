@@ -28,7 +28,7 @@ use std::path::PathBuf;
 ///
 /// # Returns
 /// Option containing the default output path, or None if not in a repository
-fn get_default_repo_root_output(db_path: &PathBuf, format: &ExportFormat) -> Option<PathBuf> {
+fn get_default_repo_root_output(db_path: &std::path::Path, format: &ExportFormat) -> Option<PathBuf> {
     // Only use repo-root convention when we're in a consistent working directory
     // If the db is in a different location than cwd, assume ad-hoc/test usage
     let cwd = std::env::current_dir().ok()?;

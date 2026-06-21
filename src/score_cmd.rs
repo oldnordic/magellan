@@ -10,9 +10,8 @@
 //!   magellan score --db <db> --output json      — JSON output
 
 use anyhow::{Context, Result};
-use std::path::PathBuf;
 
-use magellan::graph::scorer::{ScorerOps, ScorerRunSummary, ScoreFilters, SymbolScore};
+use magellan::graph::scorer::{ScorerOps, ScoreFilters};
 
 /// Run the score command
 ///
@@ -25,7 +24,7 @@ use magellan::graph::scorer::{ScorerOps, ScorerRunSummary, ScoreFilters, SymbolS
 /// * `min_lifetime` - Filter by minimum lifetime
 /// * `output_format` - Output format (human/json/pretty)
 pub fn run_score(
-    db: &PathBuf,
+    db: &std::path::Path,
     top: Option<usize>,
     min_score: Option<f64>,
     min_churn: Option<i64>,
