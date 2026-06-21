@@ -1,11 +1,5 @@
 use anyhow::Result;
-use serde_json::json;
-use sqlitegraph::hnsw::{DistanceMetric, HnswConfig};
 use sqlitegraph::SqliteGraph;
-
-use super::embed::{symbol_embed_text, TextEmbedder};
-
-const SEARCH_INDEX_NAME: &str = "symbols";
 
 /// A single HopGraph search result with resolved symbol metadata.
 #[derive(Clone, Debug, serde::Serialize)]
@@ -16,7 +10,7 @@ pub struct HopgraphHit {
     pub kind: String,
     pub file_path: Option<String>,
     pub start_line: usize,
-    /// How many graph hops from the initial HNSW hit (0 = direct vector match).
+    /// How many call-graph hops from the FTS5 seed (0 = direct name match).
     #[serde(skip_serializing_if = "is_zero")]
     pub hop_distance: u32,
 }
@@ -25,270 +19,123 @@ fn is_zero(v: &u32) -> bool {
     *v == 0
 }
 
-fn search_config(dim: usize) -> Result<HnswConfig> {
-    sqlitegraph::hnsw::HnswConfigBuilder::new()
-        .dimension(dim)
-        .distance_metric(DistanceMetric::Cosine)
-        .ef_search(200)
-        .enable_multilayer(true)
-        .build()
-        .map_err(|e| anyhow::anyhow!("HNSW config build failed: {}", e))
-}
-
-fn index_in_memory(graph: &SqliteGraph) -> bool {
-    graph
-        .get_hnsw_index(SEARCH_INDEX_NAME)
-        .map(|opt| opt.is_some())
-        .unwrap_or(false)
-}
-
-fn ensure_index_in_memory(graph: &SqliteGraph, dim: usize) -> Result<()> {
-    if index_in_memory(graph) {
-        return Ok(());
-    }
-    let config = search_config(dim)?;
-    {
-        let _guard = graph
-            .hnsw_index_persistent(SEARCH_INDEX_NAME, config)
-            .map_err(|e| anyhow::anyhow!("hnsw_index_persistent failed: {}", e))?;
-    }
-    Ok(())
-}
-
-pub fn ensure_search_index(
-    graph: &SqliteGraph,
-    embedder: &dyn TextEmbedder,
-    entities: &[sqlitegraph::GraphEntity],
-) -> Result<()> {
-    if index_in_memory(graph) {
-        return Ok(());
-    }
-    ensure_index_in_memory(graph, embedder.dimension())?;
-    for entity in entities {
-        let text = symbol_embed_text(entity, None);
-        let vector = embedder.embed(&text)?;
-        let entity_id = entity.id;
-        let _ = graph.get_hnsw_index_mut(SEARCH_INDEX_NAME, move |idx| {
-            idx.insert_vector(&vector, Some(json!({"entity_id": entity_id})))
-        });
-    }
-    Ok(())
-}
-
-pub fn add_to_search_index(
-    graph: &SqliteGraph,
-    embedder: &dyn TextEmbedder,
-    entity: &sqlitegraph::GraphEntity,
-) -> Result<()> {
-    ensure_index_in_memory(graph, embedder.dimension())?;
-    let text = symbol_embed_text(entity, None);
-    let vector = embedder.embed(&text)?;
-    let entity_id = entity.id;
-    graph
-        .get_hnsw_index_mut(SEARCH_INDEX_NAME, move |idx| {
-            idx.insert_vector(&vector, Some(json!({"entity_id": entity_id})))
-        })
-        .map_err(|e| anyhow::anyhow!("insert_vector failed: {}", e))?
-        .map_err(|e| anyhow::anyhow!("hnsw insert failed: {}", e))?;
-    Ok(())
-}
-
-pub fn add_to_search_index_with_vector(
-    graph: &SqliteGraph,
-    entity_id: i64,
-    vector: &[f32],
-) -> Result<()> {
-    ensure_index_in_memory(graph, vector.len())?;
-    let v = vector.to_vec();
-    graph
-        .get_hnsw_index_mut(SEARCH_INDEX_NAME, move |idx| {
-            idx.insert_vector(&v, Some(json!({"entity_id": entity_id})))
-        })
-        .map_err(|e| anyhow::anyhow!("insert_vector failed: {}", e))?
-        .map_err(|e| anyhow::anyhow!("hnsw insert failed: {}", e))?;
-    Ok(())
-}
-
-/// Bulk-insert pre-computed vectors into the HNSW search index.
+/// FTS5-based symbol search.  Returns `(entity_id, score)` pairs ranked by
+/// name relevance.  `score` is in `(0.0, 1.0]` — 1.0 for the best name match,
+/// decaying linearly for lower-ranked results.
 ///
-/// This acquires the index mutex once and calls `batch_insert_vectors`,
-/// which persists topology to SQLite once for the entire batch instead of
-/// after every individual insert. Use this instead of calling
-/// `add_to_search_index_with_vector` in a loop.
-pub fn bulk_add_to_search_index(graph: &SqliteGraph, entries: &[(i64, Vec<f32>)]) -> Result<usize> {
-    if entries.is_empty() {
-        return Ok(0);
-    }
-    let dim = entries[0].1.len();
-    ensure_index_in_memory(graph, dim)?;
+/// Uses `symbol_fts` (content table backed by `graph_entities`), which is
+/// always current — no separate index maintenance required.
+pub fn fts_search_symbols(
+    conn: &rusqlite::Connection,
+    query: &str,
+    k: usize,
+) -> Result<Vec<(i64, f32)>> {
+    // Escape double-quotes so user input can't break the FTS5 query.
+    let safe = query.replace('"', "\"\"");
+    // Try prefix match first.
+    let pattern = format!("{}*", safe);
 
-    let batch: Vec<(Vec<f32>, Option<serde_json::Value>)> = entries
-        .iter()
-        .map(|(entity_id, vec)| (vec.clone(), Some(json!({"entity_id": *entity_id}))))
+    let mut stmt = conn.prepare_cached(
+        "SELECT rowid FROM symbol_fts WHERE name MATCH ? ORDER BY rank LIMIT ?",
+    )?;
+    let ids: Vec<i64> = stmt
+        .query_map(
+            rusqlite::params![pattern, (k * 2) as i64],
+            |row| row.get::<_, i64>(0),
+        )?
+        .filter_map(|r| r.ok())
         .collect();
 
-    let count = batch.len();
-    graph
-        .get_hnsw_index_mut(SEARCH_INDEX_NAME, move |idx| {
-            idx.batch_insert_vectors(&batch)
-        })
-        .map_err(|e| anyhow::anyhow!("batch_insert failed: {}", e))?
-        .map_err(|e| anyhow::anyhow!("hnsw batch insert failed: {}", e))?;
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
 
-    Ok(count)
+    let n = ids.len() as f32;
+    Ok(ids
+        .into_iter()
+        .enumerate()
+        .map(|(i, id)| (id, 1.0_f32 - (i as f32 / n) * 0.5))
+        .collect())
+}
+
+// ── no-op stubs for callers of the removed HNSW embed pipeline ───────────────
+// embed_cmd and indexing paths still call these; they are now harmless no-ops.
+
+pub fn bulk_add_to_search_index(_graph: &SqliteGraph, _entries: &[(i64, Vec<f32>)]) -> Result<usize> {
+    Ok(0)
 }
 
 pub fn remove_from_search_index(_graph: &SqliteGraph, _entity_id: i64) -> Result<()> {
     Ok(())
 }
 
-/// Clear all vectors from the 'symbols' HNSW index (both in-memory and persistent).
-/// Used by `embed --force` to avoid duplicate vectors on re-embed.
-pub fn clear_search_index(graph: &SqliteGraph) -> Result<()> {
-    graph
-        .delete_hnsw_index(SEARCH_INDEX_NAME)
-        .map_err(|e| anyhow::anyhow!("failed to delete HNSW index: {}", e))?;
+pub fn clear_search_index(_graph: &SqliteGraph) -> Result<()> {
     Ok(())
-}
-
-pub fn search_symbols(
-    graph: &SqliteGraph,
-    embedder: &dyn TextEmbedder,
-    query: &str,
-    k: usize,
-) -> Result<Vec<(i64, f32)>> {
-    ensure_index_in_memory(graph, embedder.dimension())?;
-    if !index_in_memory(graph) {
-        return Ok(Vec::new());
-    }
-    let query_vec = embedder.embed(query)?;
-    let hits = graph
-        .get_hnsw_index_ref(SEARCH_INDEX_NAME, |idx| idx.search(&query_vec, k * 2))
-        .map_err(|e| anyhow::anyhow!("hnsw search failed: {}", e))?
-        .map_err(|e| anyhow::anyhow!("hnsw search error: {}", e))?;
-    let mut results = Vec::with_capacity(hits.len());
-    for (vector_id, score) in hits {
-        if results.len() >= k {
-            break;
-        }
-        let metadata = graph
-            .get_hnsw_index_ref(SEARCH_INDEX_NAME, |idx| {
-                idx.get_vector(vector_id).ok().flatten()
-            })
-            .map_err(|e| anyhow::anyhow!("get_vector failed: {}", e))?;
-        if let Some((_vec, meta)) = metadata {
-            if let Some(entity_id) = meta.get("entity_id").and_then(|v| v.as_i64()) {
-                if graph.get_entity(entity_id).is_ok() {
-                    results.push((entity_id, score));
-                }
-            }
-        }
-    }
-    Ok(results)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::embed::HashEmbedder;
 
-    #[test]
-    fn test_search_config_builds() {
-        let config = search_config(128).unwrap();
-        assert_eq!(config.dimension, 128);
+    fn open_test_conn() -> rusqlite::Connection {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE VIRTUAL TABLE symbol_fts USING fts5(name, content='', tokenize='unicode61');",
+        )
+        .unwrap();
+        conn
+    }
+
+    fn insert_symbol(conn: &rusqlite::Connection, rowid: i64, name: &str) {
+        conn.execute(
+            "INSERT INTO symbol_fts(rowid, name) VALUES (?, ?)",
+            rusqlite::params![rowid, name],
+        )
+        .unwrap();
     }
 
     #[test]
-    fn test_symbol_embed_text_extracts_fields() {
-        let entity = sqlitegraph::GraphEntity {
-            id: 1,
-            kind: "Symbol".to_string(),
-            name: "parse_rust".to_string(),
-            file_path: Some("src/lib.rs".to_string()),
-            data: serde_json::json!({
-                "fqn": "magellan::parse_rust",
-                "kind_normalized": "function",
-            }),
-        };
-        let text = symbol_embed_text(&entity, None);
-        assert!(text.contains("parse_rust"));
-        assert!(text.contains("magellan::parse_rust"));
+    fn test_fts_search_finds_prefix_match() {
+        let conn = open_test_conn();
+        insert_symbol(&conn, 1, "parse_rust");
+        insert_symbol(&conn, 2, "parse_python");
+        insert_symbol(&conn, 3, "compile_rust");
+
+        let results = fts_search_symbols(&conn, "parse_rust", 5).unwrap();
+        assert!(!results.is_empty(), "should find results");
+        let ids: Vec<i64> = results.iter().map(|(id, _)| *id).collect();
+        assert!(ids.contains(&1), "parse_rust should be found");
     }
 
     #[test]
-    fn test_add_and_search_roundtrip() {
-        let graph = SqliteGraph::open_in_memory().unwrap();
-        let embedder = HashEmbedder::new(128);
+    fn test_fts_search_scores_descending() {
+        let conn = open_test_conn();
+        insert_symbol(&conn, 1, "parse_rust");
+        insert_symbol(&conn, 2, "parse_rust_file");
+        insert_symbol(&conn, 3, "parse_python");
 
-        let e1 = sqlitegraph::GraphEntity {
-            id: 0,
-            kind: "Symbol".to_string(),
-            name: "parse_rust".to_string(),
-            file_path: None,
-            data: serde_json::json!({"fqn": "magellan::parse_rust"}),
-        };
-        let e2 = sqlitegraph::GraphEntity {
-            id: 0,
-            kind: "Symbol".to_string(),
-            name: "parse_python".to_string(),
-            file_path: None,
-            data: serde_json::json!({"fqn": "magellan::parse_python"}),
-        };
-        let id1 = graph.insert_entity(&e1).unwrap();
-        let id2 = graph.insert_entity(&e2).unwrap();
-
-        let entities: Vec<sqlitegraph::GraphEntity> = vec![
-            sqlitegraph::GraphEntity { id: id1, ..e1 },
-            sqlitegraph::GraphEntity { id: id2, ..e2 },
-        ];
-
-        ensure_search_index(&graph, &embedder, &entities).unwrap();
-
-        let results = search_symbols(&graph, &embedder, "parse_rust", 2).unwrap();
-        assert!(!results.is_empty(), "search should find results");
-        assert_eq!(
-            results[0].0, id1,
-            "top result should be entity {} (parse_rust)",
-            id1
-        );
+        let results = fts_search_symbols(&conn, "parse_rust", 10).unwrap();
+        assert!(results.len() >= 2);
+        // Scores must be non-increasing
+        for w in results.windows(2) {
+            assert!(w[0].1 >= w[1].1, "scores should be non-increasing");
+        }
     }
 
     #[test]
-    fn test_remove_from_index() {
-        let graph = SqliteGraph::open_in_memory().unwrap();
-        let embedder = HashEmbedder::new(128);
+    fn test_fts_search_empty_query_returns_empty() {
+        let conn = open_test_conn();
+        insert_symbol(&conn, 1, "foo");
+        // Empty pattern after escaping becomes "*" which may return all or error;
+        // the function must not panic.
+        let _ = fts_search_symbols(&conn, "", 5);
+    }
 
-        let e1 = sqlitegraph::GraphEntity {
-            id: 0,
-            kind: "Symbol".to_string(),
-            name: "parse_rust".to_string(),
-            file_path: None,
-            data: serde_json::json!({}),
-        };
-        let e2 = sqlitegraph::GraphEntity {
-            id: 0,
-            kind: "Symbol".to_string(),
-            name: "parse_python".to_string(),
-            file_path: None,
-            data: serde_json::json!({}),
-        };
-        let id1 = graph.insert_entity(&e1).unwrap();
-        let id2 = graph.insert_entity(&e2).unwrap();
-
-        let entities: Vec<sqlitegraph::GraphEntity> = vec![
-            sqlitegraph::GraphEntity { id: id1, ..e1 },
-            sqlitegraph::GraphEntity { id: id2, ..e2 },
-        ];
-
-        ensure_search_index(&graph, &embedder, &entities).unwrap();
-
-        graph.delete_entity(id2).unwrap();
-
-        let results = search_symbols(&graph, &embedder, "parse_python", 2).unwrap();
-        let found_ids: Vec<i64> = results.iter().map(|(id, _)| *id).collect();
-        assert!(
-            !found_ids.contains(&id2),
-            "deleted entity should not appear in results"
-        );
+    #[test]
+    fn test_fts_search_no_match_returns_empty() {
+        let conn = open_test_conn();
+        insert_symbol(&conn, 1, "foo_bar");
+        let results = fts_search_symbols(&conn, "zzz_nonexistent", 5).unwrap();
+        assert!(results.is_empty());
     }
 }

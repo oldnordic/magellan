@@ -1447,7 +1447,6 @@ mod tests {
         let dir = tempdir().unwrap();
         let db_path = dir.path().join("test.db");
         let mut graph = crate::CodeGraph::open(&db_path).unwrap();
-        graph.enable_embeddings_for_test();
 
         let source_a = b"fn parse_rust() -> u32 { 42 }";
         graph.index_file("a.rs", source_a).unwrap();
@@ -1485,7 +1484,6 @@ mod tests {
         let dir = tempdir().unwrap();
         let db_path = dir.path().join("test.db");
         let mut graph = crate::CodeGraph::open(&db_path).unwrap();
-        graph.enable_embeddings_for_test();
 
         graph
             .index_file(
@@ -1528,7 +1526,6 @@ mod tests {
         let dir = tempdir().unwrap();
         let db_path = dir.path().join("test.db");
         let mut graph = crate::CodeGraph::open(&db_path).unwrap();
-        graph.enable_embeddings_for_test();
 
         let source = b"fn compute_checksum(data: &[u8]) -> u32 { 42 }";
         graph.index_file("checksum.rs", source).unwrap();
@@ -1560,7 +1557,6 @@ mod tests {
         let dir = tempdir().unwrap();
         let db_path = dir.path().join("test.db");
         let mut graph = crate::CodeGraph::open(&db_path).unwrap();
-        graph.enable_embeddings_for_test();
 
         // Index two functions where one calls the other
         let source_a = b"fn compute_hash(data: &[u8]) -> u32 { 42 }";

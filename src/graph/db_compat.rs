@@ -613,6 +613,27 @@ pub fn ensure_symbol_fts_schema(conn: &rusqlite::Connection) -> Result<(), DbCom
         [],
     )
     .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    // Auto-sync triggers so FTS5 stays current without manual rebuild calls.
+    conn.execute_batch(
+        "CREATE TRIGGER IF NOT EXISTS graph_entities_ai
+             AFTER INSERT ON graph_entities BEGIN
+                 INSERT INTO symbol_fts(rowid, name) VALUES (new.id, new.name);
+             END;
+         CREATE TRIGGER IF NOT EXISTS graph_entities_ad
+             AFTER DELETE ON graph_entities BEGIN
+                 INSERT INTO symbol_fts(symbol_fts, rowid, name)
+                 VALUES ('delete', old.id, old.name);
+             END;
+         CREATE TRIGGER IF NOT EXISTS graph_entities_au
+             AFTER UPDATE ON graph_entities BEGIN
+                 INSERT INTO symbol_fts(symbol_fts, rowid, name)
+                 VALUES ('delete', old.id, old.name);
+                 INSERT INTO symbol_fts(rowid, name) VALUES (new.id, new.name);
+             END;",
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
     Ok(())
 }
 

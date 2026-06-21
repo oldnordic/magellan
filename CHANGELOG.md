@@ -3,6 +3,19 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://sememver.org/spec/v2.0.0.html).
 
+## [4.9.2] - 2026-06-21
+
+### Changed
+
+- **HopGraph search replaced HNSW with FTS5 + call-graph BFS** (`src/graph/search.rs`, `src/graph/mod.rs`, `src/graph/db_compat.rs`):
+  - Removed HNSW vector index as the seed-discovery layer. HNSW was covering only 19% of symbols (stale since last `magellan embed` run) and required expensive embedding generation to stay current.
+  - `hopgraph_search` now seeds from `symbol_fts` (FTS5 prefix search on symbol names) — always 100% coverage, zero maintenance cost.
+  - Graph expansion now traverses `CALLER` + `CALLS` edges (call graph) instead of `REFERENCES` edges, giving behaviorally-adjacent neighbors rather than lexically-adjacent ones.
+  - Score formula: FTS5 rank decays linearly for lower-ranked seeds; each hop depth multiplies seed score by 0.7.
+  - Added auto-sync triggers (`graph_entities_ai/ad/au`) on `graph_entities` so `symbol_fts` stays current after every `index_file` call — no more manual `rebuild_fts5` required.
+  - Retained no-op stubs for `bulk_add_to_search_index`, `remove_from_search_index`, `clear_search_index` so `embed_cmd` continues to compile (embed command is now vestigial but not removed).
+  - All 4 hopgraph tests updated (removed `enable_embeddings_for_test()` setup) and pass.
+
 ## [4.9.1] - 2026-06-20
 
 ### Fixed

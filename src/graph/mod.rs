@@ -346,63 +346,62 @@ impl CodeGraph {
         k: usize,
         hops: u32,
     ) -> anyhow::Result<Vec<crate::graph::search::HopgraphHit>> {
-        if !self.embeddings_enabled {
-            return Ok(Vec::new());
-        }
         let sg = self.symbols.sqlite_graph()?;
-        // When hops > 0, request more vector candidates so graph expansion has
-        // more seeds to work from, and allow the result set to grow beyond k.
-        let vector_k = if hops > 0 { k * 2 } else { k };
-        let raw_hits =
-            crate::graph::search::search_symbols(sg, self.embedder.as_ref(), query, vector_k)?;
 
-        // Build initial hit set with vector scores
+        // Phase 1: FTS5 seed search — always current, zero maintenance cost.
+        let seed_k = if hops > 0 { k * 2 } else { k };
+        let raw_hits = {
+            let conn = self.side_conn.lock();
+            crate::graph::search::fts_search_symbols(&conn, query, seed_k)?
+        };
+
+        // (entity_id → (score, hop_distance))
         let mut hit_scores: std::collections::HashMap<i64, (f32, u32)> =
             std::collections::HashMap::new();
         for &(entity_id, score) in &raw_hits {
             hit_scores.insert(entity_id, (score, 0));
         }
 
-        // Graph expansion: BFS from each initial hit via REFERENCES edges
+        // Phase 2: call-graph BFS from each FTS5 seed via CALLER+CALLS edges.
+        // k_hop_filtered has no Both direction, so run two passes and union.
         if hops > 0 && !raw_hits.is_empty() {
-            let nav = navigator::SymbolNavigator::new(self);
+            use sqlitegraph::backend::BackendDirection;
             let initial_ids: Vec<i64> = raw_hits.iter().map(|(id, _)| *id).collect();
-            let alpha = 0.7_f32;
             for start_id in &initial_ids {
-                // k_hop_references returns all nodes reachable within `hops` hops
-                if let Ok(expanded) = nav.k_hop_references(*start_id, hops) {
-                    for info in expanded {
-                        // Skip if already in results (vector hit or earlier expansion)
-                        if hit_scores.contains_key(&info.id) {
-                            continue;
-                        }
-                        // Use estimated depth = 1 (can't distinguish exact hop from
-                        // k_hop_references output which returns all reachable nodes)
-                        let estimated_depth = 1u32;
-                        let graph_proximity = 1.0_f32 / (1.0 + estimated_depth as f32);
-                        let seed_score = hit_scores[start_id].0;
-                        // Plan formula: alpha * vector_score + (1-alpha) * (1 - graph_proximity)
-                        // (1 - proximity) penalizes distant nodes, keeping vector hits on top
-                        let blended = alpha * seed_score + (1.0 - alpha) * (1.0 - graph_proximity);
-                        hit_scores.insert(info.id, (blended, estimated_depth));
+                let seed_score = hit_scores[start_id].0;
+                let callers = sg.query().k_hop_filtered(
+                    *start_id, hops, BackendDirection::Incoming, &["CALLER"],
+                );
+                let callees = sg.query().k_hop_filtered(
+                    *start_id, hops, BackendDirection::Outgoing, &["CALLS"],
+                );
+                let neighbors: Vec<i64> = callers
+                    .unwrap_or_default()
+                    .into_iter()
+                    .chain(callees.unwrap_or_default())
+                    .collect();
+                for (depth, neighbor_id) in neighbors.iter().enumerate() {
+                    if hit_scores.contains_key(neighbor_id) {
+                        continue;
                     }
+                    let d = (depth as u32).min(hops);
+                    let score = seed_score * (0.7_f32.powi(d as i32 + 1));
+                    hit_scores.insert(*neighbor_id, (score, d + 1));
                 }
             }
         }
 
-        // Resolve all entity_ids to symbol metadata
+        // Resolve entity_ids → symbol metadata.
         let all_ids: Vec<i64> = hit_scores.keys().copied().collect();
         let resolved = {
             let conn = self.side_conn.lock();
             navigator::SymbolNavigator::resolve_entities_with_conn(&conn, &all_ids)?
         };
-
         let mut resolved_map = std::collections::HashMap::new();
         for info in resolved {
             resolved_map.insert(info.id, info);
         }
 
-        // Build final hits
         let mut hits: Vec<crate::graph::search::HopgraphHit> = hit_scores
             .into_iter()
             .map(|(entity_id, (score, hop_distance))| {
@@ -423,15 +422,13 @@ impl CodeGraph {
             })
             .collect();
 
-        // Sort by score ascending (lower cosine distance = better match)
+        // Higher score = better match.
         hits.sort_by(|a, b| {
-            a.score
-                .partial_cmp(&b.score)
+            b.score
+                .partial_cmp(&a.score)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
 
-        // When hops > 0, allow results beyond k to surface graph-expanded hits.
-        // Cap at k + per-hop budget so output doesn't explode.
         let cap = if hops > 0 {
             k + (hops as usize * k / 2).max(5)
         } else {
