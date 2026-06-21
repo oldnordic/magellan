@@ -3,6 +3,100 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://sememver.org/spec/v2.0.0.html).
 
+## [4.9.5] - 2026-06-21
+
+### Changed
+
+- **llmgrep v3.9.0** compatibility verified:
+  - llmgrep export-symbols command supports symbol map export to JSON
+  - Command: `llmgrep --db <db> export-symbols --file <output.json>`
+  - Output format: `{"symbols": {"symbol_name": [{"id": N, "kind": "fn", "name": "...", "file_path": "..."}]}}`
+  - Includes 21,401 symbols (9,473 unique names) from current magellan database
+  - Compatible with magellan schema v19
+- **mirage v1.8.2** compatibility verified:
+  - Requires magellan schema v7+ (fully compatible with v19)
+  - Existing blast-zone analysis integration verified
+  - No schema updates needed for current magellan features
+
+### Added
+
+### Added
+- **Documentation & Integration** (Phase 6 complete):
+  - Updated `~/.claude/skills/grounded-coding-tools/SKILL.md` with blast scoring and impact export documentation
+  - Added magellan doctor checks for repo-root exports:
+    * Check for `.magellan/symbolindex.json` (llmgrep export-symbols output)
+    * Check for `.magellan/export.json` (magellan export output)
+    * Provides fix hints when exports are missing
+  - Full workflow verified: blast-score → export-symbols → export → install-hook
+  - All components working together as per CODEINDEX_FEATURES_PLAN.md
+- **Pre-commit hook infrastructure** (`magellan install-hook`):
+  - Added `install-hook` CLI command for installing git pre-commit hooks that check blast scores
+  - Hook checks staged files for symbols with high blast scores before allowing commits
+  - Supports `--threshold` parameter (default: 10.0) to set blast score threshold
+  - Supports `--strict` flag to block commits exceeding threshold (default: warn only)
+  - Hook script uses `magellan query` to extract symbols from staged files
+  - Hook script uses `magellan blast-score` to calculate blast scores for changed symbols
+  - Command: `magellan install-hook [--threshold <N>] [--strict]`
+  - Hook installed at `.git/hooks/pre-commit` in repository root
+  - Implementation in `src/hook_cmd.rs` with proper executable permissions
+- **Repo-root discovery convention** (`.magellan/` directory):
+  - Added `find_repo_root()` and `magellan_dir()` utility functions in `src/common.rs` for detecting repository roots via `.git` directory/file search
+  - Export commands now default to writing to repo-root `.magellan/` directory when no `--output` is specified
+  - Export format mapping:
+    * `--format json` → `.magellan/export.json`
+    * `--format jsonl` → `.magellan/export.jsonl`
+    * `--format impact` → `.magellan/impact.json`
+  - When not in a git repository, exports fall back to stdout (preserves existing behavior for tests and ad-hoc usage)
+  - Updated `src/export_cmd.rs` to use current working directory for repo-root search (DB may be outside repository, e.g., `~/.magellan/`)
+  - **llmgrep** export-symbols updated to default to `.magellan/symbolindex.json` when `--file symbolindex.json` is specified
+- **Impact export format** (`magellan export --format impact`):
+  - Export impact analysis results to JSON format
+  - Requires `--symbol` parameter for target symbol
+  - Optional `--impact-file` for symbol disambiguation
+  - Optional `--depth` for BFS traversal depth (default: 10)
+  - Command: `magellan export --db <db> --format impact --symbol <name> [--output <file>] [--impact-file <path>] [--depth <N>]`
+  - Output JSON structure:
+    ```json
+    {
+      "symbol": "target_symbol",
+      "file": "optional_file_path",
+      "depth": 10,
+      "total_impacted": 42,
+      "impacted_symbols": [
+        {"name": "caller1", "file": "path/to/file.rs", "line": 123, "depth": 1},
+        {"name": "caller2", "file": "path/to/other.rs", "line": 456, "depth": 2}
+      ]
+    }
+    ```
+  - Uses existing `impact_analysis()` function for BFS traversal
+  - Supports `--minify` flag for compact JSON output
+
+### Changed
+- Updated export command parser to support impact-specific parameters
+- Enhanced `ExportFormat` enum with `Impact` variant
+- Updated help text in `src/cli/help_full.txt` for export command
+
+## [4.9.4] - 2026-06-21
+
+### Added
+- **Blast score computation** (`magellan blast-score` command):
+  - Single-score impact analysis similar to codeindex's blast radius metric
+  - Computes score as `direct + 0.5 * transitive` (codeindex formula)
+  - Risk classification: LOW (<10% codebase), MEDIUM (10-20%), HIGH (≥20%)
+  - Command: `magellan blast-score --db <db> --symbol <name> [--depth <N>] [--output <format>]`
+  - Returns: "Blast Score: X.X (N direct · M transitive) [HIGH/MEDIUM/LOW]"
+  - Implementation: `compute_blast_score()` in `src/context/query.rs`
+  - CLI handler: `src/blast_score_cmd.rs`
+  - Example: `magellan blast-score --db ~/.magellan/magellan/magellan.db --symbol run_export`
+  - Output: "Blast Score: 1.0 (1 direct · 0 transitive) [LOW]"
+
+### Technical Notes
+- Blast score complements existing `magellan context impact` (structured list) by providing single-number metric
+- `BlastScore` struct exported from `magellan::context` module
+- Uses `graph.count_files()` for total file count (risk percentage calculation)
+- Depth-bounded BFS traversal via existing `impact_analysis()` function
+- Risk classification based on percentage of unique affected files vs total files
+
 ## [4.9.3] - 2026-06-21 (Work in Progress)
 
 ### Added

@@ -150,6 +150,10 @@ pub enum Command {
         include_collisions: bool,
         collisions_field: CollisionField,
         filters: ExportFilters,
+        // Impact export specific parameters
+        impact_symbol: Option<String>,
+        impact_file: Option<String>,
+        impact_depth: usize,
     },
     ImportLsif {
         db_path: PathBuf,
@@ -508,6 +512,14 @@ pub enum Command {
         output_format: OutputFormat,
         all: bool,
     },
+    /// Blast score — single-score impact analysis (codeindex-style)
+    BlastScore {
+        db_path: PathBuf,
+        symbol: String,
+        file: Option<String>,
+        depth: usize,
+        output_format: OutputFormat,
+    },
     /// Navigate — grounded investigation packet (magellan + llmgrep + mirage)
     Navigate {
         task: String,
@@ -553,6 +565,11 @@ pub enum Command {
         batch_size: Option<usize>,
         num_parallel: Option<usize>,
         output_format: OutputFormat,
+    },
+    /// Install pre-commit hook for blast-score checks
+    InstallHook {
+        threshold: f64,
+        strict: bool,
     },
 }
 

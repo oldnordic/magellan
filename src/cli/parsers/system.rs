@@ -112,6 +112,7 @@ where
         }
         "condense" => parse_condense_args(&args[2..]),
         "init" => parse_project_init_args(&args[2..]),
+        "install-hook" => parse_install_hook_args(&args[2..]),
         "paths" => parse_paths_args(&args[2..]),
         "score" => parse_score_args(&args[2..]),
         "slice" => parse_slice_args(&args[2..]),
@@ -219,6 +220,7 @@ where
         "hnsw-create" => parse_hnsw_create_args(&args[2..]),
         "hnsw-query" => parse_hnsw_query_args(&args[2..]),
         "ask" => parse_ask_args(&args[2..]),
+        "blast-score" => parse_blast_score_args(&args[2..]),
         "navigate" => parse_navigate_args(&args[2..]),
         "explore" => parse_explore_args(&args[2..]),
         "telemetry" => parse_telemetry_args(&args[2..]),
@@ -438,6 +440,32 @@ pub fn parse_orient_args(args: &[String]) -> Result<Command> {
         output_format,
     })
 }
+
+/// Parse the `install-hook` command arguments
+pub fn parse_install_hook_args(args: &[String]) -> Result<Command> {
+    let mut threshold: f64 = 10.0;
+    let mut strict: bool = false;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--threshold" => {
+                let value = parse_required_arg(args, &mut i, "--threshold")?;
+                threshold = value
+                    .parse()
+                    .map_err(|_| anyhow::anyhow!("--threshold must be a number"))?;
+            }
+            "--strict" => {
+                strict = true;
+                i += 1;
+            }
+            _ => return Err(anyhow::anyhow!("Unknown argument: {}", args[i])),
+        }
+    }
+
+    Ok(Command::InstallHook { threshold, strict })
+}
+
 
 /// Convenience wrapper around `parse_args_impl` that uses the version module
 pub fn parse_args() -> Result<Command> {

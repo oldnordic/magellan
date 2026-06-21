@@ -28,7 +28,7 @@ use crate::graph::query::{collision_groups, CollisionField};
 
 /// Export format options
 ///
-/// Dot, Csv, Scip, and Lsif are available export formats.
+/// Dot, Csv, Scip, Lsif, and Impact are available export formats.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExportFormat {
     /// Standard JSON array format
@@ -43,6 +43,8 @@ pub enum ExportFormat {
     Scip,
     /// LSIF (Language Server Index Format) for cross-repo navigation
     Lsif,
+    /// Impact analysis format (blast radius for a symbol)
+    Impact,
 }
 
 impl ExportFormat {
@@ -55,6 +57,7 @@ impl ExportFormat {
             "csv" => Some(ExportFormat::Csv),
             "scip" => Some(ExportFormat::Scip),
             "lsif" => Some(ExportFormat::Lsif),
+            "impact" => Some(ExportFormat::Impact),
             _ => None,
         }
     }
@@ -1505,6 +1508,12 @@ pub fn export_graph(graph: &mut CodeGraph, config: &ExportConfig) -> Result<Stri
             // LSIF export returns JSONL format
             // For file output, use export_cmd.rs which handles LSIF specially
             Ok(String::new())
+        }
+        ExportFormat::Impact => {
+            // Impact export requires --symbol parameter and is handled separately in export_cmd.rs
+            Err(anyhow::anyhow!(
+                "Impact export requires --symbol parameter. Use: magellan export --db code.db --format impact --symbol <name>"
+            ))
         }
     }
 }

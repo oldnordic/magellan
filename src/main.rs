@@ -5,6 +5,7 @@
 mod ask_cmd;
 mod ast_cmd;
 mod backfill_cmd;
+mod blast_score_cmd;
 mod candidate_fact_cmd;
 mod catalog_cmd;
 mod cli;
@@ -28,6 +29,7 @@ mod files_cmd;
 mod find_cmd;
 mod get_cmd;
 mod hnsw_cmd;
+mod hook_cmd;
 mod hopgraph_cmd;
 mod import_lsif_cmd;
 mod index_cmd;
@@ -176,6 +178,13 @@ fn main() -> ExitCode {
             }
             ExitCode::SUCCESS
         }
+        Ok(Command::InstallHook { threshold, strict }) => {
+            if let Err(e) = hook_cmd::run_install_hook(threshold, strict) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
         Ok(Command::ConfigShow { output_format }) => {
             if let Err(e) = config_cmd::run_config_show(output_format) {
                 eprintln!("Error: {}", e);
@@ -255,6 +264,9 @@ fn main() -> ExitCode {
             include_collisions,
             collisions_field,
             filters,
+            impact_symbol,
+            impact_file,
+            impact_depth,
         }) => {
             if let Err(e) = export_cmd::run_export(
                 db_path,
@@ -267,6 +279,9 @@ fn main() -> ExitCode {
                 include_collisions,
                 collisions_field,
                 filters,
+                impact_symbol,
+                impact_file,
+                impact_depth,
             ) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
@@ -1171,6 +1186,19 @@ fn main() -> ExitCode {
             all,
         }) => {
             if let Err(e) = ask_cmd::run_ask(question, db_path, all, output_format) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::BlastScore {
+            db_path,
+            symbol,
+            file,
+            depth,
+            output_format,
+        }) => {
+            if let Err(e) = blast_score_cmd::run_blast_score(db_path, symbol, file, depth, output_format) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }

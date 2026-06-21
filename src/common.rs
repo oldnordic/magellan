@@ -668,3 +668,71 @@ pub fn detect_project_root() -> PathBuf {
     // No marker found, return current directory
     current_dir
 }
+
+/// Find repository root by looking for .git directory
+///
+/// Searches upward from the given path to find the repository root
+/// by looking for a .git directory or file (which indicates a git repository).
+///
+/// # Arguments
+/// * `start` - Path to start searching from (usually a file path or current directory)
+///
+/// # Returns
+/// * `Some(PathBuf)` pointing to the repository root if .git is found
+/// * `None` if not in a git repository or reached filesystem root
+///
+/// # Example
+/// ```rust,ignore
+/// use magellan::common::find_repo_root;
+/// use std::path::PathBuf;
+///
+/// // When run from within a git repository
+/// let repo_root = find_repo_root(&PathBuf::from("."));
+/// // Returns Some(path) pointing to repository root
+///
+/// // When run from outside a git repository
+/// let not_a_repo = find_repo_root(&PathBuf::from("/tmp/nonexistent"));
+/// // Returns None
+/// ```
+pub fn find_repo_root(start: &Path) -> Option<PathBuf> {
+    let mut current = start.canonicalize().ok()?;
+
+    loop {
+        let git_dir = current.join(".git");
+
+        // Check for .git directory or file (submodules use files)
+        if git_dir.is_dir() || git_dir.is_file() {
+            return Some(current.to_path_buf());
+        }
+
+        // Move up one directory
+        match current.parent() {
+            Some(parent) => current = parent.to_path_buf(),
+            None => return None,
+        }
+    }
+}
+
+/// Get or create .magellan directory in repo root
+///
+/// Returns the path to the `.magellan` directory in the repository root.
+/// This directory is used for repo-root exports and cached data.
+///
+/// # Arguments
+/// * `repo_root` - Path to the repository root
+///
+/// # Returns
+/// PathBuf pointing to `.magellan` directory in the repo root
+///
+/// # Example
+/// ```rust
+/// use magellan::common::magellan_dir;
+/// use std::path::PathBuf;
+///
+/// let repo_root = PathBuf::from("/home/user/project");
+/// let mag_dir = magellan_dir(&repo_root);
+/// assert_eq!(mag_dir, PathBuf::from("/home/user/project/.magellan"));
+/// ```
+pub fn magellan_dir(repo_root: &Path) -> PathBuf {
+    repo_root.join(".magellan")
+}

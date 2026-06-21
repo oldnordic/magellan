@@ -6,7 +6,7 @@ Usage:
   magellan --backends    Show available storage backends and features
 
   magellan watch --root <DIR> --db <FILE> [--debounce-ms <N>] [--scan-initial] [--watch-only] [--validate] [--validate-only]
-  magellan export --db <FILE> [--format json|jsonl|csv|scip|dot|lsif] [--output <PATH>] [--minify] [--cluster]
+  magellan export --db <FILE> [--format json|jsonl|csv|scip|dot|lsif|impact] [--output <PATH>] [--minify] [--cluster] [--symbol <NAME>] [--impact-file <PATH>] [--depth <N>]
   magellan backfill --db <FILE>
   magellan index --db <FILE> --file <PATH> [--root <DIR>]
   magellan delete --db <FILE> --file <PATH> [--root <DIR>]
@@ -116,7 +116,7 @@ Watch arguments:
 
 Export arguments:
   --db <FILE>         Path to sqlitegraph database
-  --format <FORMAT>   Export format: json (default), jsonl, csv, scip, dot, or lsif
+  --format <FORMAT>   Export format: json (default), jsonl, csv, scip, dot, lsif, or impact
   --output <PATH>     Write to file instead of stdout
   --minify            Use compact JSON (no pretty-printing)
   --no-symbols        Exclude symbols from export
@@ -124,6 +124,9 @@ Export arguments:
   --no-calls          Exclude calls from export
   --include-collisions Include collision groups (JSON only)
   --collisions-field <FIELD>  Collision field: fqn, display_fqn, canonical_fqn (default: fqn)
+  --symbol <NAME>     Symbol name for impact export (required for impact format)
+  --impact-file <PATH> File path for impact export symbol disambiguation (optional)
+  --depth <N>         Max depth for impact export BFS traversal (default: 10)
 
 Status arguments:
   --db <FILE>         Path to sqlitegraph database

@@ -3,6 +3,7 @@
 //! Exports graph data to JSON/JSONL/CSV/DOT/SCIP formats with stable IDs.
 
 use anyhow::Result;
+use magellan::common::{find_repo_root, magellan_dir};
 use magellan::graph::export::{
     export_graph, scip, stream_json, stream_json_minified, stream_ndjson, ExportConfig,
     ExportFilters, ExportFormat,
@@ -10,9 +11,63 @@ use magellan::graph::export::{
 use magellan::graph::query::CollisionField;
 use magellan::output::generate_execution_id;
 use magellan::CodeGraph;
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::PathBuf;
+
+/// Get default output path for repo-root export
+///
+/// When no output is specified, this function determines the appropriate
+/// default file path in the .magellan directory based on the export format.
+///
+/// Uses current working directory for repo-root search since DB may be
+/// outside the repository (e.g., ~/.magellan/).
+///
+/// # Arguments
+/// * `format` - Export format
+///
+/// # Returns
+/// Option containing the default output path, or None if not in a repository
+fn get_default_repo_root_output(db_path: &PathBuf, format: &ExportFormat) -> Option<PathBuf> {
+    // Only use repo-root convention when we're in a consistent working directory
+    // If the db is in a different location than cwd, assume ad-hoc/test usage
+    let cwd = std::env::current_dir().ok()?;
+
+    // Check if db is in a temp directory or different from cwd
+    let db_parent = db_path.parent();
+    let is_temp_or_adhoc = if let Some(parent) = db_parent {
+        // Check if db is in a temp directory (starts with /tmp/) or different from cwd
+        let parent_str = parent.to_string_lossy();
+        let cwd_str = cwd.to_string_lossy();
+        parent_str.starts_with("/tmp/") ||
+        parent_str != cwd_str
+    } else {
+        // No parent, assume ad-hoc
+        true
+    };
+
+    if is_temp_or_adhoc {
+        // Ad-hoc or test usage - don't use repo-root convention
+        return None;
+    }
+
+    // Normal usage - try to find repo root from current directory
+    let repo_root = find_repo_root(&cwd)?;
+
+    let mag_dir = magellan_dir(&repo_root);
+
+    // Create .magellan directory if it doesn't exist
+    fs::create_dir_all(&mag_dir).ok()?;
+
+    let filename = match format {
+        ExportFormat::Json => "export.json",
+        ExportFormat::Impact => "impact.json",
+        ExportFormat::JsonL => "export.jsonl",
+        _ => return None,
+    };
+
+    Some(mag_dir.join(filename))
+}
 
 /// Format file size in human-readable format (KB, MB, etc.)
 fn format_file_size(size_bytes: u64) -> String {
@@ -59,19 +114,23 @@ fn print_export_summary(
 
 /// Run the export command
 ///
-/// Exports graph data to JSON/JSONL/CSV/DOT/SCIP format with stable IDs.
+/// Exports graph data to JSON/JSONL/CSV/DOT/SCIP/Impact format with stable IDs.
 /// Output goes to stdout by default, or to a file if --output is specified.
 /// Note: SCIP format requires --output file since it outputs binary data.
+/// Impact format requires --symbol parameter.
 ///
 /// # Arguments
 /// * `db_path` - Path to the sqlitegraph database
-/// * `format` - Export format (Json, JsonL, Dot, Csv, Scip)
+/// * `format` - Export format (Json, JsonL, Dot, Csv, Scip, Impact)
 /// * `output` - Optional file path for output
 /// * `include_symbols` - Whether to include symbols in export
 /// * `include_references` - Whether to include references in export
 /// * `include_calls` - Whether to include calls in export
 /// * `minify` - Whether to minify JSON output
 /// * `filters` - Export filters for DOT format (file, symbol, kind, max_depth, cluster)
+/// * `impact_symbol` - Symbol name for impact export (required for Impact format)
+/// * `impact_file` - Optional file path for impact export symbol disambiguation
+/// * `impact_depth` - Max depth for impact export BFS traversal
 ///
 /// # Returns
 /// Result indicating success or failure
@@ -90,6 +149,9 @@ pub fn run_export(
     include_collisions: bool,
     collisions_field: CollisionField,
     filters: ExportFilters,
+    impact_symbol: Option<String>,
+    impact_file: Option<String>,
+    impact_depth: usize,
 ) -> Result<()> {
     let mut graph = CodeGraph::open(&db_path)?;
     let exec_id = generate_execution_id();
@@ -196,6 +258,60 @@ pub fn run_export(
                 eprintln!("Use: magellan export --db code.db --format lsif --output output.lsif");
             }
         }
+    // Handle Impact format specially (requires --symbol parameter)
+    } else if format == ExportFormat::Impact {
+        use magellan::context::impact_analysis;
+
+        let symbol_name = impact_symbol.ok_or_else(|| {
+            anyhow::anyhow!("Impact export requires --symbol parameter")
+        })?;
+
+        // Run impact analysis
+        let impacted = impact_analysis(&mut graph, &symbol_name, impact_file.as_deref(), impact_depth)?;
+
+        // Create export data structure
+        let impact_export = serde_json::json!({
+            "symbol": symbol_name,
+            "file": impact_file,
+            "depth": impact_depth,
+            "total_impacted": impacted.len(),
+            "impacted_symbols": impacted
+        });
+
+        // Write output
+        let json_str = if minify {
+            serde_json::to_string(&impact_export)?
+        } else {
+            serde_json::to_string_pretty(&impact_export)?
+        };
+
+        match output {
+            Some(path) => {
+                let mut file = File::create(&path)?;
+                file.write_all(json_str.as_bytes())?;
+                file.write_all(b"\n")?;
+                eprintln!("Export complete: {}", path.display());
+                eprintln!("  Format: impact");
+                eprintln!("  Symbol: {}", symbol_name);
+                eprintln!("  Total impacted: {}", impacted.len());
+            }
+            None => {
+                // Use repo-root convention if available, otherwise stdout
+                if let Some(default_path) = get_default_repo_root_output(&db_path, &format) {
+                    let mut file = File::create(&default_path)?;
+                    file.write_all(json_str.as_bytes())?;
+                    file.write_all(b"\n")?;
+                    eprintln!("Export complete: {}", default_path.display());
+                    eprintln!("  Format: impact");
+                    eprintln!("  Symbol: {}", symbol_name);
+                    eprintln!("  Total impacted: {}", impacted.len());
+                } else {
+                    // Fall back to stdout
+                    io::stdout().write_all(json_str.as_bytes())?;
+                    io::stdout().write_all(b"\n")?;
+                }
+            }
+        }
     } else {
         // Text-based formats
         let config = ExportConfig {
@@ -235,9 +351,16 @@ pub fn run_export(
                             print_export_summary(path, format, &mut graph)?;
                         }
                         None => {
-                            let stdout = io::stdout();
-                            let mut handle = stdout.lock();
-                            stream_json(&mut graph, &config, &mut handle)?;
+                            // Use repo-root convention if available, otherwise stdout
+                            if let Some(default_path) = get_default_repo_root_output(&db_path, &format) {
+                                let mut file = File::create(&default_path)?;
+                                stream_json(&mut graph, &config, &mut file)?;
+                                print_export_summary(&default_path, format, &mut graph)?;
+                            } else {
+                                let stdout = io::stdout();
+                                let mut handle = stdout.lock();
+                                stream_json(&mut graph, &config, &mut handle)?;
+                            }
                         }
                     }
                 }
@@ -251,9 +374,16 @@ pub fn run_export(
                         print_export_summary(path, format, &mut graph)?;
                     }
                     None => {
-                        let stdout = io::stdout();
-                        let mut handle = stdout.lock();
-                        stream_ndjson(&mut graph, &config, &mut handle)?;
+                        // Use repo-root convention if available, otherwise stdout
+                        if let Some(default_path) = get_default_repo_root_output(&db_path, &format) {
+                            let mut file = File::create(&default_path)?;
+                            stream_ndjson(&mut graph, &config, &mut file)?;
+                            print_export_summary(&default_path, format, &mut graph)?;
+                        } else {
+                            let stdout = io::stdout();
+                            let mut handle = stdout.lock();
+                            stream_ndjson(&mut graph, &config, &mut handle)?;
+                        }
                     }
                 }
             }
@@ -297,6 +427,7 @@ fn format_name(format: ExportFormat) -> String {
         ExportFormat::Csv => "csv".to_string(),
         ExportFormat::Scip => "scip".to_string(),
         ExportFormat::Lsif => "lsif".to_string(),
+        ExportFormat::Impact => "impact".to_string(),
     }
 }
 

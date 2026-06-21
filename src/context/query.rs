@@ -107,6 +107,23 @@ pub struct SymbolRelation {
     pub depth: Option<usize>,
 }
 
+/// Blast score result for impact analysis
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BlastScore {
+    /// Computed blast score (direct + 0.5 * transitive)
+    pub score: f64,
+    /// Number of direct dependents (depth = 1)
+    pub direct_count: usize,
+    /// Number of transitive dependents (depth > 1)
+    pub transitive_count: usize,
+    /// Risk level classification
+    pub risk_level: String,
+    /// Percentage of total codebase affected
+    pub risk_percent: f64,
+    /// Total number of impacted symbols
+    pub total_impacted: usize,
+}
+
 /// Paginated result
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PaginatedResult<T> {
@@ -838,6 +855,63 @@ pub fn affected_analysis(
     });
 
     Ok(affected)
+}
+
+/// Compute blast score from impacted symbols
+/// Returns single score metric (direct + 0.5 * transitive) with risk classification
+pub fn compute_blast_score(
+    graph: &mut CodeGraph,
+    symbol_name: &str,
+    file_path: Option<&str>,
+    max_depth: usize,
+) -> Result<BlastScore> {
+    let impacted = impact_analysis(graph, symbol_name, file_path, max_depth)?;
+
+    let direct_count = impacted
+        .iter()
+        .filter(|r| r.depth == Some(1))
+        .count();
+
+    let transitive_count = impacted
+        .iter()
+        .filter(|r| r.depth.map(|d| d > 1).unwrap_or(false))
+        .count();
+
+    // codeindex formula: direct + 0.5 * transitive
+    let score = (direct_count as f64) + (0.5 * transitive_count as f64);
+
+    // Get total file count for risk percentage
+    let total_files = match graph.count_files() {
+        Ok(count) => count as f64,
+        Err(_) => 1.0, // Avoid division by zero
+    };
+
+    // Calculate unique affected files for risk percentage
+    let unique_files: std::collections::HashSet<_> = impacted
+        .iter()
+        .map(|r| r.file.as_str())
+        .collect();
+
+    let risk_percent = if total_files > 0.0 {
+        (unique_files.len() as f64 / total_files) * 100.0
+    } else {
+        0.0
+    };
+
+    let risk_level = match risk_percent {
+        p if p >= 20.0 => "HIGH",
+        p if p >= 10.0 => "MEDIUM",
+        _ => "LOW",
+    };
+
+    Ok(BlastScore {
+        score,
+        direct_count,
+        transitive_count,
+        risk_level: risk_level.to_string(),
+        risk_percent,
+        total_impacted: impacted.len(),
+    })
 }
 
 #[cfg(test)]

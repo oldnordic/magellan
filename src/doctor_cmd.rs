@@ -3,6 +3,7 @@
 //! Checks for common problems and provides actionable recommendations.
 
 use anyhow::Result;
+use magellan::common::{find_repo_root, magellan_dir};
 use magellan::output::generate_execution_id;
 use magellan::CodeGraph;
 use magellan::OutputFormat;
@@ -493,6 +494,85 @@ pub fn run_doctor(db_path: PathBuf, fix: bool, output_format: OutputFormat) -> R
                     issues_found += 1;
                 }
             }
+
+            // Check 14: FTS5 search index (after upgrade to 4.9.2 with FTS5 + call-graph BFS)
+            match Connection::open(&db_path) {
+                Ok(conn) => {
+                    // Check if FTS5 table exists
+                    let fts_exists: bool = conn
+                        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='symbol_fts'")?
+                        .query_map([], |row| row.get::<_, String>(0))?
+                        .next()
+                        .is_some();
+
+                    if !fts_exists {
+                        checks.push(CheckResult {
+                            name: "FTS5 search index".to_string(),
+                            status: "missing".to_string(),
+                            message: Some("symbol_fts table not found".to_string()),
+                            fix_hint: Some("Re-open database to trigger schema migration".to_string()),
+                        });
+                        issues_found += 1;
+                    } else {
+                        // Check if FTS5 index is empty (needs rebuild after 4.9.2 upgrade)
+                        let fts_count: i64 = conn
+                            .prepare("SELECT COUNT(*) FROM symbol_fts")?
+                            .query_row([], |row| row.get(0))
+                            .unwrap_or(0);
+
+                        let symbol_count: i64 = conn
+                            .prepare("SELECT COUNT(*) FROM graph_entities")?
+                            .query_row([], |row| row.get(0))
+                            .unwrap_or(0);
+
+                        if fts_count == 0 && symbol_count > 0 {
+                            checks.push(CheckResult {
+                                name: "FTS5 search index".to_string(),
+                                status: "stale".to_string(),
+                                message: Some(format!(
+                                    "FTS5 index empty ({} symbols not indexed)",
+                                    symbol_count
+                                )),
+                                fix_hint: Some("Run 'magellan doctor --fix' to rebuild FTS5 index".to_string()),
+                            });
+                            if fix {
+                                match conn.execute("INSERT INTO symbol_fts(symbol_fts) VALUES('rebuild')", []) {
+                                    Ok(_) => {
+                                        issues_fixed += 1;
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Warning: Failed to rebuild FTS5 index: {}", e);
+                                    }
+                                }
+                            }
+                            issues_found += 1;
+                        } else if fts_count > 0 {
+                            checks.push(CheckResult {
+                                name: "FTS5 search index".to_string(),
+                                status: "ok".to_string(),
+                                message: Some(format!("{} entries indexed", fts_count)),
+                                fix_hint: None,
+                            });
+                        } else {
+                            checks.push(CheckResult {
+                                name: "FTS5 search index".to_string(),
+                                status: "ok".to_string(),
+                                message: Some("No symbols to index (empty database)".to_string()),
+                                fix_hint: None,
+                            });
+                        }
+                    }
+                }
+                Err(e) => {
+                    checks.push(CheckResult {
+                        name: "FTS5 search index".to_string(),
+                        status: "error".to_string(),
+                        message: Some(e.to_string()),
+                        fix_hint: Some("Check database permissions".to_string()),
+                    });
+                    issues_found += 1;
+                }
+            }
         }
         Err(e) => {
             checks.push(CheckResult {
@@ -507,6 +587,56 @@ pub fn run_doctor(db_path: PathBuf, fix: bool, output_format: OutputFormat) -> R
             issues_found += 1;
         }
     }
+
+    // Check 15: Repo-root exports
+    if let Ok(current_dir) = std::env::current_dir() {
+        if let Some(root) = find_repo_root(&current_dir) {
+            let mag_dir = magellan_dir(&root);
+
+            let symbol_index = mag_dir.join("symbolindex.json");
+            if !symbol_index.exists() {
+                checks.push(CheckResult {
+                    name: "Repo-root symbol index".to_string(),
+                    status: "missing".to_string(),
+                    message: Some("Symbol index not found in .magellan/".to_string()),
+                    fix_hint: Some(format!(
+                        "Run: llmgrep export-symbols --db {:?}",
+                        db_path
+                    )),
+                });
+                issues_found += 1;
+            } else {
+                checks.push(CheckResult {
+                    name: "Repo-root symbol index".to_string(),
+                    status: "ok".to_string(),
+                    message: None,
+                    fix_hint: None,
+                });
+            }
+
+            let export_json = mag_dir.join("export.json");
+            if !export_json.exists() {
+                checks.push(CheckResult {
+                    name: "Repo-root export".to_string(),
+                    status: "missing".to_string(),
+                    message: Some("Export not found in .magellan/".to_string()),
+                    fix_hint: Some(format!(
+                        "Run: magellan export --db {:?} --format json",
+                        db_path
+                    )),
+                });
+                issues_found += 1;
+            } else {
+                checks.push(CheckResult {
+                    name: "Repo-root export".to_string(),
+                    status: "ok".to_string(),
+                    message: None,
+                    fix_hint: None,
+                });
+            }
+        }
+    }
+
 
     let report = DoctorReport {
         status: if issues_found == 0 {
@@ -566,6 +696,10 @@ pub fn run_doctor(db_path: PathBuf, fix: bool, output_format: OutputFormat) -> R
                 );
                 println!(
                     "  - Build context:    magellan context build --db {:?}",
+                    db_path
+                );
+                println!(
+                    "  - Rebuild FTS5:     magellan doctor --db {:?} --fix",
                     db_path
                 );
                 println!("  - Check status:     magellan status --db {:?}", db_path);

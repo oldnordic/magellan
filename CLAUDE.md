@@ -46,6 +46,74 @@ cargo clippy --all-targets --all-features # lint
 
 ---
 
+## Agent Coordination Infrastructure
+
+**Envoy + Atheneum:** Session-scoped agent coordination and knowledge persistence.
+
+### Envoy (HTTP Bridge)
+
+**Purpose:** Live agent coordination, messages, handoffs, sessions, task state.
+
+**Health check:**
+```bash
+curl -sf http://127.0.0.1:9876/health
+# Returns: {"status":"ok","uptime_seconds":N,"agents_online":N}
+```
+
+**Agent registration (per-session):**
+```bash
+# Session starts, names are fresh - no collision handling needed
+curl -sf -X POST http://127.0.0.1:9876/agents \
+  -H "content-type: application/json" \
+  -d '{"name":"claude","kind":"main"}'
+
+# Check messages for this agent
+curl -sf "http://127.0.0.1:9876/messages?to=claude&since=0&limit=10" \
+  -H "X-Agent-Id: claude"
+```
+
+**Why it matters:**
+- Messages route by agent ID: `GET /messages?to=$GROUNDED_AGENT_ID`
+- Session tracking: `GET /sessions?agent=claude`
+- Handoff continuity: identify who passed work
+
+### Atheneum (Knowledge Persistence)
+
+**Purpose:** Store discoveries, decisions, and architectural context for future agents.
+
+**Store architectural decisions:**
+```bash
+# Create discovery JSON
+cat > /tmp/discovery.json << 'EOF'
+{
+  "summary": "RUSTC_WRAPPER pattern required for MIR CFG extraction",
+  "evidence": "Per-file compilation fails on dependencies",
+  "approach": "Create magellan-mir-extract binary as RUSTC_WRAPPER",
+  "why": "File-at-a-time is wrong primitive, need compiler integration",
+  "files": ["src/graph/mir_frontend/mod.rs"]
+}
+EOF
+
+# Store discovery
+atheneum store-discovery ~/.magellan/magellan/magellan.db claude "Decision" "mir_frontend" /tmp/discovery.json
+```
+
+**Query knowledge later:**
+```bash
+# Future agents can retrieve context
+atheneum query-knowledge ~/.magellan/magellan/magellan.db "mir_frontend"
+```
+
+**When to use:**
+- Architectural decisions (why X failed, why Y approach chosen)
+- Bug patterns and solutions
+- Operational fixes (upgrade procedures, schema changes)
+- Performance insights and optimizations
+
+**Session scope:** Agent names reset every session. No persistent identity across Claude restarts. Each session is a fresh agent population.
+
+---
+
 ## Architecture
 
 ```

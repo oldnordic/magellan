@@ -35,7 +35,7 @@ pub mod query;
 
 pub use build::{build_context_index, get_or_build_context_index, ContextIndex};
 pub use query::{
-    affected_analysis, get_file_context, get_project_summary, get_symbol_detail,
-    get_symbol_detail_recursive, impact_analysis, list_symbols, FileContext, ListQuery,
+    affected_analysis, compute_blast_score, get_file_context, get_project_summary, get_symbol_detail,
+    get_symbol_detail_recursive, impact_analysis, list_symbols, BlastScore, FileContext, ListQuery,
     PaginatedResult, ProjectSummary, SymbolCounts, SymbolDetail, SymbolListItem, SymbolRelation,
 };

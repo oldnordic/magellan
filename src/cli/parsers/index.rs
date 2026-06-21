@@ -253,6 +253,9 @@ pub fn parse_export_args(args: &[String]) -> Result<Command> {
     let mut include_collisions = false;
     let mut collisions_field = CollisionField::Fqn;
     let mut filters = ExportFilters::default();
+    let mut impact_symbol = None;
+    let mut impact_file = None;
+    let mut impact_depth = 10;
 
     let mut i = 0;
     while i < args.len() {
@@ -275,6 +278,7 @@ pub fn parse_export_args(args: &[String]) -> Result<Command> {
                     "scip" => ExportFormat::Scip,
                     "dot" => ExportFormat::Dot,
                     "lsif" => ExportFormat::Lsif,
+                    "impact" => ExportFormat::Impact,
                     _ => return Err(anyhow::anyhow!("Invalid format: {}", args[i + 1])),
                 };
                 i += 2;
@@ -336,6 +340,29 @@ pub fn parse_export_args(args: &[String]) -> Result<Command> {
                 filters.cluster = true;
                 i += 1;
             }
+            "--symbol" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--symbol requires an argument"));
+                }
+                impact_symbol = Some(args[i + 1].clone());
+                i += 2;
+            }
+            "--impact-file" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--impact-file requires an argument"));
+                }
+                impact_file = Some(args[i + 1].clone());
+                i += 2;
+            }
+            "--depth" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--depth requires an argument"));
+                }
+                impact_depth = args[i + 1].parse().map_err(|_| {
+                    anyhow::anyhow!("--depth must be a number")
+                })?;
+                i += 2;
+            }
             _ => {
                 return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
             }
@@ -355,6 +382,9 @@ pub fn parse_export_args(args: &[String]) -> Result<Command> {
         include_collisions,
         collisions_field,
         filters,
+        impact_symbol,
+        impact_file,
+        impact_depth,
     })
 }
 
@@ -432,6 +462,72 @@ pub fn parse_ingest_coverage_args(args: &[String]) -> Result<Command> {
     let lcov_path = lcov_path.ok_or_else(|| anyhow::anyhow!("--lcov is required"))?;
 
     Ok(Command::IngestCoverage { db_path, lcov_path })
+}
+
+/// Parse the `blast-score` command arguments
+pub fn parse_blast_score_args(args: &[String]) -> Result<Command> {
+    let mut db_path: Option<PathBuf> = None;
+    let mut symbol: Option<String> = None;
+    let mut file: Option<String> = None;
+    let mut depth: usize = 3;
+    let mut output_format = OutputFormat::Human;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--db" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--db requires an argument"));
+                }
+                db_path = Some(PathBuf::from(&args[i + 1]));
+                i += 2;
+            }
+            "--symbol" | "--name" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--symbol requires an argument"));
+                }
+                symbol = Some(args[i + 1].clone());
+                i += 2;
+            }
+            "--file" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--file requires an argument"));
+                }
+                file = Some(args[i + 1].clone());
+                i += 2;
+            }
+            "--depth" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--depth requires an argument"));
+                }
+                depth = args[i + 1]
+                    .parse()
+                    .map_err(|_| anyhow::anyhow!("--depth must be a positive integer"))?;
+                i += 2;
+            }
+            "--output" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--output requires an argument"));
+                }
+                output_format = parse_output_format(&args[i + 1])?;
+                i += 2;
+            }
+            _ => {
+                return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
+            }
+        }
+    }
+
+    let db_path = resolve_db_path(db_path)?;
+    let symbol = symbol.ok_or_else(|| anyhow::anyhow!("--symbol is required"))?;
+
+    Ok(Command::BlastScore {
+        db_path,
+        symbol,
+        file,
+        depth,
+        output_format,
+    })
 }
 
 /// Parse the `enrich` command arguments

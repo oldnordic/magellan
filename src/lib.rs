@@ -78,8 +78,8 @@ pub mod watcher;
 
 pub use common::{
     detect_language_from_path, detect_project_root, extract_context_safe,
-    extract_symbol_content_safe, format_symbol_kind, normalize_repo_relative_path,
-    parse_symbol_kind, resolve_path,
+    extract_symbol_content_safe, find_repo_root, format_symbol_kind, magellan_dir,
+    normalize_repo_relative_path, parse_symbol_kind, resolve_path,
 };
 pub use diagnostics::{DiagnosticStage, SkipReason, WatchDiagnostic};
 pub use framework::{FrameworkSymbol, MagellanFramework, ProjectHandle};
