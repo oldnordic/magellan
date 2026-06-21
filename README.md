@@ -45,6 +45,9 @@ Use `.db` files for normal operation.
 - Candidate facts: structured knowledge triples linked to source documents
 - JSON, pretty JSON, human output, and graph exports
 - LSIF import/export and SCIP export
+- Impact export: blast radius analysis for single symbols
+- Repo-root export convention: automatic `.magellan/` directory exports
+- Pre-commit hooks: git hooks for blast score validation
 - `doctor` checks for schema and database health
 
 ## Install
@@ -192,7 +195,16 @@ magellan slice --db code.db --target <SYMBOL_ID> --direction backward
 
 magellan export --db code.db --format json --output graph.json
 magellan export --db code.db --format scip --output graph.scip
+magellan export --db code.db --format impact --symbol "function_name" --output impact.json
 magellan import-lsif --db code.db path/to/index.lsif
+
+# Blast score single-symbol impact analysis
+magellan blast-score --db code.db --symbol "handle_request" --file src/request.rs
+magellan blast-score --db code.db --symbol "parse_args" --depth 5 --output json
+
+# Install pre-commit hooks for blast score checking
+magellan install-hook --db code.db --threshold 10.0
+magellan install-hook --db code.db --threshold 10.0 --strict
 
 magellan source-inventory --db code.db --scan ./wiki markdown
 magellan source-inventory --db code.db --kind wiki

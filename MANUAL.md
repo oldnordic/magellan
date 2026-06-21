@@ -1002,6 +1002,7 @@ Coverage is stored in side tables:
 ## Import And Export
 
 ```bash
+# Standard export formats
 magellan export --db code.db --format json
 magellan export --db code.db --format jsonl
 magellan export --db code.db --format csv
@@ -1009,8 +1010,22 @@ magellan export --db code.db --format scip --output graph.scip
 magellan export --db code.db --format dot --output graph.dot
 magellan export --db code.db --format lsif --output graph.lsif
 
+# Impact export (requires --symbol parameter)
+magellan export --db code.db --format impact --symbol "function_name" [--output impact.json]
+
+# Import external indexes
 magellan import-lsif --db code.db path/to/index.lsif
 ```
+
+**Repo-root export convention:** When no `--output` is specified and magellan is run from within a git repository, exports automatically write to the `.magellan/` directory in the repository root:
+
+| Format | Output file |
+|--------|-------------|
+| `json` | `.magellan/export.json` |
+| `jsonl` | `.magellan/export.jsonl` |
+| `impact` | `.magellan/impact.json` |
+
+When not in a git repository, exports fall back to stdout.
 
 Export filters:
 
@@ -1022,6 +1037,61 @@ Export filters:
 --collisions-field <fqn|display_fqn|canonical_fqn>
 --minify
 ```
+
+## Blast Score — Single-Symbol Impact Analysis
+
+Compute blast radius for a single symbol using codeindex-style scoring (direct + 0.5×transitive connections).
+
+```bash
+magellan blast-score --db code.db --symbol "function_name" [--file path/to/file.rs] [--depth 10]
+```
+
+**Output format:** Single-line text classification:
+```
+Blast Score: 8.5 (2 direct · 7 transitive) [HIGH]
+```
+
+**Classification thresholds:**
+- `LOW`: score < 5
+- `MEDIUM`: score ≥ 5 and ≤ 10  
+- `HIGH`: score > 10
+
+**Options:**
+| Flag | Description |
+|------|-------------|
+| `--symbol <name>` | Target symbol name (required) |
+| `--file <path>` | Disambiguate symbols by file path (optional) |
+| `--depth <N>` | BFS traversal depth (default: 10) |
+| `--output <format>` | Output format: human, json, pretty |
+
+## Pre-commit Hooks — Blast Score Checking
+
+Install git pre-commit hooks that automatically check blast scores for changed symbols before commits.
+
+```bash
+# Install hook with default threshold (10.0)
+magellan install-hook --db code.db --threshold 10.0
+
+# Install with strict mode (block commits exceeding threshold)
+magellan install-hook --db code.db --threshold 10.0 --strict
+```
+
+**Hook behavior:**
+- Runs on every `git commit`
+- Extracts symbols from staged files
+- Computes blast scores for changed symbols
+- Warns or blocks commits based on configuration
+- Requires magellan to be installed and available in PATH
+
+**Options:**
+| Flag | Description |
+|------|-------------|
+| `--threshold <N>` | Blast score threshold (default: 10.0) |
+| `--strict` | Block commits exceeding threshold (default: warn only) |
+
+The hook script is installed at `.git/hooks/pre-commit` in the repository root.
+
+## Context And Enrichment
 
 ## Context And Enrichment
 
