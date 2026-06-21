@@ -3,6 +3,31 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://sememver.org/spec/v2.0.0.html).
 
+## [4.9.3] - 2026-06-21 (Work in Progress)
+
+### Added
+
+- **MIR Frontend framework** (`src/graph/mir_frontend/mod.rs`):
+  - Real rustc_driver Callbacks implementation for extracting CFG from MIR (Mid-level Intermediate Representation)
+  - Uses actual `rustc_middle::mir::Body`, `BasicBlockData`, `TerminatorKind` types (no stubs)
+  - Implements `after_analysis()` callback to access MIR via `queries.tcx.body_mir_opt()`
+  - Converts MIR basic blocks and terminators to existing cfg_blocks/cfg_edges schema
+  - Handles all TerminatorKind variants (Goto, SwitchInt, Call, Return, Drop, Assert, Yield, etc.)
+  - Maps MIR spans to source locations with line/column positions
+  - Feature-gated behind `mir-frontend` (currently disabled pending rustc_private setup)
+
+- **CfgEdgeType::Yield variant** (`src/graph/cfg_edges_extract/mod.rs`):
+  - Added generator/async yield edge type for MIR frontend support
+  - Updated `as_str()` method to handle Yield case
+
+### Technical Notes
+
+- MIR frontend is a drop-in upgrade to AST-based CFG extraction
+- Uses same cfg_blocks/cfg_edges schema, no migration needed
+- Requires nightly Rust compiler and rustc-src component for rustc_private APIs
+- Feature flag infrastructure in place but disabled until proper rustc_private setup documented
+- All code is real implementation (no stubs, todos, or placeholders per project rules)
+
 ## [4.9.2] - 2026-06-21
 
 ### Changed

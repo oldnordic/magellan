@@ -64,6 +64,9 @@ debug-prints = []
 
 llvm-cfg = ["dep:llvm-sys"]
 
+# MIR frontend for Rust CFG extraction (uses rustc as subprocess)
+mir-frontend = []
+
 # Platform support
 # Windows: opt-in feature for Windows builds (analysis-only, reduced functionality)
 windows = []
@@ -116,6 +119,7 @@ rayon = "1.11"
 parking_lot = "0.12"
 tempfile = "3.10"
 ureq = { version = "3", features = ["json"] }
+regex = "1.10"
 
 # External tools CFG extraction (C/C++ via clang/LLVM IR text, Java via javac/bytecode)
 # Uses external tools (clang, javac) and parses their output files directly
@@ -126,6 +130,8 @@ ureq = { version = "3", features = ["json"] }
 
 # LLVM IR CFG analysis for C/C++
 llvm-sys = { version = "170", optional = true }
+
+# MIR frontend uses rustc as subprocess (no library dependencies needed)
 
 # Async runtime for watcher (Phase 1)
 tracing = "0.1"

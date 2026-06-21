@@ -137,6 +137,7 @@ pub enum Command {
         scan_initial: bool,
         validate: bool,
         validate_only: bool,
+        frontend: Option<String>,
         output_format: OutputFormat,
     },
     Export {
@@ -197,6 +198,15 @@ pub enum Command {
         db_path: PathBuf,
         files: Option<Vec<PathBuf>>,
         timeout_secs: u64,
+    },
+    Score {
+        db: PathBuf,
+        top: Option<usize>,
+        min_score: Option<f64>,
+        min_churn: Option<i64>,
+        min_complexity: Option<i64>,
+        min_lifetime: Option<i64>,
+        output: Option<OutputFormat>,
     },
     Context {
         subcommand: ContextSubcommand,

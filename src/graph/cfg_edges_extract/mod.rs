@@ -124,6 +124,8 @@ pub enum CfgEdgeType {
     Call,
     /// Return from function
     Return,
+    /// Generator yield (async/await)
+    Yield,
 }
 
 impl CfgEdgeType {
@@ -136,6 +138,7 @@ impl CfgEdgeType {
             CfgEdgeType::BackEdge => "back_edge",
             CfgEdgeType::Call => "call",
             CfgEdgeType::Return => "return",
+            CfgEdgeType::Yield => "yield",
         }
     }
 }

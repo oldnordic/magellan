@@ -1394,6 +1394,7 @@ dependencies = [
  "petgraph",
  "protobuf",
  "rayon",
+ "regex",
  "rusqlite",
  "scip",
  "serde",

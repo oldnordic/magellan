@@ -24,6 +24,9 @@ pub mod backend;
 pub mod candidate_fact;
 pub mod ontology;
 pub mod source_inventory;
+
+#[cfg(feature = "mir-frontend")]
+pub mod mir_frontend;
 // pub mod memory_graph;
 
 // Re-export MemoryGraph types for public API
@@ -60,6 +63,7 @@ mod ops;
 pub mod query;
 mod references;
 pub mod scan;
+pub mod scorer;
 pub mod schema;
 pub mod search;
 pub mod side_tables;
@@ -239,6 +243,9 @@ pub struct CodeGraph {
     /// pooled connection deadlock with the flush cycle.
     pub(crate) batch_mode: bool,
 
+    /// CFG frontend selection ("ast" or "mir")
+    pub(crate) frontend: Option<String>,
+
     embeddings_enabled: bool,
     embedder: Box<dyn crate::graph::embed::TextEmbedder>,
 
@@ -250,6 +257,11 @@ impl CodeGraph {
     /// Get the database file path
     pub fn db_path(&self) -> &Path {
         &self.db_path
+    }
+
+    /// Set the CFG frontend selection
+    pub fn set_frontend(&mut self, frontend: Option<String>) {
+        self.frontend = frontend;
     }
 
     pub(crate) fn side_connection(&self) -> &Arc<parking_lot::Mutex<rusqlite::Connection>> {
@@ -688,6 +700,7 @@ impl CodeGraph {
             side_tables,
             side_conn,
             batch_mode: true,
+            frontend: None,
             embeddings_enabled: false,
             embedder: crate::graph::embed::create_embedder(
                 &crate::config::EmbedProvider::Hash,

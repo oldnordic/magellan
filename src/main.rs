@@ -49,6 +49,7 @@ mod service_cmd;
 mod slice_cmd;
 mod source_inventory_cmd;
 mod status_cmd;
+mod score_cmd;
 mod telemetry_cmd;
 mod temporal_query_cmd;
 mod temporal_sweep_cmd;
@@ -154,6 +155,22 @@ fn main() -> ExitCode {
             output_format,
         }) => {
             if let Err(e) = catalog_cmd::run_catalog_describe(&name, output_format) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::Score {
+            db,
+            top,
+            min_score,
+            min_churn,
+            min_complexity,
+            min_lifetime,
+            output,
+        }) => {
+            let output = output.unwrap_or(magellan::OutputFormat::Human);
+            if let Err(e) = score_cmd::run_score(&db, top, min_score, min_churn, min_complexity, min_lifetime, output) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
@@ -839,6 +856,7 @@ fn main() -> ExitCode {
             scan_initial,
             validate,
             validate_only,
+            frontend,
             output_format,
         }) => {
             if let Err(e) = watch_cmd::run_watch(
@@ -848,6 +866,7 @@ fn main() -> ExitCode {
                 scan_initial,
                 validate,
                 validate_only,
+                frontend,
                 output_format,
             ) {
                 eprintln!("Error: {}", e);

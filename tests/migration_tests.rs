@@ -1,5 +1,6 @@
 //! Database migration and schema version tests
 
+use magellan::migrate_cmd::MAGELLAN_SCHEMA_VERSION;
 use tempfile::TempDir;
 
 #[test]
@@ -20,7 +21,7 @@ fn test_new_database_has_v18_schema() {
         )
         .unwrap();
 
-    assert_eq!(version, 18, "New databases should have schema version 18");
+    assert_eq!(version, MAGELLAN_SCHEMA_VERSION, "New databases should have current schema version");
 
     // Verify ast_nodes table exists
     let has_ast_table: bool = conn
@@ -228,7 +229,7 @@ fn test_fresh_database_creation_v18() {
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(version, 18);
+    assert_eq!(version, MAGELLAN_SCHEMA_VERSION);
 
     // Check temporal tables exist and are empty
     for table in [
@@ -295,7 +296,7 @@ fn test_migration_v4_to_v18_creates_required_tables() {
     let result = magellan::migrate_cmd::run_migrate(db_path.clone(), false, true).unwrap();
     assert!(result.success);
     assert_eq!(result.old_version, 4);
-    assert_eq!(result.new_version, 18);
+    assert_eq!(result.new_version, MAGELLAN_SCHEMA_VERSION);
 
     // Verify ast_nodes table exists
     let conn = rusqlite::Connection::open(&db_path).unwrap();
@@ -439,7 +440,7 @@ fn test_migration_v4_to_v18_creates_required_tables() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(version, 18, "schema version should be 18 after migration");
+    assert_eq!(version, MAGELLAN_SCHEMA_VERSION, "schema version should be current after migration");
 }
 
 /// Test that opening a v4 database auto-upgrades to v18
@@ -485,8 +486,8 @@ fn test_opening_v4_database_auto_upgrades_to_v18() {
         .unwrap();
 
     assert_eq!(
-        version, 18,
-        "Opening v4 database should auto-upgrade to v18"
+        version, MAGELLAN_SCHEMA_VERSION,
+        "Opening v4 database should auto-upgrade to current schema version"
     );
 
     // Verify ast_nodes table exists

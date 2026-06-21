@@ -28,7 +28,8 @@ use std::path::{Path, PathBuf};
 /// v16: cfg_blocks.cfg_condition column for feature-gated blocks
 /// v17: telemetry_events table for performance telemetry
 /// v18: repository snapshot tables for temporal tracking
-pub const MAGELLAN_SCHEMA_VERSION: i64 = 18;
+/// v19: symbol scoring tables for candidate ranking
+pub const MAGELLAN_SCHEMA_VERSION: i64 = 19;
 
 /// Migration result summary
 #[derive(Debug, Clone)]

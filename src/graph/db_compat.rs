@@ -144,6 +144,10 @@ pub fn ensure_magellan_meta(
                             ensure_temporal_schema(conn)?;
                             current_version = 18;
                         }
+                        18 => {
+                            ensure_scorer_schema(conn)?;
+                            current_version = 19;
+                        }
                         _ => {
                             return Err(DbCompatError::MagellanSchemaMismatch {
                                 path: db_path.to_path_buf(),
@@ -868,6 +872,72 @@ fn map_sqlite_query_err(path: &Path, _e: rusqlite::Error) -> DbCompatError {
     DbCompatError::PreflightSqliteFailure {
         path: path.to_path_buf(),
     }
+}
+
+pub fn ensure_scorer_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS symbol_scores (
+            symbol_id INTEGER PRIMARY KEY,
+            snapshot_id INTEGER NOT NULL,
+            stable_id TEXT NOT NULL,
+            score REAL NOT NULL,
+            rank INTEGER,
+            feature_loc INTEGER NOT NULL DEFAULT 0,
+            feature_fan_in INTEGER NOT NULL DEFAULT 0,
+            feature_fan_out INTEGER NOT NULL DEFAULT 0,
+            feature_complexity INTEGER NOT NULL DEFAULT 0,
+            feature_cfg_block_count INTEGER NOT NULL DEFAULT 0,
+            feature_cfg_edge_count INTEGER NOT NULL DEFAULT 0,
+            feature_conditional_density REAL NOT NULL DEFAULT 0.0,
+            feature_lifetime INTEGER NOT NULL DEFAULT 0,
+            feature_churn_count INTEGER NOT NULL DEFAULT 0,
+            scorer_version TEXT NOT NULL,
+            scored_at INTEGER NOT NULL,
+            FOREIGN KEY (symbol_id) REFERENCES graph_entities(id) ON DELETE CASCADE,
+            FOREIGN KEY (snapshot_id) REFERENCES repo_snapshots(id) ON DELETE CASCADE
+        )",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_symbol_scores_score ON symbol_scores(score DESC)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_symbol_scores_stable ON symbol_scores(stable_id)",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS scorer_features (
+            name TEXT PRIMARY KEY,
+            weight REAL NOT NULL,
+            enabled INTEGER NOT NULL,
+            description TEXT
+        )",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS scorer_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            scorer_version TEXT NOT NULL,
+            started_at INTEGER NOT NULL,
+            completed_at INTEGER,
+            symbols_scored INTEGER NOT NULL,
+            feature_count INTEGER NOT NULL,
+            metadata TEXT
+        )",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    Ok(())
 }
 
 #[cfg(test)]

@@ -52,6 +52,8 @@ pub struct WatchPipelineConfig {
     pub watcher_config: WatcherConfig,
     /// Whether to run initial baseline scan
     pub scan_initial: bool,
+    /// CFG frontend selection ("ast" or "mir")
+    pub frontend: Option<String>,
     /// Include glob patterns (from .magellan.toml or CLI). Empty = include all.
     pub include_patterns: Vec<String>,
     /// Exclude glob patterns
@@ -71,9 +73,16 @@ impl WatchPipelineConfig {
             db_path,
             watcher_config,
             scan_initial,
+            frontend: None,
             include_patterns: Vec::new(),
             exclude_patterns: Vec::new(),
         }
+    }
+
+    /// Set the CFG frontend.
+    pub fn with_frontend(mut self, frontend: Option<String>) -> Self {
+        self.frontend = frontend;
+        self
     }
 }
 
@@ -278,6 +287,9 @@ pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>
 
     // Open graph
     let mut graph = CodeGraph::open(&config.db_path)?;
+
+    // Set CFG frontend preference from watch configuration
+    graph.set_frontend(config.frontend.clone());
 
     // Parse Cargo.toml and store manifest metadata in magellan_meta
     if let Ok(manifest) = crate::manifest::CargoManifest::parse(&scan_root) {

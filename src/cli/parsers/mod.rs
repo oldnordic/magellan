@@ -4,6 +4,7 @@
 //! continues to work without qualification.
 
 pub mod catalog;
+pub mod score;
 pub mod config_project;
 pub mod core;
 pub mod graph;
@@ -15,6 +16,7 @@ pub mod system;
 // Re-export all public items from each submodule so callers can use
 // `use crate::cli::parsers::*` and get everything.
 pub use catalog::*;
+pub use score::*;
 pub use config_project::*;
 pub use core::*;
 pub use graph::*;

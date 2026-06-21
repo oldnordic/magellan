@@ -406,15 +406,40 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
                     .iter()
                     .find(|(_, _, start, end)| func_start >= *start && func_end <= *end)
                 {
-                    let _ = graph
-                        .cfg_ops
-                        .index_cfg_from_node(&func_node, source, *entity_id);
+                    // Use MIR frontend if requested, otherwise use AST frontend
+                    if graph.frontend.as_deref() == Some("mir") {
+                        #[cfg(feature = "mir-frontend")]
+                        {
+                            // MIR CFG extraction will be handled after this loop
+                            // for all functions at once to avoid repeated compilation
+                        }
+                        #[cfg(not(feature = "mir-frontend"))]
+                        {
+                            eprintln!("Warning: MIR frontend requested but mir-frontend feature is not enabled. Falling back to AST frontend.");
+                            let _ = graph.cfg_ops.index_cfg_from_node(&func_node, source, *entity_id);
+                        }
+                    } else {
+                        let _ = graph.cfg_ops.index_cfg_from_node(&func_node, source, *entity_id);
+                    }
+                }
+                }
+            }
+
+            // If MIR frontend is requested, extract CFG for all functions at once
+            if graph.frontend.as_deref() == Some("mir") {
+                #[cfg(feature = "mir-frontend")]
+                {
+                    let source_str = std::str::from_utf8(source).unwrap_or("");
+                    let _ = graph.cfg_ops.index_cfg_from_mir(source_str, &function_symbol_ids);
+                }
+                #[cfg(not(feature = "mir-frontend"))]
+                {
+                    // Warning already emitted above
                 }
             }
         }
 
         // CFG extraction failure doesn't block indexing
-    }
 
     // Step 6: Index calls (all supported languages)
     // Use pre-parsed tree to avoid redundant parsing

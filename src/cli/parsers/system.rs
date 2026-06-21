@@ -113,6 +113,7 @@ where
         "condense" => parse_condense_args(&args[2..]),
         "init" => parse_project_init_args(&args[2..]),
         "paths" => parse_paths_args(&args[2..]),
+        "score" => parse_score_args(&args[2..]),
         "slice" => parse_slice_args(&args[2..]),
         "source-inventory" => parse_source_inventory_args(&args[2..]),
         "service" => {

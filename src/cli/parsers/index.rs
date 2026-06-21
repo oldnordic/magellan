@@ -138,6 +138,7 @@ pub fn parse_watch_args(args: &[String]) -> Result<Command> {
     let mut gitignore_aware = true;
     let mut validate = false;
     let mut validate_only = false;
+    let mut frontend: Option<String> = None;
     let mut output_format = OutputFormat::Human;
 
     let mut i = 0;
@@ -188,6 +189,20 @@ pub fn parse_watch_args(args: &[String]) -> Result<Command> {
                 validate_only = true;
                 i += 1;
             }
+            "--frontend" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--frontend requires an argument"));
+                }
+                let value = &args[i + 1];
+                if value != "ast" && value != "mir" {
+                    return Err(anyhow::anyhow!(
+                        "Invalid frontend: {}. Must be 'ast' or 'mir'",
+                        value
+                    ));
+                }
+                frontend = Some(value.clone());
+                i += 2;
+            }
             "--output" => {
                 if i + 1 >= args.len() {
                     return Err(anyhow::anyhow!("--output requires an argument"));
@@ -237,6 +252,7 @@ pub fn parse_watch_args(args: &[String]) -> Result<Command> {
         scan_initial,
         validate,
         validate_only,
+        frontend,
         output_format,
     })
 }
