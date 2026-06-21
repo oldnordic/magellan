@@ -1,9 +1,11 @@
 # Changelog
 
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
-Project adheres to [Semantic Versioning](https://sememver.org/spec/v2.0.0.html).
+Project adheres to [Semantic Versioning](https://semverver.org/spec/v2.0.0.html).
 
-## [4.9.5] - 2026-06-21
+## [Unreleased]
+
+## [4.10.0] - 2026-06-22
 
 ### Changed
 
