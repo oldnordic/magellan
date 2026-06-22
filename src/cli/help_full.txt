@@ -5,7 +5,7 @@ Usage:
   magellan --help
   magellan --backends    Show available storage backends and features
 
-  magellan watch --root <DIR> --db <FILE> [--debounce-ms <N>] [--scan-initial] [--watch-only] [--validate] [--validate-only]
+  magellan watch --root <DIR> --db <FILE> [--debounce-ms <N>] [--scan-initial] [--watch-only] [--validate] [--validate-only] [--compile-commands <FILE>]
   magellan export --db <FILE> [--format json|jsonl|csv|scip|dot|lsif|impact] [--output <PATH>] [--minify] [--cluster] [--symbol <NAME>] [--impact-file <PATH>] [--depth <N>]
   magellan backfill --db <FILE>
   magellan index --db <FILE> --file <PATH> [--root <DIR>]
@@ -113,6 +113,7 @@ Watch arguments:
   --no-gitignore      Disable .gitignore filtering (index all files)
   --validate          Enable pre-run and post-run validation checks
   --validate-only     Run validation without indexing (pre + post validation, no watch)
+  --compile-commands <FILE> Path to compile_commands.json for C/C++ compilation flags
 
 Export arguments:
   --db <FILE>         Path to sqlitegraph database

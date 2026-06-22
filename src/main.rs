@@ -879,7 +879,7 @@ fn main() -> ExitCode {
             scan_initial,
             validate,
             validate_only,
-            output_format,
+            compile_commands,
         }) => {
             if let Err(e) = watch_cmd::run_watch(
                 root_path,
@@ -888,7 +888,7 @@ fn main() -> ExitCode {
                 scan_initial,
                 validate,
                 validate_only,
-                output_format,
+                compile_commands,
             ) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);

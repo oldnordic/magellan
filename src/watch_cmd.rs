@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use crate::{generate_execution_id, OutputFormat};
+use crate::generate_execution_id;
 
 use magellan::backend_router::MagellanBackend;
 use magellan::graph::validation;
@@ -58,7 +58,7 @@ pub fn run_watch(
     scan_initial: bool,
     validate: bool,
     validate_only: bool,
-    _output_format: OutputFormat,
+    compile_commands: Option<std::path::PathBuf>,
 ) -> Result<()> {
     // Build args for execution tracking
     let mut args = vec![
@@ -170,8 +170,9 @@ pub fn run_watch(
     let _ = magellan::ingest::pool::warmup_parsers();
 
     // Create pipeline configuration
-    let pipeline_config =
+    let mut pipeline_config =
         WatchPipelineConfig::new(root_path, db_path.clone(), config, scan_initial);
+    pipeline_config.compile_commands_path = compile_commands;
 
     // Run the deterministic watch pipeline
     let result = magellan::run_watch_pipeline(pipeline_config, shutdown);

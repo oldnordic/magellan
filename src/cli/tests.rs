@@ -32,7 +32,7 @@ fn test_parse_watch_command() {
         scan_initial: true,
         validate: false,
         validate_only: false,
-        output_format: OutputFormat::Human,
+        compile_commands: None,
     };
 
     // Verify we can construct the command

@@ -138,7 +138,7 @@ pub fn parse_watch_args(args: &[String]) -> Result<Command> {
     let mut gitignore_aware = true;
     let mut validate = false;
     let mut validate_only = false;
-    let mut output_format = OutputFormat::Human;
+    let mut compile_commands: Option<PathBuf> = None;
 
     let mut i = 0;
     while i < args.len() {
@@ -188,21 +188,12 @@ pub fn parse_watch_args(args: &[String]) -> Result<Command> {
                 validate_only = true;
                 i += 1;
             }
-            "--output" => {
+
+            "--compile-commands" => {
                 if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--output requires an argument"));
+                    return Err(anyhow::anyhow!("--compile-commands requires an argument"));
                 }
-                output_format = match args[i + 1].as_str() {
-                    "human" => OutputFormat::Human,
-                    "json" => OutputFormat::Json,
-                    "pretty" => OutputFormat::Pretty,
-                    _ => {
-                        return Err(anyhow::anyhow!(
-                            "Invalid output format: {}. Must be human, json, or pretty",
-                            args[i + 1]
-                        ))
-                    }
-                };
+                compile_commands = Some(PathBuf::from(&args[i + 1]));
                 i += 2;
             }
             _ => {
@@ -237,7 +228,7 @@ pub fn parse_watch_args(args: &[String]) -> Result<Command> {
         scan_initial,
         validate,
         validate_only,
-        output_format,
+        compile_commands,
     })
 }
 

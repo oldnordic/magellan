@@ -86,6 +86,7 @@ Useful flags:
 | `--validate-only` | Validate without indexing |
 | `--gitignore-aware` | Honor ignore rules |
 | `--no-gitignore` | Disable ignore filtering |
+| `--compile-commands <FILE>` | Path to compile_commands.json for C/C++ compilation flags |
 
 ### Index One File
 
@@ -1127,7 +1128,8 @@ tree-sitter when javac is absent.
 
 **compile_commands.json:** C/C++ projects that require project-specific compiler
 flags (defines, include paths, `-std=` flags) can expose those flags via the
-`CodeGraph::set_compile_commands` API. Flags from the JSON file are forwarded
+`--compile-commands <FILE>` CLI flag on the `watch` command, or programmatically via
+the `CodeGraph::set_compile_commands` API. Flags from the JSON file are forwarded
 to clang when emitting LLVM IR, enabling accurate indexing of large projects
 such as the Linux kernel or LLVM itself.
 

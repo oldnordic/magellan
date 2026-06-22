@@ -136,7 +136,7 @@ pub enum Command {
         scan_initial: bool,
         validate: bool,
         validate_only: bool,
-        output_format: OutputFormat,
+        compile_commands: Option<PathBuf>,
     },
     Export {
         db_path: PathBuf,

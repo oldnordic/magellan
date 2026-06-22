@@ -237,8 +237,8 @@ files and extracts CFG from bytecode.
 
 **compile_commands.json:** For projects with non-trivial build flags (defines,
 include paths, language standards), load a `compile_commands.json` via the
-`CodeGraph::set_compile_commands` API. Per-file flags are forwarded to clang
-during CFG extraction.
+`--compile-commands` CLI flag or the `CodeGraph::set_compile_commands` API. Per-file
+flags are forwarded to clang during CFG extraction.
 
 Neither clang nor javac is required. When absent, CFG extraction degrades
 gracefully to tree-sitter-based approximations.

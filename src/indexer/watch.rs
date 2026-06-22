@@ -33,6 +33,8 @@ pub struct WatchPipelineConfig {
     pub include_patterns: Vec<String>,
     /// Exclude glob patterns
     pub exclude_patterns: Vec<String>,
+    /// Optional path to compile_commands.json for per-file compiler flags
+    pub compile_commands_path: Option<PathBuf>,
 }
 
 impl WatchPipelineConfig {
@@ -50,6 +52,7 @@ impl WatchPipelineConfig {
             scan_initial,
             include_patterns: Vec::new(),
             exclude_patterns: Vec::new(),
+            compile_commands_path: None,
         }
     }
 }
@@ -255,6 +258,11 @@ pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>
 
     // Open graph
     let mut graph = CodeGraph::open(&config.db_path)?;
+
+    // Load per-file compiler flags if compile_commands.json was provided
+    if let Some(ref cc_path) = config.compile_commands_path {
+        graph.set_compile_commands(cc_path)?;
+    }
 
     // Parse Cargo.toml and store manifest metadata in magellan_meta
     if let Ok(manifest) = crate::manifest::CargoManifest::parse(&scan_root) {
