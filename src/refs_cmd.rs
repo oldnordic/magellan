@@ -555,8 +555,8 @@ fn output_json_mode(
                     if temp_calls.len() > 1 {
                         temp_calls = temp_calls
                             .iter()
-                            .cloned()
                             .take(temp_calls.len() / 2)
+                            .cloned()
                             .collect();
                     } else {
                         temp_calls.clear();
@@ -766,7 +766,7 @@ fn output_json_mode(
         direction: direction.to_string(),
     };
 
-    let tokens_estimated = if let Some(_) = tokens {
+    let tokens_estimated = if tokens.is_some() {
         let json = serde_json::to_string(&response).unwrap_or_default();
         Some(json.len() / 4)
     } else {
