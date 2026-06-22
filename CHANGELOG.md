@@ -5,6 +5,44 @@ Project adheres to [Semantic Versioning](https://semverver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [4.12.0] - 2026-06-22
+
+### Added
+
+- **LLVM IR CFG extraction for C/C++** (Phase 1):
+  - When `clang` is available, per-function CFGs are extracted from LLVM IR instead of tree-sitter approximations
+  - Detects clang at index time via `PATH`; falls back to tree-sitter CFG if clang is absent
+  - Accurate basic-block boundaries and branch edges from compiler IR rather than AST heuristics
+  - Implementation in `src/graph/external_tools/c_cpp/` (clang_invoker, llvm_ir_parser)
+
+- **LLVM call graph extraction for C/C++** (Phase 2):
+  - When clang is available, call edges for C/C++ files come from LLVM IR (`call`/`invoke` instructions)
+  - LLVM intrinsics (`llvm.*`) excluded automatically
+  - Tree-sitter call extraction retained as fallback when clang is unavailable
+  - Implementation in `src/graph/call_ops.rs` (`index_calls_from_llvm`) and `src/graph/calls.rs`
+
+- **`compile_commands.json` support** (Phase 3):
+  - `CodeGraph::set_compile_commands(path)` loads per-file compiler flags from a `compile_commands.json` file
+  - Flags (`-D`, `-I`, `-isystem`, `-std=`, `-f`, `-m`) are forwarded to clang during LLVM IR emission
+  - Enables correct indexing of large C/C++ projects (Linux kernel, LLVM, Qt) that require project-specific defines and include paths
+  - Implementation in `src/graph/external_tools/compile_commands.rs`
+
+- **Java CFG extraction** (previously dead code, now active):
+  - `src/graph/external_tools/java/` now compiled and tested
+  - Compiles Java source via `javac`, parses `.class` bytecode, extracts CFG basic blocks
+  - 46 new tests now running from the external-tools module
+
+### Fixed
+
+- `pub mod external_tools;` was missing from `src/graph/mod.rs` — all code under `src/graph/external_tools/` was unreachable and untested
+- Java `.class` constant pool parser: off-by-one iteration (looped `constant_pool_count` times instead of `constant_pool_count - 1`); Long/Double two-slot entries now advance the index by 2
+- Java `.class` method name resolution: method bytecode map now resolves names from the constant pool Utf8 table via `name_index` instead of generating `method_0`, `method_1` placeholders
+- `tempfile::TempDir::into_path()` deprecation in `javac_invoker.rs` replaced with `keep()`
+- Added missing constant pool tags 15 (MethodHandle), 16 (MethodType), 17/18 (Dynamic/InvokeDynamic) to bytecode parser
+- Removed unused `debug_print!` macro definitions from `src/indexer.rs`, `src/indexer/watch.rs`, `src/watch_cmd.rs`
+- Removed `offset` field from `BytecodeInstruction` struct (was set but never read)
+- `javac` test source used `public class Test` in randomly-named temp files; changed to `class Test` to avoid file-name mismatch error
+
 ## [4.11.1] - 2026-06-22
 
 ### Fixed

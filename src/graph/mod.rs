@@ -34,6 +34,7 @@ pub mod mir_frontend;
 // Access via graph::memory_graph::GraphStats if needed
 // pub use memory_graph::{GraphSymbol, MemoryGraph};
 mod ast_extractor;
+pub mod external_tools;
 
 mod ast_node;
 mod ast_ops;
@@ -246,6 +247,11 @@ pub struct CodeGraph {
     embeddings_enabled: bool,
     embedder: Box<dyn crate::graph::embed::TextEmbedder>,
 
+    /// Cached compile_commands.json for per-file C/C++ compilation flags.
+    /// Set via `set_compile_commands`. Used during LLVM IR CFG extraction.
+    pub(crate) compile_commands:
+        Option<std::sync::Arc<external_tools::compile_commands::CompileCommandsDb>>,
+
     /// Database file path for re-opening connections
     db_path: PathBuf,
 }
@@ -254,6 +260,16 @@ impl CodeGraph {
     /// Get the database file path
     pub fn db_path(&self) -> &Path {
         &self.db_path
+    }
+
+    /// Load and cache compile_commands.json for C/C++ LLVM IR extraction.
+    ///
+    /// Once set, per-file flags are looked up during indexing and passed to clang.
+    /// Call once at watcher/scan startup when the file exists.
+    pub fn set_compile_commands(&mut self, path: &Path) -> anyhow::Result<()> {
+        let db = external_tools::compile_commands::CompileCommandsDb::load(path)?;
+        self.compile_commands = Some(std::sync::Arc::new(db));
+        Ok(())
     }
 
     pub(crate) fn side_connection(&self) -> &Arc<parking_lot::Mutex<rusqlite::Connection>> {
@@ -707,6 +723,7 @@ impl CodeGraph {
                 "",
                 0,
             ),
+            compile_commands: None,
             db_path: db_path_buf,
         };
 

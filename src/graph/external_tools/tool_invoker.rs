@@ -22,7 +22,7 @@ pub struct ToolOutput {
 impl ToolOutput {
     /// Check if the tool succeeded
     pub fn success(&self) -> bool {
-        self.exit_code.map_or(false, |code| code == 0)
+        self.exit_code.is_some_and(|code| code == 0)
     }
 
     /// Get stdout as UTF-8 string

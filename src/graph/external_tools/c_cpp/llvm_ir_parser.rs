@@ -98,7 +98,9 @@ pub fn extract_cfg_from_llvm_ir(ll_content: &str) -> Result<HashMap<String, CfgW
                     .trim();
 
                     if line_without_comment.ends_with(':') {
-                        let label_name = line_without_comment[..line_without_comment.len() - 1]
+                        let label_name = line_without_comment
+                            .strip_suffix(':')
+                            .unwrap_or(line_without_comment)
                             .trim()
                             .to_string();
                         // Accept both numeric and text labels
@@ -175,6 +177,64 @@ pub fn extract_cfg_for_function(ll_content: &str, function_name: &str) -> Result
         .ok_or_else(|| ParseError::FunctionNotFound(function_name.to_string()))?;
 
     Ok(cfg.clone())
+}
+
+/// Extract call graph from LLVM IR content.
+///
+/// Scans `call` and `invoke` instructions inside function bodies.
+/// Returns `{caller_name → [callee_name, ...]}` with deduplication.
+/// LLVM intrinsics (`llvm.*`) are excluded.
+pub fn extract_calls_from_llvm_ir(ll_content: &str) -> HashMap<String, Vec<String>> {
+    let mut result: HashMap<String, Vec<String>> = HashMap::new();
+    let mut current_function: Option<String> = None;
+    let mut depth: i32 = 0;
+
+    for line in ll_content.lines() {
+        let trimmed = line.trim();
+
+        if trimmed.starts_with("define") {
+            if let Ok(name) = extract_function_name(trimmed) {
+                current_function = Some(name.clone());
+                result.entry(name).or_default();
+            }
+            depth = 1;
+            continue;
+        }
+
+        if current_function.is_some() {
+            depth += trimmed.matches('{').count() as i32;
+            depth -= trimmed.matches('}').count() as i32;
+
+            if depth <= 0 {
+                current_function = None;
+                depth = 0;
+                continue;
+            }
+
+            let has_call = trimmed.contains(" call ") || trimmed.starts_with("call ");
+            let has_invoke = trimmed.starts_with("invoke ");
+
+            if has_call || has_invoke {
+                if let Some(at_pos) = trimmed.find('@') {
+                    let after_at = &trimmed[at_pos + 1..];
+                    let func_name: String = after_at
+                        .chars()
+                        .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '.')
+                        .collect();
+                    if !func_name.is_empty() && !func_name.starts_with("llvm.") {
+                        if let Some(ref caller) = current_function {
+                            let callees = result.entry(caller.clone()).or_default();
+                            if !callees.contains(&func_name) {
+                                callees.push(func_name);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    result
 }
 
 /// Extract function name from LLVM IR line
@@ -444,6 +504,71 @@ if.else:
         let entry_edges: Vec<_> = cfg.edges.iter().filter(|e| e.source_idx == 0).collect();
 
         assert_eq!(entry_edges.len(), 2); // Two branches
+    }
+
+    #[test]
+    fn test_extract_calls_simple() {
+        let ll_ir = r#"
+define i32 @caller(i32 %x) {
+entry:
+  %r = call i32 @callee(i32 %x)
+  ret i32 %r
+}
+
+define i32 @callee(i32 %x) {
+entry:
+  ret i32 %x
+}
+"#;
+        let calls = extract_calls_from_llvm_ir(ll_ir);
+        assert_eq!(
+            calls
+                .get("caller")
+                .map(|v| v.iter().map(String::as_str).collect::<Vec<_>>()),
+            Some(vec!["callee"])
+        );
+        assert!(calls.get("callee").is_none_or(|v| v.is_empty()));
+    }
+
+    #[test]
+    fn test_extract_calls_skips_intrinsics() {
+        let ll_ir = r#"
+define void @foo() {
+entry:
+  call void @llvm.dbg.declare(metadata ptr %x, metadata !0, metadata !DIExpression())
+  call void @bar()
+  ret void
+}
+
+define void @bar() {
+entry:
+  ret void
+}
+"#;
+        let calls = extract_calls_from_llvm_ir(ll_ir);
+        let foo_calls = calls.get("foo").map(|v| v.as_slice()).unwrap_or(&[]);
+        assert!(!foo_calls.contains(&"llvm.dbg.declare".to_string()));
+        assert!(foo_calls.contains(&"bar".to_string()));
+    }
+
+    #[test]
+    fn test_extract_calls_deduplicates() {
+        let ll_ir = r#"
+define void @foo() {
+entry:
+  call void @bar()
+  call void @bar()
+  ret void
+}
+
+define void @bar() {
+entry:
+  ret void
+}
+"#;
+        let calls = extract_calls_from_llvm_ir(ll_ir);
+        let foo_calls = calls.get("foo").map(|v| v.as_slice()).unwrap_or(&[]);
+        assert_eq!(foo_calls.iter().filter(|n| *n == "bar").count(), 1);
     }
 
     #[test]

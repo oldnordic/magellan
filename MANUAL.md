@@ -1112,14 +1112,24 @@ when present. Missing tools degrade gracefully.
 
 ## External CFG Tools
 
-Default builds use internal parsers. Optional external CFG support can be built:
+C/C++ and Java CFG extraction uses installed external tools detected at runtime.
+No special build flags or recompilation is required.
 
-```bash
-cargo build --release --features external-tools-cfg
-cargo test --features external-tools-cfg --test external_tools_tests
-```
+**C/C++ (clang):** When `clang` is on `PATH`, magellan emits LLVM IR during
+indexing and extracts per-function CFG basic blocks and edges directly from the
+compiler's intermediate representation. This gives more accurate results than
+the tree-sitter fallback. When clang is absent, tree-sitter CFG approximations
+are used transparently.
 
-This feature uses installed external tools for C/C++ and Java CFG extraction.
+**Java (javac):** When `javac` is on `PATH`, magellan compiles `.java` source
+files to bytecode and extracts CFG from the `.class` output. Falls back to
+tree-sitter when javac is absent.
+
+**compile_commands.json:** C/C++ projects that require project-specific compiler
+flags (defines, include paths, `-std=` flags) can expose those flags via the
+`CodeGraph::set_compile_commands` API. Flags from the JSON file are forwarded
+to clang when emitting LLVM IR, enabling accurate indexing of large projects
+such as the Linux kernel or LLVM itself.
 
 ## Source Inventory
 

@@ -15,8 +15,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 
-use crate::context;
-use crate::graph::CodeGraph;
+use magellan::context;
+use magellan::graph::CodeGraph;
 
 /// Application state shared across handlers
 pub struct AppState {

@@ -440,6 +440,78 @@ impl CallOps {
         Ok(call_count)
     }
 
+    /// Index calls derived from LLVM IR (no source position data).
+    ///
+    /// Used when clang is available for C/C++ files — more accurate than tree-sitter
+    /// because LLVM IR sees macro expansion, inline functions, and template instantiation.
+    /// Call nodes are stored with `byte_start = 0` (IR-level, no source positions).
+    pub fn index_calls_from_llvm(
+        &self,
+        path: &str,
+        llvm_calls: &HashMap<String, Vec<String>>,
+        symbol_ids: &HashMap<String, i64>,
+    ) -> Result<usize> {
+        let path_buf = PathBuf::from(path);
+        let mut calls: Vec<CallFact> = Vec::new();
+
+        for (caller_name, callees) in llvm_calls {
+            for callee_name in callees {
+                calls.push(CallFact {
+                    file_path: path_buf.clone(),
+                    caller: caller_name.clone(),
+                    callee: callee_name.clone(),
+                    caller_symbol_id: None,
+                    callee_symbol_id: None,
+                    byte_start: 0,
+                    byte_end: 0,
+                    start_line: 0,
+                    start_col: 0,
+                    end_line: 0,
+                    end_col: 0,
+                });
+            }
+        }
+
+        let call_count = calls.len();
+        if call_count == 0 {
+            return Ok(0);
+        }
+
+        let mut name_to_ids: HashMap<String, Vec<i64>> = HashMap::new();
+        for (fqn, &id) in symbol_ids.iter() {
+            let simple = fqn.split("::").last().unwrap_or(fqn.as_str());
+            let simple = simple.split('.').next_back().unwrap_or(simple);
+            name_to_ids.entry(simple.to_string()).or_default().push(id);
+        }
+
+        let call_refs: Vec<&CallFact> = calls.iter().collect();
+        let call_node_ids = self.insert_call_nodes_batch(&call_refs)?;
+
+        let mut caller_edges: Vec<(NodeId, NodeId)> = Vec::new();
+        let mut calls_edges: Vec<(NodeId, NodeId)> = Vec::new();
+
+        for (i, call) in calls.iter().enumerate() {
+            let call_id = call_node_ids[i];
+            let callee_id = symbol_ids
+                .get(&call.callee)
+                .or_else(|| name_to_ids.get(&call.callee).and_then(|ids| ids.first()));
+            let caller_id = symbol_ids
+                .get(&call.caller)
+                .or_else(|| name_to_ids.get(&call.caller).and_then(|ids| ids.first()));
+            if let Some(&cid) = caller_id {
+                caller_edges.push((NodeId::from(cid), call_id));
+            }
+            if let Some(&cid) = callee_id {
+                calls_edges.push((call_id, NodeId::from(cid)));
+            }
+        }
+
+        self.insert_caller_edges_batch(&caller_edges)?;
+        self.insert_calls_edges_batch(&calls_edges)?;
+
+        Ok(call_count)
+    }
+
     /// Query all calls FROM a specific symbol (forward call graph)
     ///
     /// # Arguments

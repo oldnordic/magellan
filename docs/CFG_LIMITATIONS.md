@@ -43,18 +43,21 @@ Directory scans ignore unsupported extensions.
 - No interprocedural compiler optimization model.
 - Dynamic dispatch, reflection, monkey patching, and generated code may be
   incomplete.
-- Bytecode/IR-level CFG is optional and feature-gated where available.
+- C/C++ CFG uses LLVM IR when clang is available at runtime; falls back to
+  tree-sitter when clang is absent. Java CFG uses bytecode when javac is
+  available; falls back to tree-sitter otherwise.
 
-## Optional External Tools
+## External Tools (Runtime Detection)
 
-Build with:
+No special build flags are required. Magellan detects `clang` and `javac` on
+`PATH` at indexing time.
 
-```bash
-cargo build --features external-tools-cfg
-```
-
-This enables extra C/C++ and Java CFG extraction paths through installed
-external tools. The default build does not require those tools.
+- **clang present:** C/C++ CFGs and call edges come from LLVM IR. Results match
+  the compiler's view of the code, including macro expansion.
+- **clang absent:** C/C++ CFGs come from tree-sitter. Macro-heavy code and
+  preprocessor conditionals are less accurate.
+- **javac present:** Java CFGs come from bytecode.
+- **javac absent:** Java CFGs come from tree-sitter.
 
 ## Coverage
 

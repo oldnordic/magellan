@@ -1,23 +1,4 @@
 //! Watch command implementation
-//
-// Debug macro - only compiles in when debug-prints feature is enabled
-#[cfg(feature = "debug-prints")]
-macro_rules! debug_print {
-    ($($arg:tt)*) => {
-        eprintln!($($arg)*);
-    };
-}
-
-#[cfg(not(feature = "debug-prints"))]
-#[allow(
-    unused_macros,
-    reason = "noop stub: only used when feature debug-prints is enabled"
-)]
-macro_rules! debug_print {
-    ($($arg:tt)*) => {
-        ()
-    };
-}
 
 use anyhow::{Context, Result};
 use std::path::PathBuf;

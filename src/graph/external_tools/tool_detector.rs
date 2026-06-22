@@ -268,20 +268,14 @@ mod tests {
     fn test_find_clang() {
         // Test may fail if clang not installed - that's ok
         // We're just testing the function works
-        let result = find_clang();
-        if result.is_ok() {
-            let path = result.unwrap();
+        if let Ok(path) = find_clang() {
             assert!(path.exists());
         }
     }
 
     #[test]
     fn test_find_javac() {
-        // Test may fail if javac not installed - that's ok
-        // We're just testing the function works
-        let result = find_javac();
-        if result.is_ok() {
-            let path = result.unwrap();
+        if let Ok(path) = find_javac() {
             assert!(path.exists());
         }
     }

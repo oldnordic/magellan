@@ -100,7 +100,7 @@ pub fn compile_to_llvm_ir(
 
     // Create output directory if it doesn't exist
     if let Some(parent) = output_path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| ClangCompilationError::Io(e))?;
+        std::fs::create_dir_all(parent).map_err(ClangCompilationError::Io)?;
     }
 
     // Build clang command
@@ -112,7 +112,7 @@ pub fn compile_to_llvm_ir(
         .arg(output_path)
         .arg(source_path)
         .output()
-        .map_err(|e| ClangCompilationError::Io(e))?;
+        .map_err(ClangCompilationError::Io)?;
 
     // Check if compilation succeeded
     if !output.status.success() {
@@ -121,6 +121,55 @@ pub fn compile_to_llvm_ir(
     }
 
     // Verify output file was created
+    if !output_path.exists() {
+        return Err(ClangCompilationError::CompilationFailed(
+            "LLVM IR file was not created".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
+/// Compile a C/C++ source file to LLVM IR with additional compiler flags.
+///
+/// Same as `compile_to_llvm_ir` but prepends `extra_flags` to the clang invocation.
+/// Used with compile_commands.json to pass project-specific `-D` / `-I` flags.
+pub fn compile_to_llvm_ir_with_flags(
+    source_path: &Path,
+    output_path: &Path,
+    extra_flags: &[String],
+) -> Result<(), ClangCompilationError> {
+    let clang_path = tool_detector::find_clang().map_err(|e| match e {
+        tool_detector::ToolDetectionError::ToolNotFound { .. } => {
+            ClangCompilationError::ClangNotFound("clang not found in PATH".to_string())
+        }
+        _ => ClangCompilationError::ClangNotFound(format!("clang detection failed: {}", e)),
+    })?;
+
+    let language = detect_source_language(source_path)?;
+
+    if let Some(parent) = output_path.parent() {
+        std::fs::create_dir_all(parent).map_err(ClangCompilationError::Io)?;
+    }
+
+    let mut cmd = Command::new(&clang_path);
+    cmd.arg(language.clang_flag())
+        .arg("-S")
+        .arg("-emit-llvm")
+        .arg("-o")
+        .arg(output_path);
+    for flag in extra_flags {
+        cmd.arg(flag);
+    }
+    cmd.arg(source_path);
+
+    let output = cmd.output().map_err(ClangCompilationError::Io)?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(ClangCompilationError::CompilationFailed(stderr.to_string()));
+    }
+
     if !output_path.exists() {
         return Err(ClangCompilationError::CompilationFailed(
             "LLVM IR file was not created".to_string(),

@@ -134,10 +134,7 @@ pub fn is_javac_available() -> bool {
 
 /// Get javac version information
 pub fn get_javac_version() -> Option<String> {
-    match crate::graph::external_tools::tool_detector::check_javac_version() {
-        Ok(version) => Some(version),
-        Err(_) => None,
-    }
+    crate::graph::external_tools::tool_detector::check_javac_version().ok()
 }
 
 #[cfg(test)]
@@ -161,7 +158,7 @@ mod tests {
 
         // Create a simple Java file
         let source = r#"
-public class Test {
+class Test {
     public static int foo(int x) {
         if (x > 0) {
             return x * 2;
@@ -205,7 +202,7 @@ public class Test {
 
         // Create a simple Java file
         let source = r#"
-public class Test {
+class Test {
     public static int foo(int x) {
         if (x > 0) {
             return x * 2;
@@ -249,7 +246,7 @@ public class Test {
 
         // Create a simple Java file
         let source = r#"
-public class Test {
+class Test {
     public static int foo(int x) {
         return x;
     }

@@ -182,7 +182,7 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
         }
         let _ = graph.add_label(symbol_id.as_i64(), &fact.kind_normalized);
 
-        // Track function symbols for CFG extraction (Rust only)
+        // Track function symbols for CFG extraction (all supported languages)
         if fact.kind_normalized == "fn" || fact.kind_normalized == "method" {
             if let Some(ref name) = fact.name {
                 function_symbol_ids.push((
@@ -347,31 +347,25 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
         }
     }
 
-    // Step 5.6: Extract and store CFG blocks (re-use pre-parsed tree)
-    // CFG extraction supports:
-    // - Rust (.rs): function_item nodes
-    // - C/C++ (.c, .h, .cpp, .hpp, .cc, .cxx): function_definition nodes
+    // Step 5.6: Tree-sitter CFG (Rust always; C/C++ only when clang not available)
     let is_rust = path.ends_with(".rs");
     let is_cpp = path.ends_with(".cpp")
         || path.ends_with(".hpp")
         || path.ends_with(".cc")
         || path.ends_with(".cxx");
     let is_c = path.ends_with(".c") || path.ends_with(".h");
+    let llvm_available = (is_c || is_cpp) && super::external_tools::c_cpp::is_clang_available();
 
-    if (is_rust || is_c || is_cpp) && !function_symbol_ids.is_empty() {
+    if (is_rust || ((is_c || is_cpp) && !llvm_available)) && !function_symbol_ids.is_empty() {
         if let Some(ref tree) = parsed_tree {
             let root = tree.root_node();
 
-            // Determine function node kind based on language
-            // Rust: function_item, C/C++: function_definition
             let function_kind = if is_rust {
                 "function_item"
             } else {
                 "function_definition"
             };
 
-            // Find all function nodes using recursive tree walk
-            // C++ functions may be nested inside namespace_declaration, class_specifier, etc.
             let mut function_nodes = Vec::new();
 
             fn find_function_nodes_recursive<'a>(
@@ -382,7 +376,6 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
                 if node.kind() == function_kind {
                     result.push(node);
                 }
-                // Recurse into children
                 let mut cursor = node.walk();
                 if cursor.goto_first_child() {
                     loop {
@@ -396,12 +389,10 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
 
             find_function_nodes_recursive(root, function_kind, &mut function_nodes);
 
-            // For each function node, find matching symbol and extract CFG
             for func_node in function_nodes {
                 let func_start = func_node.byte_range().start as i64;
                 let func_end = func_node.byte_range().end as i64;
 
-                // Find matching function symbol by byte range
                 if let Some((_, entity_id, _, _)) = function_symbol_ids
                     .iter()
                     .find(|(_, _, start, end)| func_start >= *start && func_end <= *end)
@@ -414,12 +405,56 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
         }
     }
 
-    // CFG extraction failure doesn't block indexing
+    // Step 5.7: LLVM IR CFG + call graph for C/C++ (when clang available)
+    // Compiles the file to LLVM IR once, extracts per-function CFGs and call edges.
+    // More accurate than tree-sitter: sees macro expansion and inlined code.
+    let llvm_handled_calls = if llvm_available {
+        let source_path = std::path::Path::new(path);
+        let extra_flags: Vec<String> = graph
+            .compile_commands
+            .as_ref()
+            .map(|db| db.get_flags(source_path).to_vec())
+            .unwrap_or_default();
 
-    // Step 6: Index calls (all supported languages)
-    // Use pre-parsed tree to avoid redundant parsing
+        match super::external_tools::c_cpp::extract_cfgs_and_calls_with_flags(
+            source_path,
+            &extra_flags,
+        ) {
+            Ok((cfgs, llvm_calls)) => {
+                for (func_name, mut cfg_with_edges) in cfgs {
+                    if let Some(&(_, entity_id, _, _)) = function_symbol_ids
+                        .iter()
+                        .find(|(name, ..)| *name == func_name)
+                    {
+                        for block in &mut cfg_with_edges.blocks {
+                            block.function_id = entity_id;
+                        }
+                        cfg_with_edges.function_id = entity_id;
+                        let _ = graph.cfg_ops.insert_cfg_blocks(&cfg_with_edges.blocks);
+                        let _ = graph
+                            .cfg_ops
+                            .insert_cfg_edges(entity_id, &cfg_with_edges.edges);
+                    }
+                }
+                if !llvm_calls.is_empty() {
+                    let _ = super::calls::index_calls_from_llvm(graph, path, llvm_calls);
+                }
+                true
+            }
+            Err(e) => {
+                tracing::debug!(path = %path, error = %e, "LLVM IR extraction skipped, using tree-sitter");
+                false
+            }
+        }
+    } else {
+        false
+    };
+
+    // Step 6: Tree-sitter call graph (all languages; C/C++ only when LLVM didn't handle it)
     if let (Some(ref tree), Some(lang)) = (parsed_tree, language) {
-        let _ = super::calls::index_calls_with_tree(graph, path, source, tree, lang);
+        if !llvm_handled_calls {
+            let _ = super::calls::index_calls_with_tree(graph, path, source, tree, lang);
+        }
     }
 
     // Step 7: Compute and store metrics (fan-in, fan-out, LOC, complexity)

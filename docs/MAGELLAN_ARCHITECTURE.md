@@ -187,9 +187,7 @@ Optional features:
 
 | Feature | Purpose |
 |---------|---------|
-| `external-tools-cfg` | C/C++ and Java CFG extraction through installed external tools |
-| `llvm-cfg` | optional LLVM-based C/C++ CFG support |
-| `bytecode-cfg` | placeholder for Java bytecode CFG work |
+| `llvm-cfg` | LLVM IR CFG/call extraction for C/C++ (default: enabled; requires clang at runtime) |
 | `web-ui` | optional web UI server |
 
 The public command documentation assumes the default SQLite `.db` workflow.

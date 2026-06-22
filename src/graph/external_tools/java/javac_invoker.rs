@@ -75,7 +75,7 @@ pub fn compile_to_class(
         .arg(output_dir)
         .arg(source_path)
         .output()
-        .map_err(|e| JavacCompilationError::Io(e))?; // Explicit conversion
+        .map_err(JavacCompilationError::Io)?;
 
     // Check if compilation succeeded
     if !output.status.success() {
@@ -104,17 +104,11 @@ pub fn compile_to_class(
 ///
 /// Returns error if javac is not found or compilation fails
 pub fn compile_to_class_temp(source_path: &Path) -> Result<PathBuf, JavacCompilationError> {
-    // Create a temporary directory for compilation output
-    let temp_dir = tempfile::tempdir().map_err(|e| {
-        JavacCompilationError::Io(std::io::Error::new(std::io::ErrorKind::Other, e))
-    })?;
+    let temp_dir =
+        tempfile::tempdir().map_err(|e| JavacCompilationError::Io(std::io::Error::other(e)))?;
 
-    // Compile to temporary directory
     compile_to_class(source_path, temp_dir.path())?;
 
-    // Find the generated .class file
-    // The .class file name is based on the class name, not the file name
-    // For simplicity, we'll just find any .class file in the temp directory
     let class_files = find_class_files(temp_dir.path());
 
     if class_files.is_empty() {
@@ -123,9 +117,11 @@ pub fn compile_to_class_temp(source_path: &Path) -> Result<PathBuf, JavacCompila
         ));
     }
 
-    // Return the first .class file found
-    // For multiple classes (inner classes), this is a simplification
-    Ok(class_files[0].clone())
+    let class_file = class_files[0].clone();
+    // Persist the temp directory so the returned path remains valid.
+    // The OS cleans up orphaned temp directories on reboot.
+    let _ = temp_dir.keep();
+    Ok(class_file)
 }
 
 /// Find all .class files in a directory recursively
@@ -261,7 +257,7 @@ class Bar {
 
         // Create a simple Java file
         let source = r#"
-public class Test {
+class Test {
     public static int foo(int x) {
         if (x > 0) {
             return x * 2;

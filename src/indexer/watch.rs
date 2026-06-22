@@ -15,29 +15,6 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-// Debug macro - only enabled when debug-prints feature is active
-#[cfg(feature = "debug-prints")]
-macro_rules! debug_print {
-    ($($arg:tt)*) => {
-        { eprintln!($($arg)*); }
-    };
-}
-
-#[cfg(not(feature = "debug-prints"))]
-#[allow(
-    unused_macros,
-    reason = "noop stub: only used when feature debug-prints is enabled"
-)]
-macro_rules! debug_print {
-    ($($arg:tt)*) => {{
-        #[allow(
-            clippy::unused_unit,
-            reason = "macro must expand to unit in expression position when disabled"
-        )]
-        ()
-    }};
-}
-
 // Phase 2: Deterministic watch pipeline with buffering
 // ============================================================================
 

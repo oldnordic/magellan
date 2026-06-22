@@ -45,8 +45,6 @@ struct BytecodeInstruction {
     opcode: u8,
     /// Operands
     operands: Vec<u8>,
-    /// Instruction offset (for control flow)
-    offset: usize,
 }
 
 /// Basic block in Java bytecode
@@ -97,7 +95,7 @@ pub fn extract_cfg_from_class(class_bytes: &[u8]) -> Result<HashMap<String, CfgW
     }
 
     let magic = &class_bytes[0..4];
-    if magic != &[0xCA, 0xFE, 0xBA, 0xBE] {
+    if magic != [0xCA, 0xFE, 0xBA, 0xBE] {
         return Err(ClassParseError::InvalidFormat("Invalid magic number".to_string()).into());
     }
 
@@ -157,8 +155,12 @@ fn find_method_bytecode(class_bytes: &[u8]) -> Result<HashMap<String, Vec<u8>>> 
     let constant_pool_count = u16::from_be_bytes([class_bytes[pos], class_bytes[pos + 1]]) as usize;
     pos += 2;
 
-    // Skip constant pool (variable size based on entries)
-    for _ in 0..constant_pool_count {
+    // Parse constant pool, collecting Utf8 entries so method names can be resolved.
+    // Indices run 1..constant_pool_count-1 (count-1 real entries).
+    // Long (5) and Double (6) occupy two slots.
+    let mut utf8_pool: HashMap<usize, String> = HashMap::new();
+    let mut cp_idx = 1;
+    while cp_idx < constant_pool_count {
         if pos >= class_bytes.len() {
             return Ok(methods);
         }
@@ -167,28 +169,54 @@ fn find_method_bytecode(class_bytes: &[u8]) -> Result<HashMap<String, Vec<u8>>> 
         pos += 1;
 
         match tag {
-            // ConstantUtf8: 1 byte tag + 2 bytes length + variable bytes
+            // Utf8: 2-byte length + bytes
             1 => {
                 if pos + 1 >= class_bytes.len() {
                     return Ok(methods);
                 }
                 let length = u16::from_be_bytes([class_bytes[pos], class_bytes[pos + 1]]) as usize;
-                pos += 2 + length;
+                pos += 2;
+                if pos + length > class_bytes.len() {
+                    return Ok(methods);
+                }
+                if let Ok(s) = std::str::from_utf8(&class_bytes[pos..pos + length]) {
+                    utf8_pool.insert(cp_idx, s.to_owned());
+                }
+                pos += length;
+                cp_idx += 1;
             }
-            // ConstantInteger, ConstantFloat, ConstantFieldref, ConstantMethodref, etc.: 1 byte tag + 4 bytes data
+            // Integer, Float, Fieldref, Methodref, InterfaceMethodref, NameAndType: 4 bytes
             3 | 4 | 9 | 10 | 11 | 12 => {
                 pos += 4;
+                cp_idx += 1;
             }
-            // ConstantLong, ConstantDouble: 1 byte tag + 8 bytes data
+            // Long, Double: 8 bytes and consume TWO slots
             5 | 6 => {
                 pos += 8;
+                cp_idx += 2;
             }
-            // ConstantClass, ConstantString: 1 byte tag + 2 bytes data
+            // Class, String: 2 bytes
             7 | 8 => {
                 pos += 2;
+                cp_idx += 1;
+            }
+            // MethodHandle: 3 bytes
+            15 => {
+                pos += 3;
+                cp_idx += 1;
+            }
+            // MethodType: 2 bytes
+            16 => {
+                pos += 2;
+                cp_idx += 1;
+            }
+            // Dynamic, InvokeDynamic: 4 bytes
+            17 | 18 => {
+                pos += 4;
+                cp_idx += 1;
             }
             _ => {
-                // Unknown constant type, skip
+                // Unknown tag — constant pool parse failed, return empty
                 return Ok(methods);
             }
         }
@@ -252,16 +280,22 @@ fn find_method_bytecode(class_bytes: &[u8]) -> Result<HashMap<String, Vec<u8>>> 
             return Ok(methods);
         }
 
-        // Skip access_flags (2), name_index (2), descriptor_index (2)
-        pos += 6;
+        // access_flags (2)
+        pos += 2;
+        // name_index (2) — look up actual method name from constant pool
+        let name_index = u16::from_be_bytes([class_bytes[pos], class_bytes[pos + 1]]) as usize;
+        pos += 2;
+        // descriptor_index (2)
+        pos += 2;
+
+        let method_name = utf8_pool
+            .get(&name_index)
+            .cloned()
+            .unwrap_or_else(|| format!("method_{}", methods.len()));
 
         let attributes_count =
             u16::from_be_bytes([class_bytes[pos], class_bytes[pos + 1]]) as usize;
         pos += 2;
-
-        // For simplicity, we'll generate method names like "method_0", "method_1", etc.
-        // A full implementation would resolve the name from the constant pool
-        let method_name = format!("method_{}", methods.len());
 
         // Parse method attributes looking for Code attribute
         for _ in 0..attributes_count {
@@ -431,7 +465,7 @@ fn build_cfg_from_bytecode(_method_name: &str, bytecode: &[u8]) -> Result<CfgWit
                 if let Some(&target_idx) = block_map.get(target) {
                     cfg_edges.push(CfgEdge {
                         source_idx: idx,
-                        target_idx: target_idx,
+                        target_idx,
                         edge_type: CfgEdgeType::Jump,
                     });
                 }
@@ -442,7 +476,7 @@ fn build_cfg_from_bytecode(_method_name: &str, bytecode: &[u8]) -> Result<CfgWit
                 if let Some(&target_idx) = block_map.get(target) {
                     cfg_edges.push(CfgEdge {
                         source_idx: idx,
-                        target_idx: target_idx,
+                        target_idx,
                         edge_type: CfgEdgeType::ConditionalTrue,
                     });
                 }
@@ -472,7 +506,7 @@ fn build_cfg_from_bytecode(_method_name: &str, bytecode: &[u8]) -> Result<CfgWit
                     if let Some(&target_idx) = block_map.get(case_target) {
                         cfg_edges.push(CfgEdge {
                             source_idx: idx,
-                            target_idx: target_idx,
+                            target_idx,
                             edge_type: CfgEdgeType::Jump,
                         });
                     }
@@ -515,11 +549,7 @@ fn parse_bytecode(bytecode: &[u8]) -> Result<Vec<BytecodeInstruction>> {
             }
         }
 
-        instructions.push(BytecodeInstruction {
-            opcode,
-            operands,
-            offset,
-        });
+        instructions.push(BytecodeInstruction { opcode, operands });
 
         offset += size;
     }
@@ -539,43 +569,13 @@ fn identify_basic_blocks(instructions: &[BytecodeInstruction]) -> Vec<BytecodeBl
     // Find jump targets (these start new blocks)
     for instr in instructions {
         match instr.opcode {
-            // Conditional branches
-            0x99 | 0x9A | 0x9B | 0x9C | 0x9D | 0x9E | 0x9F | 0xA0 | 0xA1 | 0xA2 | 0xA3 | 0xA4
-            | 0xA5 | 0xA6 | 0xA7 => {
-                // if_icmpeq, if_icmpne, if_icmplt, etc.
-                if instr.operands.len() >= 2 {
-                    let offset_bytes = [instr.operands[0], instr.operands[1]];
-                    let target_offset = i16::from_be_bytes(offset_bytes) as i32 as usize;
-                    block_starts.push(target_offset);
-                }
+            // Conditional branches and unconditional goto (0x99..=0xA7, 0xC8)
+            0x99..=0xA7 | 0xC8 if instr.operands.len() >= 2 => {
+                let offset_bytes = [instr.operands[0], instr.operands[1]];
+                let target_offset = i16::from_be_bytes(offset_bytes) as i32 as usize;
+                block_starts.push(target_offset);
             }
-
-            // Unconditional branches (0xA7 already covered above)
-            0xC8 => {
-                // goto, goto_w
-                if instr.operands.len() >= 2 {
-                    let offset_bytes = [instr.operands[0], instr.operands[1]];
-                    let target_offset = i16::from_be_bytes(offset_bytes) as i32 as usize;
-                    block_starts.push(target_offset);
-                }
-            }
-
-            // Switch statements (tableswitch, lookupswitch)
-            0xAA | 0xAB => {
-                // Complex variable-length operands - would need full switch parsing
-                // Treating as unknown terminator for now
-            }
-
-            // Return instructions
-            0xAC | 0xAD | 0xAE | 0xAF | 0xB0 | 0xB1 | 0xB2 | 0xB3 | 0xB4 | 0xB5 | 0xB6 | 0xB7
-            | 0xB8 | 0xB9 | 0xBA | 0xBB | 0xBC | 0xBD | 0xBE | 0xBF => {
-                // ireturn, lreturn, freturn, dreturn, areturn, return
-                // These end blocks
-            }
-
-            _ => {
-                // Other instructions don't start new blocks
-            }
+            _ => {}
         }
     }
 
@@ -617,9 +617,9 @@ fn classify_terminator(instructions: &[BytecodeInstruction]) -> BlockTerminator 
 
     match last_instr.opcode {
         // Return instructions
-        0xAC | 0xAD | 0xAE | 0xAF | 0xB0 | 0xB1 => BlockTerminator::Return,
+        0xAC..=0xB1 => BlockTerminator::Return,
 
-        // Unconditional branches
+        // Unconditional branches (goto, goto_w)
         0xA7 | 0xC8 => {
             if last_instr.operands.len() >= 2 {
                 let offset_bytes = [last_instr.operands[0], last_instr.operands[1]];
@@ -633,8 +633,7 @@ fn classify_terminator(instructions: &[BytecodeInstruction]) -> BlockTerminator 
         }
 
         // Conditional branches
-        0x99 | 0x9A | 0x9B | 0x9C | 0x9D | 0x9E | 0x9F | 0xA0 | 0xA1 | 0xA2 | 0xA3 | 0xA4
-        | 0xA5 | 0xA6 => {
+        0x99..=0xA6 => {
             if last_instr.operands.len() >= 2 {
                 let offset_bytes = [last_instr.operands[0], last_instr.operands[1]];
                 let target_offset = i16::from_be_bytes(offset_bytes) as i32 as usize;
@@ -697,17 +696,14 @@ mod tests {
             BytecodeInstruction {
                 opcode: 0x03,
                 operands: vec![],
-                offset: 0,
             },
             BytecodeInstruction {
                 opcode: 0x3C,
                 operands: vec![],
-                offset: 1,
             },
             BytecodeInstruction {
                 opcode: 0xAC,
                 operands: vec![],
-                offset: 2,
             },
         ];
 

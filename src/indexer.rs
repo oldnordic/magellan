@@ -109,33 +109,6 @@ pub fn read_batch_sources<P: AsRef<std::path::Path>>(
         .collect()
 }
 
-// Debug macro - only enabled when debug-prints feature is active
-#[cfg(feature = "debug-prints")]
-macro_rules! debug_print {
-    ($($arg:tt)*) => {
-        { eprintln!($($arg)*); }
-    };
-}
-
-#[cfg(not(feature = "debug-prints"))]
-#[allow(
-    unused_macros,
-    reason = "noop stub: only used when feature debug-prints is enabled"
-)]
-macro_rules! debug_print {
-    ($($arg:tt)*) => {
-        // Optimized out when debug-prints feature is disabled
-        // Always return () to work in expression context
-        {
-            #[allow(
-                clippy::unused_unit,
-                reason = "macro must expand to unit in expression position when disabled"
-            )]
-            ()
-        }
-    };
-}
-
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};

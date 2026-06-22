@@ -55,6 +55,25 @@ pub fn index_calls_with_tree(
         .index_calls_with_tree(path, source, &symbol_fqn_to_id, tree, language)
 }
 
+/// Index calls derived from LLVM IR for a C/C++ file.
+///
+/// Replaces tree-sitter call extraction when clang is available.
+/// `llvm_calls` maps caller name → list of callee names.
+pub fn index_calls_from_llvm(
+    graph: &mut CodeGraph,
+    path: &str,
+    llvm_calls: HashMap<String, Vec<String>>,
+) -> Result<usize> {
+    let symbol_fqn_to_id_with_file = graph.symbols.lookup.fqn_to_id_with_current_file(path);
+    let symbol_fqn_to_id: HashMap<String, i64> = symbol_fqn_to_id_with_file
+        .into_iter()
+        .map(|(fqn, (id, _))| (fqn, id))
+        .collect();
+    graph
+        .calls
+        .index_calls_from_llvm(path, &llvm_calls, &symbol_fqn_to_id)
+}
+
 /// Query all calls FROM a specific symbol (forward call graph)
 ///
 /// # Arguments

@@ -127,6 +127,63 @@ fn merge_function_cfgs(
     }
 }
 
+/// Extract per-function CFGs from a C/C++ source file.
+///
+/// Returns `{function_name → CfgWithEdges}`. Compiles to LLVM IR once.
+/// `function_id` is set to 0 in all returned blocks — callers must patch it.
+pub fn extract_cfgs_per_function(
+    source_path: &Path,
+) -> Result<HashMap<String, crate::graph::cfg_edges_extract::CfgWithEdges>> {
+    let ll_path =
+        compile_to_llvm_ir_temp(source_path).context("Failed to compile C/C++ to LLVM IR")?;
+    let ll_content = std::fs::read_to_string(&ll_path).context("Failed to read LLVM IR")?;
+    let _ = std::fs::remove_file(&ll_path);
+    llvm_ir_parser::extract_cfg_from_llvm_ir(&ll_content)
+}
+
+/// Extract per-function CFGs and the call graph from a C/C++ source file in one pass.
+///
+/// Compiles to LLVM IR once, extracts both CFG structure and call edges.
+/// Returns `({function_name → CfgWithEdges}, {caller_name → [callee_name]})`.
+/// `function_id` is 0 in all CFG blocks — callers must patch before storage.
+type CfgsAndCalls = (
+    HashMap<String, crate::graph::cfg_edges_extract::CfgWithEdges>,
+    HashMap<String, Vec<String>>,
+);
+
+pub fn extract_cfgs_and_calls(source_path: &Path) -> Result<CfgsAndCalls> {
+    let ll_path =
+        compile_to_llvm_ir_temp(source_path).context("Failed to compile C/C++ to LLVM IR")?;
+    let ll_content = std::fs::read_to_string(&ll_path).context("Failed to read LLVM IR")?;
+    let _ = std::fs::remove_file(&ll_path);
+    let cfgs = llvm_ir_parser::extract_cfg_from_llvm_ir(&ll_content)?;
+    let calls = llvm_ir_parser::extract_calls_from_llvm_ir(&ll_content);
+    Ok((cfgs, calls))
+}
+
+/// Like `extract_cfgs_and_calls` but accepts extra compiler flags from compile_commands.json.
+pub fn extract_cfgs_and_calls_with_flags(
+    source_path: &Path,
+    extra_flags: &[String],
+) -> Result<CfgsAndCalls> {
+    if extra_flags.is_empty() {
+        return extract_cfgs_and_calls(source_path);
+    }
+    let source_stem = source_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("output");
+    let output_path =
+        std::env::temp_dir().join(format!("{}_{}.ll", source_stem, std::process::id()));
+    clang_invoker::compile_to_llvm_ir_with_flags(source_path, &output_path, extra_flags)
+        .context("Failed to compile C/C++ to LLVM IR with flags")?;
+    let ll_content = std::fs::read_to_string(&output_path).context("Failed to read LLVM IR")?;
+    let _ = std::fs::remove_file(&output_path);
+    let cfgs = llvm_ir_parser::extract_cfg_from_llvm_ir(&ll_content)?;
+    let calls = llvm_ir_parser::extract_calls_from_llvm_ir(&ll_content);
+    Ok((cfgs, calls))
+}
+
 /// Check if clang is available
 pub fn is_clang_available() -> bool {
     crate::graph::external_tools::tool_detector::is_tool_available("clang")
@@ -134,10 +191,7 @@ pub fn is_clang_available() -> bool {
 
 /// Get clang version information
 pub fn get_clang_version() -> Option<String> {
-    match crate::graph::external_tools::tool_detector::check_clang_version() {
-        Ok(version) => Some(version),
-        Err(_) => None,
-    }
+    crate::graph::external_tools::tool_detector::check_clang_version().ok()
 }
 
 #[cfg(test)]

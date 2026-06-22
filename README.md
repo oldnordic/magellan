@@ -225,16 +225,23 @@ magellan navigate --db code.db "CodeGraph open sync" --depth 3 --with-llmgrep --
 
 ## External CFG Tools
 
-The optional `external-tools-cfg` feature enables extra CFG extraction paths for
-C/C++ and Java using installed external tools:
+C/C++ and Java CFG extraction uses installed external tools detected at runtime.
+No special build flags are required.
 
-```bash
-cargo build --release --features external-tools-cfg
-cargo test --features external-tools-cfg --test external_tools_tests
-```
+**C/C++ (clang required):** When `clang` is on `PATH`, magellan compiles each
+C/C++ file to LLVM IR and extracts accurate per-function CFGs and call edges.
+Falls back to tree-sitter approximations when clang is absent.
 
-The default build does not require clang, javac, LLVM libraries, or Java bytecode
-libraries.
+**Java (javac required):** When `javac` is on `PATH`, magellan compiles `.java`
+files and extracts CFG from bytecode.
+
+**compile_commands.json:** For projects with non-trivial build flags (defines,
+include paths, language standards), load a `compile_commands.json` via the
+`CodeGraph::set_compile_commands` API. Per-file flags are forwarded to clang
+during CFG extraction.
+
+Neither clang nor javac is required. When absent, CFG extraction degrades
+gracefully to tree-sitter-based approximations.
 
 ## Documentation
 

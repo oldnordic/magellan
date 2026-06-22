@@ -25,6 +25,7 @@ pub mod tool_detector;
 pub mod tool_invoker;
 
 pub mod c_cpp;
+pub mod compile_commands;
 pub mod java;
 
 pub use tool_detector::{
