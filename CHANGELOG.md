@@ -5,6 +5,18 @@ Project adheres to [Semantic Versioning](https://semverver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [4.12.1] - 2026-06-22
+
+### Fixed
+
+- **C++ out-of-line method definitions not indexed**: `Graph::bfs(int)` style definitions produce a `scoped_identifier` node in the tree-sitter parse tree; the name extractor had no handler for this node kind and silently dropped the symbol. Both `find_name_recursive` and `find_name_recursive_static` in `src/ingest/cpp.rs` now extract the unqualified method name from `scoped_identifier` / `qualified_identifier` nodes via `child_by_field_name("name")`.
+
+- **LLVM IR CFG blocks not stored for C++ functions**: The CFG matching step in `src/graph/ops.rs` compared raw LLVM IR function names (Itanium-mangled: `_Z9factoriali`) against tree-sitter symbol names (unmangled: `factorial`). The comparison always failed; only `main` matched because C++ does not mangle it. All LLVM-extracted CFGs were silently discarded. Fixed by demangling the LLVM name before the lookup using a new `demangle_cpp_simple_name` helper.
+
+- **LLVM call graph edges not linked to indexed symbols**: `index_calls_from_llvm` in `src/graph/call_ops.rs` stored mangled caller/callee names in `CallFact`, which then failed to resolve against the unmangled `symbol_ids` map. No `CALLER`/`CALLS` edges were created for any C++ function. Fixed by demangling caller and callee names before building `CallFact`.
+
+- Added `cpp_demangle = "0.5"` dependency for Itanium ABI demangling. New `demangle_cpp_simple_name` helper in `src/graph/external_tools/c_cpp/llvm_ir_parser.rs` strips parameters and namespace qualifiers, returning the unqualified simple name. Falls back to the original string on parse failure.
+
 ## [4.12.0] - 2026-06-22
 
 ### Added
