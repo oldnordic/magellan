@@ -2,8 +2,8 @@
 //!
 //! Installs git pre-commit hooks that check blast scores for changed symbols.
 
-use anyhow::Result;
 use anyhow::anyhow;
+use anyhow::Result;
 use magellan::common::find_repo_root;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
@@ -74,7 +74,10 @@ exit 0
     perms.set_mode(perms.mode() | 0o111);
     fs::set_permissions(&hook_path, perms)?;
 
-    println!("Installed pre-commit hook (threshold: {:.1}, strict: {})", threshold, strict);
+    println!(
+        "Installed pre-commit hook (threshold: {:.1}, strict: {})",
+        threshold, strict
+    );
     println!("Hook location: {}", hook_path.display());
 
     Ok(())

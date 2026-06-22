@@ -867,10 +867,7 @@ pub fn compute_blast_score(
 ) -> Result<BlastScore> {
     let impacted = impact_analysis(graph, symbol_name, file_path, max_depth)?;
 
-    let direct_count = impacted
-        .iter()
-        .filter(|r| r.depth == Some(1))
-        .count();
+    let direct_count = impacted.iter().filter(|r| r.depth == Some(1)).count();
 
     let transitive_count = impacted
         .iter()
@@ -887,10 +884,8 @@ pub fn compute_blast_score(
     };
 
     // Calculate unique affected files for risk percentage
-    let unique_files: std::collections::HashSet<_> = impacted
-        .iter()
-        .map(|r| r.file.as_str())
-        .collect();
+    let unique_files: std::collections::HashSet<_> =
+        impacted.iter().map(|r| r.file.as_str()).collect();
 
     let risk_percent = if total_files > 0.0 {
         (unique_files.len() as f64 / total_files) * 100.0

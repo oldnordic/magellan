@@ -28,7 +28,10 @@ use std::path::PathBuf;
 ///
 /// # Returns
 /// Option containing the default output path, or None if not in a repository
-fn get_default_repo_root_output(db_path: &std::path::Path, format: &ExportFormat) -> Option<PathBuf> {
+fn get_default_repo_root_output(
+    db_path: &std::path::Path,
+    format: &ExportFormat,
+) -> Option<PathBuf> {
     // Only use repo-root convention when we're in a consistent working directory
     // If the db is in a different location than cwd, assume ad-hoc/test usage
     let cwd = std::env::current_dir().ok()?;
@@ -39,8 +42,7 @@ fn get_default_repo_root_output(db_path: &std::path::Path, format: &ExportFormat
         // Check if db is in a temp directory (starts with /tmp/) or different from cwd
         let parent_str = parent.to_string_lossy();
         let cwd_str = cwd.to_string_lossy();
-        parent_str.starts_with("/tmp/") ||
-        parent_str != cwd_str
+        parent_str.starts_with("/tmp/") || parent_str != cwd_str
     } else {
         // No parent, assume ad-hoc
         true
@@ -262,12 +264,16 @@ pub fn run_export(
     } else if format == ExportFormat::Impact {
         use magellan::context::impact_analysis;
 
-        let symbol_name = impact_symbol.ok_or_else(|| {
-            anyhow::anyhow!("Impact export requires --symbol parameter")
-        })?;
+        let symbol_name = impact_symbol
+            .ok_or_else(|| anyhow::anyhow!("Impact export requires --symbol parameter"))?;
 
         // Run impact analysis
-        let impacted = impact_analysis(&mut graph, &symbol_name, impact_file.as_deref(), impact_depth)?;
+        let impacted = impact_analysis(
+            &mut graph,
+            &symbol_name,
+            impact_file.as_deref(),
+            impact_depth,
+        )?;
 
         // Create export data structure
         let impact_export = serde_json::json!({
@@ -352,7 +358,9 @@ pub fn run_export(
                         }
                         None => {
                             // Use repo-root convention if available, otherwise stdout
-                            if let Some(default_path) = get_default_repo_root_output(&db_path, &format) {
+                            if let Some(default_path) =
+                                get_default_repo_root_output(&db_path, &format)
+                            {
                                 let mut file = File::create(&default_path)?;
                                 stream_json(&mut graph, &config, &mut file)?;
                                 print_export_summary(&default_path, format, &mut graph)?;
@@ -375,7 +383,8 @@ pub fn run_export(
                     }
                     None => {
                         // Use repo-root convention if available, otherwise stdout
-                        if let Some(default_path) = get_default_repo_root_output(&db_path, &format) {
+                        if let Some(default_path) = get_default_repo_root_output(&db_path, &format)
+                        {
                             let mut file = File::create(&default_path)?;
                             stream_ndjson(&mut graph, &config, &mut file)?;
                             print_export_summary(&default_path, format, &mut graph)?;

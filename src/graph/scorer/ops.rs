@@ -4,9 +4,9 @@
 //! Provides API for scoring symbols and querying ranked candidates.
 
 use anyhow::Result;
+use parking_lot::Mutex;
 use rusqlite::{params, OptionalExtension};
 use std::sync::Arc;
-use parking_lot::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::extract::{FeatureExtractor, SymbolFeatures};
@@ -142,7 +142,8 @@ impl ScorerOps {
                         params![features.symbol_id],
                         |row| row.get(0),
                     )
-                    .unwrap_or(0) > 0;
+                    .unwrap_or(0)
+                    > 0;
 
                 if exists {
                     conn.execute(
@@ -276,7 +277,8 @@ impl ScorerOps {
                         params![symbol_id],
                         |row| row.get(0),
                     )
-                    .unwrap_or(0) > 0;
+                    .unwrap_or(0)
+                    > 0;
 
                 if exists {
                     conn.execute(
@@ -331,28 +333,29 @@ impl ScorerOps {
              LIMIT ?1",
         )?;
 
-        let results = stmt.query_map([limit as i64], |row| {
-            Ok(SymbolScore {
-                symbol_id: row.get(0)?,
-                snapshot_id: row.get(1)?,
-                stable_id: row.get(2)?,
-                score: row.get(3)?,
-                rank: row.get(4)?,
-                feature_loc: row.get(5)?,
-                feature_fan_in: row.get(6)?,
-                feature_fan_out: row.get(7)?,
-                feature_complexity: row.get(8)?,
-                feature_cfg_block_count: row.get(9)?,
-                feature_cfg_edge_count: row.get(10)?,
-                feature_conditional_density: row.get(11)?,
-                feature_lifetime: row.get(12)?,
-                feature_churn_count: row.get(13)?,
-                scorer_version: row.get(14)?,
-                scored_at: row.get(15)?,
-            })
-        })?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| anyhow::anyhow!("query candidates: {}", e))?;
+        let results = stmt
+            .query_map([limit as i64], |row| {
+                Ok(SymbolScore {
+                    symbol_id: row.get(0)?,
+                    snapshot_id: row.get(1)?,
+                    stable_id: row.get(2)?,
+                    score: row.get(3)?,
+                    rank: row.get(4)?,
+                    feature_loc: row.get(5)?,
+                    feature_fan_in: row.get(6)?,
+                    feature_fan_out: row.get(7)?,
+                    feature_complexity: row.get(8)?,
+                    feature_cfg_block_count: row.get(9)?,
+                    feature_cfg_edge_count: row.get(10)?,
+                    feature_conditional_density: row.get(11)?,
+                    feature_lifetime: row.get(12)?,
+                    feature_churn_count: row.get(13)?,
+                    scorer_version: row.get(14)?,
+                    scored_at: row.get(15)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| anyhow::anyhow!("query candidates: {}", e))?;
 
         Ok(results)
     }
@@ -409,28 +412,29 @@ impl ScorerOps {
 
         let mut stmt = conn.prepare(&query)?;
 
-        let results = stmt.query_map(&*param_refs, |row| {
-            Ok(SymbolScore {
-                symbol_id: row.get(0)?,
-                snapshot_id: row.get(1)?,
-                stable_id: row.get(2)?,
-                score: row.get(3)?,
-                rank: row.get(4)?,
-                feature_loc: row.get(5)?,
-                feature_fan_in: row.get(6)?,
-                feature_fan_out: row.get(7)?,
-                feature_complexity: row.get(8)?,
-                feature_cfg_block_count: row.get(9)?,
-                feature_cfg_edge_count: row.get(10)?,
-                feature_conditional_density: row.get(11)?,
-                feature_lifetime: row.get(12)?,
-                feature_churn_count: row.get(13)?,
-                scorer_version: row.get(14)?,
-                scored_at: row.get(15)?,
-            })
-        })?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| anyhow::anyhow!("query candidates: {}", e))?;
+        let results = stmt
+            .query_map(&*param_refs, |row| {
+                Ok(SymbolScore {
+                    symbol_id: row.get(0)?,
+                    snapshot_id: row.get(1)?,
+                    stable_id: row.get(2)?,
+                    score: row.get(3)?,
+                    rank: row.get(4)?,
+                    feature_loc: row.get(5)?,
+                    feature_fan_in: row.get(6)?,
+                    feature_fan_out: row.get(7)?,
+                    feature_complexity: row.get(8)?,
+                    feature_cfg_block_count: row.get(9)?,
+                    feature_cfg_edge_count: row.get(10)?,
+                    feature_conditional_density: row.get(11)?,
+                    feature_lifetime: row.get(12)?,
+                    feature_churn_count: row.get(13)?,
+                    scorer_version: row.get(14)?,
+                    scored_at: row.get(15)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| anyhow::anyhow!("query candidates: {}", e))?;
 
         Ok(results)
     }

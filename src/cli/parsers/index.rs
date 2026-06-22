@@ -358,9 +358,9 @@ pub fn parse_export_args(args: &[String]) -> Result<Command> {
                 if i + 1 >= args.len() {
                     return Err(anyhow::anyhow!("--depth requires an argument"));
                 }
-                impact_depth = args[i + 1].parse().map_err(|_| {
-                    anyhow::anyhow!("--depth must be a number")
-                })?;
+                impact_depth = args[i + 1]
+                    .parse()
+                    .map_err(|_| anyhow::anyhow!("--depth must be a number"))?;
                 i += 2;
             }
             _ => {
@@ -621,7 +621,6 @@ pub fn parse_context_args(args: &[String]) -> Result<Command> {
     let subcommand = match subcommand_name {
         "build" => ContextSubcommand::Build,
         "summary" => {
-            let mut token_budget: Option<usize> = None;
             let mut detail: Option<String> = None;
             let mut concise = false;
 
@@ -633,15 +632,6 @@ pub fn parse_context_args(args: &[String]) -> Result<Command> {
                             return Err(anyhow::anyhow!("--db requires an argument"));
                         }
                         db_paths.extend(parse_db_paths(&args[i + 1])?);
-                        i += 2;
-                    }
-                    "--token-budget" => {
-                        if i + 1 >= args.len() {
-                            return Err(anyhow::anyhow!("--token-budget requires an argument"));
-                        }
-                        token_budget = Some(args[i + 1].parse().map_err(|_| {
-                            anyhow::anyhow!("--token-budget must be a positive integer")
-                        })?);
                         i += 2;
                     }
                     "--detail" => {
@@ -665,11 +655,7 @@ pub fn parse_context_args(args: &[String]) -> Result<Command> {
                 }
             }
 
-            ContextSubcommand::Summary {
-                token_budget,
-                detail,
-                concise,
-            }
+            ContextSubcommand::Summary { detail, concise }
         }
         "list" => {
             let mut kind: Option<String> = None;
@@ -767,9 +753,9 @@ pub fn parse_context_args(args: &[String]) -> Result<Command> {
             let mut with_source = false;
             let mut depth: Option<usize> = None;
             let mut project: Option<String> = None;
-            let mut token_budget: Option<usize> = None;
             let mut detail: Option<String> = None;
             let mut concise = false;
+            let mut tokens: Option<usize> = None;
 
             let mut i = 1;
             while i < args.len() {
@@ -831,15 +817,6 @@ pub fn parse_context_args(args: &[String]) -> Result<Command> {
                         project = Some(args[i + 1].clone());
                         i += 2;
                     }
-                    "--token-budget" => {
-                        if i + 1 >= args.len() {
-                            return Err(anyhow::anyhow!("--token-budget requires an argument"));
-                        }
-                        token_budget = Some(args[i + 1].parse().map_err(|_| {
-                            anyhow::anyhow!("--token-budget must be a positive integer")
-                        })?);
-                        i += 2;
-                    }
                     "--detail" => {
                         if i + 1 >= args.len() {
                             return Err(anyhow::anyhow!("--detail requires an argument"));
@@ -854,6 +831,16 @@ pub fn parse_context_args(args: &[String]) -> Result<Command> {
                     "--all" => {
                         all = true;
                         i += 1;
+                    }
+                    "--tokens" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--tokens requires an argument"));
+                        }
+                        tokens =
+                            Some(args[i + 1].parse().map_err(|_| {
+                                anyhow::anyhow!("--tokens must be a positive integer")
+                            })?);
+                        i += 2;
                     }
                     _ => {
                         return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
@@ -872,9 +859,9 @@ pub fn parse_context_args(args: &[String]) -> Result<Command> {
                 with_source,
                 depth,
                 project,
-                token_budget,
                 detail,
                 concise,
+                tokens,
             }
         }
         "file" => {
@@ -917,9 +904,9 @@ pub fn parse_context_args(args: &[String]) -> Result<Command> {
             let mut depth: usize = 3;
             let mut project: Option<String> = None;
             let mut output_format = OutputFormat::Human;
-            let mut token_budget: Option<usize> = None;
             let mut detail: Option<String> = None;
             let mut concise = false;
+            let mut tokens: Option<usize> = None;
 
             let mut i = 1;
             while i < args.len() {
@@ -968,15 +955,6 @@ pub fn parse_context_args(args: &[String]) -> Result<Command> {
                         output_format = parse_output_format(&args[i + 1])?;
                         i += 2;
                     }
-                    "--token-budget" => {
-                        if i + 1 >= args.len() {
-                            return Err(anyhow::anyhow!("--token-budget requires an argument"));
-                        }
-                        token_budget = Some(args[i + 1].parse().map_err(|_| {
-                            anyhow::anyhow!("--token-budget must be a positive integer")
-                        })?);
-                        i += 2;
-                    }
                     "--detail" => {
                         if i + 1 >= args.len() {
                             return Err(anyhow::anyhow!("--detail requires an argument"));
@@ -991,6 +969,16 @@ pub fn parse_context_args(args: &[String]) -> Result<Command> {
                     "--all" => {
                         all = true;
                         i += 1;
+                    }
+                    "--tokens" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--tokens requires an argument"));
+                        }
+                        tokens =
+                            Some(args[i + 1].parse().map_err(|_| {
+                                anyhow::anyhow!("--tokens must be a positive integer")
+                            })?);
+                        i += 2;
                     }
                     _ => {
                         return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
@@ -1006,9 +994,9 @@ pub fn parse_context_args(args: &[String]) -> Result<Command> {
                 depth,
                 project,
                 output_format,
-                token_budget,
                 detail,
                 concise,
+                tokens,
             }
         }
         "affected" => {
@@ -1017,9 +1005,9 @@ pub fn parse_context_args(args: &[String]) -> Result<Command> {
             let mut depth: usize = 3;
             let mut project: Option<String> = None;
             let mut output_format = OutputFormat::Human;
-            let mut token_budget: Option<usize> = None;
             let mut detail: Option<String> = None;
             let mut concise = false;
+            let mut tokens: Option<usize> = None;
 
             let mut i = 1;
             while i < args.len() {
@@ -1068,15 +1056,6 @@ pub fn parse_context_args(args: &[String]) -> Result<Command> {
                         output_format = parse_output_format(&args[i + 1])?;
                         i += 2;
                     }
-                    "--token-budget" => {
-                        if i + 1 >= args.len() {
-                            return Err(anyhow::anyhow!("--token-budget requires an argument"));
-                        }
-                        token_budget = Some(args[i + 1].parse().map_err(|_| {
-                            anyhow::anyhow!("--token-budget must be a positive integer")
-                        })?);
-                        i += 2;
-                    }
                     "--detail" => {
                         if i + 1 >= args.len() {
                             return Err(anyhow::anyhow!("--detail requires an argument"));
@@ -1092,6 +1071,16 @@ pub fn parse_context_args(args: &[String]) -> Result<Command> {
                         all = true;
                         i += 1;
                     }
+                    "--tokens" => {
+                        if i + 1 >= args.len() {
+                            return Err(anyhow::anyhow!("--tokens requires an argument"));
+                        }
+                        tokens =
+                            Some(args[i + 1].parse().map_err(|_| {
+                                anyhow::anyhow!("--tokens must be a positive integer")
+                            })?);
+                        i += 2;
+                    }
                     _ => {
                         return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
                     }
@@ -1106,9 +1095,9 @@ pub fn parse_context_args(args: &[String]) -> Result<Command> {
                 depth,
                 project,
                 output_format,
-                token_budget,
                 detail,
                 concise,
+                tokens,
             }
         }
         _ => {

@@ -41,7 +41,7 @@ pub fn run_context_build(db_paths: Vec<PathBuf>) -> Result<()> {
 /// Run the context summary command (multi-DB)
 pub fn run_context_summary(
     db_paths: Vec<PathBuf>,
-    token_budget: Option<usize>,
+    tokens: Option<usize>,
     detail: Option<String>,
     concise: bool,
 ) -> Result<()> {
@@ -59,7 +59,7 @@ pub fn run_context_summary(
     mdb.telemetry().record_phase_start(&exec_id, "output")?;
 
     let limits = OutputLimits::new(&detail, concise);
-    let output = prune_and_format_summary_response(summaries, &limits, token_budget)?;
+    let output = prune_and_format_summary_response(summaries, &limits, tokens)?;
     print!("{}", output);
 
     // End output phase
@@ -212,9 +212,9 @@ pub fn run_context_symbol(
     with_source: bool,
     depth: Option<usize>,
     project_filter: Option<String>,
-    token_budget: Option<usize>,
     detail: Option<String>,
     concise: bool,
+    tokens: Option<usize>,
 ) -> Result<()> {
     if db_paths.is_empty() {
         anyhow::bail!("No database paths provided. Use --db <path> to specify.");
@@ -287,7 +287,7 @@ pub fn run_context_symbol(
         &exec_id,
         output_format,
         &limits,
-        token_budget,
+        tokens,
     )?;
     println!("{}", output);
 
@@ -385,9 +385,9 @@ pub fn run_context_impact(
     depth: usize,
     project_filter: Option<String>,
     output_format: OutputFormat,
-    token_budget: Option<usize>,
     detail: Option<String>,
     concise: bool,
+    tokens: Option<usize>,
 ) -> Result<()> {
     if db_paths.is_empty() {
         anyhow::bail!("No database paths provided. Use --db <path> to specify.");
@@ -460,7 +460,7 @@ pub fn run_context_impact(
         &exec_id,
         output_format,
         &limits,
-        token_budget,
+        tokens,
     )?;
     println!("{}", output);
 
@@ -482,9 +482,9 @@ pub fn run_context_affected(
     depth: usize,
     project_filter: Option<String>,
     output_format: OutputFormat,
-    token_budget: Option<usize>,
     detail: Option<String>,
     concise: bool,
+    tokens: Option<usize>,
 ) -> Result<()> {
     if db_paths.is_empty() {
         anyhow::bail!("No database paths provided. Use --db <path> to specify.");
@@ -555,7 +555,7 @@ pub fn run_context_affected(
         &exec_id,
         output_format,
         &limits,
-        token_budget,
+        tokens,
     )?;
     println!("{}", output);
 
@@ -605,7 +605,7 @@ impl OutputLimits {
 fn prune_and_format_summary_response(
     mut summaries: Vec<(String, magellan::context::ProjectSummary)>,
     limits: &OutputLimits,
-    token_budget: Option<usize>,
+    tokens: Option<usize>,
 ) -> Result<String> {
     let mut is_partial = false;
 
@@ -618,36 +618,41 @@ fn prune_and_format_summary_response(
     }
 
     // 2. Token budget check and iterative pruning if needed
-    if let Some(budget) = token_budget {
-        let char_limit = budget * 4;
-        let mut entry_points_limit = limits.max_items;
+    if let Some(token_limit) = tokens {
+        if token_limit > 0 {
+            let char_limit = token_limit * 4;
+            let mut entry_points_limit = limits.max_items;
 
-        loop {
-            let formatted = format_summary_response(&summaries, is_partial)?;
-            if formatted.len() <= char_limit {
-                return Ok(formatted);
-            }
-
-            is_partial = true;
-
-            if entry_points_limit > 0 {
-                entry_points_limit = if entry_points_limit > 2 {
-                    entry_points_limit / 2
-                } else {
-                    0
-                };
-                for (_, summary) in &mut summaries {
-                    if summary.entry_points.len() > entry_points_limit {
-                        summary.entry_points.truncate(entry_points_limit);
-                    }
+            loop {
+                let formatted = format_summary_response(&summaries, is_partial)?;
+                if formatted.len() <= char_limit {
+                    return Ok(formatted);
                 }
-            } else {
-                let mut truncated = formatted;
-                truncated.truncate(char_limit.saturating_sub(60));
-                truncated.push_str("\n... [Output truncated due to --token-budget]");
-                return Ok(truncated);
+
+                is_partial = true;
+
+                if entry_points_limit > 0 {
+                    entry_points_limit = if entry_points_limit > 2 {
+                        entry_points_limit / 2
+                    } else {
+                        0
+                    };
+                    for (_, summary) in &mut summaries {
+                        if summary.entry_points.len() > entry_points_limit {
+                            summary.entry_points.truncate(entry_points_limit);
+                        }
+                    }
+                } else {
+                    let mut truncated = formatted;
+                    truncated.truncate(char_limit.saturating_sub(60));
+                    truncated.push_str("\n... [Output truncated due to --token-budget]");
+                    return Ok(truncated);
+                }
             }
         }
+    } else {
+        // token_limit is 0, no limit
+        return format_summary_response(&summaries, is_partial);
     }
 
     format_summary_response(&summaries, is_partial)
@@ -697,7 +702,7 @@ fn prune_and_format_symbol_response(
     exec_id: &str,
     output_format: OutputFormat,
     limits: &OutputLimits,
-    token_budget: Option<usize>,
+    tokens: Option<usize>,
 ) -> Result<String> {
     let mut is_partial = false;
 
@@ -731,74 +736,80 @@ fn prune_and_format_symbol_response(
     }
 
     // 2. Token budget check and iterative pruning if needed
-    if let Some(budget) = token_budget {
-        let char_limit = budget * 4;
-        let mut source_limit = limits.max_source_lines;
-        let mut callers_limit = limits.max_callers;
-        let mut matches_limit = response.matches.len();
+    if let Some(token_limit) = tokens {
+        if token_limit > 0 {
+            let char_limit = token_limit * 4;
+            let mut source_limit = limits.max_source_lines;
+            let mut callers_limit = limits.max_callers;
+            let mut matches_limit = response.matches.len();
 
-        loop {
-            let formatted = format_symbol_response(&response, exec_id, output_format, is_partial)?;
-            if formatted.len() <= char_limit {
-                return Ok(formatted);
-            }
-
-            is_partial = true;
-
-            if source_limit > 0 {
-                source_limit = if source_limit > 5 {
-                    source_limit / 2
-                } else {
-                    0
-                };
-                for m in &mut response.matches {
-                    if let Some(ref mut source) = m.source {
-                        let lines: Vec<&str> = source.lines().collect();
-                        if lines.len() > source_limit {
-                            if source_limit == 0 {
-                                m.source = None;
-                            } else {
-                                m.source = Some(lines[..source_limit].join("\n"));
-                            }
-                        }
-                    }
+            loop {
+                let formatted =
+                    format_symbol_response(&response, exec_id, output_format, is_partial)?;
+                if formatted.len() <= char_limit {
+                    return Ok(formatted);
                 }
-            } else if callers_limit > 0 {
-                callers_limit = if callers_limit > 2 {
-                    callers_limit / 2
+
+                is_partial = true;
+
+                if source_limit > 0 {
+                    source_limit = if source_limit > 5 {
+                        source_limit / 2
+                    } else {
+                        0
+                    };
+                    for m in &mut response.matches {
+                        if let Some(ref mut source) = m.source {
+                            let lines: Vec<&str> = source.lines().collect();
+                            if lines.len() > source_limit {
+                                if source_limit == 0 {
+                                    m.source = None;
+                                } else {
+                                    m.source = Some(lines[..source_limit].join("\n"));
+                                }
+                            }
+                        }
+                    }
+                } else if callers_limit > 0 {
+                    callers_limit = if callers_limit > 2 {
+                        callers_limit / 2
+                    } else {
+                        0
+                    };
+                    for m in &mut response.matches {
+                        if let Some(ref mut callers) = m.callers {
+                            if callers.len() > callers_limit {
+                                if callers_limit == 0 {
+                                    m.callers = None;
+                                } else {
+                                    callers.truncate(callers_limit);
+                                }
+                            }
+                        }
+                        if let Some(ref mut callees) = m.callees {
+                            if callees.len() > callers_limit {
+                                if callers_limit == 0 {
+                                    m.callees = None;
+                                } else {
+                                    callees.truncate(callers_limit);
+                                }
+                            }
+                        }
+                    }
+                } else if matches_limit > 1 {
+                    matches_limit -= 1;
+                    response.matches.truncate(matches_limit);
                 } else {
-                    0
-                };
-                for m in &mut response.matches {
-                    if let Some(ref mut callers) = m.callers {
-                        if callers.len() > callers_limit {
-                            if callers_limit == 0 {
-                                m.callers = None;
-                            } else {
-                                callers.truncate(callers_limit);
-                            }
-                        }
-                    }
-                    if let Some(ref mut callees) = m.callees {
-                        if callees.len() > callers_limit {
-                            if callers_limit == 0 {
-                                m.callees = None;
-                            } else {
-                                callees.truncate(callers_limit);
-                            }
-                        }
-                    }
+                    let mut truncated = formatted;
+                    truncated.truncate(char_limit.saturating_sub(60));
+                    truncated.push_str("\n... [Output truncated due to --token-budget]");
+                    return Ok(truncated);
                 }
-            } else if matches_limit > 1 {
-                matches_limit -= 1;
-                response.matches.truncate(matches_limit);
-            } else {
-                let mut truncated = formatted;
-                truncated.truncate(char_limit.saturating_sub(60));
-                truncated.push_str("\n... [Output truncated due to --token-budget]");
-                return Ok(truncated);
             }
         }
+    } else {
+        // token_limit is 0, no limit
+        return format_symbol_response(&response, exec_id, output_format, is_partial);
     }
 
     format_symbol_response(&response, exec_id, output_format, is_partial)
@@ -895,7 +906,7 @@ fn prune_and_format_relation_response(
     exec_id: &str,
     output_format: OutputFormat,
     limits: &OutputLimits,
-    token_budget: Option<usize>,
+    tokens: Option<usize>,
 ) -> Result<String> {
     let mut is_partial = false;
 
@@ -906,36 +917,49 @@ fn prune_and_format_relation_response(
     }
 
     // 2. Token budget check and iterative pruning if needed
-    if let Some(budget) = token_budget {
-        let char_limit = budget * 4;
-        let mut relations_limit = all_relations.len();
+    if let Some(token_limit) = tokens {
+        if token_limit > 0 {
+            let char_limit = token_limit * 4;
+            let mut relations_limit = all_relations.len();
 
-        loop {
-            let formatted = format_relation_response(
-                command_name,
-                target,
-                depth_limit,
-                &all_relations,
-                exec_id,
-                output_format,
-                is_partial,
-            )?;
-            if formatted.len() <= char_limit {
-                return Ok(formatted);
-            }
+            loop {
+                let formatted = format_relation_response(
+                    command_name,
+                    target,
+                    depth_limit,
+                    &all_relations,
+                    exec_id,
+                    output_format,
+                    is_partial,
+                )?;
+                if formatted.len() <= char_limit {
+                    return Ok(formatted);
+                }
 
-            is_partial = true;
+                is_partial = true;
 
-            if relations_limit > 1 {
-                relations_limit -= 1;
-                all_relations.truncate(relations_limit);
-            } else {
-                let mut truncated = formatted;
-                truncated.truncate(char_limit.saturating_sub(60));
-                truncated.push_str("\n... [Output truncated due to --token-budget]");
-                return Ok(truncated);
+                if relations_limit > 1 {
+                    relations_limit -= 1;
+                    all_relations.truncate(relations_limit);
+                } else {
+                    let mut truncated = formatted;
+                    truncated.truncate(char_limit.saturating_sub(60));
+                    truncated.push_str("\n... [Output truncated due to --token-budget]");
+                    return Ok(truncated);
+                }
             }
         }
+    } else {
+        // token_limit is 0, no limit
+        return format_relation_response(
+            command_name,
+            target,
+            depth_limit,
+            &all_relations,
+            exec_id,
+            output_format,
+            is_partial,
+        );
     }
 
     format_relation_response(

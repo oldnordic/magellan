@@ -71,7 +71,6 @@ pub enum ContextSubcommand {
     Build,
     /// Show project summary
     Summary {
-        token_budget: Option<usize>,
         detail: Option<String>,
         concise: bool,
     },
@@ -94,9 +93,9 @@ pub enum ContextSubcommand {
         with_source: bool,
         depth: Option<usize>,
         project: Option<String>,
-        token_budget: Option<usize>,
         detail: Option<String>,
         concise: bool,
+        tokens: Option<usize>,
     },
     /// Show file context
     File { path: String },
@@ -107,9 +106,9 @@ pub enum ContextSubcommand {
         depth: usize,
         project: Option<String>,
         output_format: OutputFormat,
-        token_budget: Option<usize>,
         detail: Option<String>,
         concise: bool,
+        tokens: Option<usize>,
     },
     /// Affected analysis — what the symbol transitively calls
     Affected {
@@ -118,9 +117,9 @@ pub enum ContextSubcommand {
         depth: usize,
         project: Option<String>,
         output_format: OutputFormat,
-        token_budget: Option<usize>,
         detail: Option<String>,
         concise: bool,
+        tokens: Option<usize>,
     },
 }
 
@@ -287,6 +286,7 @@ pub enum Command {
         with_checksums: bool,
         context_lines: usize,
         all: bool,
+        tokens: Option<usize>,
     },
     Get {
         db_path: PathBuf,
@@ -530,6 +530,7 @@ pub enum Command {
         concise: bool,
         with_llmgrep: bool,
         with_mirage: bool,
+        tokens: Option<usize>,
     },
     /// Explore — stepable graph navigation (SymbolNavigator)
     Explore {

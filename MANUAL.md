@@ -1,6 +1,6 @@
 # Magellan Manual
 
-**Version:** 4.9.1
+**Version:** 4.11.0
 
 This manual documents the current user-facing Magellan CLI. The supported normal
 workflow uses a SQLite `.db` database.
@@ -629,6 +629,7 @@ farther-away symbols get worse scores.
 | `--k <N>` | 10 | How many vector results to find. When `--hops > 0`, total results can exceed `k`. |
 | `--hops <N>` | 0 | Graph expansion depth. 0 = off, 1 = direct neighbors, 2 = neighbors of neighbors. |
 | `--output human\|json\|pretty` | human | Output format. `json` is useful for piping to `jq` or scripts. |
+| `--tokens <N>` | 0 (unlimited) | Limit output to ~N tokens (chars/4 heuristic). Preserves symbol names, truncates context first. `0` or absent = no limit. JSON includes `tokens_estimated` and `truncated` metadata fields. |
 
 #### JSON output
 

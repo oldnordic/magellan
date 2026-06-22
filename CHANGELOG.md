@@ -5,6 +5,26 @@ Project adheres to [Semantic Versioning](https://semverver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [4.11.0] - 2026-06-22
+
+### Added
+
+- **Token budget feature** (`--tokens N` flag):
+  - Added `--tokens N` flag to `navigate`, `context`, and `refs` commands
+  - `--tokens 0` or absent flag = no limit (backward compatible default)
+  - Token estimation using `chars / 4` heuristic
+  - Domain-specific truncation: preserve symbol names, truncate file locations first
+  - Iterative halving in `refs` command to fit within token budget
+  - JSON metadata: `tokens_estimated` and `truncated` fields in JsonResponse
+  - Commands supported:
+    * `navigate --tokens N` - token-aware navigation output
+    * `context symbol --tokens N` - token-aware symbol context
+    * `context impact --tokens N` - token-aware impact analysis
+    * `context affected --tokens N` - token-aware affected symbols
+    * `refs --tokens N` - token-aware reference search
+  - Implementation in `src/navigate_cmd.rs`, `src/context_cmd.rs`, `src/refs_cmd.rs`
+  - JsonResponse extended in `src/output/command.rs`
+
 ## [4.10.0] - 2026-06-22
 
 ### Changed

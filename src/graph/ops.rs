@@ -406,13 +406,15 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
                     .iter()
                     .find(|(_, _, start, end)| func_start >= *start && func_end <= *end)
                 {
-                    let _ = graph.cfg_ops.index_cfg_from_node(&func_node, source, *entity_id);
-                }
+                    let _ = graph
+                        .cfg_ops
+                        .index_cfg_from_node(&func_node, source, *entity_id);
                 }
             }
         }
+    }
 
-        // CFG extraction failure doesn't block indexing
+    // CFG extraction failure doesn't block indexing
 
     // Step 6: Index calls (all supported languages)
     // Use pre-parsed tree to avoid redundant parsing

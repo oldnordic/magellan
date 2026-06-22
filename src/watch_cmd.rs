@@ -189,7 +189,8 @@ pub fn run_watch(
     let _ = magellan::ingest::pool::warmup_parsers();
 
     // Create pipeline configuration
-    let pipeline_config = WatchPipelineConfig::new(root_path, db_path.clone(), config, scan_initial);
+    let pipeline_config =
+        WatchPipelineConfig::new(root_path, db_path.clone(), config, scan_initial);
 
     // Run the deterministic watch pipeline
     let result = magellan::run_watch_pipeline(pipeline_config, shutdown);

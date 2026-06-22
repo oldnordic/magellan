@@ -31,8 +31,8 @@
 //! The `MirCfgResult`, `CfgBlock`, and `CfgEdge` types are preserved
 //! for the RUSTC_WRAPPER implementation.
 
-use crate::graph::schema::CfgBlock;
 use crate::graph::cfg_edges_extract::{CfgEdge, CfgEdgeType};
+use crate::graph::schema::CfgBlock;
 
 /// MIR extraction result with CFG blocks and edges
 ///

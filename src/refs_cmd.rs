@@ -81,6 +81,7 @@ pub fn run_refs(
     with_checksums: bool,
     context_lines: usize,
     all: bool,
+    tokens: Option<usize>,
 ) -> Result<()> {
     if all {
         return run_refs_all(
@@ -201,6 +202,7 @@ pub fn run_refs(
                             with_semantics,
                             with_checksums,
                             context_lines,
+                            tokens,
                         );
                     }
 
@@ -396,6 +398,7 @@ pub fn run_refs(
             with_semantics,
             with_checksums,
             context_lines,
+            tokens,
         );
     }
 
@@ -458,6 +461,7 @@ fn output_json_mode(
     with_semantics: bool,
     with_checksums: bool,
     context_lines: usize,
+    tokens: Option<usize>,
 ) -> Result<()> {
     // Sort deterministically: by file_path, byte_start
     calls.sort_by(|a, b| {
@@ -466,67 +470,294 @@ fn output_json_mode(
             .then_with(|| a.byte_start.cmp(&b.byte_start))
     });
 
-    // Convert CallFact to ReferenceMatch
-    // Use symbol_id from CallFact directly (populated during indexing)
-    let references: Vec<ReferenceMatch> = calls
-        .into_iter()
-        .map(|call| {
-            let mut span = Span::new(
-                call.file_path.to_string_lossy().to_string(),
-                call.byte_start,
-                call.byte_end,
-                call.start_line,
-                call.start_col,
-                call.end_line,
-                call.end_col,
-            );
+    // Apply token budget if specified
+    let (references, was_truncated) = if let Some(token_limit) = tokens {
+        if token_limit > 0 {
+            // Estimate current output size and truncate if needed
+            let mut temp_calls = calls.clone();
 
-            // Add context if requested
-            if with_context {
-                if let Some(context) = SpanContext::extract(
-                    call.file_path.to_string_lossy().as_ref(),
-                    call.start_line,
-                    call.end_line,
-                    context_lines,
-                ) {
-                    span = span.with_context(context);
+            loop {
+                // Convert temp_calls to ReferenceMatch to estimate size
+                let temp_references: Vec<ReferenceMatch> = temp_calls
+                    .iter()
+                    .map(|call| {
+                        let mut span = Span::new(
+                            call.file_path.to_string_lossy().to_string(),
+                            call.byte_start,
+                            call.byte_end,
+                            call.start_line,
+                            call.start_col,
+                            call.end_line,
+                            call.end_col,
+                        );
+
+                        // Add context if requested
+                        if with_context {
+                            if let Some(context) = SpanContext::extract(
+                                call.file_path.to_string_lossy().as_ref(),
+                                call.start_line,
+                                call.end_line,
+                                context_lines,
+                            ) {
+                                span = span.with_context(context);
+                            }
+                        }
+
+                        // Add semantics if requested
+                        if with_semantics {
+                            let kind = "call".to_string();
+                            let language = detect_language_from_path(
+                                call.file_path.to_string_lossy().as_ref(),
+                            );
+                            span = span.with_semantics_from(kind, language);
+                        }
+
+                        // Add checksums if requested
+                        if with_checksums {
+                            let checksums = SpanChecksums::compute(
+                                call.file_path.to_string_lossy().as_ref(),
+                                call.byte_start,
+                                call.byte_end,
+                            );
+                            span = span.with_checksums(checksums);
+                        }
+
+                        let (referenced_symbol, target_symbol_id) =
+                            if direction == "in" || direction == "incoming" {
+                                (call.caller.clone(), call.caller_symbol_id.clone())
+                            } else {
+                                (call.callee.clone(), call.callee_symbol_id.clone())
+                            };
+
+                        ReferenceMatch::new(
+                            span,
+                            referenced_symbol,
+                            Some("call".to_string()),
+                            target_symbol_id,
+                        )
+                    })
+                    .collect();
+
+                // Create a test response to check token count
+                let test_response = RefsResponse {
+                    references: temp_references.clone(),
+                    symbol_name: symbol_name.to_string(),
+                    file_path: file_path.to_string(),
+                    direction: direction.to_string(),
+                };
+                let test_json = serde_json::to_string(&test_response).unwrap_or_default();
+                let tokens_est = test_json.len() / 4;
+
+                if tokens_est <= token_limit {
+                    break;
+                } else {
+                    // Need to truncate - try reducing calls
+                    if temp_calls.len() > 1 {
+                        temp_calls = temp_calls
+                            .iter()
+                            .cloned()
+                            .take(temp_calls.len() / 2)
+                            .collect();
+                    } else {
+                        temp_calls.clear();
+                    }
+                    if temp_calls.is_empty() {
+                        break;
+                    }
                 }
             }
 
-            // Add semantics if requested
-            if with_semantics {
-                let kind = "call".to_string();
-                let language = detect_language_from_path(call.file_path.to_string_lossy().as_ref());
-                span = span.with_semantics_from(kind, language);
-            }
+            // Convert final calls to ReferenceMatch
+            let final_references: Vec<ReferenceMatch> = calls
+                .into_iter()
+                .take(temp_calls.len())
+                .map(|call| {
+                    let mut span = Span::new(
+                        call.file_path.to_string_lossy().to_string(),
+                        call.byte_start,
+                        call.byte_end,
+                        call.start_line,
+                        call.start_col,
+                        call.end_line,
+                        call.end_col,
+                    );
 
-            // Add checksums if requested
-            if with_checksums {
-                let checksums = SpanChecksums::compute(
-                    call.file_path.to_string_lossy().as_ref(),
-                    call.byte_start,
-                    call.byte_end,
-                );
-                span = span.with_checksums(checksums);
-            }
+                    // Add context if requested
+                    if with_context {
+                        if let Some(context) = SpanContext::extract(
+                            call.file_path.to_string_lossy().as_ref(),
+                            call.start_line,
+                            call.end_line,
+                            context_lines,
+                        ) {
+                            span = span.with_context(context);
+                        }
+                    }
 
-            // For "in" direction, referenced_symbol is the caller
-            // For "out" direction, referenced_symbol is the callee
-            let (referenced_symbol, target_symbol_id) =
-                if direction == "in" || direction == "incoming" {
-                    (call.caller.clone(), call.caller_symbol_id)
-                } else {
-                    (call.callee.clone(), call.callee_symbol_id)
-                };
+                    // Add semantics if requested
+                    if with_semantics {
+                        let kind = "call".to_string();
+                        let language =
+                            detect_language_from_path(call.file_path.to_string_lossy().as_ref());
+                        span = span.with_semantics_from(kind, language);
+                    }
 
-            ReferenceMatch::new(
-                span,
-                referenced_symbol,
-                Some("call".to_string()),
-                target_symbol_id,
+                    // Add checksums if requested
+                    if with_checksums {
+                        let checksums = SpanChecksums::compute(
+                            call.file_path.to_string_lossy().as_ref(),
+                            call.byte_start,
+                            call.byte_end,
+                        );
+                        span = span.with_checksums(checksums);
+                    }
+
+                    let (referenced_symbol, target_symbol_id) =
+                        if direction == "in" || direction == "incoming" {
+                            (call.caller.clone(), call.caller_symbol_id)
+                        } else {
+                            (call.callee.clone(), call.callee_symbol_id)
+                        };
+
+                    ReferenceMatch::new(
+                        span,
+                        referenced_symbol,
+                        Some("call".to_string()),
+                        target_symbol_id,
+                    )
+                })
+                .collect();
+
+            (final_references, true)
+        } else {
+            // token_limit is 0, no limit
+            (
+                calls
+                    .into_iter()
+                    .map(|call| {
+                        let mut span = Span::new(
+                            call.file_path.to_string_lossy().to_string(),
+                            call.byte_start,
+                            call.byte_end,
+                            call.start_line,
+                            call.start_col,
+                            call.end_line,
+                            call.end_col,
+                        );
+
+                        // Add context if requested
+                        if with_context {
+                            if let Some(context) = SpanContext::extract(
+                                call.file_path.to_string_lossy().as_ref(),
+                                call.start_line,
+                                call.end_line,
+                                context_lines,
+                            ) {
+                                span = span.with_context(context);
+                            }
+                        }
+
+                        // Add semantics if requested
+                        if with_semantics {
+                            let kind = "call".to_string();
+                            let language = detect_language_from_path(
+                                call.file_path.to_string_lossy().as_ref(),
+                            );
+                            span = span.with_semantics_from(kind, language);
+                        }
+
+                        // Add checksums if requested
+                        if with_checksums {
+                            let checksums = SpanChecksums::compute(
+                                call.file_path.to_string_lossy().as_ref(),
+                                call.byte_start,
+                                call.byte_end,
+                            );
+                            span = span.with_checksums(checksums);
+                        }
+
+                        let (referenced_symbol, target_symbol_id) =
+                            if direction == "in" || direction == "incoming" {
+                                (call.caller.clone(), call.caller_symbol_id)
+                            } else {
+                                (call.callee.clone(), call.callee_symbol_id)
+                            };
+
+                        ReferenceMatch::new(
+                            span,
+                            referenced_symbol,
+                            Some("call".to_string()),
+                            target_symbol_id,
+                        )
+                    })
+                    .collect(),
+                false,
             )
-        })
-        .collect();
+        }
+    } else {
+        // No token limit, use all calls
+        (
+            calls
+                .into_iter()
+                .map(|call| {
+                    let mut span = Span::new(
+                        call.file_path.to_string_lossy().to_string(),
+                        call.byte_start,
+                        call.byte_end,
+                        call.start_line,
+                        call.start_col,
+                        call.end_line,
+                        call.end_col,
+                    );
+
+                    // Add context if requested
+                    if with_context {
+                        if let Some(context) = SpanContext::extract(
+                            call.file_path.to_string_lossy().as_ref(),
+                            call.start_line,
+                            call.end_line,
+                            context_lines,
+                        ) {
+                            span = span.with_context(context);
+                        }
+                    }
+
+                    // Add semantics if requested
+                    if with_semantics {
+                        let kind = "call".to_string();
+                        let language =
+                            detect_language_from_path(call.file_path.to_string_lossy().as_ref());
+                        span = span.with_semantics_from(kind, language);
+                    }
+
+                    // Add checksums if requested
+                    if with_checksums {
+                        let checksums = SpanChecksums::compute(
+                            call.file_path.to_string_lossy().as_ref(),
+                            call.byte_start,
+                            call.byte_end,
+                        );
+                        span = span.with_checksums(checksums);
+                    }
+
+                    let (referenced_symbol, target_symbol_id) =
+                        if direction == "in" || direction == "incoming" {
+                            (call.caller.clone(), call.caller_symbol_id)
+                        } else {
+                            (call.callee.clone(), call.callee_symbol_id)
+                        };
+
+                    ReferenceMatch::new(
+                        span,
+                        referenced_symbol,
+                        Some("call".to_string()),
+                        target_symbol_id,
+                    )
+                })
+                .collect(),
+            false,
+        )
+    };
 
     let response = RefsResponse {
         references,
@@ -535,7 +766,20 @@ fn output_json_mode(
         direction: direction.to_string(),
     };
 
-    let json_response = JsonResponse::new(response, exec_id);
+    let tokens_estimated = if let Some(_) = tokens {
+        let json = serde_json::to_string(&response).unwrap_or_default();
+        Some(json.len() / 4)
+    } else {
+        None
+    };
+
+    let mut json_response = JsonResponse::new(response, exec_id);
+    if let Some(est) = tokens_estimated {
+        json_response = json_response.with_tokens(est);
+    }
+    if was_truncated {
+        json_response = json_response.with_truncated(true);
+    }
     output_json(&json_response, output_format)?;
 
     Ok(())

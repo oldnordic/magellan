@@ -324,6 +324,7 @@ pub fn parse_refs_args(args: &[String]) -> Result<Command> {
     let mut with_checksums = false;
     let mut context_lines = 3;
     let mut all = false;
+    let mut tokens: Option<usize> = None;
 
     let mut i = 0;
     while i < args.len() {
@@ -420,6 +421,17 @@ pub fn parse_refs_args(args: &[String]) -> Result<Command> {
                 all = true;
                 i += 1;
             }
+            "--tokens" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--tokens requires an argument"));
+                }
+                tokens = Some(
+                    args[i + 1]
+                        .parse()
+                        .map_err(|_| anyhow::anyhow!("--tokens must be a positive integer"))?,
+                );
+                i += 2;
+            }
             _ => return Err(anyhow::anyhow!("Unknown argument: {}", args[i])),
         }
     }
@@ -445,6 +457,7 @@ pub fn parse_refs_args(args: &[String]) -> Result<Command> {
         with_checksums,
         context_lines,
         all,
+        tokens,
     })
 }
 

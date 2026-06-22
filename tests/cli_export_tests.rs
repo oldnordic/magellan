@@ -61,13 +61,25 @@ fn distance(p1: &Point, p2: &Point) -> i32 {
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     // Debug: print what we got
-    eprintln!("DEBUG test_export_json_basic: stdout length = {}", stdout.len());
-    eprintln!("DEBUG test_export_json_basic: stderr length = {}", stderr.len());
+    eprintln!(
+        "DEBUG test_export_json_basic: stdout length = {}",
+        stdout.len()
+    );
+    eprintln!(
+        "DEBUG test_export_json_basic: stderr length = {}",
+        stderr.len()
+    );
     if !stdout.is_empty() {
-        eprintln!("DEBUG test_export_json_basic: stdout preview = {}", &stdout.chars().take(200).collect::<String>());
+        eprintln!(
+            "DEBUG test_export_json_basic: stdout preview = {}",
+            &stdout.chars().take(200).collect::<String>()
+        );
     }
     if !stderr.is_empty() {
-        eprintln!("DEBUG test_export_json_basic: stderr preview = {}", &stderr.chars().take(200).collect::<String>());
+        eprintln!(
+            "DEBUG test_export_json_basic: stderr preview = {}",
+            &stderr.chars().take(200).collect::<String>()
+        );
     }
 
     assert!(

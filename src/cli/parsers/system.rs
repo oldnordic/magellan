@@ -466,7 +466,6 @@ pub fn parse_install_hook_args(args: &[String]) -> Result<Command> {
     Ok(Command::InstallHook { threshold, strict })
 }
 
-
 /// Convenience wrapper around `parse_args_impl` that uses the version module
 pub fn parse_args() -> Result<Command> {
     parse_args_impl(|| {

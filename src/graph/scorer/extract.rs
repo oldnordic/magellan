@@ -7,9 +7,9 @@
 //! - Derived features (conditional_density, etc.)
 
 use anyhow::Result;
+use parking_lot::Mutex;
 use rusqlite::{params, OptionalExtension};
 use std::sync::Arc;
-use parking_lot::Mutex;
 
 /// Feature set for a single symbol
 ///
@@ -165,12 +165,8 @@ impl FeatureExtractor {
 
         // If no temporal data exists, use most recent repo snapshot (avoid FK violation)
         let snapshot_id = if snapshot_id == 0 {
-            conn.query_row(
-                "SELECT MAX(id) FROM repo_snapshots",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap_or(0)
+            conn.query_row("SELECT MAX(id) FROM repo_snapshots", [], |row| row.get(0))
+                .unwrap_or(0)
         } else {
             snapshot_id
         };
@@ -201,7 +197,10 @@ impl FeatureExtractor {
             match self.extract_for_symbol(symbol_id) {
                 Ok(features) => results.push(features),
                 Err(e) => {
-                    eprintln!("Warning: Failed to extract features for symbol {}: {}", symbol_id, e);
+                    eprintln!(
+                        "Warning: Failed to extract features for symbol {}: {}",
+                        symbol_id, e
+                    );
                 }
             }
         }
@@ -215,8 +214,10 @@ impl FeatureExtractor {
 
         // Only select symbol_ids that exist in graph_entities (foreign key constraint)
         let symbol_ids: Vec<i64> = conn
-            .prepare("SELECT sm.symbol_id FROM symbol_metrics sm
-                     INNER JOIN graph_entities ge ON sm.symbol_id = ge.id")?
+            .prepare(
+                "SELECT sm.symbol_id FROM symbol_metrics sm
+                     INNER JOIN graph_entities ge ON sm.symbol_id = ge.id",
+            )?
             .query_map([], |row| row.get(0))?
             .collect::<Result<Vec<_>, _>>()?;
 

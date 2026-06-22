@@ -11,7 +11,7 @@
 
 use anyhow::{Context, Result};
 
-use magellan::graph::scorer::{ScorerOps, ScoreFilters};
+use magellan::graph::scorer::{ScoreFilters, ScorerOps};
 
 /// Run the score command
 ///
@@ -44,22 +44,24 @@ pub fn run_score(
 
     if should_score_all {
         // Score all symbols
-        let summary = ops.score_all()
-            .map_err(|e| {
-                let mut msg = format!("Detailed error: {}", e);
-                for cause in e.chain() {
-                    msg.push_str(&format!("\n  caused by: {}", cause));
-                }
-                eprintln!("{}", msg);
-                anyhow::anyhow!("Failed to score all symbols")
-            })?;
+        let summary = ops.score_all().map_err(|e| {
+            let mut msg = format!("Detailed error: {}", e);
+            for cause in e.chain() {
+                msg.push_str(&format!("\n  caused by: {}", cause));
+            }
+            eprintln!("{}", msg);
+            anyhow::anyhow!("Failed to score all symbols")
+        })?;
 
         match output_format {
             magellan::OutputFormat::Json => {
                 println!("{}", serde_json::to_string_pretty(&summary)?);
             }
             magellan::OutputFormat::Human | magellan::OutputFormat::Pretty => {
-                println!("Scored {} symbols in {:?}", summary.symbols_scored, summary.duration);
+                println!(
+                    "Scored {} symbols in {:?}",
+                    summary.symbols_scored, summary.duration
+                );
                 println!("Scorer version: {}", summary.scorer_version);
                 println!("Run ID: {}", summary.id);
 
@@ -89,7 +91,8 @@ pub fn run_score(
             limit: top,
         };
 
-        let candidates = ops.query_candidates(&filters)
+        let candidates = ops
+            .query_candidates(&filters)
             .with_context(|| "Failed to query candidates")?;
 
         match output_format {
@@ -108,20 +111,22 @@ pub fn run_score(
                         candidate.stable_id,
                         candidate.score
                     );
-                    println!("   LOC: {}, fan_in: {}, fan_out: {}, complexity: {}",
+                    println!(
+                        "   LOC: {}, fan_in: {}, fan_out: {}, complexity: {}",
                         candidate.feature_loc,
                         candidate.feature_fan_in,
                         candidate.feature_fan_out,
                         candidate.feature_complexity
                     );
-                    println!("   CFG blocks: {}, CFG edges: {}, conditional_density: {:.2}",
+                    println!(
+                        "   CFG blocks: {}, CFG edges: {}, conditional_density: {:.2}",
                         candidate.feature_cfg_block_count,
                         candidate.feature_cfg_edge_count,
                         candidate.feature_conditional_density
                     );
-                    println!("   Lifetime: {}, churn: {}",
-                        candidate.feature_lifetime,
-                        candidate.feature_churn_count
+                    println!(
+                        "   Lifetime: {}, churn: {}",
+                        candidate.feature_lifetime, candidate.feature_churn_count
                     );
                     println!();
                 }

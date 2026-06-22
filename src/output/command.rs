@@ -161,6 +161,12 @@ pub struct JsonResponse<T> {
     /// Whether the response is partial (e.g., truncated)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub partial: Option<bool>,
+    /// Estimated token count (chars / 4 heuristic)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tokens_estimated: Option<usize>,
+    /// Whether output was truncated to fit token budget
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub truncated: Option<bool>,
 }
 
 impl<T> JsonResponse<T> {
@@ -173,12 +179,26 @@ impl<T> JsonResponse<T> {
             timestamp: Some(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
             data,
             partial: None,
+            tokens_estimated: None,
+            truncated: None,
         }
     }
 
     /// Mark the response as partial
     pub fn with_partial(mut self, partial: bool) -> Self {
         self.partial = Some(partial);
+        self
+    }
+
+    /// Set estimated token count
+    pub fn with_tokens(mut self, tokens: usize) -> Self {
+        self.tokens_estimated = Some(tokens);
+        self
+    }
+
+    /// Mark the response as truncated
+    pub fn with_truncated(mut self, truncated: bool) -> Self {
+        self.truncated = Some(truncated);
         self
     }
 }

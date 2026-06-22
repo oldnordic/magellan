@@ -61,9 +61,7 @@ pub fn parse_score_args(args: &[String]) -> Result<Command> {
         }
     }
 
-    let db = db.ok_or_else(|| {
-        anyhow::anyhow!("score command requires --db <path>")
-    })?;
+    let db = db.ok_or_else(|| anyhow::anyhow!("score command requires --db <path>"))?;
 
     Ok(Command::Score {
         db: db.into(),

@@ -63,8 +63,8 @@ mod ops;
 pub mod query;
 mod references;
 pub mod scan;
-pub mod scorer;
 pub mod schema;
+pub mod scorer;
 pub mod search;
 pub mod side_tables;
 mod symbol_index;
@@ -374,10 +374,16 @@ impl CodeGraph {
             for start_id in &initial_ids {
                 let seed_score = hit_scores[start_id].0;
                 let callers = sg.query().k_hop_filtered(
-                    *start_id, hops, BackendDirection::Incoming, &["CALLER"],
+                    *start_id,
+                    hops,
+                    BackendDirection::Incoming,
+                    &["CALLER"],
                 );
                 let callees = sg.query().k_hop_filtered(
-                    *start_id, hops, BackendDirection::Outgoing, &["CALLS"],
+                    *start_id,
+                    hops,
+                    BackendDirection::Outgoing,
+                    &["CALLS"],
                 );
                 let neighbors: Vec<i64> = callers
                     .unwrap_or_default()

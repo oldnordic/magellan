@@ -21,7 +21,10 @@ fn test_new_database_has_v18_schema() {
         )
         .unwrap();
 
-    assert_eq!(version, MAGELLAN_SCHEMA_VERSION, "New databases should have current schema version");
+    assert_eq!(
+        version, MAGELLAN_SCHEMA_VERSION,
+        "New databases should have current schema version"
+    );
 
     // Verify ast_nodes table exists
     let has_ast_table: bool = conn
@@ -440,7 +443,10 @@ fn test_migration_v4_to_v18_creates_required_tables() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(version, MAGELLAN_SCHEMA_VERSION, "schema version should be current after migration");
+    assert_eq!(
+        version, MAGELLAN_SCHEMA_VERSION,
+        "schema version should be current after migration"
+    );
 }
 
 /// Test that opening a v4 database auto-upgrades to v18

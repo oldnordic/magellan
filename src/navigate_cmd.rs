@@ -52,6 +52,7 @@ pub struct NavigateConfig {
     pub concise: bool,
     pub with_llmgrep: bool,
     pub with_mirage: bool,
+    pub tokens: Option<usize>,
 }
 
 pub fn run_navigate(cfg: NavigateConfig) -> Result<()> {
@@ -64,6 +65,7 @@ pub fn run_navigate(cfg: NavigateConfig) -> Result<()> {
         concise,
         with_llmgrep,
         with_mirage,
+        tokens,
     } = cfg;
     let terms = extract_terms(&task, 8);
     let graph = CodeGraph::open(&db_path)?;
@@ -276,7 +278,23 @@ pub fn run_navigate(cfg: NavigateConfig) -> Result<()> {
     }
 
     let packet = render_packet(&task, &terms, &sections);
-    print!("{}", packet);
+    let final_output = if let Some(token_limit) = tokens {
+        if token_limit > 0 {
+            let tokens_est = packet.len() / 4;
+            if tokens_est > token_limit {
+                let char_limit = token_limit * 4;
+                let truncated = packet.chars().take(char_limit).collect::<String>();
+                format!("{}\n\n*[~{} tokens, truncated]*", truncated, token_limit)
+            } else {
+                packet
+            }
+        } else {
+            packet
+        }
+    } else {
+        packet
+    };
+    print!("{}", final_output);
     Ok(())
 }
 

@@ -3,8 +3,8 @@
 //! Implements weighted linear model (v1_ast_baseline).
 //! Future: GNN model inference with same feature interface.
 
-use std::collections::HashMap;
 use super::extract::SymbolFeatures;
+use std::collections::HashMap;
 
 /// Scoring model
 ///
@@ -45,9 +45,15 @@ impl Scorer {
     pub fn with_weights(mut weights: HashMap<String, f64>) -> Self {
         // Ensure required features exist
         let required = vec![
-            "loc", "fan_in", "fan_out", "complexity",
-            "cfg_block_count", "cfg_edge_count", "conditional_density",
-            "lifetime", "churn_count",
+            "loc",
+            "fan_in",
+            "fan_out",
+            "complexity",
+            "cfg_block_count",
+            "cfg_edge_count",
+            "conditional_density",
+            "lifetime",
+            "churn_count",
         ];
 
         for feature in required {

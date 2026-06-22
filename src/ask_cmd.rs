@@ -215,6 +215,7 @@ fn route_refs(
         false, // with_checksums
         3,     // context_lines
         false, // all
+        None,  // tokens
     )
     .with_context(|| "Ask → refs routing failed")
 }
@@ -256,9 +257,9 @@ fn route_impact(db_path: PathBuf, name: String, output_format: OutputFormat) -> 
         3,    // depth
         None, // project_filter
         output_format,
-        None,  // token_budget
         None,  // detail
         false, // concise
+        None,  // tokens
     )
     .with_context(|| "Ask → impact routing failed")
 }

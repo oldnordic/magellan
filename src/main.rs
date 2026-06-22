@@ -46,12 +46,12 @@ mod query_cmd;
 mod reachable_cmd;
 mod refresh_cmd;
 mod refs_cmd;
+mod score_cmd;
 mod service;
 mod service_cmd;
 mod slice_cmd;
 mod source_inventory_cmd;
 mod status_cmd;
-mod score_cmd;
 mod telemetry_cmd;
 mod temporal_query_cmd;
 mod temporal_sweep_cmd;
@@ -172,7 +172,15 @@ fn main() -> ExitCode {
             output,
         }) => {
             let output = output.unwrap_or(magellan::OutputFormat::Human);
-            if let Err(e) = score_cmd::run_score(&db, top, min_score, min_churn, min_complexity, min_lifetime, output) {
+            if let Err(e) = score_cmd::run_score(
+                &db,
+                top,
+                min_score,
+                min_churn,
+                min_complexity,
+                min_lifetime,
+                output,
+            ) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
@@ -323,11 +331,9 @@ fn main() -> ExitCode {
             use cli::ContextSubcommand;
             let result = match subcommand {
                 ContextSubcommand::Build => context_cmd::run_context_build(db_paths),
-                ContextSubcommand::Summary {
-                    token_budget,
-                    detail,
-                    concise,
-                } => context_cmd::run_context_summary(db_paths, token_budget, detail, concise),
+                ContextSubcommand::Summary { detail, concise } => {
+                    context_cmd::run_context_summary(db_paths, None, detail, concise)
+                }
                 ContextSubcommand::List {
                     kind,
                     page,
@@ -353,9 +359,9 @@ fn main() -> ExitCode {
                     with_source,
                     depth,
                     project,
-                    token_budget,
                     detail,
                     concise,
+                    tokens,
                 } => context_cmd::run_context_symbol(
                     db_paths,
                     name,
@@ -366,9 +372,9 @@ fn main() -> ExitCode {
                     with_source,
                     depth,
                     project,
-                    token_budget,
                     detail,
                     concise,
+                    tokens,
                 ),
                 ContextSubcommand::File { path } => context_cmd::run_context_file(db_paths, path),
                 ContextSubcommand::Impact {
@@ -377,9 +383,9 @@ fn main() -> ExitCode {
                     depth,
                     project,
                     output_format,
-                    token_budget,
                     detail,
                     concise,
+                    tokens,
                 } => context_cmd::run_context_impact(
                     db_paths,
                     symbol,
@@ -387,9 +393,9 @@ fn main() -> ExitCode {
                     depth,
                     project,
                     output_format,
-                    token_budget,
                     detail,
                     concise,
+                    tokens,
                 ),
                 ContextSubcommand::Affected {
                     symbol,
@@ -397,9 +403,9 @@ fn main() -> ExitCode {
                     depth,
                     project,
                     output_format,
-                    token_budget,
                     detail,
                     concise,
+                    tokens,
                 } => context_cmd::run_context_affected(
                     db_paths,
                     symbol,
@@ -407,9 +413,9 @@ fn main() -> ExitCode {
                     depth,
                     project,
                     output_format,
-                    token_budget,
                     detail,
                     concise,
+                    tokens,
                 ),
             };
             if let Err(e) = result {
@@ -520,6 +526,7 @@ fn main() -> ExitCode {
             with_checksums,
             context_lines,
             all,
+            tokens,
         }) => {
             if let Err(e) = refs_cmd::run_refs(
                 db_path,
@@ -534,6 +541,7 @@ fn main() -> ExitCode {
                 with_checksums,
                 context_lines,
                 all,
+                tokens,
             ) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
@@ -1198,7 +1206,9 @@ fn main() -> ExitCode {
             depth,
             output_format,
         }) => {
-            if let Err(e) = blast_score_cmd::run_blast_score(db_path, symbol, file, depth, output_format) {
+            if let Err(e) =
+                blast_score_cmd::run_blast_score(db_path, symbol, file, depth, output_format)
+            {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
@@ -1213,6 +1223,7 @@ fn main() -> ExitCode {
             concise,
             with_llmgrep,
             with_mirage,
+            tokens,
         }) => {
             let cfg = navigate_cmd::NavigateConfig {
                 db_path,
@@ -1223,6 +1234,7 @@ fn main() -> ExitCode {
                 concise,
                 with_llmgrep,
                 with_mirage,
+                tokens,
             };
             if let Err(e) = navigate_cmd::run_navigate(cfg) {
                 eprintln!("Error: {}", e);

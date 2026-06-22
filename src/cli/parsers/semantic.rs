@@ -485,6 +485,7 @@ pub fn parse_navigate_args(args: &[String]) -> Result<Command> {
     let mut concise = false;
     let mut with_llmgrep = false;
     let mut with_mirage = false;
+    let mut tokens: Option<usize> = None;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -522,6 +523,13 @@ pub fn parse_navigate_args(args: &[String]) -> Result<Command> {
                 with_mirage = true;
                 i += 1;
             }
+            "--tokens" => {
+                let v = parse_required_arg(args, &mut i, "--tokens")?;
+                tokens = Some(
+                    v.parse()
+                        .map_err(|_| anyhow::anyhow!("--tokens must be a positive integer"))?,
+                );
+            }
             _ => {
                 if !args[i].starts_with("--") && task.is_none() {
                     task = Some(args[i].clone());
@@ -545,6 +553,7 @@ pub fn parse_navigate_args(args: &[String]) -> Result<Command> {
         concise,
         with_llmgrep,
         with_mirage,
+        tokens,
     })
 }
 

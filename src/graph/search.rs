@@ -35,14 +35,12 @@ pub fn fts_search_symbols(
     // Try prefix match first.
     let pattern = format!("{}*", safe);
 
-    let mut stmt = conn.prepare_cached(
-        "SELECT rowid FROM symbol_fts WHERE name MATCH ? ORDER BY rank LIMIT ?",
-    )?;
+    let mut stmt = conn
+        .prepare_cached("SELECT rowid FROM symbol_fts WHERE name MATCH ? ORDER BY rank LIMIT ?")?;
     let ids: Vec<i64> = stmt
-        .query_map(
-            rusqlite::params![pattern, (k * 2) as i64],
-            |row| row.get::<_, i64>(0),
-        )?
+        .query_map(rusqlite::params![pattern, (k * 2) as i64], |row| {
+            row.get::<_, i64>(0)
+        })?
         .filter_map(|r| r.ok())
         .collect();
 
@@ -61,7 +59,10 @@ pub fn fts_search_symbols(
 // ── no-op stubs for callers of the removed HNSW embed pipeline ───────────────
 // embed_cmd and indexing paths still call these; they are now harmless no-ops.
 
-pub fn bulk_add_to_search_index(_graph: &SqliteGraph, _entries: &[(i64, Vec<f32>)]) -> Result<usize> {
+pub fn bulk_add_to_search_index(
+    _graph: &SqliteGraph,
+    _entries: &[(i64, Vec<f32>)],
+) -> Result<usize> {
     Ok(0)
 }
 

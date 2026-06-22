@@ -9,6 +9,6 @@ pub mod schema;
 pub mod score;
 
 pub use extract::{FeatureExtractor, SymbolFeatures};
-pub use ops::{ScorerOps, ScorerRunSummary, ScoreFilters};
-pub use schema::{SymbolScore, ScorerFeature, ScorerRun};
+pub use ops::{ScoreFilters, ScorerOps, ScorerRunSummary};
+pub use schema::{ScorerFeature, ScorerRun, SymbolScore};
 pub use score::Scorer;

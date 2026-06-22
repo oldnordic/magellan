@@ -510,7 +510,9 @@ pub fn run_doctor(db_path: PathBuf, fix: bool, output_format: OutputFormat) -> R
                             name: "FTS5 search index".to_string(),
                             status: "missing".to_string(),
                             message: Some("symbol_fts table not found".to_string()),
-                            fix_hint: Some("Re-open database to trigger schema migration".to_string()),
+                            fix_hint: Some(
+                                "Re-open database to trigger schema migration".to_string(),
+                            ),
                         });
                         issues_found += 1;
                     } else {
@@ -533,10 +535,15 @@ pub fn run_doctor(db_path: PathBuf, fix: bool, output_format: OutputFormat) -> R
                                     "FTS5 index empty ({} symbols not indexed)",
                                     symbol_count
                                 )),
-                                fix_hint: Some("Run 'magellan doctor --fix' to rebuild FTS5 index".to_string()),
+                                fix_hint: Some(
+                                    "Run 'magellan doctor --fix' to rebuild FTS5 index".to_string(),
+                                ),
                             });
                             if fix {
-                                match conn.execute("INSERT INTO symbol_fts(symbol_fts) VALUES('rebuild')", []) {
+                                match conn.execute(
+                                    "INSERT INTO symbol_fts(symbol_fts) VALUES('rebuild')",
+                                    [],
+                                ) {
                                     Ok(_) => {
                                         issues_fixed += 1;
                                     }
@@ -599,10 +606,7 @@ pub fn run_doctor(db_path: PathBuf, fix: bool, output_format: OutputFormat) -> R
                     name: "Repo-root symbol index".to_string(),
                     status: "missing".to_string(),
                     message: Some("Symbol index not found in .magellan/".to_string()),
-                    fix_hint: Some(format!(
-                        "Run: llmgrep export-symbols --db {:?}",
-                        db_path
-                    )),
+                    fix_hint: Some(format!("Run: llmgrep export-symbols --db {:?}", db_path)),
                 });
                 issues_found += 1;
             } else {
@@ -636,7 +640,6 @@ pub fn run_doctor(db_path: PathBuf, fix: bool, output_format: OutputFormat) -> R
             }
         }
     }
-
 
     let report = DoctorReport {
         status: if issues_found == 0 {
