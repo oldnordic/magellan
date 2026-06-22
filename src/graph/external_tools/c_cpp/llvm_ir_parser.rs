@@ -5,6 +5,32 @@
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 
+/// Demangle a C++ ABI-mangled name and return the simple unqualified function name.
+///
+/// - `"_Z9factoriali"` → `"factorial"`
+/// - `"_ZNK5Graph3bfsEi"` → `"bfs"`
+/// - `"_ZL13run_math_demov"` → `"run_math_demo"`
+/// - `"main"` → `"main"` (unmangled, returned as-is)
+///
+/// Falls back to the original string on parse failure (no panic).
+pub fn demangle_cpp_simple_name(mangled: &str) -> String {
+    if !mangled.starts_with("_Z") {
+        return mangled.to_string();
+    }
+    let demangled = cpp_demangle::Symbol::new(mangled.as_bytes())
+        .ok()
+        .and_then(|sym| sym.demangle().ok())
+        .unwrap_or_else(|| mangled.to_string());
+
+    // Strip parameters: take everything before the first '('
+    let without_params = demangled.split('(').next().unwrap_or(&demangled);
+
+    // Strip namespace/class qualifiers: take the last '::' segment
+    let simple = without_params.rsplit("::").next().unwrap_or(without_params);
+
+    simple.trim().to_string()
+}
+
 use crate::graph::cfg_edges_extract::{CfgEdge, CfgEdgeType};
 use crate::graph::cfg_extractor::BlockKind;
 use crate::graph::schema::CfgBlock;
@@ -590,5 +616,33 @@ entry:
 
         let result = extract_cfg_for_function(ll_ir, "foo");
         assert!(result.is_err());
+    }
+
+    // Bug 2/3 regression: LLVM mangled names must demangle to simple names for symbol matching.
+    #[test]
+    fn test_demangle_cpp_simple_name_free_function() {
+        assert_eq!(demangle_cpp_simple_name("_Z9factoriali"), "factorial");
+    }
+
+    #[test]
+    fn test_demangle_cpp_simple_name_method() {
+        assert_eq!(demangle_cpp_simple_name("_ZNK5Graph3bfsEi"), "bfs");
+    }
+
+    #[test]
+    fn test_demangle_cpp_simple_name_static() {
+        assert_eq!(demangle_cpp_simple_name("_ZL13run_math_demov"), "run_math_demo");
+    }
+
+    #[test]
+    fn test_demangle_cpp_simple_name_unmangled() {
+        assert_eq!(demangle_cpp_simple_name("main"), "main");
+    }
+
+    #[test]
+    fn test_demangle_cpp_simple_name_unknown_fallback() {
+        // Garbled input must not panic and must return something
+        let result = demangle_cpp_simple_name("_Zinvalid_not_real");
+        assert!(!result.is_empty());
     }
 }

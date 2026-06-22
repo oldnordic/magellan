@@ -422,9 +422,10 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
         ) {
             Ok((cfgs, llvm_calls)) => {
                 for (func_name, mut cfg_with_edges) in cfgs {
+                    let simple_name = super::external_tools::c_cpp::llvm_ir_parser::demangle_cpp_simple_name(&func_name);
                     if let Some(&(_, entity_id, _, _)) = function_symbol_ids
                         .iter()
-                        .find(|(name, ..)| *name == func_name)
+                        .find(|(name, ..)| name == &simple_name || name == func_name.as_str())
                     {
                         for block in &mut cfg_with_edges.blocks {
                             block.function_id = entity_id;

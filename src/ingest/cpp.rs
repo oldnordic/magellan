@@ -105,6 +105,17 @@ impl CppParser {
                     let name_bytes = safe_slice(source, child.start_byte(), child.end_byte())?;
                     return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
                 }
+                // For qualified names like Graph::bfs, take the unqualified tail
+                "scoped_identifier" | "qualified_identifier" => {
+                    if let Some(name_node) = child.child_by_field_name("name") {
+                        if name_node.kind() == "identifier" || name_node.kind() == "type_identifier" {
+                            let name_bytes = safe_slice(source, name_node.start_byte(), name_node.end_byte())?;
+                            if let Ok(s) = std::str::from_utf8(name_bytes) {
+                                return Some(s.to_string());
+                            }
+                        }
+                    }
+                }
                 // Skip certain nodes to find the identifier within
                 "function_declarator"
                 | "parameter_list"
@@ -341,6 +352,17 @@ impl CppParser {
                 "identifier" | "type_identifier" => {
                     let name_bytes = &source[child.start_byte()..child.end_byte()];
                     return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
+                }
+                // For qualified names like Graph::bfs, take the unqualified tail
+                "scoped_identifier" | "qualified_identifier" => {
+                    if let Some(name_node) = child.child_by_field_name("name") {
+                        if name_node.kind() == "identifier" || name_node.kind() == "type_identifier" {
+                            let name_bytes = &source[name_node.start_byte()..name_node.end_byte()];
+                            if let Ok(s) = std::str::from_utf8(name_bytes) {
+                                return Some(s.to_string());
+                            }
+                        }
+                    }
                 }
                 // Skip certain nodes to find the identifier within
                 "function_declarator"
@@ -954,5 +976,40 @@ namespace ns {
         let canonical = cls.canonical_fqn.as_ref().unwrap();
         assert!(canonical.contains("src/geometry.cpp"));
         assert!(canonical.contains("Struct Point")); // Class maps to Struct in canonical FQN
+    }
+
+    // Bug 1 regression: class method out-of-line definitions must be indexed as symbols.
+    // Previously scoped_identifier (Graph::bfs) was not handled — method name was never extracted.
+    #[test]
+    fn test_extract_out_of_line_method() {
+        let mut parser = CppParser::new().unwrap();
+        let source = b"
+#include <vector>
+struct Graph {
+    int num_nodes;
+    std::vector<int> bfs(int start) const;
+    void add_edge(int u, int v);
+};
+std::vector<int> Graph::bfs(int start) const {
+    return {};
+}
+void Graph::add_edge(int u, int v) {
+    (void)u; (void)v;
+}
+";
+        let facts = parser.extract_symbols(PathBuf::from("graph.cpp"), source);
+        let fn_names: Vec<_> = facts
+            .iter()
+            .filter(|f| f.kind == SymbolKind::Function)
+            .filter_map(|f| f.name.as_deref())
+            .collect();
+        assert!(
+            fn_names.contains(&"bfs"),
+            "bfs must be indexed; got: {fn_names:?}"
+        );
+        assert!(
+            fn_names.contains(&"add_edge"),
+            "add_edge must be indexed; got: {fn_names:?}"
+        );
     }
 }
