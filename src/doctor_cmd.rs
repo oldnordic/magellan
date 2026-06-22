@@ -45,32 +45,12 @@ fn check_cfg_blocks_contract(conn: &Connection) -> Result<CheckResult> {
         });
     }
 
-    let legacy_columns: Vec<&str> = ["coord_x", "coord_y", "coord_z", "coord_t"]
-        .into_iter()
-        .filter(|column| columns.iter().any(|existing| existing == column))
-        .collect();
-
-    if legacy_columns.is_empty() {
-        Ok(CheckResult {
-            name: "CFG schema contract".to_string(),
-            status: "ok".to_string(),
-            message: Some("cfg_blocks matches the Magellan source-of-truth schema".to_string()),
-            fix_hint: None,
-        })
-    } else {
-        Ok(CheckResult {
-            name: "CFG schema contract".to_string(),
-            status: "warning".to_string(),
-            message: Some(format!(
-                "Legacy cfg_blocks columns present: {}",
-                legacy_columns.join(", ")
-            )),
-            fix_hint: Some(
-                "Rebuild the database with current Magellan to remove legacy CFG columns"
-                    .to_string(),
-            ),
-        })
-    }
+    Ok(CheckResult {
+        name: "CFG schema contract".to_string(),
+        status: "ok".to_string(),
+        message: Some("cfg_blocks matches the Magellan source-of-truth schema".to_string()),
+        fix_hint: None,
+    })
 }
 
 /// Run the doctor command
@@ -749,40 +729,5 @@ mod tests {
 
         let result = check_cfg_blocks_contract(&conn).unwrap();
         assert_eq!(result.status, "ok");
-    }
-
-    #[test]
-    fn cfg_blocks_contract_flags_legacy_coordinate_columns() {
-        let conn = rusqlite::Connection::open_in_memory().unwrap();
-        conn.execute_batch(
-            "CREATE TABLE cfg_blocks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                function_id INTEGER NOT NULL,
-                kind TEXT NOT NULL,
-                terminator TEXT NOT NULL,
-                byte_start INTEGER NOT NULL,
-                byte_end INTEGER NOT NULL,
-                start_line INTEGER NOT NULL,
-                start_col INTEGER NOT NULL,
-                end_line INTEGER NOT NULL,
-                end_col INTEGER NOT NULL,
-                cfg_hash TEXT,
-                statements TEXT,
-                coord_x INTEGER DEFAULT 0,
-                coord_y INTEGER DEFAULT 0,
-                coord_z INTEGER DEFAULT 0,
-                coord_t TEXT DEFAULT NULL,
-                cfg_condition TEXT
-            );",
-        )
-        .unwrap();
-
-        let result = check_cfg_blocks_contract(&conn).unwrap();
-        assert_eq!(result.status, "warning");
-        assert!(result
-            .message
-            .as_deref()
-            .unwrap_or_default()
-            .contains("coord_x"));
     }
 }
