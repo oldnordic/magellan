@@ -248,6 +248,13 @@ libraries.
 - [docs/CONTEXT_API_CONTRACT.md](docs/CONTEXT_API_CONTRACT.md): context API contract
 - [docs/TESTING.md](docs/TESTING.md): verification commands
 
+## Acknowledgements
+
+The blast-radius impact scoring (`magellan blast-score`), the symbol-map and
+impact JSON exports (`magellan export`), the pre-commit hook (`magellan install-hook`),
+and the repo-root `.magellan/` file convention were inspired by
+[codeindex](https://github.com/scheidydude/codeindex) by scheidydude.
+
 ## License
 
 GPL-3.0
