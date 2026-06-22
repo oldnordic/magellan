@@ -12,27 +12,19 @@ pub mod javac_invoker;
 
 use javac_invoker::{compile_to_class_temp, JavacCompilationError};
 
-/// Extract CFG from a Java source file
+/// Extract per-method CFGs from a Java source file.
 ///
-/// This is the main entry point for Java CFG extraction.
-///
-/// # Arguments
-///
-/// * `source_path` - Path to the Java source file
-///
-/// # Returns
-///
-/// CFG with blocks and edges for all methods in the source file
+/// Returns a map from unqualified method name → `CfgWithEdges`, matching
+/// the same structure returned by the C/C++ LLVM extractor so ops.rs can
+/// use an identical insertion loop.
 ///
 /// # Errors
 ///
-/// Returns error if:
-/// - javac is not found
-/// - compilation fails
-/// - .class parsing fails
-pub fn extract_cfg_from_java(
+/// Returns error if javac is not available, compilation fails, or bytecode
+/// parsing fails. The caller should log and skip, not propagate.
+pub fn extract_cfgs_from_java(
     source_path: &Path,
-) -> Result<crate::graph::cfg_edges_extract::CfgWithEdges> {
+) -> Result<HashMap<String, crate::graph::cfg_edges_extract::CfgWithEdges>> {
     // Step 1: Compile to .class bytecode
     let class_path =
         compile_to_class_temp(source_path).context("Failed to compile Java to bytecode")?;
@@ -40,17 +32,22 @@ pub fn extract_cfg_from_java(
     // Step 2: Read .class file bytes
     let class_bytes = std::fs::read(&class_path).context("Failed to read .class file")?;
 
-    // Step 3: Parse CFG from bytecode
+    // Step 3: Parse per-method CFGs from bytecode
     let method_cfgs = class_parser::extract_cfg_from_class(&class_bytes)
         .context("Failed to parse CFG from bytecode")?;
 
-    // Step 4: Merge all method CFGs into one
-    let merged_cfg = merge_method_cfgs(method_cfgs);
-
-    // Step 5: Clean up temporary .class file
+    // Step 4: Clean up temporary .class file
     let _ = std::fs::remove_file(&class_path);
 
-    Ok(merged_cfg)
+    Ok(method_cfgs)
+}
+
+/// Extract CFG from a Java source file (merged blob — legacy, kept for tests)
+pub fn extract_cfg_from_java(
+    source_path: &Path,
+) -> Result<crate::graph::cfg_edges_extract::CfgWithEdges> {
+    let method_cfgs = extract_cfgs_from_java(source_path)?;
+    Ok(merge_method_cfgs(method_cfgs))
 }
 
 /// Extract CFG from a Java source file for a specific method

@@ -45,6 +45,8 @@ struct BytecodeInstruction {
     opcode: u8,
     /// Operands
     operands: Vec<u8>,
+    /// Absolute byte offset of this instruction within the method Code array
+    byte_offset: usize,
 }
 
 /// Basic block in Java bytecode
@@ -530,26 +532,107 @@ fn build_cfg_from_bytecode(_method_name: &str, bytecode: &[u8]) -> Result<CfgWit
     })
 }
 
-/// Parse bytecode into instructions
+/// Return the total byte size of a JVM bytecode instruction starting at `pos` in `bytecode`.
+///
+/// Implements JVMS §6.5. Variable-length instructions (tableswitch, lookupswitch, wide)
+/// are computed from the operands. Returns 1 on unknown opcodes to avoid infinite loops.
+fn instruction_size(bytecode: &[u8], pos: usize) -> usize {
+    if pos >= bytecode.len() {
+        return 1;
+    }
+    match bytecode[pos] {
+        // 1 byte: nop, aconst_null, iconst_*, lconst_*, fconst_*, dconst_*
+        0x00..=0x0f => 1,
+        // bipush
+        0x10 => 2,
+        // sipush
+        0x11 => 3,
+        // ldc
+        0x12 => 2,
+        // ldc_w, ldc2_w
+        0x13..=0x14 => 3,
+        // iload, lload, fload, dload, aload (with index operand)
+        0x15..=0x19 => 2,
+        // iload_0..dconst_1 range of no-operand loads/stores/arith
+        0x1a..=0x35 => 1,
+        // istore, lstore, fstore, dstore, astore (with index)
+        0x36..=0x3a => 2,
+        // istore_0..sastore (no operand)
+        0x3b..=0x56 => 1,
+        // pop..lxor, i2l..dcmpg (no operand)
+        0x57..=0x98 => 1,
+        // ifeq..jsr: opcode + 2-byte branch offset
+        0x99..=0xa8 => 3,
+        // ret: opcode + 1-byte index
+        0xa9 => 2,
+        // tableswitch: variable, 4-byte-aligned
+        0xaa => {
+            let base = pos + 1;
+            let pad = (4 - (base % 4)) % 4;
+            let ts = base + pad;
+            if ts + 11 >= bytecode.len() { return 1; }
+            let low  = i32::from_be_bytes([bytecode[ts+4], bytecode[ts+5], bytecode[ts+6], bytecode[ts+7]]);
+            let high = i32::from_be_bytes([bytecode[ts+8], bytecode[ts+9], bytecode[ts+10], bytecode[ts+11]]);
+            1 + pad + 12 + (high - low + 1).max(0) as usize * 4
+        }
+        // lookupswitch: variable, 4-byte-aligned
+        0xab => {
+            let base = pos + 1;
+            let pad = (4 - (base % 4)) % 4;
+            let ts = base + pad;
+            if ts + 7 >= bytecode.len() { return 1; }
+            let npairs = i32::from_be_bytes([bytecode[ts+4], bytecode[ts+5], bytecode[ts+6], bytecode[ts+7]]).max(0) as usize;
+            1 + pad + 8 + npairs * 8
+        }
+        // ireturn..return (no operand)
+        0xac..=0xb1 => 1,
+        // getstatic, putstatic, getfield, putfield, invokevirtual, invokespecial, invokestatic
+        0xb2..=0xb8 => 3,
+        // invokeinterface: opcode + index(2) + count(1) + 0(1) = 5
+        0xb9 => 5,
+        // invokedynamic: opcode + index(2) + 0(1) + 0(1) = 5
+        0xba => 5,
+        // new, anewarray (2-byte index)
+        0xbb | 0xbd => 3,
+        // newarray (1-byte type)
+        0xbc => 2,
+        // arraylength, athrow (no operand)
+        0xbe..=0xbf => 1,
+        // checkcast, instanceof (2-byte index)
+        0xc0..=0xc1 => 3,
+        // monitorenter, monitorexit (no operand)
+        0xc2..=0xc3 => 1,
+        // wide prefix
+        0xc4 => {
+            if pos + 1 >= bytecode.len() { return 2; }
+            match bytecode[pos + 1] {
+                0x15..=0x19 | 0x36..=0x3a | 0xa9 => 4,
+                0x84 => 6,
+                _ => 2,
+            }
+        }
+        // multianewarray: opcode + index(2) + dims(1) = 4
+        0xc5 => 4,
+        // ifnull, ifnonnull (2-byte offset)
+        0xc6..=0xc7 => 3,
+        // goto_w, jsr_w (4-byte offset)
+        0xc8..=0xc9 => 5,
+        _ => 1,
+    }
+}
+
+/// Parse bytecode into instructions, recording the absolute byte offset of each.
 fn parse_bytecode(bytecode: &[u8]) -> Result<Vec<BytecodeInstruction>> {
     let mut instructions = Vec::new();
     let mut offset = 0;
 
     while offset < bytecode.len() {
         let opcode = bytecode[offset];
-        let mut operands = Vec::new();
+        let size = instruction_size(bytecode, offset);
+        let operand_end = (offset + size).min(bytecode.len());
+        let operands = bytecode[offset + 1..operand_end].to_vec();
 
-        // Most instructions are 1-3 bytes
-        // For simplicity, we'll assume 1 byte per instruction
-        // A real parser would handle variable-length instructions
-        let size = 1;
-        for i in 1..size {
-            if offset + i < bytecode.len() {
-                operands.push(bytecode[offset + i]);
-            }
-        }
-
-        instructions.push(BytecodeInstruction { opcode, operands });
+        instructions.push(BytecodeInstruction { opcode, operands, byte_offset: offset });
 
         offset += size;
     }
@@ -557,104 +640,147 @@ fn parse_bytecode(bytecode: &[u8]) -> Result<Vec<BytecodeInstruction>> {
     Ok(instructions)
 }
 
-/// Identify basic blocks in bytecode
+/// Identify basic blocks in bytecode.
+///
+/// Works in byte-offset space. Branch targets and block boundaries are all absolute
+/// byte offsets within the method Code array (matching what `BytecodeInstruction::byte_offset`
+/// records). This keeps the model consistent when instruction sizes vary.
 fn identify_basic_blocks(instructions: &[BytecodeInstruction]) -> Vec<BytecodeBlock> {
     if instructions.is_empty() {
         return vec![];
     }
 
-    let mut blocks: Vec<BytecodeBlock> = vec![];
-    let mut block_starts: Vec<usize> = vec![0]; // First instruction starts a block
+    // Block leader set: byte offsets where blocks start.
+    // Offset 0 is always a leader.
+    let mut leaders: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
+    leaders.insert(0);
 
-    // Find jump targets (these start new blocks)
     for instr in instructions {
+        let instr_start = instr.byte_offset;
+        // Instruction ends at the start of the next instruction.
+        // We approximate the instruction end as instr_start + 1 + operands.len().
+        let instr_end = instr_start + 1 + instr.operands.len();
+
         match instr.opcode {
-            // Conditional branches and unconditional goto (0x99..=0xA7, 0xC8)
-            0x99..=0xA7 | 0xC8 if instr.operands.len() >= 2 => {
-                let offset_bytes = [instr.operands[0], instr.operands[1]];
-                let target_offset = i16::from_be_bytes(offset_bytes) as i32 as usize;
-                block_starts.push(target_offset);
+            // Conditional branches: ifeq..if_acmpne, ifnull, ifnonnull (2-byte signed offset)
+            0x99..=0xa6 | 0xc6..=0xc7 if instr.operands.len() >= 2 => {
+                let rel = i16::from_be_bytes([instr.operands[0], instr.operands[1]]) as isize;
+                let target = (instr_start as isize + rel) as usize;
+                leaders.insert(target);
+                leaders.insert(instr_end); // fall-through also starts a block
+            }
+            // goto (2-byte signed offset)
+            0xa7 if instr.operands.len() >= 2 => {
+                let rel = i16::from_be_bytes([instr.operands[0], instr.operands[1]]) as isize;
+                let target = (instr_start as isize + rel) as usize;
+                leaders.insert(target);
+                // No fall-through after unconditional branch
+            }
+            // goto_w (4-byte signed offset)
+            0xc8 if instr.operands.len() >= 4 => {
+                let rel = i32::from_be_bytes([
+                    instr.operands[0], instr.operands[1], instr.operands[2], instr.operands[3],
+                ]) as isize;
+                let target = (instr_start as isize + rel) as usize;
+                leaders.insert(target);
+            }
+            // jsr / jsr_w: treat jump target as leader
+            0xa8 if instr.operands.len() >= 2 => {
+                let rel = i16::from_be_bytes([instr.operands[0], instr.operands[1]]) as isize;
+                leaders.insert((instr_start as isize + rel) as usize);
+                leaders.insert(instr_end);
             }
             _ => {}
         }
     }
 
-    // Sort and deduplicate block starts
-    block_starts.sort();
-    block_starts.dedup();
+    // Build offset → instruction-slice lookup
+    let leaders_vec: Vec<usize> = leaders.into_iter().collect();
 
-    // Create blocks
-    for (i, &start) in block_starts.iter().enumerate() {
-        let end = if i + 1 < block_starts.len() {
-            block_starts[i + 1]
-        } else {
-            instructions.len()
+    // Map byte offset → index in `instructions`
+    let offset_to_idx: std::collections::HashMap<usize, usize> = instructions
+        .iter()
+        .enumerate()
+        .map(|(i, instr)| (instr.byte_offset, i))
+        .collect();
+
+    let mut blocks: Vec<BytecodeBlock> = Vec::new();
+    for (li, &leader_off) in leaders_vec.iter().enumerate() {
+        let next_leader_off = leaders_vec.get(li + 1).copied();
+
+        let start_idx = match offset_to_idx.get(&leader_off) {
+            Some(&i) => i,
+            None => continue, // leader points past end of method
         };
 
-        if start < instructions.len() {
-            let block_instructions = instructions[start..end].to_vec();
-            let terminator = classify_terminator(&block_instructions);
+        // Collect instructions until next leader or end
+        let block_instrs: Vec<BytecodeInstruction> = instructions[start_idx..]
+            .iter()
+            .take_while(|instr| {
+                if let Some(next) = next_leader_off {
+                    instr.byte_offset < next
+                } else {
+                    true
+                }
+            })
+            .cloned()
+            .collect();
 
-            blocks.push(BytecodeBlock {
-                start_offset: start,
-                end_offset: end,
-                instructions: block_instructions,
-                terminator,
-            });
+        if block_instrs.is_empty() {
+            continue;
         }
+
+        let end_off = next_leader_off
+            .unwrap_or_else(|| instructions.last().map(|i| i.byte_offset + 1).unwrap_or(leader_off + 1));
+
+        let terminator = classify_terminator(&block_instrs);
+        blocks.push(BytecodeBlock {
+            start_offset: leader_off,
+            end_offset: end_off,
+            instructions: block_instrs,
+            terminator,
+        });
     }
 
     blocks
 }
 
-/// Classify the terminator of a basic block
+/// Classify the terminator of a basic block.
+///
+/// Branch targets are absolute byte offsets (relative branch offset + instruction byte offset).
 fn classify_terminator(instructions: &[BytecodeInstruction]) -> BlockTerminator {
     if instructions.is_empty() {
         return BlockTerminator::Unknown;
     }
 
-    let last_instr = &instructions[instructions.len() - 1];
+    let last = &instructions[instructions.len() - 1];
 
-    match last_instr.opcode {
-        // Return instructions
-        0xAC..=0xB1 => BlockTerminator::Return,
+    match last.opcode {
+        0xac..=0xb1 => BlockTerminator::Return,
 
-        // Unconditional branches (goto, goto_w)
-        0xA7 | 0xC8 => {
-            if last_instr.operands.len() >= 2 {
-                let offset_bytes = [last_instr.operands[0], last_instr.operands[1]];
-                let target_offset = i16::from_be_bytes(offset_bytes) as i32 as usize;
-                BlockTerminator::Unconditional {
-                    target: target_offset,
-                }
-            } else {
-                BlockTerminator::Unknown
-            }
+        // goto (2-byte offset)
+        0xa7 if last.operands.len() >= 2 => {
+            let rel = i16::from_be_bytes([last.operands[0], last.operands[1]]) as isize;
+            BlockTerminator::Unconditional { target: (last.byte_offset as isize + rel) as usize }
+        }
+        // goto_w (4-byte offset)
+        0xc8 if last.operands.len() >= 4 => {
+            let rel = i32::from_be_bytes([
+                last.operands[0], last.operands[1], last.operands[2], last.operands[3],
+            ]) as isize;
+            BlockTerminator::Unconditional { target: (last.byte_offset as isize + rel) as usize }
         }
 
-        // Conditional branches
-        0x99..=0xA6 => {
-            if last_instr.operands.len() >= 2 {
-                let offset_bytes = [last_instr.operands[0], last_instr.operands[1]];
-                let target_offset = i16::from_be_bytes(offset_bytes) as i32 as usize;
-                BlockTerminator::Conditional {
-                    target: target_offset,
-                }
-            } else {
-                BlockTerminator::Unknown
-            }
+        // ifeq..if_acmpne (2-byte offset), ifnull, ifnonnull
+        0x99..=0xa6 | 0xc6..=0xc7 if last.operands.len() >= 2 => {
+            let rel = i16::from_be_bytes([last.operands[0], last.operands[1]]) as isize;
+            BlockTerminator::Conditional { target: (last.byte_offset as isize + rel) as usize }
         }
 
-        // Switch statements
-        0xAA | 0xAB => BlockTerminator::Switch {
-            default: 0,
-            cases: vec![],
-        },
+        0xaa | 0xab => BlockTerminator::Switch { default: 0, cases: vec![] },
 
-        // Throw instruction
-        0xBF => BlockTerminator::Throw,
+        0xbf => BlockTerminator::Throw,
 
-        // Everything else falls through
         _ => BlockTerminator::Fallthrough,
     }
 }
@@ -692,24 +818,33 @@ mod tests {
 
     #[test]
     fn test_identify_basic_blocks_simple() {
+        // iconst_0 (0), istore_1 (1), iload_1 (2), ireturn (3) — linear, 1 block
         let instructions = vec![
-            BytecodeInstruction {
-                opcode: 0x03,
-                operands: vec![],
-            },
-            BytecodeInstruction {
-                opcode: 0x3C,
-                operands: vec![],
-            },
-            BytecodeInstruction {
-                opcode: 0xAC,
-                operands: vec![],
-            },
+            BytecodeInstruction { opcode: 0x03, operands: vec![], byte_offset: 0 },
+            BytecodeInstruction { opcode: 0x3c, operands: vec![], byte_offset: 1 },
+            BytecodeInstruction { opcode: 0xac, operands: vec![], byte_offset: 2 },
         ];
 
         let blocks = identify_basic_blocks(&instructions);
         assert_eq!(blocks.len(), 1);
         assert_eq!(blocks[0].terminator, BlockTerminator::Return);
+    }
+
+    #[test]
+    fn test_identify_basic_blocks_branch() {
+        // ifeq +4 at offset 0 (3-byte instr) → targets offset 4
+        // fall-through at offset 3: ireturn
+        // taken at offset 4: iconst_1, ireturn
+        let instructions = vec![
+            BytecodeInstruction { opcode: 0x99, operands: vec![0x00, 0x04], byte_offset: 0 }, // ifeq +4
+            BytecodeInstruction { opcode: 0xac, operands: vec![], byte_offset: 3 },           // ireturn (fall-through)
+            BytecodeInstruction { opcode: 0x04, operands: vec![], byte_offset: 4 },           // iconst_1 (taken)
+            BytecodeInstruction { opcode: 0xac, operands: vec![], byte_offset: 5 },           // ireturn
+        ];
+
+        let blocks = identify_basic_blocks(&instructions);
+        // Should have 3 blocks: [0..3], [3..4], [4..6]
+        assert_eq!(blocks.len(), 3, "expected 3 blocks, got: {:#?}", blocks);
     }
 
     #[test]

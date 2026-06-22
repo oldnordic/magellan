@@ -451,6 +451,36 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
         false
     };
 
+    // Step 5.8: Java bytecode CFG (when javac available)
+    let is_java = path.ends_with(".java");
+    if is_java && !function_symbol_ids.is_empty() {
+        let source_path = std::path::Path::new(path);
+        if super::external_tools::java::is_javac_available() {
+            match super::external_tools::java::extract_cfgs_from_java(source_path) {
+                Ok(method_cfgs) => {
+                    for (method_name, mut cfg_with_edges) in method_cfgs {
+                        if let Some(&(_, entity_id, _, _)) = function_symbol_ids
+                            .iter()
+                            .find(|(name, ..)| name.as_str() == method_name.as_str())
+                        {
+                            for block in &mut cfg_with_edges.blocks {
+                                block.function_id = entity_id;
+                            }
+                            cfg_with_edges.function_id = entity_id;
+                            let _ = graph.cfg_ops.insert_cfg_blocks(&cfg_with_edges.blocks);
+                            let _ = graph
+                                .cfg_ops
+                                .insert_cfg_edges(entity_id, &cfg_with_edges.edges);
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::debug!(path = %path, error = %e, "Java bytecode CFG extraction skipped");
+                }
+            }
+        }
+    }
+
     // Step 6: Tree-sitter call graph (all languages; C/C++ only when LLVM didn't handle it)
     if let (Some(ref tree), Some(lang)) = (parsed_tree, language) {
         if !llvm_handled_calls {

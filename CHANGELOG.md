@@ -5,6 +5,22 @@ Project adheres to [Semantic Versioning](https://semverver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [4.12.2] - 2026-06-22
+
+### Fixed
+
+- **Java CALLER edges missing**: `index_calls_from_java` in `src/graph/call_ops.rs` resolved callee symbols via a `name_to_ids` fallback map but used only `symbol_ids` (keyed by FQN) for caller lookup. Simple-name callers (e.g. `mean`) never matched FQN keys (`com.example.MathUtils.mean`), so no `CALLER` edges were created. Fixed by adding the same `name_to_ids` fallback to caller lookup (both call-graph variants).
+
+- **Java CFG merged into single blob**: `extract_cfg_from_java` discarded the per-method map returned by `extract_cfg_from_class`, merging all methods' bytecode blocks into one `CfgWithEdges`. Each method's CFG was unidentifiable after the merge. Added `extract_cfgs_from_java` returning `HashMap<String, CfgWithEdges>` directly; `ops.rs` Step 5.8 iterates this map and wires each method CFG to its entity.
+
+- **Java CFG blocks not stored**: No step in `src/graph/ops.rs` called the Java bytecode CFG extractor. CFG blocks for Java methods were never inserted into the database. Added Step 5.8 (parallel to the C++ Step 5.7) that compiles and parses bytecode CFG for `.java` files and inserts per-method blocks/edges.
+
+- **Java cross-file compilation failure**: Indexing `Main.java` (which imports `MathUtils` and `Graph`) failed because `javac` was invoked without `-sourcepath`, causing `cannot find symbol` errors for imported classes. Fixed by adding `detect_source_root` in `javac_invoker.rs` that reads the `package` declaration to locate the source root, then passing `-sourcepath <root>` to `javac`.
+
+- **Java bytecode single-block CFG**: `parse_bytecode` computed `size = 1` for every instruction (loop over `1..1` never executed), so all bytecode was treated as one-byte instructions. Branch targets were wrong and basic-block splitting never found any leaders. Rewrote `parse_bytecode` to use a full `instruction_size` table implementing JVMS §6.5 with correct per-opcode sizes (including `tableswitch`, `lookupswitch`, and `wide` prefix). Added `byte_offset: usize` to `BytecodeInstruction` and rewrote `identify_basic_blocks` to work in byte-offset space: branch targets are computed as absolute byte offsets (`instruction.byte_offset + signed_operand`), leaders are tracked by byte offset, and a `HashMap<byte_offset, instruction_index>` maps back to slice indices for block construction.
+
+- **Java class file selection with `-sourcepath`**: When `-sourcepath` causes `javac` to compile an entire package, multiple `.class` files land in the temp directory. `compile_to_class_temp` previously returned `class_files[0]`, which could be any class (e.g. `Graph.class` when indexing `Main.java`). Fixed by using `extract_class_name` to find the expected class name and selecting the matching `.class` file; falls back to first file if no match (default-package or inner class).
+
 ## [4.12.1] - 2026-06-22
 
 ### Fixed

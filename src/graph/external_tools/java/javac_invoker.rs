@@ -24,6 +24,34 @@ pub enum JavacCompilationError {
     Io(#[from] std::io::Error),
 }
 
+/// Detect the Java source root by reading the package declaration and walking up the directory tree.
+///
+/// For `src/com/example/Main.java` with `package com.example;`, returns `src/`.
+/// Returns `None` if no package declaration is found (default package) or if the
+/// directory structure doesn't match the package depth.
+fn detect_source_root(source_path: &Path) -> Option<PathBuf> {
+    let content = std::fs::read_to_string(source_path).ok()?;
+    let package = content
+        .lines()
+        .find(|l| l.trim_start().starts_with("package "))?
+        .trim()
+        .strip_prefix("package ")?
+        .trim_end_matches(';')
+        .trim()
+        .to_string();
+
+    if package.is_empty() {
+        return None;
+    }
+
+    let depth = package.split('.').count();
+    let mut root = source_path.parent()?;
+    for _ in 0..depth {
+        root = root.parent()?;
+    }
+    Some(root.to_path_buf())
+}
+
 /// Compile a Java source file to bytecode
 ///
 /// # Arguments
@@ -69,13 +97,19 @@ pub fn compile_to_class(
         std::fs::create_dir_all(output_dir)?;
     }
 
+    // Detect source root from package declaration so javac can resolve cross-file imports.
+    // e.g. com/example/Main.java with "package com.example;" → source root is two dirs up.
+    let source_root = detect_source_root(source_path);
+
     // Build javac command
-    let output = Command::new(&javac_path)
-        .arg("-d") // Output directory
-        .arg(output_dir)
-        .arg(source_path)
-        .output()
-        .map_err(JavacCompilationError::Io)?;
+    let mut cmd = Command::new(&javac_path);
+    cmd.arg("-d").arg(output_dir);
+    if let Some(ref root) = source_root {
+        // -sourcepath lets javac find and compile imported classes from source
+        cmd.arg("-sourcepath").arg(root);
+    }
+    cmd.arg(source_path);
+    let output = cmd.output().map_err(JavacCompilationError::Io)?;
 
     // Check if compilation succeeded
     if !output.status.success() {
@@ -117,7 +151,20 @@ pub fn compile_to_class_temp(source_path: &Path) -> Result<PathBuf, JavacCompila
         ));
     }
 
-    let class_file = class_files[0].clone();
+    // When -sourcepath pulls in dependencies, multiple .class files are produced.
+    // Select the one that corresponds to the source file we were asked to compile.
+    let class_file = if class_files.len() == 1 {
+        class_files[0].clone()
+    } else {
+        let class_name = extract_class_name(source_path).unwrap_or_default();
+        let expected = format!("{}.class", class_name);
+        class_files
+            .iter()
+            .find(|p| p.file_name().and_then(|n| n.to_str()) == Some(expected.as_str()))
+            .unwrap_or(&class_files[0])
+            .clone()
+    };
+
     // Persist the temp directory so the returned path remains valid.
     // The OS cleans up orphaned temp directories on reboot.
     let _ = temp_dir.keep();

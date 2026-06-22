@@ -288,7 +288,9 @@ impl CallOps {
             let callee_symbol_id = symbol_ids
                 .get(&call.callee)
                 .or_else(|| name_to_ids.get(&call.callee).and_then(|ids| ids.first()));
-            let caller_symbol_id = symbol_ids.get(&call.caller);
+            let caller_symbol_id = symbol_ids
+                .get(&call.caller)
+                .or_else(|| name_to_ids.get(&call.caller).and_then(|ids| ids.first()));
 
             if let Some(&caller_id) = caller_symbol_id {
                 caller_edges.push((NodeId::from(caller_id), call_id));
@@ -424,7 +426,9 @@ impl CallOps {
             let callee_symbol_id = symbol_ids
                 .get(&call.callee)
                 .or_else(|| name_to_ids.get(&call.callee).and_then(|ids| ids.first()));
-            let caller_symbol_id = symbol_ids.get(&call.caller);
+            let caller_symbol_id = symbol_ids
+                .get(&call.caller)
+                .or_else(|| name_to_ids.get(&call.caller).and_then(|ids| ids.first()));
 
             if let Some(&caller_id) = caller_symbol_id {
                 caller_edges.push((NodeId::from(caller_id), call_id));
