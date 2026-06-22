@@ -5,6 +5,11 @@ Project adheres to [Semantic Versioning](https://semverver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [4.11.1] - 2026-06-22
+
+### Fixed
+- `doctor` no longer warns about legacy `coord_x`/`coord_y`/`coord_z`/`coord_t` columns in `cfg_blocks`. These columns were removed from the schema at v10 and the check was obsolete.
+
 ## [4.11.0] - 2026-06-22
 
 ### Added
