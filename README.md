@@ -11,6 +11,26 @@ Magellan is intentionally fact-oriented: it records what is present in source
 code and leaves higher-level reasoning to tools such as llmgrep, Mirage, and
 Splice.
 
+## Technical Architecture
+
+**Compiler frontends**
+- Tree-sitter multi-language symbol extraction: Rust, Python, C, C++, Java, JavaScript, TypeScript, Go, CUDA
+- C/C++ CFG via clang → LLVM IR (feature `llvm-cfg`, `llvm_ir_parser`)
+- Java CFG via javac → `.class` bytecode (`javac_invoker`, `class_parser`)
+
+**Indexed facts**
+- Symbols with canonical / display FQNs, byte + line spans, stable IDs
+- References and interprocedural call graph
+- AST nodes and code chunks for source retrieval
+- CFG blocks and CFG edges, `#[cfg]` attribute inheritance
+- Coverage ingestion from LCOV into CFG side tables
+
+**Storage**
+- SQLite, schema v18: repository snapshots, temporal symbol/edge history, graph memory tables, project metadata, FTS5 full-text search, cfg-aware CFG blocks
+- Auto-detect project layout from `Cargo.toml`, `pyproject.toml`, `go.mod`, `package.json`, `tsconfig.json`, `pom.xml`, `CMakeLists.txt`
+
+**Keyword index:** code intelligence · codebase indexing · compiler frontend · tree-sitter · LLVM IR · Java bytecode · call graph · interprocedural · control-flow graph · CFG · AST · FTS5 · SQLite · Rust
+
 ## Current Storage Model
 
 The supported user-facing database is SQLite:
