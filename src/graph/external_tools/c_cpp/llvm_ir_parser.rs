@@ -631,7 +631,10 @@ entry:
 
     #[test]
     fn test_demangle_cpp_simple_name_static() {
-        assert_eq!(demangle_cpp_simple_name("_ZL13run_math_demov"), "run_math_demo");
+        assert_eq!(
+            demangle_cpp_simple_name("_ZL13run_math_demov"),
+            "run_math_demo"
+        );
     }
 
     #[test]

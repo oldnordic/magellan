@@ -570,9 +570,21 @@ fn instruction_size(bytecode: &[u8], pos: usize) -> usize {
             let base = pos + 1;
             let pad = (4 - (base % 4)) % 4;
             let ts = base + pad;
-            if ts + 11 >= bytecode.len() { return 1; }
-            let low  = i32::from_be_bytes([bytecode[ts+4], bytecode[ts+5], bytecode[ts+6], bytecode[ts+7]]);
-            let high = i32::from_be_bytes([bytecode[ts+8], bytecode[ts+9], bytecode[ts+10], bytecode[ts+11]]);
+            if ts + 11 >= bytecode.len() {
+                return 1;
+            }
+            let low = i32::from_be_bytes([
+                bytecode[ts + 4],
+                bytecode[ts + 5],
+                bytecode[ts + 6],
+                bytecode[ts + 7],
+            ]);
+            let high = i32::from_be_bytes([
+                bytecode[ts + 8],
+                bytecode[ts + 9],
+                bytecode[ts + 10],
+                bytecode[ts + 11],
+            ]);
             1 + pad + 12 + (high - low + 1).max(0) as usize * 4
         }
         // lookupswitch: variable, 4-byte-aligned
@@ -580,8 +592,16 @@ fn instruction_size(bytecode: &[u8], pos: usize) -> usize {
             let base = pos + 1;
             let pad = (4 - (base % 4)) % 4;
             let ts = base + pad;
-            if ts + 7 >= bytecode.len() { return 1; }
-            let npairs = i32::from_be_bytes([bytecode[ts+4], bytecode[ts+5], bytecode[ts+6], bytecode[ts+7]]).max(0) as usize;
+            if ts + 7 >= bytecode.len() {
+                return 1;
+            }
+            let npairs = i32::from_be_bytes([
+                bytecode[ts + 4],
+                bytecode[ts + 5],
+                bytecode[ts + 6],
+                bytecode[ts + 7],
+            ])
+            .max(0) as usize;
             1 + pad + 8 + npairs * 8
         }
         // ireturn..return (no operand)
@@ -604,7 +624,9 @@ fn instruction_size(bytecode: &[u8], pos: usize) -> usize {
         0xc2..=0xc3 => 1,
         // wide prefix
         0xc4 => {
-            if pos + 1 >= bytecode.len() { return 2; }
+            if pos + 1 >= bytecode.len() {
+                return 2;
+            }
             match bytecode[pos + 1] {
                 0x15..=0x19 | 0x36..=0x3a | 0xa9 => 4,
                 0x84 => 6,
@@ -632,7 +654,11 @@ fn parse_bytecode(bytecode: &[u8]) -> Result<Vec<BytecodeInstruction>> {
         let operand_end = (offset + size).min(bytecode.len());
         let operands = bytecode[offset + 1..operand_end].to_vec();
 
-        instructions.push(BytecodeInstruction { opcode, operands, byte_offset: offset });
+        instructions.push(BytecodeInstruction {
+            opcode,
+            operands,
+            byte_offset: offset,
+        });
 
         offset += size;
     }
@@ -679,7 +705,10 @@ fn identify_basic_blocks(instructions: &[BytecodeInstruction]) -> Vec<BytecodeBl
             // goto_w (4-byte signed offset)
             0xc8 if instr.operands.len() >= 4 => {
                 let rel = i32::from_be_bytes([
-                    instr.operands[0], instr.operands[1], instr.operands[2], instr.operands[3],
+                    instr.operands[0],
+                    instr.operands[1],
+                    instr.operands[2],
+                    instr.operands[3],
                 ]) as isize;
                 let target = (instr_start as isize + rel) as usize;
                 leaders.insert(target);
@@ -730,8 +759,12 @@ fn identify_basic_blocks(instructions: &[BytecodeInstruction]) -> Vec<BytecodeBl
             continue;
         }
 
-        let end_off = next_leader_off
-            .unwrap_or_else(|| instructions.last().map(|i| i.byte_offset + 1).unwrap_or(leader_off + 1));
+        let end_off = next_leader_off.unwrap_or_else(|| {
+            instructions
+                .last()
+                .map(|i| i.byte_offset + 1)
+                .unwrap_or(leader_off + 1)
+        });
 
         let terminator = classify_terminator(&block_instrs);
         blocks.push(BytecodeBlock {
@@ -761,23 +794,35 @@ fn classify_terminator(instructions: &[BytecodeInstruction]) -> BlockTerminator 
         // goto (2-byte offset)
         0xa7 if last.operands.len() >= 2 => {
             let rel = i16::from_be_bytes([last.operands[0], last.operands[1]]) as isize;
-            BlockTerminator::Unconditional { target: (last.byte_offset as isize + rel) as usize }
+            BlockTerminator::Unconditional {
+                target: (last.byte_offset as isize + rel) as usize,
+            }
         }
         // goto_w (4-byte offset)
         0xc8 if last.operands.len() >= 4 => {
             let rel = i32::from_be_bytes([
-                last.operands[0], last.operands[1], last.operands[2], last.operands[3],
+                last.operands[0],
+                last.operands[1],
+                last.operands[2],
+                last.operands[3],
             ]) as isize;
-            BlockTerminator::Unconditional { target: (last.byte_offset as isize + rel) as usize }
+            BlockTerminator::Unconditional {
+                target: (last.byte_offset as isize + rel) as usize,
+            }
         }
 
         // ifeq..if_acmpne (2-byte offset), ifnull, ifnonnull
         0x99..=0xa6 | 0xc6..=0xc7 if last.operands.len() >= 2 => {
             let rel = i16::from_be_bytes([last.operands[0], last.operands[1]]) as isize;
-            BlockTerminator::Conditional { target: (last.byte_offset as isize + rel) as usize }
+            BlockTerminator::Conditional {
+                target: (last.byte_offset as isize + rel) as usize,
+            }
         }
 
-        0xaa | 0xab => BlockTerminator::Switch { default: 0, cases: vec![] },
+        0xaa | 0xab => BlockTerminator::Switch {
+            default: 0,
+            cases: vec![],
+        },
 
         0xbf => BlockTerminator::Throw,
 
@@ -820,9 +865,21 @@ mod tests {
     fn test_identify_basic_blocks_simple() {
         // iconst_0 (0), istore_1 (1), iload_1 (2), ireturn (3) — linear, 1 block
         let instructions = vec![
-            BytecodeInstruction { opcode: 0x03, operands: vec![], byte_offset: 0 },
-            BytecodeInstruction { opcode: 0x3c, operands: vec![], byte_offset: 1 },
-            BytecodeInstruction { opcode: 0xac, operands: vec![], byte_offset: 2 },
+            BytecodeInstruction {
+                opcode: 0x03,
+                operands: vec![],
+                byte_offset: 0,
+            },
+            BytecodeInstruction {
+                opcode: 0x3c,
+                operands: vec![],
+                byte_offset: 1,
+            },
+            BytecodeInstruction {
+                opcode: 0xac,
+                operands: vec![],
+                byte_offset: 2,
+            },
         ];
 
         let blocks = identify_basic_blocks(&instructions);
@@ -836,10 +893,26 @@ mod tests {
         // fall-through at offset 3: ireturn
         // taken at offset 4: iconst_1, ireturn
         let instructions = vec![
-            BytecodeInstruction { opcode: 0x99, operands: vec![0x00, 0x04], byte_offset: 0 }, // ifeq +4
-            BytecodeInstruction { opcode: 0xac, operands: vec![], byte_offset: 3 },           // ireturn (fall-through)
-            BytecodeInstruction { opcode: 0x04, operands: vec![], byte_offset: 4 },           // iconst_1 (taken)
-            BytecodeInstruction { opcode: 0xac, operands: vec![], byte_offset: 5 },           // ireturn
+            BytecodeInstruction {
+                opcode: 0x99,
+                operands: vec![0x00, 0x04],
+                byte_offset: 0,
+            }, // ifeq +4
+            BytecodeInstruction {
+                opcode: 0xac,
+                operands: vec![],
+                byte_offset: 3,
+            }, // ireturn (fall-through)
+            BytecodeInstruction {
+                opcode: 0x04,
+                operands: vec![],
+                byte_offset: 4,
+            }, // iconst_1 (taken)
+            BytecodeInstruction {
+                opcode: 0xac,
+                operands: vec![],
+                byte_offset: 5,
+            }, // ireturn
         ];
 
         let blocks = identify_basic_blocks(&instructions);

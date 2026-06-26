@@ -108,8 +108,10 @@ impl CppParser {
                 // For qualified names like Graph::bfs, take the unqualified tail
                 "scoped_identifier" | "qualified_identifier" => {
                     if let Some(name_node) = child.child_by_field_name("name") {
-                        if name_node.kind() == "identifier" || name_node.kind() == "type_identifier" {
-                            let name_bytes = safe_slice(source, name_node.start_byte(), name_node.end_byte())?;
+                        if name_node.kind() == "identifier" || name_node.kind() == "type_identifier"
+                        {
+                            let name_bytes =
+                                safe_slice(source, name_node.start_byte(), name_node.end_byte())?;
                             if let Ok(s) = std::str::from_utf8(name_bytes) {
                                 return Some(s.to_string());
                             }
@@ -356,7 +358,8 @@ impl CppParser {
                 // For qualified names like Graph::bfs, take the unqualified tail
                 "scoped_identifier" | "qualified_identifier" => {
                     if let Some(name_node) = child.child_by_field_name("name") {
-                        if name_node.kind() == "identifier" || name_node.kind() == "type_identifier" {
+                        if name_node.kind() == "identifier" || name_node.kind() == "type_identifier"
+                        {
                             let name_bytes = &source[name_node.start_byte()..name_node.end_byte()];
                             if let Ok(s) = std::str::from_utf8(name_bytes) {
                                 return Some(s.to_string());

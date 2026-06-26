@@ -459,9 +459,15 @@ impl CallOps {
         let mut calls: Vec<CallFact> = Vec::new();
 
         for (caller_name, callees) in llvm_calls {
-            let caller_simple = crate::graph::external_tools::c_cpp::llvm_ir_parser::demangle_cpp_simple_name(caller_name);
+            let caller_simple =
+                crate::graph::external_tools::c_cpp::llvm_ir_parser::demangle_cpp_simple_name(
+                    caller_name,
+                );
             for callee_name in callees {
-                let callee_simple = crate::graph::external_tools::c_cpp::llvm_ir_parser::demangle_cpp_simple_name(callee_name);
+                let callee_simple =
+                    crate::graph::external_tools::c_cpp::llvm_ir_parser::demangle_cpp_simple_name(
+                        callee_name,
+                    );
                 calls.push(CallFact {
                     file_path: path_buf.clone(),
                     caller: caller_simple.clone(),
