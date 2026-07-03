@@ -31,6 +31,9 @@ exclude = [
     "CONTEXT_LOGICGRAPH_*.md",
     "TEST-*-RESULTS.md",
     "PLAN_*_MIGRATION.md",
+    "AUDIT_*.md",
+    "SPEC_*.md",
+    "BUG_*.md",
     # Backup and temp files
     "*.bak",
     "*.checkpoint",
