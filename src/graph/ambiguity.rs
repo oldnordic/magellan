@@ -24,7 +24,7 @@
 use crate::graph::schema::SymbolNode;
 use anyhow::Result;
 use rusqlite::params;
-use sqlitegraph::{EdgeSpec, GraphBackend};
+use sqlitegraph::EdgeSpec;
 
 use super::CodeGraph;
 use crate::graph::query;

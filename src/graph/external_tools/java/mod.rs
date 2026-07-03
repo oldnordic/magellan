@@ -10,7 +10,7 @@ use std::path::Path;
 pub mod class_parser;
 pub mod javac_invoker;
 
-use javac_invoker::{compile_to_class_temp, JavacCompilationError};
+use javac_invoker::compile_to_class_temp;
 
 /// Extract per-method CFGs from a Java source file.
 ///

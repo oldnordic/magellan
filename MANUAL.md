@@ -264,7 +264,8 @@ magellan cross-file-refs --db code.db --fqn crate::module::symbol --output prett
 
 ### Registry (Cross-Project Discovery)
 
-The registry lives at `~/.config/magellan/registry.toml`. Each entry maps a
+The registry lives at `~/.config/magellan/config.toml` (the `[[project]]` array
+within the main config file). Each entry maps a
 project name to a root directory and an optional database path.
 
 ```toml
@@ -726,7 +727,7 @@ model = "codellama"
 
 [registry]
 auto_scan = true
-scan_roots = ["/home/feanor/Projects"]
+scan_roots = ["/home/user/Projects"]
 
 [embeddings]
 enabled = true

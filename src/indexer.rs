@@ -110,11 +110,9 @@ pub fn read_batch_sources<P: AsRef<std::path::Path>>(
 }
 
 use anyhow::Result;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::thread;
-use std::time::Duration;
 
 use crate::{CodeGraph, FileEvent, FileSystemWatcher, WatcherConfig};
 

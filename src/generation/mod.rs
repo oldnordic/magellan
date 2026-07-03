@@ -109,6 +109,7 @@ impl ChunkStore {
     /// Create a stub ChunkStore using a temporary file (for testing).
     ///
     /// Uses a temporary file so that new connections can access the same data.
+    #[cfg(test)]
     pub fn in_memory() -> Self {
         // Create: Create a unique temporary file for each call
         // This prevents conflicts when multiple tests run concurrently

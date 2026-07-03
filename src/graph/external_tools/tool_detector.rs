@@ -3,8 +3,8 @@
 //! Finds clang and javac executables on Linux and Windows.
 //! Searches PATH and common installation locations.
 
-use anyhow::{Context, Result};
-use std::path::{Path, PathBuf};
+use anyhow::Result;
+use std::path::PathBuf;
 use std::process::Command;
 
 /// Errors from tool detection

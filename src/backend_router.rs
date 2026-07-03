@@ -3,12 +3,12 @@
 //! Provides unified interface for SQLite backend.
 
 use anyhow::{Context, Result};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::graph::CodeGraph;
 use crate::graph::SymbolNode;
 use crate::ingest::SymbolKind;
-use sqlitegraph::{GraphBackend, SnapshotId};
+use sqlitegraph::SnapshotId;
 
 /// Unified symbol information
 #[derive(Debug, Clone)]

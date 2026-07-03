@@ -15,7 +15,7 @@ Splice.
 
 **Compiler frontends**
 - Tree-sitter multi-language symbol extraction: Rust, Python, C, C++, Java, JavaScript, TypeScript, Go, CUDA
-- C/C++ CFG via clang → LLVM IR (feature `llvm-cfg`, `llvm_ir_parser`)
+- C/C++ CFG via clang → LLVM IR (`llvm_ir_parser`; clang detected at runtime, tree-sitter fallback)
 - Java CFG via javac → `.class` bytecode (`javac_invoker`, `class_parser`)
 
 **Indexed facts**

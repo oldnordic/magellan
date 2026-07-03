@@ -23,7 +23,7 @@
 use anyhow::Result;
 use sqlitegraph::{GraphBackend, NodeId, NodeSpec, SnapshotId};
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use xxhash_rust::xxh3::Xxh3;
@@ -371,7 +371,6 @@ impl FileOps {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
 
     #[test]
     fn test_compute_hash_deterministic() {

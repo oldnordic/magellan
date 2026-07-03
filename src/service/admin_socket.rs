@@ -87,6 +87,13 @@ impl AdminSocket {
 
         tracing::info!(method = %method, "Admin request received");
 
+        // Fast path: ping must not wait on meta_db lock or disk I/O
+        if method == "ping" {
+            return Ok(
+                super::types::ServiceResponse::ok(id, serde_json::json!({"pong": true})).into_val(),
+            );
+        }
+
         {
             let mut meta = meta_db.lock().await;
             let mut ev = super::meta_db::DaemonEvent {
@@ -116,8 +123,6 @@ impl AdminSocket {
         }
 
         match method.as_str() {
-            "ping" => Ok(super::types::ServiceResponse::ok(id, json!({"pong": true })).into_val()),
-
             "list" => {
                 let reg = registry.lock().await;
                 let names: Vec<String> = reg.enabled_names();

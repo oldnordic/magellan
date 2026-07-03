@@ -2,11 +2,11 @@
 //!
 //! Compiles C/C++ source files to LLVM IR text files (.ll) using clang.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::graph::external_tools::{tool_detector, tool_invoker};
+use crate::graph::external_tools::tool_detector;
 
 /// Errors from clang compilation
 #[derive(Debug, thiserror::Error)]

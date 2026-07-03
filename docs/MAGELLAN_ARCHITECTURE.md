@@ -91,7 +91,7 @@ Use `symbol_id` for precise CLI/API lookup when possible.
 ## Multi-Project Querying
 
 Magellan maintains a persistent project registry at
-`~/.config/magellan/registry.toml`. Once projects are registered (via
+`~/.config/magellan/config.toml`. Once projects are registered (via
 `magellan registry scan` or `magellan registry add`), cross-project flags are
 available:
 
@@ -187,10 +187,13 @@ Optional features:
 
 | Feature | Purpose |
 |---------|---------|
-| `llvm-cfg` | LLVM IR CFG/call extraction for C/C++ (default: enabled; requires clang at runtime) |
-| `web-ui` | optional web UI server |
+| `sqlite-backend` | SQLite storage backend (default; the only currently-active backend) |
+| `mir-frontend` | Reserved for future MIR-based Rust CFG extraction via RUSTC_WRAPPER (not yet implemented) |
 
-The public command documentation assumes the default SQLite `.db` workflow.
+The C/C++ LLVM IR CFG extraction (`external_tools/c_cpp/`) and Java bytecode CFG
+(`external_tools/java/`) compile unconditionally; clang/javac are detected at
+runtime via `PATH` with tree-sitter fallback. The public command documentation
+assumes the default SQLite `.db` workflow.
 
 ## Service Daemon
 
@@ -199,7 +202,7 @@ API over a Unix domain socket at `/tmp/magellan.sock`.
 
 ```text
 magellan service start
-  -> Service::new() reads ~/.config/magellan/registry.toml
+  -> Service::new() reads ~/.config/magellan/config.toml
   -> AdminSocket listens on $XDG_RUNTIME_DIR/magellan.sock (fallback: /tmp/magellan.sock)
   -> WatcherMap spawns FileSystemWatcher per registered project
   -> worker_loop indexes batched file changes into each project's CodeGraph
@@ -212,7 +215,7 @@ magellan service start
 |--------|------|
 | `src/service/mod.rs` | `Service` struct, signal handler, worker loop, `socket_path()` helper, `send_request()` client |
 | `src/service/admin_socket.rs` | JSON-RPC dispatch over UDS; `WatcherMap` for per-project watcher lifecycle |
-| `src/service/registry.rs` | `Registry` CRUD + TOML persistence at `~/.config/magellan/registry.toml` |
+| `src/service/registry.rs` | `Registry` CRUD + TOML persistence at `~/.config/magellan/config.toml` |
 | `src/service/meta_db.rs` | `MetaDb` — `project_registry` + `concept_embeddings` + `pattern_cross_refs` |
 | `src/service/types.rs` | `ProjectEntry`, `ServiceRequest`, `ServiceResponse`, `TaggedBatch` |
 | `src/service_cmd.rs` | Async CLI handlers for 9 subcommands (`start`, `stop`, `list`, `register`, `unregister`, `pause`, `resume`, `status`, `stats`) |
@@ -288,7 +291,7 @@ programmatic entry point that does not require spawning the CLI:
 ```rust
 use magellan::{MagellanFramework, FrameworkSymbol};
 
-// Open all enabled projects from ~/.config/magellan/registry.toml
+// Open all enabled projects from ~/.config/magellan/config.toml
 let fw = MagellanFramework::from_registry()?;
 
 // Or supply explicit (name, db_path) pairs — useful in tests

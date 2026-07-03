@@ -4,7 +4,6 @@
 //! and Geometric backends implement, enabling backend-agnostic CLI commands.
 
 use anyhow::Result;
-use serde_json::Value;
 
 /// Unified backend trait for Magellan
 ///

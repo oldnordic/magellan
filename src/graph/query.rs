@@ -4,9 +4,9 @@
 
 use anyhow::Result;
 use rusqlite::params;
-use sqlitegraph::{BackendDirection, GraphBackend, NeighborQuery, SnapshotId};
+use sqlitegraph::{BackendDirection, NeighborQuery, SnapshotId};
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use crate::graph::ambiguity::AmbiguityOps;
 use crate::graph::schema::{EdgeEndpoints, SymbolNode};
@@ -997,7 +997,7 @@ mod tests {
         symbol_nodes_in_file_with_ids, symbols_in_file, CollisionField,
     };
     use crate::graph::schema::SymbolNode;
-    use sqlitegraph::{GraphBackend, SnapshotId};
+    use sqlitegraph::SnapshotId;
 
     #[test]
     fn test_index_references_propagates_count() {

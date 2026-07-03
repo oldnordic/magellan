@@ -497,7 +497,6 @@ impl SymbolOps {
 mod tests {
     use super::*;
     use crate::graph::schema::SymbolNode;
-    use sqlitegraph::GraphBackend;
 
     #[test]
     fn test_symbol_id_deterministic() {

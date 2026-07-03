@@ -1,4 +1,4 @@
-//! Project registry: read/write ~/.config/magellan/registry.toml
+//! Project registry: read/write ~/.config/magellan/config.toml (project array)
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -8,11 +8,23 @@ use std::path::{Path, PathBuf};
 
 use super::types::ProjectEntry;
 
-const DEFAULT_REGISTRY_PATH: &str = "/home/feanor/.config/magellan/registry.toml";
+/// Resolve the default registry path at runtime: `$HOME/.config/magellan/config.toml`.
+/// Matches the pattern in `src/config.rs::default_config_path`. Falls back to
+/// `.config/magellan/config.toml` relative to cwd if `HOME` is unset (same
+/// fallback as `config.rs`).
+fn default_registry_path() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(home)
+        .join(".config")
+        .join("magellan")
+        .join("config.toml")
+}
 
-/// Top-level registry file content
+/// Minimal struct for reading [[project]] array out of config.toml.
+/// Unknown keys (language-model, registry, embeddings) are silently ignored.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RegistryFile {
+    #[serde(default)]
     pub version: String,
     #[serde(default)]
     pub project: Vec<ProjectEntry>,
@@ -28,7 +40,7 @@ pub struct Registry {
 impl Registry {
     /// Load registry from the default path
     pub fn load() -> Result<Self> {
-        Self::load_from(PathBuf::from(DEFAULT_REGISTRY_PATH))
+        Self::load_from(default_registry_path())
     }
 
     /// Load registry from a specific path
@@ -45,18 +57,35 @@ impl Registry {
         Ok(Self { projects, path })
     }
 
-    /// Save registry to disk
+    /// Save registry to disk, merging the [[project]] array into config.toml
+    /// while preserving all other sections (language-model, registry, embeddings).
     pub fn save(&self) -> Result<()> {
         let dir = self.path.parent().unwrap_or(Path::new("."));
         if !dir.exists() {
             fs::create_dir_all(dir)?;
         }
-        let file = RegistryFile {
-            version: "1".to_string(),
-            project: self.projects.clone(),
+
+        // Load existing file as raw TOML table to preserve non-project keys
+        let mut doc: toml::value::Table = if self.path.exists() {
+            let content = fs::read_to_string(&self.path)
+                .with_context(|| format!("Failed to read {}", self.path.display()))?;
+            toml::from_str::<toml::value::Table>(&content).unwrap_or_default()
+        } else {
+            toml::value::Table::new()
         };
-        let content = toml::to_string_pretty(&file).context("Failed to serialize registry")?;
-        fs::write(&self.path, content)
+
+        // Replace [[project]] array; remove key entirely when empty
+        if self.projects.is_empty() {
+            doc.remove("project");
+        } else {
+            let projects_val =
+                toml::Value::try_from(&self.projects).context("Failed to serialize projects")?;
+            doc.insert("project".to_string(), projects_val);
+        }
+
+        let content = toml::to_string_pretty(&toml::Value::Table(doc))
+            .context("Failed to serialize config.toml")?;
+        fs::write(&self.path, &content)
             .with_context(|| format!("Failed to write {}", self.path.display()))?;
         Ok(())
     }
@@ -312,6 +341,42 @@ enabled = true
         assert!(
             entry.exclude.is_empty(),
             "legacy entries should have empty exclude"
+        );
+    }
+
+    /// Regression for B-7: default registry path must NOT be hardcoded to a
+    /// specific user's home directory. It must resolve `$HOME` at runtime so
+    /// the crate works for any user, CI, or container.
+    #[test]
+    fn test_default_registry_path_respects_home() {
+        // Save and restore HOME to avoid interfering with other tests.
+        let original_home = std::env::var("HOME").ok();
+        let dir = tempfile::tempdir().unwrap();
+        let fake_home = dir.path().to_path_buf();
+
+        std::env::set_var("HOME", &fake_home);
+        let resolved = default_registry_path();
+        // Restore HOME immediately after reading.
+        match &original_home {
+            Some(h) => std::env::set_var("HOME", h),
+            None => std::env::remove_var("HOME"),
+        }
+
+        let expected = fake_home
+            .join(".config")
+            .join("magellan")
+            .join("config.toml");
+        assert_eq!(
+            resolved, expected,
+            "default_registry_path must resolve under $HOME, not a hardcoded path"
+        );
+
+        // Explicitly: must never contain a literal /home/feanor.
+        let resolved_str = resolved.to_string_lossy();
+        assert!(
+            !resolved_str.contains("/home/feanor"),
+            "default_registry_path must not be hardcoded to /home/feanor, got: {}",
+            resolved_str
         );
     }
 }

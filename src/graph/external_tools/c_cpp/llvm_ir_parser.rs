@@ -2,7 +2,7 @@
 //!
 //! Parses LLVM IR .ll files and extracts Control Flow Graph blocks.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::collections::HashMap;
 
 /// Demangle a C++ ABI-mangled name and return the simple unqualified function name.

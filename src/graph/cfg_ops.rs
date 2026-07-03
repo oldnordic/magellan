@@ -5,14 +5,11 @@
 
 use anyhow::Result;
 // use fixedbitset::FixedBitSet; // removed: migrated to petgraph dominators
-use petgraph::algo::dominators::simple_fast;
-use petgraph::graph::Graph;
 use rusqlite::params;
 use rusqlite::OptionalExtension;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::HashSet;
 
 use crate::generation::ChunkStore;
-use crate::graph::cfg_edges_extract::{CfgEdge, CfgEdgeType, CfgWithEdges};
 use crate::graph::schema::CfgBlock;
 
 /// CFG block operations
@@ -489,6 +486,7 @@ pub fn evaluate_cfg_condition(condition: &str, active_features: &HashSet<String>
 #[cfg(test)]
 mod spatial_tests {
     use super::*;
+    use crate::graph::cfg_edges_extract::{CfgEdge, CfgEdgeType};
 
     #[test]
     fn test_cfg_edges_roundtrip() {

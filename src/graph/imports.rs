@@ -3,8 +3,7 @@
 //! Handles import node CRUD operations and IMPORTS edge management.
 
 use anyhow::Result;
-use sqlitegraph::{BackendDirection, EdgeSpec, GraphBackend, NeighborQuery, NodeSpec, SnapshotId};
-use std::path::PathBuf;
+use sqlitegraph::{EdgeSpec, GraphBackend, NodeSpec, SnapshotId};
 use std::sync::Arc;
 
 use crate::graph::schema::ImportNode;
@@ -157,12 +156,11 @@ impl ImportOps {
     }
 }
 
-// Re-export ImportKind for use within this module
-use crate::ingest::ImportKind;
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ingest::ImportKind;
+    use std::path::PathBuf;
     use tempfile::TempDir;
 
     #[test]

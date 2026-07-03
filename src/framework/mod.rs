@@ -13,7 +13,16 @@ use crate::graph::CodeGraph;
 // Registry reading (self-contained, no binary deps)
 // ---------------------------------------------------------------------------
 
-const DEFAULT_REGISTRY_PATH: &str = "/home/feanor/.config/magellan/registry.toml";
+/// Resolve the default registry path at runtime: `$HOME/.config/magellan/config.toml`.
+/// Matches the pattern in `src/config.rs::default_config_path`. Falls back to
+/// `.config/magellan/config.toml` relative to cwd if `HOME` is unset.
+fn default_registry_path() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(home)
+        .join(".config")
+        .join("magellan")
+        .join("config.toml")
+}
 
 #[derive(Debug, Deserialize)]
 struct RegistryFile {
@@ -163,7 +172,7 @@ pub struct MagellanFramework {
 impl MagellanFramework {
     /// Open all enabled projects from the default registry file
     pub fn from_registry() -> Result<Self> {
-        Self::from_registry_file(Path::new(DEFAULT_REGISTRY_PATH))
+        Self::from_registry_file(&default_registry_path())
     }
 
     /// Open all enabled projects from a registry file at the given path

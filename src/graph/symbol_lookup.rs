@@ -40,7 +40,6 @@
 use anyhow::Result;
 use sqlitegraph::{GraphBackend, SnapshotId};
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 use crate::ingest::{SymbolFact, SymbolKind};
 

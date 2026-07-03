@@ -21,11 +21,9 @@ use anyhow::Result;
 use rusqlite::{params, OptionalExtension};
 use std::path::Path;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 pub mod backfill;
 pub mod compute;
-pub mod compute_v3;
 pub mod schema;
 
 pub use backfill::BackfillResult;
@@ -85,6 +83,7 @@ impl MetricsOps {
     /// Create an in-memory MetricsOps for testing/stub usage.
     ///
     /// Uses a temporary file so that new connections can access the same data.
+    #[cfg(test)]
     pub fn in_memory() -> Self {
         let temp_dir = std::env::temp_dir();
         let unique_id = format!(
@@ -458,86 +457,4 @@ impl MetricsOps {
 
         Ok(results)
     }
-}
-
-impl MetricsOps {
-    /// Compute metrics for a file using V3 graph backend
-    ///
-    /// This is a V3-specific method that uses graph traversal APIs instead of SQL.
-    /// It's separate from the SQLite-based `compute_for_file` to keep both backends working.
-    ///
-    /// # Arguments
-    /// * `backend` - Graph backend for traversing entities and edges
-    /// * `file_path` - Path to the file
-    /// * `source` - File contents as bytes
-    /// * `symbol_facts` - Vector of SymbolNode data for all symbols in the file
-    pub fn compute_for_file_v3(
-        &self,
-        backend: std::sync::Arc<dyn sqlitegraph::GraphBackend>,
-        file_path: &str,
-        source: &[u8],
-        symbol_facts: &[crate::graph::schema::SymbolNode],
-    ) -> anyhow::Result<()> {
-        use compute_v3::V3MetricsCompute;
-
-        let v3_compute = V3MetricsCompute::new(backend);
-
-        // Create storage callbacks that use SideTables
-        let store_fn = |metrics: &FileMetrics| -> anyhow::Result<()> {
-            match &self.backend {
-                MetricsOpsBackend::SideTables(side_tables) => {
-                    side_tables.store_file_metrics(metrics)
-                }
-                _ => Err(anyhow::anyhow!("V3 compute called with non-V3 backend")),
-            }
-        };
-
-        let store_symbol_fn = |metrics: &SymbolMetrics| -> anyhow::Result<()> {
-            match &self.backend {
-                MetricsOpsBackend::SideTables(side_tables) => {
-                    side_tables.store_symbol_metrics(metrics)
-                }
-                _ => Err(anyhow::anyhow!("V3 compute called with non-V3 backend")),
-            }
-        };
-
-        v3_compute.compute_for_file(file_path, source, symbol_facts, store_fn, store_symbol_fn)
-    }
-}
-
-pub mod query {
-    //! Public query functions for metrics
-
-    use super::schema::{FileMetrics, SymbolMetrics};
-    use super::MetricsOps;
-    use anyhow::Result;
-
-    /// Get file metrics by path (public wrapper)
-    pub fn get_file_metrics(metrics: &MetricsOps, file_path: &str) -> Result<Option<FileMetrics>> {
-        metrics.get_file_metrics(file_path)
-    }
-
-    /// Get symbol metrics by symbol_id (public wrapper)
-    pub fn get_symbol_metrics(
-        metrics: &MetricsOps,
-        symbol_id: i64,
-    ) -> Result<Option<SymbolMetrics>> {
-        metrics.get_symbol_metrics(symbol_id)
-    }
-
-    /// Get hotspots with optional filters (public wrapper)
-    pub fn get_hotspots(
-        metrics: &MetricsOps,
-        limit: Option<u32>,
-        min_loc: Option<i64>,
-        min_fan_in: Option<i64>,
-        min_fan_out: Option<i64>,
-    ) -> Result<Vec<FileMetrics>> {
-        metrics.get_hotspots(limit, min_loc, min_fan_in, min_fan_out)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
 }

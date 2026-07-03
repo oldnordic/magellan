@@ -5,11 +5,17 @@
 //! and real-time access (in-memory ring buffer).
 
 use anyhow::Result;
-use parking_lot::Mutex;
 use rusqlite::{params, OptionalExtension};
 use std::collections::VecDeque;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+
+/// Best-effort telemetry guard: once a telemetry write fails, we warn exactly
+/// once per process. Telemetry is non-essential instrumentation — it must never
+/// abort a read/query command (see B-1). This flag suppresses log spam while
+/// keeping every subsequent write attempt best-effort (cheap atomic load).
+static TELEMETRY_WARNED: AtomicBool = AtomicBool::new(false);
 
 /// Telemetry event types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -113,6 +119,7 @@ impl TelemetryOps {
     }
 
     /// Create an in-memory TelemetryOps for testing/stub usage
+    #[cfg(test)]
     pub fn in_memory() -> Self {
         let temp_dir = std::env::temp_dir();
         let unique_id = format!(
@@ -270,10 +277,13 @@ impl TelemetryOps {
         unit: Option<&str>,
         metadata: Option<&serde_json::Value>,
     ) -> Result<i64> {
+        // B-1: Telemetry is best-effort instrumentation. A corrupted telemetry_events
+        // table, locked WAL, or full disk must NEVER abort the host command. All five
+        // public record_* methods funnel through here, so catching the failure at this
+        // single chokepoint fixes the entire class (130+ call sites) at once.
         let row_id = match &self.backend {
-            TelemetryBackend::Sqlite(_) => {
-                let conn = self.connect()?;
-                Self::insert_event_sqlite(
+            TelemetryBackend::Sqlite(_) => match self.connect() {
+                Ok(conn) => match Self::insert_event_sqlite(
                     &conn,
                     execution_id,
                     event_type,
@@ -283,11 +293,15 @@ impl TelemetryOps {
                     value,
                     unit,
                     metadata,
-                )?
-            }
+                ) {
+                    Ok(id) => id,
+                    Err(e) => return Ok(Self::swallow_telemetry_error(e)),
+                },
+                Err(e) => return Ok(Self::swallow_telemetry_error(anyhow::anyhow!(e))),
+            },
             TelemetryBackend::Shared(conn_arc) => {
                 let conn = conn_arc.lock();
-                Self::insert_event_sqlite(
+                match Self::insert_event_sqlite(
                     &conn,
                     execution_id,
                     event_type,
@@ -297,7 +311,10 @@ impl TelemetryOps {
                     value,
                     unit,
                     metadata,
-                )?
+                ) {
+                    Ok(id) => id,
+                    Err(e) => return Ok(Self::swallow_telemetry_error(e)),
+                }
             }
         };
 
@@ -317,6 +334,19 @@ impl TelemetryOps {
         Ok(row_id)
     }
 
+    /// Swallow a telemetry write failure: warn once per process, return sentinel
+    /// row id 0. Callers propagate `Ok(0)` so their `?` is a no-op — telemetry
+    /// never aborts the host command.
+    fn swallow_telemetry_error(e: anyhow::Error) -> i64 {
+        if !TELEMETRY_WARNED.swap(true, Ordering::Relaxed) {
+            eprintln!(
+                "Warning: telemetry write failed (subsequent failures suppressed): {}",
+                e
+            );
+        }
+        0
+    }
+
     /// Record the start of a phase
     pub fn record_phase_start(&self, execution_id: &str, phase: &str) -> Result<i64> {
         self.insert_event(
@@ -333,24 +363,28 @@ impl TelemetryOps {
 
     /// Record the end of a phase
     ///
-    /// Computes duration by looking up the matching phase_start event
+    /// Computes duration by looking up the matching phase_start event.
+    /// The duration lookup is best-effort: if it fails (corrupted table,
+    /// connection error), duration is recorded as `None` rather than aborting.
     pub fn record_phase_end(&self, execution_id: &str, phase: &str) -> Result<i64> {
         let end_ns = Self::now_ns();
 
-        // Find the matching phase_start to compute duration
+        // Find the matching phase_start to compute duration. Best-effort: a
+        // failure here means we lose the duration value, not the whole event.
         let start_ns = match &self.backend {
-            TelemetryBackend::Sqlite(_) => {
-                let conn = self.connect()?;
-                conn.query_row(
-                    "SELECT timestamp_ns FROM telemetry_events
-                     WHERE execution_id = ?1 AND event_type = 'phase_start' AND event_name = ?2
-                     ORDER BY timestamp_ns DESC LIMIT 1",
-                    params![execution_id, phase],
-                    |row| row.get::<_, i64>(0),
-                )
-                .optional()
-                .map_err(|e| anyhow::anyhow!("Failed to query phase start: {}", e))?
-            }
+            TelemetryBackend::Sqlite(_) => match self.connect() {
+                Ok(conn) => conn
+                    .query_row(
+                        "SELECT timestamp_ns FROM telemetry_events
+                         WHERE execution_id = ?1 AND event_type = 'phase_start' AND event_name = ?2
+                         ORDER BY timestamp_ns DESC LIMIT 1",
+                        params![execution_id, phase],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .optional()
+                    .unwrap_or(None),
+                Err(_) => None,
+            },
             TelemetryBackend::Shared(conn_arc) => {
                 let conn = conn_arc.lock();
                 conn.query_row(
@@ -361,7 +395,7 @@ impl TelemetryOps {
                     |row| row.get::<_, i64>(0),
                 )
                 .optional()
-                .map_err(|e| anyhow::anyhow!("Failed to query phase start: {}", e))?
+                .unwrap_or(None)
             }
         };
 
@@ -713,5 +747,66 @@ mod tests {
         // Most recent first
         assert_eq!(recent[0].execution_id, "test-exec-9");
         assert_eq!(recent[4].execution_id, "test-exec-5");
+    }
+
+    /// Regression for B-1: telemetry insert failures must NOT propagate.
+    ///
+    /// Before this fix, every read/query command (status, find, refs, context,
+    /// ...) called `record_phase_start(...)?` which propagated the SQLite insert
+    /// error. On a corrupted telemetry_events table this aborted the whole
+    /// command before any real data was queried — instrumentation on the
+    /// critical path of a read-only operation.
+    ///
+    /// This test corrupts the telemetry table (renames it so INSERT fails) and
+    /// asserts that record_phase_start / record_phase_end / record_counter return
+    /// Ok instead of Err. Telemetry is best-effort instrumentation; it must
+    /// never take down a command that has nothing to do with telemetry.
+    #[test]
+    fn test_telemetry_best_effort_on_insert_failure() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test.db");
+        let telemetry = TelemetryOps::new(&db_path);
+        telemetry.ensure_schema().unwrap();
+
+        // Corrupt: rename the table so every INSERT into telemetry_events fails
+        // with "no such table". This emulates the real-world corrupted-DB scenario
+        // where the telemetry_events b-tree is malformed.
+        {
+            let conn = telemetry.connect().unwrap();
+            conn.execute(
+                "ALTER TABLE telemetry_events RENAME TO telemetry_events_broken",
+                [],
+            )
+            .unwrap();
+        }
+
+        // All record_* methods must return Ok (best-effort), NOT propagate the error.
+        let phase_start = telemetry.record_phase_start("exec-best-effort", "query_counts");
+        assert!(
+            phase_start.is_ok(),
+            "record_phase_start must be best-effort (got {:?})",
+            phase_start
+        );
+
+        let phase_end = telemetry.record_phase_end("exec-best-effort", "query_counts");
+        assert!(
+            phase_end.is_ok(),
+            "record_phase_end must be best-effort (got {:?})",
+            phase_end
+        );
+
+        let counter = telemetry.record_counter("exec-best-effort", "files_indexed", 42.0, "count");
+        assert!(
+            counter.is_ok(),
+            "record_counter must be best-effort (got {:?})",
+            counter
+        );
+
+        let gauge = telemetry.record_gauge("exec-best-effort", "memory_mb", 128.0, "mb");
+        assert!(
+            gauge.is_ok(),
+            "record_gauge must be best-effort (got {:?})",
+            gauge
+        );
     }
 }

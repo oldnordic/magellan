@@ -895,10 +895,13 @@ impl CodeGraph {
         let root_canonical = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
 
         // Create the thread pool once for the entire embed run (not per file).
+        // If the requested thread count fails, fall back to rayon's default pool;
+        // if that also fails, propagate the error rather than panicking.
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(num_parallel)
             .build()
-            .unwrap_or_else(|_| rayon::ThreadPoolBuilder::new().build().unwrap());
+            .or_else(|_| rayon::ThreadPoolBuilder::new().build())
+            .map_err(|e| anyhow::anyhow!("Failed to build rayon thread pool: {}", e))?;
 
         for (file_idx, (file_path, file_entities)) in file_groups.iter().enumerate() {
             let is_absolute = file_path.starts_with('/');

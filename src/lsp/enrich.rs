@@ -31,13 +31,10 @@
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use super::analyzer::{
-    detect_available_analyzers, detect_language_from_path, AnalyzerKind, AnalyzerResult,
-};
+use super::analyzer::{detect_available_analyzers, detect_language_from_path, AnalyzerKind};
 use crate::graph::CodeGraph;
 
 /// Configuration for symbol enrichment

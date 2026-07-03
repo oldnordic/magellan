@@ -3,7 +3,162 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semverver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [4.12.3] - 2026-07-03
+
+### Fixed
+
+- **Telemetry is now best-effort instrumentation (B-1)** (`src/graph/telemetry.rs`):
+  Previously every read/query command (`status`, `find`, `refs`, `context`,
+  `doctor`, `export`, `files`, `collisions`, ...) propagated telemetry insert
+  errors via `record_phase_start(...)?` / `record_phase_end(...)?`. On a
+  corrupted `telemetry_events` table this aborted the whole command before any
+  real data was queried — non-essential instrumentation on the critical path of
+  read-only operations. All five public record methods (`record_phase_start`,
+  `record_phase_end`, `record_counter`, `record_gauge`, `record_event`) now
+  funnel failures through `insert_event`'s single chokepoint, which warns once
+  per process and returns a sentinel `Ok(0)` so callers' `?` propagates nothing.
+  The `record_phase_end` duration lookup is likewise best-effort (duration
+  recorded as `None` on lookup failure instead of aborting). This fixes the
+  entire 130+ call-site class at the source. Regression test:
+  `test_telemetry_best_effort_on_insert_failure` corrupts the telemetry table
+  and asserts all four record methods return `Ok`. Verified: `magellan status`
+  on the corrupted unified DB now reports data (207 files, 3550 symbols) instead
+  of erroring out.
+
+- **System-clock `.unwrap()` in scorer (B-8)** (`src/graph/scorer/ops.rs:445`):
+  `now_timestamp` called `.unwrap()` on `SystemTime::now().duration_since(
+  UNIX_EPOCH)`, which panics if the system clock is before 1970 (skewed RTC,
+  container clock drift). Changed to `.unwrap_or_default()` to match the sibling
+  `compute.rs::now_timestamp`. Regression test: `test_now_timestamp_never_panics`.
+
+- **Rayon thread-pool double `.unwrap()` (B-9)** (`src/graph/mod.rs:900`):
+  `embed_from_db` built the rayon pool with `.unwrap_or_else(|_| ...build()
+  .unwrap())` — the inner `.unwrap()` defeated the fallback and panicked if pool
+  construction failed twice. Now uses `.or_else(|_| ...build()).map_err(...)?`
+  to propagate the error instead of panicking.
+
+### Changed
+
+- **Doc: cyclomatic complexity is computed, not a placeholder (B-2)**
+  (`src/graph/metrics/schema.rs`): The `SymbolMetrics` struct doc claimed
+  `cyclomatic_complexity` was "set to 1 (placeholder) until Phase 35 CFG
+  implementation." This was stale — `compute.rs` already computes it from CFG
+  decision points (blocks whose terminator is not `fallthrough`, +1). Rewritten
+  to describe the actual computation.
+
+- **Doc: feature flags in crate docs now match reality (B-11)** (`src/lib.rs`):
+  Removed the phantom `bytecode-cfg` entry (no such feature exists in
+  `Cargo.toml`). Corrected the `llvm-cfg` entry to note that `external_tools`
+  currently compiles unconditionally and clang is detected at runtime. Added the
+  `mir-frontend` entry (reserved for future RUSTC_WRAPPER work).
+
+- **No more hardcoded `/home/feanor` paths (B-7 + bug-class)** (`src/service/
+  registry.rs`, `src/framework/mod.rs`, `src/service/meta_db.rs`,
+  `src/config.rs`): Four sites hardcoded the developer's home directory into
+  source, breaking the crate for any other user, CI, or container. Converted
+  `DEFAULT_REGISTRY_PATH` (registry + framework) and `META_DB_DIR` (meta_db)
+  from `const &str` to runtime-resolving functions using `std::env::var("HOME")`,
+  matching the established pattern in `src/config.rs::default_config_path`.
+  Changed `RegistryConfig::scan_roots` default from `vec!["/home/feanor/Projects"]`
+  to `Vec::new()` (the field is display-only; no consumer scans it). Verified:
+  `rg '/home/feanor' src/` returns only string-literal assertions inside the
+  regression test. Regression test: `test_default_registry_path_respects_home`
+  sets `HOME` to a temp dir and asserts the resolved path is under it.
+
+- **Fixed `project_name_from_remote_url` host-as-name bug** (`src/db_resolver.rs`):
+  Found while running Phase 4 gates (bug-class discipline). The worktree's
+  implementation returned `Some("github.com")` for `"https://github.com/"`
+  because after trimming the trailing slash, `rsplit_once('/')` yielded the bare
+  hostname. Fixed by stripping the URL scheme first and rejecting results where
+  no path separator remains beyond the host. All 6 `project_name_from_remote_url`
+  tests now pass. (Note: one sibling worktree test, `test_detect_project_name_
+  from_git_uses_origin_remote`, remains failing due to a pre-existing test-setup
+  issue — it passes a non-existent `src` subdir to `git2::Repository::discover`.
+  That is in the active worktree's in-flight code, not introduced by this change.)
+
+### Removed
+
+- **Dead Cargo features (B-10)** (`Cargo.toml`): Removed `debug-prints`,
+  `llvm-cfg`, and `windows` — all three had zero `#[cfg(feature = "...")]`
+  references in `src/`. `debug-prints` was superseded by `#[cfg(debug_assertions)]`;
+  `windows` was redundant with the built-in `#[cfg(windows)]` target predicate;
+  `llvm-cfg` was in `default` but gated nothing (the `external_tools` C/C++ LLVM
+  CFG module compiles unconditionally). `default` is now `["sqlite-backend"]` only.
+
+- **Dead `web-ui` feature + orphan `src/web_ui.rs` (B-4)** (`Cargo.toml`,
+  `src/cli.rs`, `src/cli/help_short.txt`, `src/web_ui.rs`): The `web-ui` feature
+  was declared empty (no optional deps) but `web_ui.rs` referenced `axum` and
+  `tower_http` — neither in `Cargo.toml`. The file had no `mod web_ui;`
+  declaration anywhere (complete orphan), the CLI `WebUi` variant had no dispatch
+  in `main.rs`, and the help text advertised a non-existent command. Removed the
+  feature, the CLI variant, the help line, and deleted the 441-line orphan file.
+  Verified: `cargo check --all-targets` zero warnings.
+
+- **Dead V3 metrics path (B-3)** (`src/graph/metrics/compute_v3.rs`,
+  `src/graph/metrics/mod.rs`): Deleted the 334-line `compute_v3.rs` module and
+  the `compute_for_file_v3` wrapper — both had zero callers anywhere in `src/`
+  or `tests/`. The V3 path hardcoded `cyclomatic_complexity: 1` (a latent trap:
+  anyone wiring the V3 backend would silently get wrong complexity metrics,
+  since the SQLite path computes real values from CFG blocks). Removed
+  `pub mod compute_v3;` declaration. Verified: `rg 'compute_v3|V3MetricsCompute'`
+  returns nothing.
+
+- **Dead `metrics::query` wrappers + orphan files (B-12)**
+  (`src/graph/metrics/mod.rs`, `src/graph/metrics/query.rs`): Removed the inline
+  `pub mod query {}` module — three `pub fn` wrappers delegating to `MetricsOps`
+  methods with zero callers. Deleted the orphan `query.rs` (comment-only stub
+  file with no code). Also removed `schema.rs.bak` (stale backup). The real
+  `MetricsOps` methods (`get_file_metrics`, `get_symbol_metrics`, `get_hotspots`)
+  remain the public API.
+
+### Changed
+
+- **Removed crate-level `#![allow(unused_imports)]` blanket suppression (I-3)**
+  (`src/lib.rs:1`): The crate-level allow was hiding ~60 unused-import warnings
+  across the codebase. Removed the suppression and cleaned up every unused
+  import properly (deleted the import, or moved test-only imports into
+  `#[cfg(test)]` modules where they belonged). Several imports that were
+  flagged unused in `cargo check --lib` were actually used in test code — those
+  were moved into their test modules rather than deleted. Verified: `cargo check
+  --all-targets` reports zero warnings.
+
+- **Gated test-only `in_memory()` constructors with `#[cfg(test)]` (I-1)**
+  (`src/generation/mod.rs`, `src/graph/metrics/mod.rs`,
+  `src/graph/telemetry.rs`): The three `in_memory()` helper functions
+  (`ChunkStore::in_memory`, `MetricsOps::in_memory`, `TelemetryOps::in_memory`)
+  are test-only (all callers are in `#[cfg(test)]` modules; `MetricsOps::in_memory`
+  has zero callers at all). Added `#[cfg(test)]` so they no longer compile into
+  release binaries. Dropped the "stub" naming.
+
+- **Fixed `test_detect_project_name_from_git_uses_origin_remote` test setup**
+  (`src/db_resolver.rs`): The test called `detect_project_name_from_git` with a
+  `repo_dir.join("src")` path that was never created on disk. libgit2's
+  `Repository::discover` stats the start path before walking up; a non-existent
+  path returns an error, making `detect_project_name_from_git` return `None`.
+  Fixed by creating the `src` subdir before the call. Both
+  `test_detect_project_name_from_git_*` tests now pass (183 bin tests, 0 failed).
+
+- **Symbol-lookup "malformed" warning resolved**: the warning that surfaced on
+  `find`/`navigate` after the DB rebuild was a stale-WAL artifact from killing
+  the watcher mid-write during Phase 8. The clean rebuild + `PRAGMA
+  wal_checkpoint(TRUNCATE)` cleared it. Verified: `navigate` now runs with zero
+  warnings.
+
+### Security
+
+- **cargo deny: ignore RUSTSEC-2026-0190** (`deny.toml`): thiserror 1.0.69's
+  `Error::downcast_mut()` unsoundness advisory. Magellan does not call
+  `downcast_mut` on context-wrapped errors (only static `#[derive(Error)]`), so
+  the unsound path is unreachable. Documented reason added to `deny.toml`.
+  Upgrade to thiserror >=1.0.103 pending cargo index sync.
+
+### Changed
+
+- **User-facing docs updated** (`README.md`, `MANUAL.md`, `docs/API_INTEGRATION.md`,
+  `docs/MAGELLAN_ARCHITECTURE.md`): registry path corrected from `registry.toml`
+  to `config.toml`; removed references to the deleted `llvm-cfg`/`web-ui`
+  features; replaced hardcoded `/home/feanor/Projects` example with a generic
+  placeholder; added the two active feature flags (`sqlite-backend`, `mir-frontend`).
 
 ## [4.12.2] - 2026-06-22
 

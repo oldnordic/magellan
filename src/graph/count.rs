@@ -3,7 +3,7 @@
 //! Provides methods to count files, symbols, references, and calls.
 
 use anyhow::Result;
-use sqlitegraph::{GraphBackend, SnapshotId};
+use sqlitegraph::SnapshotId;
 
 use super::CodeGraph;
 

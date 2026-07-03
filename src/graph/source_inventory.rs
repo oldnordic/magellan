@@ -12,7 +12,7 @@
 use anyhow::{Context, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 use xxhash_rust::xxh3::Xxh3;
 

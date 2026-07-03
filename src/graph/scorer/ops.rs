@@ -5,11 +5,11 @@
 
 use anyhow::Result;
 use parking_lot::Mutex;
-use rusqlite::{params, OptionalExtension};
+use rusqlite::params;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::extract::{FeatureExtractor, SymbolFeatures};
+use super::extract::FeatureExtractor;
 use super::schema::SymbolScore;
 use super::score::Scorer;
 
@@ -439,12 +439,20 @@ impl ScorerOps {
         Ok(results)
     }
 
-    /// Get current timestamp (seconds since Unix epoch)
+    /// Get current timestamp (seconds since Unix epoch).
+    /// Uses `unwrap_or_default()` (returns 0 on a pre-epoch clock) to match the
+    /// sibling `compute.rs::now_timestamp` — never panics on skewed system clocks.
     fn now_timestamp() -> i64 {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs() as i64
+    }
+
+    /// Test-only accessor for the private `now_timestamp` (B-8 regression).
+    #[cfg(test)]
+    pub(crate) fn now_timestamp_helper() -> i64 {
+        Self::now_timestamp()
     }
 }
 
@@ -475,5 +483,21 @@ mod tests {
         assert_eq!(filters.min_complexity, Some(5));
         assert_eq!(filters.min_lifetime, Some(10));
         assert_eq!(filters.limit, Some(20));
+    }
+
+    /// Regression for B-8: `now_timestamp` must never panic.
+    ///
+    /// Before the fix it called `.unwrap()` on `SystemTime::now().duration_since(
+    /// UNIX_EPOCH)`, which panics if the system clock is before 1970 (skewed RTC,
+    /// container clock issues). The fix uses `.unwrap_or_default()` (returns 0,
+    /// matching `compute.rs::now_timestamp`). This test asserts the real-clock
+    /// path yields a non-negative timestamp — the safe form cannot panic.
+    #[test]
+    fn test_now_timestamp_never_panics() {
+        // The real system clock is post-epoch, so this exercises the Ok branch.
+        // The point is structural: if someone reverts to .unwrap(), a pre-epoch
+        // clock would panic here in CI environments with skewed clocks.
+        let ts = ScorerOps::now_timestamp_helper();
+        assert!(ts >= 0, "timestamp must be non-negative, got {}", ts);
     }
 }

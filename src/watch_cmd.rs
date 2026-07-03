@@ -25,12 +25,14 @@ fn send_watch_request(req_line: &str, exec_id: &str) -> Result<()> {
     let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
     let _ = stream.set_write_timeout(Some(Duration::from_millis(500)));
 
-    if let Err(e) = stream.write_all(req_line.as_bytes()) {
+    let req_with_newline = format!("{}\n", req_line);
+    if let Err(e) = stream.write_all(req_with_newline.as_bytes()) {
         return Err(anyhow::anyhow!(
             "Failed to write watch request to daemon socket: {}",
             e
         ));
     }
+    let _ = stream.shutdown(std::net::Shutdown::Write);
 
     let mut buf = [0u8; 4096];
     match stream.read(&mut buf) {

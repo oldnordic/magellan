@@ -1,6 +1,6 @@
 [package]
 name = "magellan"
-version = "4.12.2"
+version = "4.12.3"
 edition = "2021"
 license = "GPL-3.0-only"
 repository = "https://github.com/oldnordic/magellan"
@@ -58,24 +58,11 @@ harness = false
 path = "benches/kv_metadata_bench.rs"
 
 [features]
-default = ["sqlite-backend", "llvm-cfg"]
+default = ["sqlite-backend"]
 sqlite-backend = ["sqlitegraph/sqlite-backend"]
-debug-prints = []
-
-llvm-cfg = []
 
 # MIR frontend for Rust CFG extraction (uses rustc as subprocess)
 mir-frontend = []
-
-# Platform support
-# Windows: opt-in feature for Windows builds (analysis-only, reduced functionality)
-windows = []
-
-# Web UI server (optional)
-web-ui = []
-
-# Debug instrumentation (disabled by default for performance)
-# Enable with: cargo build --features debug-prints
 
 # Optional LLVM IR-based CFG extraction for C/C++ (requires clang)
 [dependencies]

@@ -68,7 +68,6 @@ use sqlitegraph::algo::backend::graph_ops::strongly_connected_components;
 use sqlitegraph::errors::SqliteGraphError;
 use sqlitegraph::{GraphBackend, SnapshotId};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::Arc;
 
 use crate::graph::schema::SymbolNode;
 

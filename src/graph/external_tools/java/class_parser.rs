@@ -10,10 +10,8 @@
 //! Implementation parses .class file structure according to JVM specification:
 //! https://docs.oracle.com/javase/specs/jvms/se8/html/
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::collections::HashMap;
-use std::fs;
-use std::path::Path;
 
 use crate::graph::cfg_edges_extract::{CfgEdge, CfgEdgeType};
 use crate::graph::cfg_extractor::BlockKind;

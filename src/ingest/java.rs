@@ -7,7 +7,6 @@ use crate::graph::canonical_fqn::FqnBuilder;
 use crate::ingest::{ScopeSeparator, ScopeStack, SymbolFact, SymbolKind};
 use crate::references::{CallFact, ReferenceFact};
 use anyhow::Result;
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// Parser that extracts symbol facts from Java source code.

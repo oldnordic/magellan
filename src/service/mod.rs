@@ -227,6 +227,12 @@ impl Service {
 
     async fn cleanup(&self) {
         let _ = tokio::fs::remove_file(socket_path()).await;
+        // Signal per-project watcher tasks to stop; each sets its blocking
+        // watcher's shutdown_flag within one poll cycle (~500 ms).
+        let map = self.watcher_map.lock().await;
+        for tx in map.values() {
+            let _ = tx.send(true);
+        }
     }
 }
 
@@ -602,13 +608,15 @@ pub fn is_daemon_running() -> bool {
         Err(_) => return false,
     };
 
-    let _ = stream.set_read_timeout(Some(Duration::from_millis(200)));
-    let _ = stream.set_write_timeout(Some(Duration::from_millis(200)));
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
+    let _ = stream.set_write_timeout(Some(Duration::from_millis(500)));
 
-    let ping = r#"{"id":"probe-1","method":"ping","params":{}}"#;
+    let ping = "{\"id\":\"probe-1\",\"method\":\"ping\",\"params\":{}}\n";
     if stream.write_all(ping.as_bytes()).is_err() {
         return false;
     }
+    // Signal EOF on write side so server processes the line immediately
+    let _ = stream.shutdown(std::net::Shutdown::Write);
 
     let mut buf = [0u8; 1024];
     match stream.read(&mut buf) {

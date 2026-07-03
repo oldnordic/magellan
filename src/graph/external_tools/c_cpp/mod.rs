@@ -10,7 +10,7 @@ use std::path::Path;
 pub mod clang_invoker;
 pub mod llvm_ir_parser;
 
-use clang_invoker::{compile_to_llvm_ir_temp, ClangCompilationError};
+use clang_invoker::compile_to_llvm_ir_temp;
 
 /// Extract CFG from a C/C++ source file
 ///

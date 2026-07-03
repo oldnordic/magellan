@@ -1,4 +1,3 @@
-#![allow(unused_imports)]
 //! Magellan: A dumb, deterministic codebase mapping tool
 //!
 //! Magellan observes files, extracts symbols and references, and persists facts to sqlitegraph.
@@ -25,8 +24,11 @@
 //!
 //! ## Optional Features
 //!
-//! - **`llvm-cfg`**: LLVM IR-based CFG extraction for C/C++ (requires clang)
-//! - **`bytecode-cfg`**: Java bytecode-based CFG extraction (requires Java bytecode library)
+//! - **`llvm-cfg`**: LLVM IR-based CFG extraction for C/C++ (requires clang at
+//!   runtime via `PATH`; tree-sitter CFG is the fallback when clang is absent).
+//!   Note: the `external_tools` module currently compiles unconditionally.
+//! - **`mir-frontend`**: reserved for future MIR-based Rust CFG extraction via
+//!   the RUSTC_WRAPPER pattern (not yet implemented; see module docs).
 //!
 //! # Graph Memory
 //!

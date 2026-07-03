@@ -335,8 +335,6 @@ fn callee_function() {
     /// Verifies the fix for placeholder complexity=1
     #[test]
     fn test_cyclomatic_complexity_from_cfg() {
-        use crate::graph::schema::SymbolNode;
-
         let temp_dir = tempfile::TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let mut graph = crate::CodeGraph::open(&db_path).unwrap();

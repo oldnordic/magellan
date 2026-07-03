@@ -219,12 +219,6 @@ pub enum Command {
         fix: bool,
         output_format: OutputFormat,
     },
-    #[cfg(feature = "web-ui")]
-    WebUi {
-        db_path: PathBuf,
-        host: String,
-        port: u16,
-    },
     Status {
         output_format: OutputFormat,
         db_path: PathBuf,

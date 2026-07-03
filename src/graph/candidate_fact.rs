@@ -5,7 +5,7 @@
 //! candidate against the ontology (v0) and routes accepted facts to
 //! the graph and rejected/ambiguous facts to a review queue.
 
-use crate::graph::ontology::{EntityType, OntologyV0, RelationType};
+use crate::graph::ontology::{OntologyV0, RelationType};
 use anyhow::{Context, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};

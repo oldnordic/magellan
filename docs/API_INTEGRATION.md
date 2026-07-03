@@ -103,7 +103,7 @@ downstream Rust tools:
 ```rust
 use magellan::{MagellanFramework, FrameworkSymbol};
 
-// Open all projects from the user registry (~/.config/magellan/registry.toml)
+// Open all projects from the user registry (~/.config/magellan/config.toml)
 let fw = MagellanFramework::from_registry()?;
 
 // Cross-project symbol search
@@ -125,7 +125,7 @@ Constructors:
 
 | Method | Source |
 |--------|--------|
-| `MagellanFramework::from_registry()` | `~/.config/magellan/registry.toml` |
+| `MagellanFramework::from_registry()` | `~/.config/magellan/config.toml` |
 | `MagellanFramework::from_registry_file(path)` | Explicit registry file |
 | `MagellanFramework::from_db_paths(entries)` | `Vec<(name, db_path)>` |
 

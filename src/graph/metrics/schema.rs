@@ -38,7 +38,8 @@ pub struct FileMetrics {
 /// Symbol-level metrics for detailed analysis
 ///
 /// Computed during file indexing and stored in symbol_metrics table.
-/// cyclomatic_complexity is set to 1 (placeholder) until Phase 35 CFG implementation.
+/// Cyclomatic complexity is computed from CFG decision points (blocks whose
+/// terminator is not `fallthrough`, +1) by `MetricsOps::compute_for_file`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SymbolMetrics {
     /// Symbol ID (PRIMARY KEY, FOREIGN KEY to graph_entities)
@@ -65,7 +66,7 @@ pub struct SymbolMetrics {
     /// Outgoing call edges
     pub fan_out: i64,
 
-    /// Cyclomatic complexity (placeholder = 1, Phase 35 will compute properly)
+    /// Cyclomatic complexity, computed from CFG blocks (decision points + 1).
     pub cyclomatic_complexity: i64,
 
     /// Unix timestamp (seconds) when metrics were last updated

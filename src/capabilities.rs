@@ -2,8 +2,6 @@
 //!
 //! Provides compile-time and runtime capability queries for Magellan backend.
 
-use std::collections::HashSet;
-
 /// Backend type identifier
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BackendType {

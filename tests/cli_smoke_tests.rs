@@ -27,8 +27,12 @@ fn test_watch_command_indexes_file_on_create() {
     // Create initial placeholder file BEFORE starting watcher
     fs::write(&file_path, b"").unwrap();
 
-    // Start watcher with short debounce for test reliability
+    // Start watcher with short debounce for test reliability.
+    // MAGELLAN_LOCAL=1 forces local watch mode instead of dispatching to the
+    // daemon socket (svc-8 daemon-dispatch would otherwise intercept the watch
+    // request and the subprocess stdout would not contain the MODIFY event).
     let mut child = Command::new(&bin_path)
+        .env("MAGELLAN_LOCAL", "1")
         .arg("watch")
         .arg("--root")
         .arg(&root_path)

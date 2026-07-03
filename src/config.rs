@@ -13,7 +13,7 @@
 //!
 //! [registry]
 //! auto_scan = true
-//! scan_roots = ["/home/feanor/Projects"]
+//! scan_roots = ["/home/user/Projects"]
 //! ```
 
 use anyhow::{Context, Result};
@@ -69,7 +69,7 @@ impl Default for RegistryConfig {
     fn default() -> Self {
         RegistryConfig {
             auto_scan: true,
-            scan_roots: vec!["/home/feanor/Projects".to_string()],
+            scan_roots: Vec::new(),
         }
     }
 }

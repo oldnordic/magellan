@@ -3,9 +3,9 @@
 //! Executes external tools (clang, javac) with proper error handling
 //! and timeout support.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::time::Duration;
 
 /// Output from running an external tool

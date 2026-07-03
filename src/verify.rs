@@ -5,7 +5,7 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::hash::Hasher;
+
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 

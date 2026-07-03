@@ -5,11 +5,11 @@ use crate::indexer::{
 };
 use crate::manifest::detect_include_paths_from_root;
 use crate::project_config::ProjectConfig;
-use crate::{CodeGraph, FileEvent, FileSystemWatcher, WatcherConfig};
+use crate::{CodeGraph, FileSystemWatcher, WatcherConfig};
 use anyhow::{Context, Result};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;

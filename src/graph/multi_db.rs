@@ -12,7 +12,7 @@ use anyhow::Result;
 use crate::context::{
     affected_analysis, get_file_context, get_project_summary, get_symbol_detail,
     get_symbol_detail_recursive, impact_analysis, list_symbols, FileContext, ListQuery,
-    PaginatedResult, ProjectSummary, SymbolDetail, SymbolListItem, SymbolRelation,
+    ProjectSummary, SymbolListItem, SymbolRelation,
 };
 use crate::graph::CodeGraph;
 use crate::output::{ProjectCalleeInfo, ProjectCallerInfo, ProjectSymbolMatch, Span};

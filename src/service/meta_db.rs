@@ -8,7 +8,13 @@ use rusqlite::{params, Connection};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const META_DB_DIR: &str = "/home/feanor/.magellan";
+/// Resolve the default meta.db directory at runtime: `$HOME/.magellan`.
+/// Matches the home-resolution pattern in `config.rs` and `registry.rs`.
+/// Falls back to `.magellan` relative to cwd if `HOME` is unset.
+fn meta_db_dir() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(home).join(".magellan")
+}
 
 fn now_secs() -> i64 {
     SystemTime::now()
@@ -97,14 +103,15 @@ pub struct ProjectStats {
 impl MetaDb {
     /// Return the default filesystem path for the global meta.db.
     pub fn default_path() -> PathBuf {
-        PathBuf::from(META_DB_DIR).join(META_DB_NAME)
+        meta_db_dir().join(META_DB_NAME)
     }
 
     /// Open (or create) the global meta.db.
     pub fn open() -> Result<Self> {
-        let path = PathBuf::from(META_DB_DIR).join(META_DB_NAME);
-        std::fs::create_dir_all(META_DB_DIR)
-            .with_context(|| format!("Failed to create {}", META_DB_DIR))?;
+        let dir = meta_db_dir();
+        let path = dir.join(META_DB_NAME);
+        std::fs::create_dir_all(&dir)
+            .with_context(|| format!("Failed to create {}", dir.display()))?;
         let conn = Connection::open(&path)
             .with_context(|| format!("Failed to open meta.db at {}", path.display()))?;
         let mut db = Self { conn, path };
