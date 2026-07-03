@@ -249,6 +249,12 @@ pub enum Command {
         with_checksums: bool,
         context_lines: usize,
     },
+    Search {
+        db_path: PathBuf,
+        pattern: String,
+        limit: usize,
+        output_format: OutputFormat,
+    },
     Find {
         db_path: PathBuf,
         name: Option<String>,

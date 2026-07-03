@@ -27,6 +27,7 @@ pub mod tool_invoker;
 pub mod c_cpp;
 pub mod compile_commands;
 pub mod java;
+pub mod rust;
 
 pub use tool_detector::{
     get_clang_install_instructions, get_javac_install_instructions, ToolDetectionError,

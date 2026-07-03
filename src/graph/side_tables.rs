@@ -17,6 +17,29 @@ pub use crate::generation::CodeChunk;
 pub use crate::graph::execution_log::ExecutionRecord;
 pub use crate::graph::metrics::{FileMetrics, SymbolMetrics};
 
+/// A content search result from FTS5 full-text search over code_chunks.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CodeContentSearchResult {
+    /// Symbol name (may be NULL for non-symbol chunks)
+    pub symbol_name: Option<String>,
+    /// Symbol kind (fn, struct, etc.)
+    pub symbol_kind: Option<String>,
+    /// File path
+    pub file_path: String,
+    /// Byte offset of the chunk start
+    pub byte_start: usize,
+    /// Byte offset of the chunk end
+    pub byte_end: usize,
+    /// Computed start line (1-indexed)
+    pub start_line: usize,
+    /// Computed end line (1-indexed)
+    pub end_line: usize,
+    /// Text excerpt around the first match (~200 chars)
+    pub excerpt: String,
+    /// FTS5 rank (lower = better match)
+    pub rank: f64,
+}
+
 /// Side table operations trait - backend-agnostic interface
 ///
 /// Both backends implement this trait to provide:
@@ -116,6 +139,16 @@ pub trait SideTables: Send + Sync {
 
     /// Count all chunks
     fn count_chunks(&self) -> Result<usize>;
+
+    /// Search code chunk content via FTS5 full-text search.
+    ///
+    /// Returns ranked results with symbol metadata, file path, byte span,
+    /// and a text excerpt around the first match.
+    fn search_code_content(
+        &self,
+        pattern: &str,
+        limit: usize,
+    ) -> Result<Vec<CodeContentSearchResult>>;
 
     // ===== AST Node Methods =====
 
@@ -939,6 +972,65 @@ pub mod sqlite_impl {
             Ok(count as usize)
         }
 
+        fn search_code_content(
+            &self,
+            pattern: &str,
+            limit: usize,
+        ) -> Result<Vec<CodeContentSearchResult>> {
+            let conn = self.lock_conn();
+            let mut stmt = conn.prepare(
+                "SELECT cc.symbol_name, cc.symbol_kind, cc.file_path,
+                        cc.byte_start, cc.byte_end, cc.content, fts.rank
+                 FROM code_chunks_fts fts
+                 JOIN code_chunks cc ON fts.rowid = cc.id
+                 WHERE code_chunks_fts MATCH ?1
+                 ORDER BY fts.rank
+                 LIMIT ?2",
+            )?;
+            let results = stmt
+                .query_map(params![pattern, limit as i64], |row| {
+                    let symbol_name: Option<String> = row.get(0)?;
+                    let symbol_kind: Option<String> = row.get(1)?;
+                    let file_path: String = row.get(2)?;
+                    let byte_start: i64 = row.get(3)?;
+                    let byte_end: i64 = row.get(4)?;
+                    let content: String = row.get(5)?;
+                    let rank: f64 = row.get(6)?;
+
+                    // Compute line numbers from byte offsets.
+                    let start_line = content
+                        .char_indices()
+                        .take_while(|(i, _)| *i < byte_start as usize)
+                        .filter(|(_, c)| *c == '\n')
+                        .count()
+                        + 1;
+                    let end_line = content
+                        .char_indices()
+                        .take_while(|(i, _)| *i < byte_end as usize)
+                        .filter(|(_, c)| *c == '\n')
+                        .count()
+                        + 1;
+
+                    // Build excerpt: find the first occurrence of any query token
+                    // in the content, show ~200 chars around it.
+                    let excerpt = build_excerpt(&content, pattern);
+
+                    Ok(CodeContentSearchResult {
+                        symbol_name,
+                        symbol_kind,
+                        file_path,
+                        byte_start: byte_start as usize,
+                        byte_end: byte_end as usize,
+                        start_line,
+                        end_line,
+                        excerpt,
+                        rank,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(results)
+        }
+
         // ===== AST Node Methods =====
 
         fn store_ast_node(&self, node: &crate::graph::AstNode, file_id: i64) -> Result<i64> {
@@ -1271,4 +1363,34 @@ pub use sqlite_impl::SqliteSideTables;
 #[cfg(feature = "sqlite-backend")]
 pub fn create_side_tables(db_path: &Path) -> Result<Box<dyn SideTables>> {
     Ok(Box::new(SqliteSideTables::open(db_path)?))
+}
+
+/// Build a text excerpt from content around the first match of the FTS query.
+///
+/// Extracts the first query token, finds it (case-insensitive) in the content,
+/// and returns ~200 chars centered on the match. If no token is found, returns
+/// the first 200 chars of the content.
+fn build_excerpt(content: &str, pattern: &str) -> String {
+    let excerpt_len = 200usize;
+    let tokens: Vec<&str> = pattern.split_whitespace().filter(|t| t.len() > 1).collect();
+
+    for token in &tokens {
+        if let Some(pos) = content.to_lowercase().find(&token.to_lowercase()) {
+            let start = pos.saturating_sub(excerpt_len / 2);
+            let end = (start + excerpt_len).min(content.len());
+            let excerpt = &content[start..end];
+            let prefix = if start > 0 { "..." } else { "" };
+            let suffix = if end < content.len() { "..." } else { "" };
+            return format!("{prefix}{excerpt}{suffix}");
+        }
+    }
+
+    // No token found — return first N chars
+    let end = excerpt_len.min(content.len());
+    let excerpt = &content[..end];
+    if content.len() > end {
+        format!("{excerpt}...")
+    } else {
+        excerpt.to_string()
+    }
 }

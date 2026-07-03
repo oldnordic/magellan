@@ -337,6 +337,11 @@ pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>
         if let Err(e) = graph.rebuild_fts5() {
             eprintln!("Warning: FTS5 rebuild after scan failed: {}", e);
         }
+
+        // Rebuild code_chunks_fts after bulk scan — same reason as symbol_fts.
+        if let Err(e) = graph.rebuild_code_chunks_fts() {
+            eprintln!("Warning: code_chunks_fts rebuild after scan failed: {}", e);
+        }
     }
 
     // Drain any dirty paths that accumulated during scan
@@ -568,6 +573,11 @@ fn process_dirty_paths_batched(graph: &mut CodeGraph, dirty_paths: &[PathBuf]) -
         // Uses the graph's side connection to avoid uncoordinated WAL access
         if let Err(e) = graph.rebuild_fts5() {
             eprintln!("Warning: FTS5 rebuild failed: {}", e);
+        }
+
+        // Rebuild code_chunks_fts after batch processing.
+        if let Err(e) = graph.rebuild_code_chunks_fts() {
+            eprintln!("Warning: code_chunks_fts rebuild failed: {}", e);
         }
     }
 

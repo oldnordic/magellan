@@ -80,6 +80,91 @@ pub fn find_javac() -> Result<PathBuf, ToolDetectionError> {
     })
 }
 
+/// Find the nightly rustc executable via rustup.
+///
+/// Magellan itself compiles on stable; nightly is only required at runtime for
+/// MIR-based CFG extraction (`-Zunpretty=mir`). This locates the nightly rustc
+/// binary without adding a nightly build dependency.
+///
+/// Primary strategy: ask `rustup` which rustc the nightly toolchain resolves to.
+/// Fallback: scan `~/.rustup/toolchains/nightly-*/bin/rustc` directly.
+pub fn find_rustc_nightly() -> Result<PathBuf, ToolDetectionError> {
+    // Primary: rustup knows the exact toolchain path, including the host triple.
+    let rustup_output = Command::new("rustup")
+        .args(["which", "--toolchain", "nightly", "rustc"])
+        .output();
+
+    if let Ok(output) = rustup_output {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let trimmed = stdout.trim();
+            if !trimmed.is_empty() {
+                let path = PathBuf::from(trimmed);
+                if path.exists() {
+                    return Ok(path);
+                }
+            }
+        }
+    }
+
+    // Fallback: scan the rustup toolchains directory for a nightly-* toolchain.
+    // Matches the glob `~/.rustup/toolchains/nightly-*/bin/rustc` without pulling
+    // in an extra crate. Resolves the home directory the same way `rustup` does:
+    // `$HOME` on Unix, `%USERPROFILE%` on Windows.
+    let home = std::env::var_os(home_env_var());
+    if let Some(home) = home {
+        let toolchains_dir = PathBuf::from(home).join(".rustup").join("toolchains");
+        if let Ok(entries) = std::fs::read_dir(&toolchains_dir) {
+            for entry in entries.flatten() {
+                let file_name = entry.file_name();
+                let Some(name) = file_name.to_str() else {
+                    continue;
+                };
+                if !name.starts_with("nightly-") {
+                    continue;
+                }
+                let rustc_path = entry.path().join("bin").join("rustc");
+                if rustc_path.exists() {
+                    return Ok(rustc_path);
+                }
+            }
+        }
+    }
+
+    Err(ToolDetectionError::ToolNotFound {
+        tool: "rustc (nightly toolchain)".to_string(),
+    })
+}
+
+/// Get the nightly rustc version string.
+///
+/// Runs `rustup run nightly rustc --version` and returns the captured stdout
+/// (e.g. `"rustc 1.97.0-nightly (f964de49b 2026-05-07)"`).
+pub fn check_rustc_nightly_version() -> Result<String, ToolDetectionError> {
+    let output = Command::new("rustup")
+        .args(["run", "nightly", "rustc", "--version"])
+        .output()
+        .map_err(|e| ToolDetectionError::ExecutionFailed {
+            tool: "rustc (nightly toolchain)".to_string(),
+            reason: e.to_string(),
+        })?;
+
+    if !output.status.success() {
+        return Err(ToolDetectionError::ExecutionFailed {
+            tool: "rustc (nightly toolchain)".to_string(),
+            reason: String::from_utf8_lossy(&output.stderr).to_string(),
+        });
+    }
+
+    let version =
+        String::from_utf8(output.stdout).map_err(|e| ToolDetectionError::VersionCheckFailed {
+            tool: "rustc (nightly toolchain)".to_string(),
+            reason: e.to_string(),
+        })?;
+
+    Ok(version.trim().to_string())
+}
+
 /// Get clang version information
 pub fn check_clang_version() -> Result<String, ToolDetectionError> {
     let clang_path = find_clang()?;
@@ -145,6 +230,17 @@ pub fn get_executable_name(name: &str) -> String {
 #[cfg(windows)]
 pub fn get_executable_name(name: &str) -> String {
     format!("{}.exe", name)
+}
+
+/// Name of the environment variable holding the user's home directory.
+#[cfg(unix)]
+fn home_env_var() -> &'static str {
+    "HOME"
+}
+
+#[cfg(windows)]
+fn home_env_var() -> &'static str {
+    "USERPROFILE"
 }
 
 /// Search common Unix installation paths for a tool
@@ -243,6 +339,14 @@ Windows installation:
     }
 }
 
+/// Get installation instructions for the nightly Rust toolchain.
+///
+/// Unlike clang/javac, nightly Rust is installed via `rustup` rather than a
+/// system package manager, so the instructions are platform-agnostic.
+pub fn get_rustc_nightly_install_instructions() -> &'static str {
+    "Install nightly with: rustup toolchain install nightly"
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -278,5 +382,30 @@ mod tests {
         if let Ok(path) = find_javac() {
             assert!(path.exists());
         }
+    }
+
+    #[test]
+    fn test_find_rustc_nightly() {
+        // Nightly is installed on this machine (rustc 1.97.0-nightly), so
+        // detection should succeed and resolve to an existing rustc binary.
+        let path = find_rustc_nightly().expect("nightly rustc should be detectable");
+        assert!(path.exists(), "detected nightly rustc path should exist");
+        assert!(
+            path.file_name()
+                .is_some_and(|n| n == "rustc" || n == "rustc.exe"),
+            "detected path should be a rustc binary: {}",
+            path.display()
+        );
+    }
+
+    #[test]
+    fn test_check_rustc_nightly_version() {
+        let version =
+            check_rustc_nightly_version().expect("nightly rustc version should be obtainable");
+        assert!(
+            version.contains("nightly"),
+            "version string should mention 'nightly': {}",
+            version
+        );
     }
 }

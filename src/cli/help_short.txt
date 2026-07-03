@@ -12,6 +12,7 @@ Common commands:
   find        Find symbols: magellan find --db code.db --name main
   refs        Show references: magellan refs --db code.db --name foo
   query       List file symbols: magellan query --db code.db --file src/lib.rs
+  search      Content search: magellan search --db code.db "pattern"
   backfill    Recompute metrics: magellan backfill --db code.db
   delete      Remove file from index: magellan delete --db code.db --file src/lib.rs
   dead-code   Find unused code: magellan dead-code --db code.db --entry <id>

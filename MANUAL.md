@@ -151,13 +151,17 @@ magellan migrate --db code.db --dry-run
 magellan migrate --db code.db --no-backup
 ```
 
-Current Magellan schema version: `18`.
+Current Magellan schema version: `20`.
 
 **Schema v12 changes:** Added FTS5 full-text search index for fast prefix search.
 Migration is automatic and creates a backup. See [docs/SCHEMA_SQLITE.md](docs/SCHEMA_SQLITE.md)
 for FTS5 performance details and limitations.
 
 **Schema v18 changes:** Added repository snapshot tables and temporal query support for commit-history analysis in the same SQLite database.
+
+**Schema v20 changes:** Added `code_chunks_fts` FTS5 virtual table for
+full-text content search over function bodies. Exposed via `magellan search`.
+Uses `unicode61` tokenizer with auto-sync triggers.
 
 ## Orient — Codebase Snapshot
 
@@ -246,6 +250,25 @@ magellan find --all --name parse_args
 # Cross-project: search one named project from the registry
 magellan find --project magellan --name parse_args
 ```
+
+### Content Search (FTS5)
+
+Search INSIDE function bodies, string literals, and implementation details —
+not just symbol names. Returns symbol-level hits (function name, file, line
+range, excerpt) ranked by FTS5 relevance.
+
+```bash
+magellan search --db code.db "register_agent"
+magellan search --db code.db "ENVOY_AGENT_NAME" --limit 5
+magellan search --db code.db "error handling" --output json
+magellan search --db code.db "TODO" --output pretty
+```
+
+The search uses an FTS5 index (`code_chunks_fts`) over the `content` column
+of `code_chunks` with the `unicode61` tokenizer. Underscores split tokens,
+so search `register agent` (space) or `register` (single word) rather than
+`register_agent` for best results. Phrase queries are supported with
+double quotes.
 
 ### References And Calls
 

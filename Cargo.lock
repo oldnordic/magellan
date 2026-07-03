@@ -1340,7 +1340,7 @@ dependencies = [
 
 [[package]]
 name = "magellan"
-version = "4.12.3"
+version = "4.13.0"
 dependencies = [
  "ahash",
  "anyhow",

@@ -86,6 +86,7 @@ pub fn ensure_magellan_meta(
             ).map_err(|e| map_sqlite_query_err(db_path, e))?;
             ensure_symbol_fts_schema(conn)?;
             ensure_source_inventory_schema(conn)?;
+            ensure_code_chunks_fts_schema(conn)?;
             Ok(())
         }
         Some((found_magellan, found_sqlitegraph)) => {
@@ -147,6 +148,10 @@ pub fn ensure_magellan_meta(
                         18 => {
                             ensure_scorer_schema(conn)?;
                             current_version = 19;
+                        }
+                        19 => {
+                            ensure_code_chunks_fts_schema(conn)?;
+                            current_version = 20;
                         }
                         _ => {
                             return Err(DbCompatError::MagellanSchemaMismatch {
@@ -634,6 +639,62 @@ pub fn ensure_symbol_fts_schema(conn: &rusqlite::Connection) -> Result<(), DbCom
                  INSERT INTO symbol_fts(symbol_fts, rowid, name)
                  VALUES ('delete', old.id, old.name);
                  INSERT INTO symbol_fts(rowid, name) VALUES (new.id, new.name);
+             END;",
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    Ok(())
+}
+
+/// Add code_chunks_fts FTS5 virtual table for full-text content search (v19 -> v20)
+///
+/// Creates an FTS5 virtual table that indexes the content column from code_chunks
+/// for searching inside function bodies, string literals, and implementation details.
+pub fn ensure_code_chunks_fts_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
+    // Check if code_chunks table exists — it's created by the ChunkStore layer,
+    // not by the schema init. If it doesn't exist yet, skip FTS creation;
+    // the triggers will be created on first chunk insert via watch pipeline.
+    let table_exists: bool = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='code_chunks' LIMIT 1",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+
+    if !table_exists {
+        return Ok(());
+    }
+
+    conn.execute(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS code_chunks_fts USING fts5(
+            content,
+            content='code_chunks',
+            content_rowid='id',
+            tokenize='unicode61'
+        )",
+        [],
+    )
+    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+
+    // Auto-sync triggers so FTS5 stays current with code_chunks changes.
+    conn.execute_batch(
+        "CREATE TRIGGER IF NOT EXISTS code_chunks_ai
+             AFTER INSERT ON code_chunks BEGIN
+                 INSERT INTO code_chunks_fts(rowid, content)
+                 VALUES (new.id, new.content);
+             END;
+         CREATE TRIGGER IF NOT EXISTS code_chunks_ad
+             AFTER DELETE ON code_chunks BEGIN
+                 INSERT INTO code_chunks_fts(code_chunks_fts, rowid, content)
+                 VALUES ('delete', old.id, old.content);
+             END;
+         CREATE TRIGGER IF NOT EXISTS code_chunks_au
+             AFTER UPDATE ON code_chunks BEGIN
+                 INSERT INTO code_chunks_fts(code_chunks_fts, rowid, content)
+                 VALUES ('delete', old.id, old.content);
+                 INSERT INTO code_chunks_fts(rowid, content)
+                 VALUES (new.id, new.content);
              END;",
     )
     .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;

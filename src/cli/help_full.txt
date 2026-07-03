@@ -13,6 +13,7 @@ Usage:
   magellan cross-file-refs --db <FILE> --fqn <FQN> [--output <FORMAT>]
   magellan status --db <FILE>
   magellan query --db <FILE> --file <PATH> [--kind <KIND>]
+  magellan search --db <FILE> <PATTERN> [--limit N] [--output human|json|pretty]
   magellan find --db <FILE> (--name <NAME> | --symbol-id <ID> | --ambiguous <NAME>) [--path <PATH>] [--first]
   magellan refs --db <FILE> --name <NAME> [--path <PATH>] [--direction <in|out>] [--output <FORMAT>]
   magellan get --db <FILE> --file <PATH> --symbol <NAME>

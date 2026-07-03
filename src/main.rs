@@ -47,6 +47,7 @@ mod reachable_cmd;
 mod refresh_cmd;
 mod refs_cmd;
 mod score_cmd;
+mod search_cmd;
 mod service;
 mod service_cmd;
 mod slice_cmd;
@@ -467,6 +468,18 @@ fn main() -> ExitCode {
                 with_checksums,
                 context_lines,
             ) {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Command::Search {
+            db_path,
+            pattern,
+            limit,
+            output_format,
+        }) => {
+            if let Err(e) = search_cmd::run_search(db_path, pattern, limit, output_format) {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }

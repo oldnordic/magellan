@@ -3,6 +3,49 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semverver.org/spec/v2.0.0.html).
 
+## [4.13.0] - 2026-07-03
+
+### Added
+
+- **Content search via FTS5 over code_chunks** (`src/search_cmd.rs`,
+  `src/graph/side_tables.rs`, `src/generation/mod.rs`):
+  New `magellan search --db <db> <pattern>` command that searches INSIDE
+  function bodies, string literals, and implementation details — not just
+  symbol names. Returns symbol-level hits (function name, file, line range,
+  excerpt) ranked by FTS5 relevance. Uses `unicode61` tokenizer for
+  case-insensitive matching. The `code_chunks_fts` virtual table indexes
+  the `content` column of `code_chunks` (3460+ rows of full source content
+  per symbol). Schema bumped from v19 to v20 with automatic migration
+  (creates FTS5 table + sync triggers, populates from existing data).
+  New library methods: `CodeGraph::search_code_content()`,
+  `ChunkStore::search_code_content()`, `SideTables::search_code_content()`.
+  Backend router and watch pipeline updated to sync the new index after
+  re-indexing. Output formats: `--output json|human|pretty`.
+
+- **MIR-based Rust CFG extraction** (`src/graph/external_tools/rust/`):
+  Compiler-grade control-flow graph extraction for Rust via
+  `rustup run nightly rustc -Zunpretty=mir`. Dumps the real MIR
+  (Mid-level IR) — post-typecheck, post-desugar — and parses it into
+  `CfgWithEdges` with real basic blocks and terminators (`goto`,
+  `switchInt`, `return`, `assert`, `Drop`, `Call`). This captures branches
+  introduced by macros, `?` desugaring (→ `SwitchInt` on `Result::is_ok`),
+  `for`/`while` desugaring, and overflow checks that tree-sitter cannot
+  see. Opt-in enrichment: tree-sitter remains the default indexer; if
+  nightly is not installed, magellan falls back to tree-sitter CFG with
+  no breakage. Three new modules: `mir_invoker.rs` (detects nightly via
+  `find_rustc_nightly()`, runs `rustc -Zunpretty=mir`, captures stdout),
+  `mir_parser.rs` (parses MIR text → `CfgWithEdges`, 10 unit tests with
+  verified sample), `mod.rs` (entry point `extract_cfg_from_rust()`).
+  Tool detector gains `find_rustc_nightly()`,
+  `check_rustc_nightly_version()`, `get_rustc_nightly_install_instructions()`.
+
+### Changed
+
+- Schema version bumped from v19 to v20 (additive — new FTS5 table only,
+  no existing tables modified). Existing DBs auto-migrate on open.
+  Consumers (llmgrep, mirage, splice) verified compatible — no DB_COMPAT
+  errors on their own DBs.
+
 ## [4.12.3] - 2026-07-03
 
 ### Fixed

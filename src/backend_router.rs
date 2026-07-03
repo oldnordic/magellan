@@ -257,6 +257,17 @@ impl MagellanBackend {
         }
     }
 
+    /// Search code chunk content via FTS5 full-text search.
+    pub fn search_code_content(
+        &self,
+        pattern: &str,
+        limit: usize,
+    ) -> Result<Vec<crate::graph::side_tables::CodeContentSearchResult>> {
+        match self {
+            MagellanBackend::SQLite(graph) => graph.search_code_content(pattern, limit),
+        }
+    }
+
     /// Start execution tracking
     pub fn start_execution(
         &self,

@@ -15,6 +15,69 @@ use crate::service::registry::Registry;
 // Semantic Parsers
 // ============================================================================
 
+/// Parse the `search` command arguments
+pub fn parse_search_args(args: &[String]) -> Result<Command> {
+    let mut db_path: Option<PathBuf> = None;
+    let mut pattern: Option<String> = None;
+    let mut limit = 20usize;
+    let mut output_format = OutputFormat::Human;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--db" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--db requires an argument"));
+                }
+                db_path = Some(PathBuf::from(&args[i + 1]));
+                i += 2;
+            }
+            "--limit" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--limit requires an argument"));
+                }
+                limit = args[i + 1].parse().context("--limit must be a number")?;
+                i += 2;
+            }
+            "--output" => {
+                if i + 1 >= args.len() {
+                    return Err(anyhow::anyhow!("--output requires an argument"));
+                }
+                output_format = match args[i + 1].as_str() {
+                    "human" => OutputFormat::Human,
+                    "json" => OutputFormat::Json,
+                    "pretty" => OutputFormat::Pretty,
+                    _ => return Err(anyhow::anyhow!("--output must be human, json, or pretty")),
+                };
+                i += 2;
+            }
+            s if s.starts_with("--") => {
+                return Err(anyhow::anyhow!("Unknown flag: {s}"));
+            }
+            s if !s.is_empty() => {
+                if pattern.is_some() {
+                    return Err(anyhow::anyhow!("search takes one pattern argument"));
+                }
+                pattern = Some(s.to_string());
+                i += 1;
+            }
+            _ => {
+                i += 1;
+            }
+        }
+    }
+
+    let pattern = pattern.ok_or_else(|| anyhow::anyhow!("search requires a pattern argument"))?;
+    let db_path = resolve_db_path(db_path)?;
+
+    Ok(Command::Search {
+        db_path,
+        pattern,
+        limit,
+        output_format,
+    })
+}
+
 /// Parse the `query` command arguments
 pub fn parse_query_args(args: &[String]) -> Result<Command> {
     let mut db_path: Option<PathBuf> = None;

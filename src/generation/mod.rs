@@ -547,6 +547,76 @@ impl ChunkStore {
         }
     }
 
+    /// Search code chunk content via FTS5 full-text search.
+    pub fn search_code_content(
+        &self,
+        pattern: &str,
+        limit: usize,
+    ) -> Result<Vec<crate::graph::side_tables::CodeContentSearchResult>> {
+        match &self.backend {
+            ChunkStoreBackend::SideTables(tables) => tables.search_code_content(pattern, limit),
+            _ => self.with_conn(|conn| {
+                use crate::graph::side_tables::CodeContentSearchResult;
+
+                let mut stmt = conn
+                    .prepare_cached(
+                        "SELECT cc.symbol_name, cc.symbol_kind, cc.file_path,
+                                cc.byte_start, cc.byte_end, cc.content, fts.rank
+                         FROM code_chunks_fts fts
+                         JOIN code_chunks cc ON fts.rowid = cc.id
+                         WHERE code_chunks_fts MATCH ?1
+                         ORDER BY fts.rank
+                         LIMIT ?2",
+                    )
+                    .map_err(|e| anyhow::anyhow!("Failed to prepare content search: {}", e))?;
+
+                let results = stmt
+                    .query_map(params![pattern, limit as i64], |row| {
+                        let symbol_name: Option<String> = row.get(0)?;
+                        let symbol_kind: Option<String> = row.get(1)?;
+                        let file_path: String = row.get(2)?;
+                        let byte_start: i64 = row.get(3)?;
+                        let byte_end: i64 = row.get(4)?;
+                        let content: String = row.get(5)?;
+                        let rank: f64 = row.get(6)?;
+
+                        let start_line = content
+                            .char_indices()
+                            .take_while(|(i, _)| *i < byte_start as usize)
+                            .filter(|(_, c)| *c == '\n')
+                            .count()
+                            + 1;
+                        let end_line = content
+                            .char_indices()
+                            .take_while(|(i, _)| *i < byte_end as usize)
+                            .filter(|(_, c)| *c == '\n')
+                            .count()
+                            + 1;
+
+                        // Build excerpt from first matching token
+                        let excerpt = build_search_excerpt(&content, pattern);
+
+                        Ok(CodeContentSearchResult {
+                            symbol_name,
+                            symbol_kind,
+                            file_path,
+                            byte_start: byte_start as usize,
+                            byte_end: byte_end as usize,
+                            start_line,
+                            end_line,
+                            excerpt,
+                            rank,
+                        })
+                    })
+                    .map_err(|e| anyhow::anyhow!("Content search query failed: {}", e))?
+                    .collect::<rusqlite::Result<Vec<_>>>()
+                    .map_err(|e| anyhow::anyhow!("Content search row parse failed: {}", e))?;
+
+                Ok(results)
+            }),
+        }
+    }
+
     /// Get code chunks for a specific symbol in a file.
     pub fn get_chunks_for_symbol(
         &self,
@@ -734,6 +804,31 @@ impl ChunkStore {
                 Ok(chunks)
             }),
         }
+    }
+}
+
+/// Build a text excerpt from content around the first match of the FTS query.
+fn build_search_excerpt(content: &str, pattern: &str) -> String {
+    let excerpt_len = 200usize;
+    let tokens: Vec<&str> = pattern.split_whitespace().filter(|t| t.len() > 1).collect();
+
+    for token in &tokens {
+        if let Some(pos) = content.to_lowercase().find(&token.to_lowercase()) {
+            let start = pos.saturating_sub(excerpt_len / 2);
+            let end = (start + excerpt_len).min(content.len());
+            let excerpt = &content[start..end];
+            let prefix = if start > 0 { "..." } else { "" };
+            let suffix = if end < content.len() { "..." } else { "" };
+            return format!("{prefix}{excerpt}{suffix}");
+        }
+    }
+
+    let end = excerpt_len.min(content.len());
+    let excerpt = &content[..end];
+    if content.len() > end {
+        format!("{excerpt}...")
+    } else {
+        excerpt.to_string()
     }
 }
 

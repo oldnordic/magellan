@@ -777,6 +777,20 @@ impl CodeGraph {
         Ok(())
     }
 
+    /// Rebuild the code_chunks_fts index after bulk code_chunk changes.
+    ///
+    /// This mirrors `rebuild_fts5` but for the content search index.
+    /// Called from the watch pipeline after batch re-indexing.
+    pub fn rebuild_code_chunks_fts(&self) -> Result<()> {
+        let conn = self.side_conn.lock();
+        conn.execute(
+            "INSERT INTO code_chunks_fts(code_chunks_fts) VALUES('rebuild')",
+            [],
+        )
+        .map_err(|e| anyhow::anyhow!("code_chunks_fts rebuild failed: {}", e))?;
+        Ok(())
+    }
+
     /// Embed symbols from DB without re-parsing source files.
     ///
     /// Reads entity metadata from the database, finds symbols missing HNSW vectors,
@@ -1500,6 +1514,18 @@ impl CodeGraph {
     /// Vector of CodeChunk for all chunks in the file
     pub fn get_code_chunks(&self, file_path: &str) -> Result<Vec<CodeChunk>> {
         self.chunks.get_chunks_for_file(file_path)
+    }
+
+    /// Search code chunk content via FTS5 full-text search.
+    ///
+    /// Returns ranked results with symbol metadata, file path, byte span,
+    /// and a text excerpt around the first match.
+    pub fn search_code_content(
+        &self,
+        pattern: &str,
+        limit: usize,
+    ) -> Result<Vec<crate::graph::side_tables::CodeContentSearchResult>> {
+        self.chunks.search_code_content(pattern, limit)
     }
 
     /// Get code chunks for a specific symbol in a file.

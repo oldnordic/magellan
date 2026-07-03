@@ -67,6 +67,7 @@ where
         "context" => parse_context_args(&args[2..]),
         "doctor" => parse_doctor_args(&args[2..]),
         "query" => parse_query_args(&args[2..]),
+        "search" => parse_search_args(&args[2..]),
         "find" => parse_find_args(&args[2..]),
         "refs" => parse_refs_args(&args[2..]),
         "get" => parse_get_args(&args[2..]),

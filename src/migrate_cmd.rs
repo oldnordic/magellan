@@ -29,7 +29,8 @@ use std::path::{Path, PathBuf};
 /// v17: telemetry_events table for performance telemetry
 /// v18: repository snapshot tables for temporal tracking
 /// v19: symbol scoring tables for candidate ranking
-pub const MAGELLAN_SCHEMA_VERSION: i64 = 19;
+/// v20: code_chunks_fts FTS5 virtual table for full-text content search
+pub const MAGELLAN_SCHEMA_VERSION: i64 = 20;
 
 /// Migration result summary
 #[derive(Debug, Clone)]
@@ -555,6 +556,51 @@ fn migrate_from_version(tx: &Transaction, old_version: i64) -> Result<()> {
              ON edge_versions(target_stable_id)",
             [],
         )?;
+    }
+
+    if old_version < 20 {
+        // v19 -> v20: Add code_chunks_fts FTS5 virtual table for content search.
+        // Only create if code_chunks table exists — minimal test DBs may not have it.
+        let has_code_chunks: bool = tx
+            .query_row(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='code_chunks' LIMIT 1",
+                [],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+
+        if has_code_chunks {
+            tx.execute_batch(
+                "CREATE VIRTUAL TABLE IF NOT EXISTS code_chunks_fts USING fts5(
+                    content,
+                    content='code_chunks',
+                    content_rowid='id',
+                    tokenize='unicode61'
+                );
+
+                CREATE TRIGGER IF NOT EXISTS code_chunks_ai
+                    AFTER INSERT ON code_chunks BEGIN
+                        INSERT INTO code_chunks_fts(rowid, content)
+                        VALUES (new.id, new.content);
+                    END;
+                CREATE TRIGGER IF NOT EXISTS code_chunks_ad
+                    AFTER DELETE ON code_chunks BEGIN
+                        INSERT INTO code_chunks_fts(code_chunks_fts, rowid, content)
+                        VALUES ('delete', old.id, old.content);
+                    END;
+                CREATE TRIGGER IF NOT EXISTS code_chunks_au
+                    AFTER UPDATE ON code_chunks BEGIN
+                        INSERT INTO code_chunks_fts(code_chunks_fts, rowid, content)
+                        VALUES ('delete', old.id, old.content);
+                        INSERT INTO code_chunks_fts(rowid, content)
+                        VALUES (new.id, new.content);
+                    END;
+
+                -- Populate from existing data
+                INSERT INTO code_chunks_fts(rowid, content)
+                SELECT id, content FROM code_chunks;",
+            )?;
+        }
     }
 
     Ok(())
