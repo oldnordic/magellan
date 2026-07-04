@@ -3,6 +3,26 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Project adheres to [Semantic Versioning](https://semverver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **service: always create FileFilter — internal ignores must apply at service level**
+  (`src/service/mod.rs`): `watcher_task` only constructed a `FileFilter` when
+  projects had explicit include/exclude patterns (`has_filters = true`). With
+  empty patterns (the default), `file_filter` was `None` and ALL paths from
+  the inotify watcher passed straight through to `reconcile_file_path` —
+  including `.git/objects/` files that generate thousands of events per git
+  operation. The daemon burned 1.4G RAM and 100% CPU indexing git internals.
+
+  Fix: always construct a `FileFilter` from the project root, even with empty
+  include/exclude. The filter's `INTERNAL_IGNORE_DIRS` (`.git`, `target`,
+  `node_modules`, `.venv`, `__pycache__`) and `INTERNAL_IGNORE_EXTS` (`.db`,
+  `.sqlite`) always apply as a safety net at the service level.
+
+  Verified: `.git/HEAD` touch → zero reconcile events (was immediate
+  reconcile). Memory 1.4G → 231M. CPU 1h+ → 4.5s over 2 min.
+
 ## [4.13.0] - 2026-07-03
 
 ### Added
