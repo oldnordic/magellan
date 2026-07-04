@@ -449,7 +449,6 @@ async fn watcher_task(
 
     let name_for_blocking = project_name.clone();
     let root_display = root.display().to_string();
-    let has_filters = !include.is_empty() || !exclude.is_empty();
     let filter_root = root.clone();
     let _filter_include = include.clone();
     let _filter_exclude = exclude.clone();
@@ -486,10 +485,13 @@ async fn watcher_task(
         }
     });
 
-    // Build FileFilter if include/exclude patterns are provided.
-    // Normalize directory patterns (e.g. "src/" -> "src/**") so they match
-    // individual file paths, since the watcher receives file-level events.
-    let file_filter = if has_filters {
+    // Always build a FileFilter, even with empty include/exclude patterns.
+    // The filter's INTERNAL_IGNORE_DIRS (.git, target, node_modules, .venv, etc.)
+    // must always apply at the service level as a safety net, regardless of
+    // whether the caller provided explicit patterns. Without this, projects
+    // whose root points at a repo root (not /src) pass .git/objects paths
+    // straight through to reconcile_file_path.
+    let file_filter = {
         let normalized_include: Vec<String> = include
             .iter()
             .map(|p| {
@@ -520,13 +522,11 @@ async fn watcher_task(
                 tracing::error!(
                     project = %project_name,
                     error = %e,
-                    "Failed to build FileFilter from include/exclude patterns"
+                    "Failed to build FileFilter"
                 );
                 None
             }
         }
-    } else {
-        None
     };
 
     // Forward from bridge to batch_tx while watching shutdown
