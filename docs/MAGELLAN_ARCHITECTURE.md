@@ -1,6 +1,6 @@
 # Magellan Architecture
 
-**Version:** 4.2.0 (unreleased)
+**Version:** 4.13.1
 
 This document describes the current public architecture. Magellan's supported
 user-facing storage path is a SQLite `.db` database.
@@ -21,6 +21,11 @@ source files
 The database is local and deterministic. Re-indexing a file deletes stale facts
 for that file and inserts the current facts.
 
+Derived search indexes are repairable. In particular, `code_chunks_fts` is
+treated as a rebuildable FTS5 side index over `code_chunks`: if chunk deletion
+or rewrite hits FTS-side corruption during reconcile, Magellan rebuilds that
+index and retries the chunk operation instead of failing the whole batch.
+
 ## Storage
 
 ### SQLite Graph Core
@@ -38,6 +43,7 @@ Magellan uses `sqlitegraph` for graph storage:
 Magellan also maintains side tables for data that is easier to query directly:
 
 - `code_chunks`: source snippets keyed by file and byte span
+- `code_chunks_fts`: FTS5 full-text side index over code chunk content
 - `ast_nodes`: tree-sitter AST nodes
 - `cfg_blocks`: CFG blocks with hashes, statements, and optional `cfg_condition` metadata
 - `cfg_edges`: typed CFG edges
@@ -198,7 +204,8 @@ assumes the default SQLite `.db` workflow.
 ## Service Daemon
 
 `magellan service start` launches a long-running daemon that serves a JSON-RPC
-API over a Unix domain socket at `/tmp/magellan.sock`.
+API over a Unix domain socket at `$XDG_RUNTIME_DIR/magellan.sock` with a
+`/tmp/magellan.sock` fallback when `XDG_RUNTIME_DIR` is unavailable.
 
 ```text
 magellan service start
@@ -226,6 +233,11 @@ magellan service start
 `register` and `resume` socket handlers spawn `watcher_task` immediately — no
 daemon restart required for new projects to be continuously monitored.
 `WatcherMap` tracks per-project `Sender<()>` shutdown handles.
+
+Daemon-triggered reconcile batches are file-based. `magellan watch` sends a
+registered project tag plus filtered file paths to the admin socket; the
+worker resolves the database from that tag and reconciles concrete files rather
+than attempting to index the root directory itself.
 
 ### JSON-RPC Socket Methods
 

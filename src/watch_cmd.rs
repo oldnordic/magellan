@@ -4,10 +4,12 @@ use anyhow::{Context, Result};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use walkdir::WalkDir;
 
 use crate::generate_execution_id;
 
 use magellan::backend_router::MagellanBackend;
+use magellan::graph::filter::FileFilter;
 use magellan::graph::validation;
 use magellan::WatchPipelineConfig;
 use magellan::WatcherConfig;
@@ -53,6 +55,57 @@ fn send_watch_request(req_line: &str, exec_id: &str) -> Result<()> {
     }
 }
 
+fn collect_daemon_watch_paths(
+    root_path: &std::path::Path,
+    include: &[String],
+    exclude: &[String],
+) -> Result<Vec<String>> {
+    let filter = FileFilter::new(root_path, include, exclude)?;
+    let mut paths = Vec::new();
+
+    for entry in WalkDir::new(root_path) {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(_) => continue,
+        };
+        let path = entry.path();
+        if filter.should_skip(path).is_none() {
+            paths.push(path.to_string_lossy().to_string());
+        }
+    }
+
+    paths.sort();
+    paths.dedup();
+    Ok(paths)
+}
+
+fn daemon_watch_tag(root_path: &std::path::Path) -> String {
+    crate::service::registry::Registry::load()
+        .ok()
+        .and_then(|registry| {
+            registry
+                .find_by_root(root_path)
+                .map(|entry| entry.name.clone())
+        })
+        .unwrap_or_else(|| root_path.to_string_lossy().to_string())
+}
+
+fn build_daemon_watch_request(
+    exec_id: &str,
+    root_path: &std::path::Path,
+    include: &[String],
+    exclude: &[String],
+) -> Result<String> {
+    let paths = collect_daemon_watch_paths(root_path, include, exclude)?;
+    Ok(json!({
+        "id": exec_id,
+        "method": "watch",
+        "tag": daemon_watch_tag(root_path),
+        "paths": paths,
+    })
+    .to_string())
+}
+
 pub fn run_watch(
     root_path: PathBuf,
     db_path: PathBuf,
@@ -86,16 +139,8 @@ pub fn run_watch(
 
     // svc-8: if daemon is running, signal it instead of local watch
     if crate::service::is_daemon_running() {
-        return send_watch_request(
-            &json!({
-                "id": exec_id,
-                "method": "watch",
-                "tag": root_path.to_string_lossy(),
-                "paths": [root_path.to_string_lossy().to_string()],
-            })
-            .to_string(),
-            &exec_id,
-        );
+        let req_line = build_daemon_watch_request(&exec_id, &root_path, &[], &[])?;
+        return send_watch_request(&req_line, &exec_id);
     }
 
     let root_str = root_path.to_string_lossy().to_string();
@@ -203,5 +248,65 @@ pub fn run_watch(
             println!("SHUTDOWN");
             Err(e)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn daemon_watch_request_uses_registered_tag_and_files_only() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("proj");
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::create_dir_all(root.join("target")).unwrap();
+        std::fs::write(root.join("src/lib.rs"), "pub fn ok() {}\n").unwrap();
+        std::fs::write(root.join("target/ignored.rs"), "pub fn no() {}\n").unwrap();
+
+        let home = temp.path().join("home");
+        std::fs::create_dir_all(home.join(".config/magellan")).unwrap();
+        let registry_path = home.join(".config/magellan/config.toml");
+        std::fs::write(
+            &registry_path,
+            format!(
+                r#"
+version = "1"
+
+[[project]]
+name = "alpha"
+root = "{}"
+db = "{}"
+source = "cargo"
+enabled = true
+"#,
+                root.display(),
+                temp.path().join("alpha.db").display()
+            ),
+        )
+        .unwrap();
+
+        let old_home = std::env::var_os("HOME");
+        unsafe {
+            std::env::set_var("HOME", &home);
+        }
+        let req = build_daemon_watch_request("exec-1", &root, &[], &[]).unwrap();
+        match old_home {
+            Some(prev) => unsafe {
+                std::env::set_var("HOME", prev);
+            },
+            None => unsafe {
+                std::env::remove_var("HOME");
+            },
+        }
+
+        let parsed: serde_json::Value = serde_json::from_str(&req).unwrap();
+        assert_eq!(parsed["tag"].as_str(), Some("alpha"));
+        let paths = parsed["paths"].as_array().unwrap();
+        assert_eq!(paths.len(), 1);
+        assert_eq!(
+            paths[0].as_str(),
+            Some(root.join("src/lib.rs").to_string_lossy().as_ref())
+        );
     }
 }

@@ -524,6 +524,7 @@ pub enum Command {
     Navigate {
         task: String,
         db_path: PathBuf,
+        output_format: OutputFormat,
         depth: usize,
         budget: usize,
         limit: usize,

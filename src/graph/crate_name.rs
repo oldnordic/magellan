@@ -79,7 +79,22 @@ use std::path::Path;
 /// // Returns: "single-file-rs" (from directory name)
 /// ```
 pub fn detect_crate_name(project_root: &Path, _file_path: &Path) -> String {
-    // Priority 1: Try to read from Cargo.toml
+    let file_path = if _file_path.is_absolute() {
+        _file_path.to_path_buf()
+    } else {
+        project_root.join(_file_path)
+    };
+
+    // Priority 1: walk upward from the file path to the nearest Cargo.toml.
+    if let Some(cargo_toml) = find_cargo_toml_upwards(&file_path) {
+        if let Ok(content) = fs::read_to_string(&cargo_toml) {
+            if let Some(name) = parse_cargo_toml_name(&content) {
+                return name;
+            }
+        }
+    }
+
+    // Priority 2: Try the provided project root directly.
     let cargo_toml = project_root.join("Cargo.toml");
 
     if let Ok(content) = fs::read_to_string(&cargo_toml) {
@@ -90,15 +105,33 @@ pub fn detect_crate_name(project_root: &Path, _file_path: &Path) -> String {
         // Cargo.toml not found or unreadable - fall back to directory name
     }
 
-    // Priority 2: Use directory name
+    // Priority 3: Use directory name
     if let Some(dir_name) = project_root.file_name() {
         if let Some(name) = dir_name.to_str() {
             return name.to_string();
         }
     }
 
-    // Priority 3: Ultimate fallback
+    // Priority 4: If the file path is absolute, use its parent directory.
+    if let Some(parent) = file_path.parent().and_then(|p| p.file_name()) {
+        if let Some(name) = parent.to_str() {
+            return name.to_string();
+        }
+    }
+
+    // Priority 5: Ultimate fallback
     "unknown".to_string()
+}
+
+fn find_cargo_toml_upwards(path: &Path) -> Option<std::path::PathBuf> {
+    let start = if path.is_dir() { path } else { path.parent()? };
+    for ancestor in start.ancestors() {
+        let cargo_toml = ancestor.join("Cargo.toml");
+        if cargo_toml.is_file() {
+            return Some(cargo_toml);
+        }
+    }
+    None
 }
 
 /// Parse the crate name from Cargo.toml content.
@@ -411,5 +444,28 @@ version = "0.1.0"
         let result = detect_crate_name(temp_dir.path(), &file_path);
 
         assert_eq!(result, "my-awesome-crate-v2");
+    }
+
+    #[test]
+    fn test_detect_from_file_ancestor_when_project_root_is_wrong() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let project_root = temp_dir.path().join("workspace").join("member");
+        fs::create_dir_all(project_root.join("src")).unwrap();
+        fs::write(
+            project_root.join("Cargo.toml"),
+            r#"
+[package]
+name = "member-crate"
+version = "0.1.0"
+"#,
+        )
+        .unwrap();
+
+        let file_path = project_root.join("src/lib.rs");
+        let result = detect_crate_name(std::path::Path::new("."), &file_path);
+
+        assert_eq!(result, "member-crate");
     }
 }

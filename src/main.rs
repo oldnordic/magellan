@@ -1230,6 +1230,7 @@ fn main() -> ExitCode {
         Ok(Command::Navigate {
             task,
             db_path,
+            output_format,
             depth,
             budget,
             limit,
@@ -1241,6 +1242,7 @@ fn main() -> ExitCode {
             let cfg = navigate_cmd::NavigateConfig {
                 db_path,
                 task,
+                output_format,
                 depth,
                 budget,
                 limit,

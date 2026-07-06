@@ -790,21 +790,31 @@ pub mod sqlite_impl {
 
         fn store_chunk(&self, chunk: &CodeChunk) -> Result<i64> {
             let conn = self.lock_conn();
-            conn.execute(
-                "INSERT OR REPLACE INTO code_chunks
-                    (file_path, byte_start, byte_end, content, content_hash, symbol_name, symbol_kind, created_at)
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                params![
-                    chunk.file_path,
-                    chunk.byte_start as i64,
-                    chunk.byte_end as i64,
-                    chunk.content,
-                    chunk.content_hash,
-                    chunk.symbol_name,
-                    chunk.symbol_kind,
-                    chunk.created_at,
-                ],
-            )?;
+            let insert_chunk = |conn: &Connection| {
+                conn.execute(
+                    "INSERT OR REPLACE INTO code_chunks
+                        (file_path, byte_start, byte_end, content, content_hash, symbol_name, symbol_kind, created_at)
+                        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    params![
+                        chunk.file_path,
+                        chunk.byte_start as i64,
+                        chunk.byte_end as i64,
+                        chunk.content,
+                        chunk.content_hash,
+                        chunk.symbol_name,
+                        chunk.symbol_kind,
+                        chunk.created_at,
+                    ],
+                )
+            };
+            match insert_chunk(&conn) {
+                Ok(_) => {}
+                Err(err) if crate::generation::is_code_chunks_fts_corruption(&err) => {
+                    crate::generation::rebuild_code_chunks_fts(&conn)?;
+                    insert_chunk(&conn)?;
+                }
+                Err(err) => return Err(err.into()),
+            }
             Ok(conn.last_insert_rowid())
         }
 
@@ -902,10 +912,20 @@ pub mod sqlite_impl {
 
         fn delete_chunks_for_file(&self, file_path: &str) -> Result<usize> {
             let conn = self.lock_conn();
-            let affected = conn.execute(
-                "DELETE FROM code_chunks WHERE file_path = ?1",
-                params![file_path],
-            )?;
+            let delete_chunks = |conn: &Connection| {
+                conn.execute(
+                    "DELETE FROM code_chunks WHERE file_path = ?1",
+                    params![file_path],
+                )
+            };
+            let affected = match delete_chunks(&conn) {
+                Ok(affected) => affected,
+                Err(err) if crate::generation::is_code_chunks_fts_corruption(&err) => {
+                    crate::generation::rebuild_code_chunks_fts(&conn)?;
+                    delete_chunks(&conn)?
+                }
+                Err(err) => return Err(err.into()),
+            };
             Ok(affected)
         }
 

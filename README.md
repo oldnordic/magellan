@@ -1,6 +1,6 @@
 # Magellan
 
-**Version:** 4.11.1
+**Version:** 4.13.1
 
 Magellan is a deterministic codebase indexing tool. It watches or scans source
 trees, extracts symbols, references, calls, AST nodes, code chunks, CFG data, and
@@ -26,7 +26,7 @@ Splice.
 - Coverage ingestion from LCOV into CFG side tables
 
 **Storage**
-- SQLite, schema v18: repository snapshots, temporal symbol/edge history, graph memory tables, project metadata, FTS5 full-text search, cfg-aware CFG blocks
+- SQLite, schema v20: repository snapshots, temporal symbol/edge history, graph memory tables, project metadata, FTS5 full-text search over code chunks, and cfg-aware CFG blocks
 - Auto-detect project layout from `Cargo.toml`, `pyproject.toml`, `go.mod`, `package.json`, `tsconfig.json`, `pom.xml`, `CMakeLists.txt`
 
 **Keyword index:** code intelligence · codebase indexing · compiler frontend · tree-sitter · LLVM IR · Java bytecode · call graph · interprocedural · control-flow graph · CFG · AST · FTS5 · SQLite · Rust
@@ -41,7 +41,7 @@ code.db
 
 Use `.db` files for normal operation.
 
-**Schema version:** 18 (repository snapshots, temporal symbol/edge history, telemetry events, cfg-aware CFG blocks, project metadata, FTS5 full-text search, graph memory tables)
+**Schema version:** 20 (repository snapshots, temporal symbol/edge history, telemetry events, cfg-aware CFG blocks, project metadata, graph memory tables, `symbol_fts`, and `code_chunks_fts`)
 
 ## Features
 
@@ -174,6 +174,13 @@ that filters out read-only filesystem events (ACCESS/OPEN/CLOSE_NOWRITE).
 Only write-side mutations (CREATE/MODIFY/REMOVE) are tracked. This prevents
 the feedback loop where reading a file for reconciliation would trigger
 re-indexing.
+
+When `magellan watch` detects an already-running daemon, it sends a filtered
+file batch to the daemon using the registered project tag instead of queuing a
+directory path. During reconcile, chunk-side FTS corruption in `code_chunks_fts`
+is repaired automatically by rebuilding that index and retrying the chunk
+write/delete, so the daemon no longer fails entire batches on recoverable FTS5
+side-index damage.
 
 ```bash
 magellan service start                          # start daemon

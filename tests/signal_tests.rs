@@ -30,6 +30,7 @@ fn test_sigterm_prints_shutdown_and_exits() {
 
     // Start the magellan watch process
     let mut child = Command::new(&bin_path)
+        .env("MAGELLAN_LOCAL", "1")
         .arg("watch")
         .arg("--root")
         .arg(&root_path)

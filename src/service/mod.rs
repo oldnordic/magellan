@@ -10,7 +10,6 @@
 //! Phase 1: worker_loop -> CodeGraph reconcile.
 
 use anyhow::{Context, Result};
-use signal_hook::{consts::SIGTERM, iterator::Signals};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -169,16 +168,36 @@ impl Service {
     }
 
     /// Run the main event loop: signal handler + admin socket
-    pub async fn run(self) -> Result<()> {
+    pub async fn run(mut self) -> Result<()> {
         let socket = Arc::new(self.setup_socket().await?);
 
         // Signal handler task
         let shutdown_tx = self.shutdown.clone();
         let worker_shutdown = self.worker_shutdown.clone();
-        tokio::task::spawn_blocking(move || {
-            let mut signals = Signals::new([signal_hook::consts::SIGINT, SIGTERM])
-                .expect("Failed to register signal handler");
-            if let Some(_sig) = signals.forever().next() {
+        tokio::spawn(async move {
+            #[cfg(unix)]
+            {
+                use tokio::signal::unix::{signal, SignalKind};
+
+                let mut sigint = match signal(SignalKind::interrupt()) {
+                    Ok(sig) => sig,
+                    Err(e) => {
+                        tracing::error!(error = %e, "Failed to register SIGINT handler");
+                        return;
+                    }
+                };
+                let mut sigterm = match signal(SignalKind::terminate()) {
+                    Ok(sig) => sig,
+                    Err(e) => {
+                        tracing::error!(error = %e, "Failed to register SIGTERM handler");
+                        return;
+                    }
+                };
+
+                tokio::select! {
+                    _ = sigint.recv() => {}
+                    _ = sigterm.recv() => {}
+                }
                 worker_shutdown.store(true, Ordering::SeqCst);
                 let _ = shutdown_tx.send(true);
             }
@@ -225,7 +244,7 @@ impl Service {
         Ok(listener)
     }
 
-    async fn cleanup(&self) {
+    async fn cleanup(&mut self) {
         let _ = tokio::fs::remove_file(socket_path()).await;
         // Signal per-project watcher tasks to stop; each sets its blocking
         // watcher's shutdown_flag within one poll cycle (~500 ms).
@@ -233,6 +252,11 @@ impl Service {
         for tx in map.values() {
             let _ = tx.send(true);
         }
+        self.worker_shutdown.store(true, Ordering::SeqCst);
+        let _ = self.batch_tx.try_send(TaggedBatch {
+            project_name: String::new(),
+            paths: Vec::new(),
+        });
     }
 }
 
@@ -253,6 +277,9 @@ fn worker_loop(
         }
         match rx.blocking_recv() {
             Some(batch) => {
+                if shutdown.load(Ordering::SeqCst) {
+                    break;
+                }
                 let path_count = batch.paths.len();
                 tracing::info!(
                     project = %batch.project_name,
@@ -322,6 +349,9 @@ fn worker_loop(
 
                 let mut reconcile_errors: Vec<String> = Vec::new();
                 for raw_path in &batch.paths {
+                    if shutdown.load(Ordering::SeqCst) {
+                        break;
+                    }
                     let path = if raw_path.is_absolute() {
                         raw_path.clone()
                     } else {
@@ -357,6 +387,10 @@ fn worker_loop(
                             }
                         }
                     }
+                }
+
+                if shutdown.load(Ordering::SeqCst) {
+                    break;
                 }
 
                 if reconcile_errors.is_empty() {
@@ -483,6 +517,7 @@ async fn watcher_task(
                 }
             }
         }
+        fw.shutdown();
     });
 
     // Always build a FileFilter, even with empty include/exclude patterns.

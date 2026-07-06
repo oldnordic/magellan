@@ -34,7 +34,6 @@ use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, HashMap};
-use std::mem::ManuallyDrop;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -102,8 +101,8 @@ impl Default for WatcherConfig {
 /// All paths within the debounce window are collected, de-duplicated, sorted,
 /// and emitted as a single `WatcherBatch`.
 pub struct FileSystemWatcher {
-    /// Watcher thread handle (wrapped in ManuallyDrop for custom Drop/shutdown logic)
-    _watcher_thread: ManuallyDrop<thread::JoinHandle<()>>,
+    /// Watcher thread handle
+    watcher_thread: Option<thread::JoinHandle<()>>,
     batch_receiver: Receiver<WatcherBatch>,
     /// Legacy compatibility: pending batch to emit one path at a time
     /// Thread-safe: wrapped in `Arc<parking_lot::Mutex<T>>` for concurrent access
@@ -138,7 +137,7 @@ impl FileSystemWatcher {
         });
 
         Ok(Self {
-            _watcher_thread: ManuallyDrop::new(thread),
+            watcher_thread: Some(thread),
             batch_receiver: batch_rx,
             legacy_pending_batch: Arc::new(Mutex::new(None)),
             legacy_pending_index: Arc::new(Mutex::new(0)),
@@ -317,15 +316,15 @@ impl FileSystemWatcher {
     /// This method should be called during graceful shutdown to ensure
     /// all threads have terminated before the program exits.
     pub fn shutdown(mut self) {
-        let thread = unsafe { ManuallyDrop::take(&mut self._watcher_thread) };
-        let _ = thread.join();
+        if let Some(thread) = self.watcher_thread.take() {
+            let _ = thread.join();
+        }
     }
 }
 
 impl Drop for FileSystemWatcher {
     fn drop(&mut self) {
-        let _thread = unsafe { ManuallyDrop::take(&mut self._watcher_thread) };
-        drop(_thread);
+        let _ = self.watcher_thread.take();
     }
 }
 

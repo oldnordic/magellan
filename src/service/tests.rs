@@ -263,6 +263,33 @@ async fn test_watcher_task_emits_batch_on_file_change() {
     assert!(!batch.paths.is_empty(), "batch should contain dirty paths");
 }
 
+#[tokio::test]
+async fn test_watcher_task_exits_on_shutdown() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    std::fs::write(root.join("test.rs"), "fn test() {}\n").unwrap();
+
+    let (tx, _rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16);
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+
+    let handle = tokio::spawn(super::watcher_task(
+        root,
+        "testproj".to_string(),
+        shutdown_rx,
+        tx,
+        Vec::new(),
+        Vec::new(),
+    ));
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    shutdown_tx.send(true).unwrap();
+
+    tokio::time::timeout(tokio::time::Duration::from_secs(2), handle)
+        .await
+        .expect("watcher_task should exit after shutdown")
+        .unwrap();
+}
+
 // P1.5: Worker Loop -> Pipeline Dispatch — indexing via reconcile_file_path
 #[tokio::test]
 async fn test_worker_loop_indexes_file_and_reconciles() {
@@ -383,6 +410,41 @@ async fn test_worker_loop_updates_meta_db_last_reindexed() {
     if parent.exists() && parent != std::path::Path::new(".") {
         let _ = std::fs::remove_dir(parent);
     }
+}
+
+#[tokio::test]
+async fn test_worker_loop_exits_on_shutdown_wakeup_batch() {
+    let (batch_tx, batch_rx) = tokio::sync::mpsc::channel::<TaggedBatch>(4);
+    let shutdown = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let project_map = std::sync::Arc::new(std::collections::HashMap::new());
+    let wake_tx = batch_tx.clone();
+    let shutdown_for_task = shutdown.clone();
+
+    let worker = tokio::task::spawn_blocking(move || {
+        worker_loop(
+            batch_rx,
+            shutdown_for_task,
+            PathBuf::from("/tmp/unused.db"),
+            project_map,
+            None,
+        );
+    });
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+    shutdown.store(true, std::sync::atomic::Ordering::SeqCst);
+    wake_tx
+        .send(TaggedBatch {
+            project_name: String::new(),
+            paths: Vec::new(),
+        })
+        .await
+        .unwrap();
+    drop(batch_tx);
+
+    tokio::time::timeout(tokio::time::Duration::from_secs(2), worker)
+        .await
+        .expect("worker should exit after shutdown wakeup")
+        .unwrap();
 }
 
 // P2-5: service.stats JSON-RPC over admin socket

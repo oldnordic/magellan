@@ -542,6 +542,7 @@ pub fn parse_ask_args(args: &[String]) -> Result<Command> {
 pub fn parse_navigate_args(args: &[String]) -> Result<Command> {
     let mut db_path: Option<PathBuf> = None;
     let mut task: Option<String> = None;
+    let mut output_format = OutputFormat::Human;
     let mut depth = 2usize;
     let mut budget = 4000usize;
     let mut limit = 5usize;
@@ -555,6 +556,10 @@ pub fn parse_navigate_args(args: &[String]) -> Result<Command> {
             "--db" => {
                 let value = parse_required_arg(args, &mut i, "--db")?;
                 db_path = Some(PathBuf::from(value));
+            }
+            "--output" => {
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output_format = parse_output_format(&value)?;
             }
             "--depth" => {
                 let v = parse_required_arg(args, &mut i, "--depth")?;
@@ -610,6 +615,7 @@ pub fn parse_navigate_args(args: &[String]) -> Result<Command> {
     Ok(Command::Navigate {
         task,
         db_path,
+        output_format,
         depth,
         budget,
         limit,

@@ -1,6 +1,6 @@
 # Magellan Manual
 
-**Version:** 4.11.1
+**Version:** 4.13.1
 
 This manual documents the current user-facing Magellan CLI. The supported normal
 workflow uses a SQLite `.db` database.
@@ -88,6 +88,12 @@ Useful flags:
 | `--no-gitignore` | Disable ignore filtering |
 | `--compile-commands <FILE>` | Path to compile_commands.json for C/C++ compilation flags |
 
+When the daemon is already running, `magellan watch` dispatches a reconcile
+batch to the daemon instead of starting a second local watcher. The batch uses
+the registered project name (for example `sqlitegraph-core`) and enumerates
+the filtered source files under `--root`; it does not queue the root directory
+itself.
+
 ### Index One File
 
 ```bash
@@ -99,6 +105,14 @@ magellan index --db code.db --file src/lib.rs [--root .]
 ```bash
 magellan delete --db code.db --file src/lib.rs [--root .]
 ```
+
+If Magellan detects a corrupted `code_chunks_fts` side index while deleting or
+rewriting code chunks during reconcile, it rebuilds that FTS5 table and retries
+the chunk operation automatically instead of failing the whole file update.
+
+WAL checkpointing after reconcile uses retry logic on the graph side
+connection, so transient reader contention no longer turns a healthy batch into
+an immediate service error.
 
 ### Refresh From Git
 
@@ -407,7 +421,8 @@ magellan navigate --db code.db "handle_request" --concise
 | `--with-llmgrep` | Also run semantic search via `llmgrep` |
 | `--with-mirage` | Also run CFG analysis via `mirage` for top symbols |
 
-Output is a markdown investigation packet with a token estimate.
+Output defaults to a markdown investigation packet with a token estimate.
+Use `--output json` or `--output pretty` for structured responses.
 
 ### Explore (Stepable Graph Navigation)
 

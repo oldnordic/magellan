@@ -19,12 +19,26 @@
 
 pub mod schema;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use rusqlite::{params, OptionalExtension};
 use std::path::Path;
 use std::sync::Arc;
 
 pub use schema::CodeChunk;
+
+pub(crate) fn is_code_chunks_fts_corruption(err: &rusqlite::Error) -> bool {
+    let msg = err.to_string().to_ascii_lowercase();
+    msg.contains("virtual table is corrupt") || msg.contains("database disk image is malformed")
+}
+
+pub(crate) fn rebuild_code_chunks_fts(conn: &rusqlite::Connection) -> Result<()> {
+    conn.execute(
+        "INSERT INTO code_chunks_fts(code_chunks_fts) VALUES('rebuild')",
+        [],
+    )
+    .map_err(|e| anyhow!("Failed to rebuild code_chunks_fts: {}", e))?;
+    Ok(())
+}
 
 /// Storage backend for ChunkStore.
 ///
@@ -391,22 +405,33 @@ impl ChunkStore {
     /// Uses INSERT OR REPLACE to handle duplicates based on (file_path, byte_start, byte_end).
     pub fn store_chunk(&self, chunk: &CodeChunk) -> Result<i64> {
         self.with_connection_mut(|conn| {
-            conn.execute(
-                "INSERT OR REPLACE INTO code_chunks
-                    (file_path, byte_start, byte_end, content, content_hash, symbol_name, symbol_kind, created_at)
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                params![
-                    chunk.file_path,
-                    chunk.byte_start as i64,
-                    chunk.byte_end as i64,
-                    chunk.content,
-                    chunk.content_hash,
-                    chunk.symbol_name,
-                    chunk.symbol_kind,
-                    chunk.created_at,
-                ],
-            )
-            .map_err(|e| anyhow::anyhow!("Failed to store code chunk: {}", e))?;
+            let insert_chunk = |conn: &rusqlite::Connection| {
+                conn.execute(
+                    "INSERT OR REPLACE INTO code_chunks
+                        (file_path, byte_start, byte_end, content, content_hash, symbol_name, symbol_kind, created_at)
+                        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    params![
+                        chunk.file_path,
+                        chunk.byte_start as i64,
+                        chunk.byte_end as i64,
+                        chunk.content,
+                        chunk.content_hash,
+                        chunk.symbol_name,
+                        chunk.symbol_kind,
+                        chunk.created_at,
+                    ],
+                )
+            };
+
+            match insert_chunk(conn) {
+                Ok(_) => {}
+                Err(err) if is_code_chunks_fts_corruption(&err) => {
+                    rebuild_code_chunks_fts(conn)?;
+                    insert_chunk(conn)
+                        .map_err(|e| anyhow!("Failed to store code chunk after FTS repair: {}", e))?;
+                }
+                Err(err) => return Err(anyhow!("Failed to store code chunk: {}", err)),
+            }
 
             Ok(conn.last_insert_rowid())
         })
@@ -427,37 +452,45 @@ impl ChunkStore {
             _ => {
                 // SQLite backend: use direct connection
                 self.with_connection_mut(|conn| {
-                    let tx = conn
-                        .unchecked_transaction()
-                        .map_err(|e| anyhow::anyhow!("Failed to start transaction: {}", e))?;
+                    let run_batch =
+                        |conn: &mut rusqlite::Connection| -> std::result::Result<Vec<i64>, rusqlite::Error> {
+                            let tx = conn.unchecked_transaction()?;
+                            let mut ids = Vec::new();
 
-                    let mut ids = Vec::new();
+                            for chunk in chunks {
+                                tx.execute(
+                                    "INSERT OR REPLACE INTO code_chunks
+                                        (file_path, byte_start, byte_end, content, content_hash, symbol_name, symbol_kind, created_at)
+                                        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                                    params![
+                                        chunk.file_path,
+                                        chunk.byte_start as i64,
+                                        chunk.byte_end as i64,
+                                        chunk.content,
+                                        chunk.content_hash,
+                                        chunk.symbol_name,
+                                        chunk.symbol_kind,
+                                        chunk.created_at,
+                                    ],
+                                )?;
 
-                    for chunk in chunks {
-                        tx.execute(
-                            "INSERT OR REPLACE INTO code_chunks
-                                (file_path, byte_start, byte_end, content, content_hash, symbol_name, symbol_kind, created_at)
-                                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                            params![
-                                chunk.file_path,
-                                chunk.byte_start as i64,
-                                chunk.byte_end as i64,
-                                chunk.content,
-                                chunk.content_hash,
-                                chunk.symbol_name,
-                                chunk.symbol_kind,
-                                chunk.created_at,
-                            ],
-                        )
-                        .map_err(|e| anyhow::anyhow!("Failed to store code chunk: {}", e))?;
+                                ids.push(tx.last_insert_rowid());
+                            }
 
-                        ids.push(tx.last_insert_rowid());
+                            tx.commit()?;
+                            Ok(ids)
+                        };
+
+                    match run_batch(conn) {
+                        Ok(ids) => Ok(ids),
+                        Err(err) if is_code_chunks_fts_corruption(&err) => {
+                            rebuild_code_chunks_fts(conn)?;
+                            run_batch(conn).map_err(|e| {
+                                anyhow!("Failed to store code chunks after FTS repair: {}", e)
+                            })
+                        }
+                        Err(err) => Err(anyhow!("Failed to store code chunks: {}", err)),
                     }
-
-                    tx.commit()
-                        .map_err(|e| anyhow::anyhow!("Failed to commit transaction: {}", e))?;
-
-                    Ok(ids)
                 })
             }
         }
@@ -666,12 +699,23 @@ impl ChunkStore {
         match &self.backend {
             ChunkStoreBackend::SideTables(tables) => tables.delete_chunks_for_file(file_path),
             _ => self.with_connection_mut(|conn| {
-                let affected = conn
-                    .execute(
+                let delete_chunks = |conn: &rusqlite::Connection| {
+                    conn.execute(
                         "DELETE FROM code_chunks WHERE file_path = ?1",
                         params![file_path],
                     )
-                    .map_err(|e| anyhow::anyhow!("Failed to delete code chunks: {}", e))?;
+                };
+
+                let affected = match delete_chunks(conn) {
+                    Ok(affected) => affected,
+                    Err(err) if is_code_chunks_fts_corruption(&err) => {
+                        rebuild_code_chunks_fts(conn)?;
+                        delete_chunks(conn).map_err(|e| {
+                            anyhow!("Failed to delete code chunks after FTS repair: {}", e)
+                        })?
+                    }
+                    Err(err) => return Err(anyhow!("Failed to delete code chunks: {}", err)),
+                };
 
                 Ok(affected)
             }),

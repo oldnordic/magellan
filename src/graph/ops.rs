@@ -2,7 +2,7 @@
 //!
 //! Provides file indexing and deletion operations.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
 use sqlitegraph::{NodeId, SnapshotId};
@@ -591,7 +591,10 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
     // === PHASE 0: Clean up duplicate file nodes ===
     // If multiple File nodes exist for the same path (from earlier indexing bugs),
     // delete all but the first one before proceeding with normal deletion.
-    let all_file_nodes = graph.files.find_all_file_nodes(path)?;
+    let all_file_nodes = graph
+        .files
+        .find_all_file_nodes(path)
+        .with_context(|| format!("find file nodes for {path}"))?;
     if all_file_nodes.len() > 1 {
         for (dup_id, _) in all_file_nodes.iter().skip(1) {
             // delete_entity cascades to edges, but symbol nodes may become orphaned.
@@ -665,7 +668,11 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
     let cfg_blocks_deleted: usize;
     let edges_deleted: usize;
 
-    if let Some(file_id) = graph.files.find_file_node(path)? {
+    if let Some(file_id) = graph
+        .files
+        .find_file_node(path)
+        .with_context(|| format!("find primary file node for {path}"))?
+    {
         // Capture symbol IDs before deletion.
         let snapshot = SnapshotId::current();
         let symbol_ids = match graph.files.backend.neighbors(
@@ -702,13 +709,20 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         // cfg_ops.delete_cfg_for_file(path) uses a subquery against graph_entities,
         // which would return no results after entities are deleted. Use the captured
         // symbol_ids (which are function_ids) to delete CFG directly.
-        let blocks = graph.cfg_ops.delete_cfg_for_functions(&symbol_ids_sorted)?;
+        let blocks = graph
+            .cfg_ops
+            .delete_cfg_for_functions(&symbol_ids_sorted)
+            .with_context(|| format!("delete cfg blocks for {path}"))?;
         cfg_blocks_deleted = blocks;
         edges_deleted = blocks;
 
         // Delete each symbol node (sqlitegraph deletes edges touching entity).
         for symbol_id in &symbol_ids_sorted {
-            graph.files.backend.delete_entity(*symbol_id)?;
+            graph
+                .files
+                .backend
+                .delete_entity(*symbol_id)
+                .with_context(|| format!("delete symbol entity {symbol_id} for {path}"))?;
             if graph.embeddings_enabled {
                 if let Ok(sg) = graph.symbols.sqlite_graph() {
                     let _ = crate::graph::search::remove_from_search_index(sg, *symbol_id);
@@ -735,11 +749,18 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         );
 
         // Delete the File node itself.
-        graph.files.backend.delete_entity(file_id.as_i64())?;
+        graph
+            .files
+            .backend
+            .delete_entity(file_id.as_i64())
+            .with_context(|| format!("delete file entity {} for {path}", file_id.as_i64()))?;
         deleted_entity_ids.push(file_id.as_i64());
 
         // Delete references in this file.
-        references_deleted = graph.references.delete_references_in_file(path)?;
+        references_deleted = graph
+            .references
+            .delete_references_in_file(path)
+            .with_context(|| format!("delete references for {path}"))?;
 
         // Assert reference count matches expected
         assert_eq!(
@@ -749,7 +770,10 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         );
 
         // Delete calls in this file.
-        calls_deleted = graph.calls.delete_calls_in_file(path)?;
+        calls_deleted = graph
+            .calls
+            .delete_calls_in_file(path)
+            .with_context(|| format!("delete calls for {path}"))?;
 
         // Assert call count matches expected
         assert_eq!(
@@ -764,7 +788,10 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
 
         // Delete code chunks for this file using the ChunkStore abstraction.
         // This works with both SQLite and V3 backends.
-        chunks_deleted = graph.chunks.delete_chunks_for_file(path)?;
+        chunks_deleted = graph
+            .chunks
+            .delete_chunks_for_file(path)
+            .with_context(|| format!("delete code chunks for {path}"))?;
 
         // Delete AST nodes using SideTables (works with both SQLite and V3)
         let normalized_path = crate::graph::files::normalize_path_for_index(path);
@@ -777,7 +804,8 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         ast_nodes_deleted = if file_id_for_ast > 0 {
             graph
                 .side_tables
-                .delete_ast_nodes_for_file(file_id_for_ast)?
+                .delete_ast_nodes_for_file(file_id_for_ast)
+                .with_context(|| format!("delete ast nodes for {path}"))?
         } else {
             0
         };
@@ -815,7 +843,10 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         // Use auto-commit for orphan cleanup (no transaction needed).
 
         // Delete chunks using SideTables (works with both SQLite and V3)
-        chunks_deleted = graph.side_tables.delete_chunks_for_file(path)?;
+        chunks_deleted = graph
+            .side_tables
+            .delete_chunks_for_file(path)
+            .with_context(|| format!("delete orphaned code chunks for {path}"))?;
         assert_eq!(
             chunks_deleted, expected_chunks,
             "Code chunk deletion count mismatch (no file) for '{}': expected {}, got {}",
@@ -823,7 +854,10 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         );
 
         // Delete references
-        references_deleted = graph.references.delete_references_in_file(path)?;
+        references_deleted = graph
+            .references
+            .delete_references_in_file(path)
+            .with_context(|| format!("delete orphaned references for {path}"))?;
         assert_eq!(
             references_deleted, expected_references,
             "Reference deletion count mismatch (no file) for '{}': expected {}, got {}",
@@ -831,7 +865,10 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         );
 
         // Delete calls
-        calls_deleted = graph.calls.delete_calls_in_file(path)?;
+        calls_deleted = graph
+            .calls
+            .delete_calls_in_file(path)
+            .with_context(|| format!("delete orphaned calls for {path}"))?;
         assert_eq!(
             calls_deleted, expected_calls,
             "Call deletion count mismatch (no file) for '{}': expected {}, got {}",
@@ -849,7 +886,8 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         ast_nodes_deleted = if file_id_for_ast > 0 {
             graph
                 .side_tables
-                .delete_ast_nodes_for_file(file_id_for_ast)?
+                .delete_ast_nodes_for_file(file_id_for_ast)
+                .with_context(|| format!("delete orphaned ast nodes for {path}"))?
         } else {
             0
         };
@@ -1288,7 +1326,8 @@ pub fn reconcile_file_path(
         // Delete facts for missing file
         #[cfg(debug_assertions)]
         {
-            let deleted = delete_file_facts(graph, path_key)?;
+            let deleted = delete_file_facts(graph, path_key)
+                .with_context(|| format!("delete existing facts for missing file {path_key}"))?;
             if !deleted.is_empty() {
                 eprintln!(
                     "Deleted {} symbols, {} references, {} calls for missing file {}",
@@ -1301,7 +1340,8 @@ pub fn reconcile_file_path(
         }
         #[cfg(not(debug_assertions))]
         {
-            let _ = delete_file_facts(graph, path_key)?;
+            let _ = delete_file_facts(graph, path_key)
+                .with_context(|| format!("delete existing facts for missing file {path_key}"))?;
         }
         return Ok(ReconcileOutcome::Deleted);
     }
@@ -1345,7 +1385,8 @@ pub fn reconcile_file_path(
     // 5) Delete all existing facts for this file, then re-index
     #[cfg(debug_assertions)]
     {
-        let deleted = delete_file_facts(graph, path_key)?;
+        let deleted = delete_file_facts(graph, path_key)
+            .with_context(|| format!("delete existing facts before reindex for {path_key}"))?;
         if !deleted.is_empty() {
             eprintln!(
                 "Deleted {} symbols, {} references, {} calls for reindex of {}",
@@ -1358,13 +1399,19 @@ pub fn reconcile_file_path(
     }
     #[cfg(not(debug_assertions))]
     {
-        let _ = delete_file_facts(graph, path_key)?;
+        let _ = delete_file_facts(graph, path_key)
+            .with_context(|| format!("delete existing facts before reindex for {path_key}"))?;
     }
 
-    let _ = graph.module_resolver.build_module_index();
+    graph
+        .module_resolver
+        .build_module_index()
+        .with_context(|| format!("rebuild module index before reconcile for {path_key}"))?;
 
-    let symbols = index_file(graph, path_key, &source)?;
-    query::index_references(graph, path_key, &source)?;
+    let symbols = index_file(graph, path_key, &source)
+        .with_context(|| format!("index symbols for {path_key}"))?;
+    query::index_references(graph, path_key, &source)
+        .with_context(|| format!("index references for {path_key}"))?;
 
     // Count calls for this file only (index_file already indexed calls internally)
     let calls = count_calls_in_file(graph, path_key);
@@ -1393,7 +1440,8 @@ pub fn reconcile_file_path_with_source(
     if !path.exists() {
         #[cfg(debug_assertions)]
         {
-            let deleted = delete_file_facts(graph, path_key)?;
+            let deleted = delete_file_facts(graph, path_key)
+                .with_context(|| format!("delete existing facts for missing file {path_key}"))?;
             if !deleted.is_empty() {
                 eprintln!(
                     "Deleted {} symbols, {} references, {} calls for missing file {}",
@@ -1406,7 +1454,8 @@ pub fn reconcile_file_path_with_source(
         }
         #[cfg(not(debug_assertions))]
         {
-            let _ = delete_file_facts(graph, path_key)?;
+            let _ = delete_file_facts(graph, path_key)
+                .with_context(|| format!("delete existing facts for missing file {path_key}"))?;
         }
         return Ok(ReconcileOutcome::Deleted);
     }
@@ -1447,7 +1496,8 @@ pub fn reconcile_file_path_with_source(
     // 5) Delete all existing facts, then re-index
     #[cfg(debug_assertions)]
     {
-        let deleted = delete_file_facts(graph, path_key)?;
+        let deleted = delete_file_facts(graph, path_key)
+            .with_context(|| format!("delete existing facts before reindex for {path_key}"))?;
         if !deleted.is_empty() {
             eprintln!(
                 "Deleted {} symbols, {} references, {} calls for reindex of {}",
@@ -1460,13 +1510,19 @@ pub fn reconcile_file_path_with_source(
     }
     #[cfg(not(debug_assertions))]
     {
-        let _ = delete_file_facts(graph, path_key)?;
+        let _ = delete_file_facts(graph, path_key)
+            .with_context(|| format!("delete existing facts before reindex for {path_key}"))?;
     }
 
-    let _ = graph.module_resolver.build_module_index();
+    graph
+        .module_resolver
+        .build_module_index()
+        .with_context(|| format!("rebuild module index before reconcile for {path_key}"))?;
 
-    let symbols = index_file(graph, path_key, source)?;
-    query::index_references(graph, path_key, source)?;
+    let symbols = index_file(graph, path_key, source)
+        .with_context(|| format!("index symbols for {path_key}"))?;
+    query::index_references(graph, path_key, source)
+        .with_context(|| format!("index references for {path_key}"))?;
     let calls = count_calls_in_file(graph, path_key);
     let references = count_references_in_file(graph, path_key);
 

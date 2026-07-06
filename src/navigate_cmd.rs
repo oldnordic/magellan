@@ -1,5 +1,7 @@
 use anyhow::Result;
 use magellan::graph::CodeGraph;
+use magellan::output::{generate_execution_id, output_json, JsonResponse, OutputFormat};
+use serde::Serialize;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -38,14 +40,23 @@ pub fn extract_terms(task: &str, max: usize) -> Vec<String> {
     terms
 }
 
+#[derive(Serialize)]
 struct Section {
     title: String,
     body: String,
 }
 
+#[derive(Serialize)]
+struct NavigateResponse<'a> {
+    task: &'a str,
+    terms: &'a [String],
+    sections: &'a [Section],
+}
+
 pub struct NavigateConfig {
     pub db_path: PathBuf,
     pub task: String,
+    pub output_format: OutputFormat,
     pub depth: usize,
     pub budget: usize,
     pub limit: usize,
@@ -59,6 +70,7 @@ pub fn run_navigate(cfg: NavigateConfig) -> Result<()> {
     let NavigateConfig {
         db_path,
         task,
+        output_format,
         depth,
         budget,
         limit,
@@ -278,23 +290,43 @@ pub fn run_navigate(cfg: NavigateConfig) -> Result<()> {
     }
 
     let packet = render_packet(&task, &terms, &sections);
-    let final_output = if let Some(token_limit) = tokens {
+    let packet_tokens = packet.len().div_ceil(4);
+    let (final_output, truncated) = if let Some(token_limit) = tokens {
         if token_limit > 0 {
-            let tokens_est = packet.len() / 4;
-            if tokens_est > token_limit {
+            if packet_tokens > token_limit {
                 let char_limit = token_limit * 4;
                 let truncated = packet.chars().take(char_limit).collect::<String>();
-                format!("{}\n\n*[~{} tokens, truncated]*", truncated, token_limit)
+                (
+                    format!("{}\n\n*[~{} tokens, truncated]*", truncated, token_limit),
+                    true,
+                )
             } else {
-                packet
+                (packet, false)
             }
         } else {
-            packet
+            (packet, false)
         }
     } else {
-        packet
+        (packet, false)
     };
-    print!("{}", final_output);
+    match output_format {
+        OutputFormat::Human => {
+            print!("{}", final_output);
+        }
+        OutputFormat::Json | OutputFormat::Pretty => {
+            let exec_id = generate_execution_id();
+            let response = NavigateResponse {
+                task: &task,
+                terms: &terms,
+                sections: &sections,
+            };
+            let json_response = JsonResponse::new(response, &exec_id)
+                .with_tokens(packet_tokens)
+                .with_truncated(truncated)
+                .with_partial(truncated);
+            output_json(&json_response, output_format)?;
+        }
+    }
     Ok(())
 }
 

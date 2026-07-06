@@ -5,7 +5,73 @@ Project adheres to [Semantic Versioning](https://semverver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [4.13.1] - 2026-07-06
+
 ### Fixed
+
+- **chunk storage/service: auto-repair `code_chunks_fts` corruption during
+  reconcile and retry WAL checkpoints before reporting failure**
+  (`src/generation/mod.rs`, `src/graph/side_tables.rs`, `src/graph/ops.rs`,
+  `src/graph/mod.rs`, `tests/sqlitegraph_core_reconcile_test.rs`): the real
+  `sqlitegraph-core` daemon failure was not sqlitegraph graph corruption. The
+  failing path was `delete_file_facts()` deleting `code_chunks` for
+  `src/backend/native/v3/edge_compat.rs`, where SQLite returned
+  `Content in the virtual table is corrupt` from `code_chunks_fts`. Rebuilding
+  the FTS5 side index (`INSERT INTO code_chunks_fts(code_chunks_fts)
+  VALUES('rebuild')`) repaired the copied canonical DB immediately, so chunk
+  writes/deletes now detect that failure mode, rebuild `code_chunks_fts`, and
+  retry once on the same connection. `reconcile_file_path()` and
+  `delete_file_facts()` now also attach phase-level context so failures name the
+  exact substep instead of collapsing to a generic reconcile error. Separately,
+  `CodeGraph::checkpoint_wal()` now uses the existing retry helper instead of a
+  one-shot `PRAGMA wal_checkpoint(TRUNCATE)`, which removes transient
+  end-of-batch checkpoint failures from normal daemon runs. Verified on a
+  copied canonical `sqlitegraph-core` DB repro and then on the live daemon:
+  the full 200-file `sqlitegraph-core` batch completed with no
+  `database disk image is malformed`, no `virtual table is corrupt`, and no
+  `reconcile ERR` lines in the new service run.
+
+- **service/watch: daemon watch now queues real files, uses the registered
+  project tag, and worker shutdown no longer hangs waiting on the batch
+  channel** (`src/watch_cmd.rs`, `src/service/mod.rs`, `src/service/tests.rs`,
+  `MANUAL.md`): when the daemon was running, `magellan watch` sent a single
+  directory path with `tag=<root>`. The worker then tried to reconcile a
+  directory (`Is a directory`) and bypassed the registered project name
+  (`sqlitegraph-core`). The CLI path now enumerates filtered source files
+  under `--root`, reuses the registry tag when one exists, and sends a proper
+  file batch to the daemon. Separately, daemon shutdown could wedge in
+  `systemctl stop/restart` because the worker blocked forever on
+  `blocking_recv()` or kept draining a large in-flight batch before noticing
+  shutdown. Cleanup now sets the shutdown flag, sends a wakeup batch, and the
+  worker checks that flag both before dequeue and between per-file reconciles.
+  The per-project `watcher_task` also now calls `FileSystemWatcher::shutdown()`
+  instead of dropping the watcher handle, so the internal watcher thread is
+  joined instead of detached. Regression tests cover the daemon watch request
+  shape, the worker shutdown wakeup path, and watcher-task shutdown.
+
+- **sqlitegraph dependency aligned to schema v9/v3.7.0** (`Cargo.toml`):
+  the source tree still depended on `sqlitegraph = 3.3.1` while the live
+  unified databases had already migrated to schema version 9 (`sqlitegraph`
+  3.7.0). That made fresh `cargo run` commands fail with
+  `DB_COMPAT: sqlitegraph schema mismatch (found=9, expected=6)` even though
+  the daemon binary on disk could index the same DB. Bumping the crate
+  dependency to `3.7.0` removes the split-brain: `cargo run`, `cargo check`,
+  installed binaries, and the daemon all agree on the same DB schema.
+
+- **navigate now honors `--output json|pretty` and crate-name detection no longer
+  depends on daemon cwd** (`src/cli.rs`, `src/cli/parsers/semantic.rs`,
+  `src/main.rs`, `src/navigate_cmd.rs`, `src/graph/crate_name.rs`,
+  `src/cli/tests.rs`, `MANUAL.md`): `magellan navigate` advertised
+  `--output <FORMAT>` in help text but never parsed or threaded the format,
+  so callers always got human markdown packets. The command now carries
+  `output_format`, emits schema-wrapped JSON for machine use, and keeps
+  markdown for human output. Separately, symbol extraction used `.` as the
+  project root for crate-name detection, so service/daemon cwd leaked into
+  `display_fqn` / `canonical_fqn` prefixes (`unknown::...`, unrelated project
+  names like `atheneum::...`). Crate-name detection now walks upward from the
+  actual source file path to the nearest `Cargo.toml`, then falls back to the
+  provided project root. Existing indexes need reindexing to rewrite stored
+  FQNs; new indexing will produce stable crate prefixes.
 
 - **service: always create FileFilter — internal ignores must apply at service level**
   (`src/service/mod.rs`): `watcher_task` only constructed a `FileFilter` when

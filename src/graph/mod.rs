@@ -761,7 +761,8 @@ impl CodeGraph {
     /// Checkpoint the SQLite WAL to prevent unbounded growth.
     pub fn checkpoint_wal(&self) -> Result<()> {
         let conn = self.side_conn.lock();
-        wal::checkpoint_conn(&conn).map_err(|e| anyhow::anyhow!("WAL checkpoint failed: {}", e))
+        wal::checkpoint_conn_with_retry(&conn, 5)
+            .map_err(|e| anyhow::anyhow!("WAL checkpoint failed: {}", e))
     }
 
     /// Rebuild the FTS5 search index using the existing side connection.

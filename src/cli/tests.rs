@@ -943,6 +943,32 @@ fn test_edge_duplicate_args() {
     }
 }
 
+#[test]
+fn test_parse_navigate_args_accepts_output_format() {
+    let args = vec![
+        "--db".to_string(),
+        "test.db".to_string(),
+        "--output".to_string(),
+        "json".to_string(),
+        "who calls parse_args".to_string(),
+    ];
+
+    let result = parse_navigate_args(&args).unwrap();
+    match result {
+        Command::Navigate {
+            db_path,
+            output_format,
+            task,
+            ..
+        } => {
+            assert_eq!(db_path, PathBuf::from("test.db"));
+            assert!(matches!(output_format, OutputFormat::Json));
+            assert_eq!(task, "who calls parse_args");
+        }
+        _ => panic!("Expected Navigate command"),
+    }
+}
+
 /// Test special characters in path arguments
 #[test]
 fn test_edge_special_chars_in_paths() {
