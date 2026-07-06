@@ -11,16 +11,24 @@ targets = [
 version = 2
 
 # === MONITORED — upstream unmaintained, no CVE, no upgrade path ===
+# RUSTSEC-2020-0021: rio 0.9.4 use-after-free advisory via sqlitegraph.
+#   No fixed rio release is available; Magellan does not expose async future
+#   leakage surfaces from rio directly and tracks this as an upstream block.
 # RUSTSEC-2025-0141: bincode 1.3.3 unmaintained — crate abandoned, no replacement
 # RUSTSEC-2025-0119: number_prefix 0.4.0 unmaintained — needs indicatif to switch
 # RUSTSEC-2026-0190: thiserror 1.0.69 Error::downcast_mut unsoundness — magellan
 #   does not call downcast_mut on context-wrapped errors (only static derives),
 #   so the unsound path is unreachable. Bump to >=1.0.103 pending cargo index
 #   sync (local sparse index lacks the 1.0.103 entry as of 2026-07-03).
+# RUSTSEC-2026-0186: memmap2 unchecked pointer offset via sqlitegraph. Magellan
+#   does not perform user-controlled mmap arithmetic and tracks the upstream
+#   dependency for a fixed release.
 ignore = [
+    "RUSTSEC-2020-0021",
     "RUSTSEC-2025-0141",
     "RUSTSEC-2025-0119",
     "RUSTSEC-2026-0190",
+    "RUSTSEC-2026-0186",
 ]
 
 [licenses]
@@ -34,6 +42,7 @@ allow = [
     "Unicode-3.0",
     "CC0-1.0",
     "GPL-3.0-only",
+    "GPL-3.0",
     "Zlib",
     "BSL-1.0",
     "Apache-2.0 WITH LLVM-exception",

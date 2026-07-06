@@ -7,6 +7,17 @@ Project adheres to [Semantic Versioning](https://semverver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- **CI advisory policy now matches between `cargo audit` and `cargo deny`**
+  (`.github/workflows/validate.yml`, `deny.toml`): the previous CI fix cleared
+  the `cargo test` hang, but the next run still failed in `cargo audit`
+  because the workflow did not share the repo's existing advisory policy.
+  GitHub Actions now passes the same accepted RustSec IDs to `cargo audit`
+  that `deny.toml` documents for `cargo deny`, including the currently
+  unfixed `rio` and `memmap2` advisories inherited via `sqlitegraph`.
+  `deny.toml` also now accepts deprecated SPDX `GPL-3.0` for `rio`, which is
+  semantically equivalent to GPL-3.0-only for our license policy but was still
+  being rejected by `cargo deny` as a non-normalized upstream manifest value.
+
 - **CI hang guards for external-tool and watcher tests**
   (`src/graph/external_tools/tool_invoker.rs`,
   `src/graph/external_tools/rust/mir_invoker.rs`,
