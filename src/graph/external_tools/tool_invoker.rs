@@ -5,7 +5,7 @@
 
 use anyhow::Result;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::Duration;
 
 /// Output from running an external tool
@@ -70,7 +70,7 @@ pub enum ToolInvocationError {
 pub fn invoke_tool_with_timeout(
     executable: &Path,
     args: &[&str],
-    _timeout: Duration,
+    timeout: Duration,
 ) -> Result<ToolOutput, ToolInvocationError> {
     if !executable.exists() {
         return Err(ToolInvocationError::ToolNotFound {
@@ -84,20 +84,41 @@ pub fn invoke_tool_with_timeout(
         .unwrap_or("tool")
         .to_string();
 
-    // For now, use the sync version without timeout
-
-    let output = Command::new(executable).args(args).output().map_err(|e| {
-        ToolInvocationError::ExecutionFailed {
+    let mut child = Command::new(executable)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| ToolInvocationError::ExecutionFailed {
             tool: tool_name.clone(),
             reason: e.to_string(),
-        }
-    })?;
+        })?;
 
-    Ok(ToolOutput {
-        stdout: output.stdout,
-        stderr: output.stderr,
-        exit_code: output.status.code(),
-    })
+    let start = std::time::Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(_status)) => {
+                let output = child.wait_with_output()?;
+                return Ok(ToolOutput {
+                    stdout: output.stdout,
+                    stderr: output.stderr,
+                    exit_code: output.status.code(),
+                });
+            }
+            Ok(None) => {
+                if start.elapsed() >= timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(ToolInvocationError::Timeout {
+                        tool: tool_name,
+                        timeout_secs: timeout.as_secs(),
+                    });
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Err(e) => return Err(ToolInvocationError::Io(e)),
+        }
+    }
 }
 
 /// Invoke an external tool synchronously (blocking, no timeout)
@@ -189,5 +210,16 @@ mod tests {
         let output = result.unwrap();
         assert!(output.success());
         assert_eq!(output.stdout_str().unwrap().trim(), "hello");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_invoke_tool_with_timeout_times_out() {
+        let result = invoke_tool_with_timeout(
+            Path::new("/bin/sh"),
+            &["-c", "sleep 2"],
+            Duration::from_millis(100),
+        );
+        assert!(matches!(result, Err(ToolInvocationError::Timeout { .. })));
     }
 }

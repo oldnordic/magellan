@@ -233,10 +233,10 @@ async fn test_watcher_task_emits_batch_on_file_change() {
     write(&file1, "// initial").unwrap();
 
     let (tx, mut rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16);
-    let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
     // Spawn watcher task
-    let _join = tokio::spawn(super::watcher_task(
+    let join = tokio::spawn(super::watcher_task(
         root.clone(),
         "testproj".to_string(),
         shutdown_rx,
@@ -261,6 +261,12 @@ async fn test_watcher_task_emits_batch_on_file_change() {
     assert_eq!(batch.project_name, "testproj");
     // Should contain at least one of the files from temp dir
     assert!(!batch.paths.is_empty(), "batch should contain dirty paths");
+
+    shutdown_tx.send(true).unwrap();
+    tokio::time::timeout(tokio::time::Duration::from_secs(2), join)
+        .await
+        .expect("watcher_task should exit after shutdown")
+        .unwrap();
 }
 
 #[tokio::test]
@@ -2392,7 +2398,7 @@ async fn test_register_spawns_watcher_on_running_daemon() {
     let watcher_map: std::sync::Arc<
         tokio::sync::Mutex<std::collections::HashMap<String, tokio::sync::watch::Sender<bool>>>,
     > = Default::default();
-    let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
     // Spawn accept loop with NEW signature (watcher_map, shutdown_rx)
     let wm = watcher_map.clone();
@@ -2461,6 +2467,12 @@ async fn test_register_spawns_watcher_on_running_daemon() {
 
     assert_eq!(batch.project_name, "testreg");
     assert!(!batch.paths.is_empty(), "batch should contain dirty paths");
+
+    if let Some(tx) = watcher_map.lock().await.get("testreg").cloned() {
+        let _ = tx.send(true);
+    }
+    shutdown_tx.send(true).unwrap();
+    tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
 
     accept_task.abort();
     let _ = tokio::fs::remove_file(&socket).await;
@@ -2587,12 +2599,12 @@ async fn test_watcher_task_filters_by_include_patterns() {
     write(root.join("target/output.rs"), "fn unused() {}").unwrap();
 
     let (tx, mut rx) = tokio::sync::mpsc::channel::<super::types::TaggedBatch>(16);
-    let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
     let include = vec!["src/".to_string(), "kernels/".to_string()];
     let exclude: Vec<String> = Vec::new();
 
-    let _join = tokio::spawn(super::watcher_task(
+    let join = tokio::spawn(super::watcher_task(
         root.clone(),
         "filtertest".to_string(),
         shutdown_rx,
@@ -2647,4 +2659,10 @@ async fn test_watcher_task_filters_by_include_patterns() {
         "target/artifact.rs should be excluded, paths: {:?}",
         collected_paths
     );
+
+    shutdown_tx.send(true).unwrap();
+    tokio::time::timeout(tokio::time::Duration::from_secs(2), join)
+        .await
+        .expect("watcher_task should exit after shutdown")
+        .unwrap();
 }

@@ -5,6 +5,19 @@ Project adheres to [Semantic Versioning](https://semverver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Fixed
+
+- **CI hang guards for external-tool and watcher tests**
+  (`src/graph/external_tools/tool_invoker.rs`,
+  `src/graph/external_tools/rust/mir_invoker.rs`,
+  `src/service/tests.rs`, `.github/workflows/validate.yml`,
+  `docs/SCHEMA_SQLITE.md`): `invoke_tool_with_timeout()` now enforces a real
+  subprocess timeout instead of ignoring the requested bound, the MIR smoke
+  test now uses the bounded path, watcher-based service tests explicitly signal
+  shutdown and await task exit, and GitHub Actions now caps the `cargo test`
+  step at 20 minutes so future regressions fail fast instead of hanging
+  indefinitely.
+
 ## [4.13.1] - 2026-07-06
 
 ### Fixed

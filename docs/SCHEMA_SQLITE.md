@@ -1,7 +1,7 @@
 # SQLite Schema Reference
 
-**Version:** 4.2.0
-**Magellan schema version:** 17
+**Version:** 4.13.1
+**Magellan schema version:** 20
 **Database extension:** `.db`
 
 SQLite is the supported user-facing storage model.
@@ -145,6 +145,17 @@ Key fields:
 
 Chunks are keyed by `(file_path, byte_start, byte_end)`.
 
+### `code_chunks_fts`
+
+FTS5 side index over `code_chunks.content`.
+
+Key properties:
+
+- virtual table populated from `code_chunks`
+- additive in schema v20
+- rebuildable derivative index, not source-of-truth storage
+- used by content-search style queries
+
 ## AST Storage
 
 ### `ast_nodes`
@@ -171,16 +182,16 @@ Stores control-flow blocks.
 Key fields:
 
 - `function_id`
-- `block_id`
 - `kind`
+- `terminator`
 - `byte_start`
 - `byte_end`
+- `start_line`
+- `start_col`
+- `end_line`
+- `end_col`
 - `cfg_hash`
 - `statements`
-- `coord_x`
-- `coord_y`
-- `coord_z`
-- `coord_t`
 - `cfg_condition` (schema v16+) — `#[cfg(...)]` condition string inherited from the function's attributes. All blocks within a cfg-gated function share the same condition. Used by downstream tools to filter out dead code paths behind disabled feature flags. Examples: `feature = "tokio"`, `all(feature = "a", feature = "b")`.
 
 ### `cfg_edges`
@@ -292,6 +303,11 @@ Magellan also maintains side tables for:
 - lazy index metadata
 - **FTS5 full-text search** (schema v12+)
 - **graph memory** (schema v13+)
+- **project metadata** (schema v15+)
+- **telemetry events** (schema v17+)
+- **temporal history** (schema v18+)
+- **symbol scorer tables** (schema v19+)
+- **code chunk content FTS** (schema v20+)
 
 Exact table presence can depend on schema version and which commands have been run.
 
@@ -313,6 +329,9 @@ Exact table presence can depend on schema version and which commands have been r
 | 15 | `project_name` and `project_metadata` columns in `magellan_meta` |
 | 16 | `cfg_condition` column in `cfg_blocks` for `#[cfg(...)]` condition tracking |
 | 17 | `telemetry_events` table for performance telemetry |
+| 18 | `repo_snapshots`, `repo_snapshot_parents`, `file_versions`, `symbol_versions`, `edge_versions` for temporal history |
+| 19 | scorer tables for symbol ranking and review workflows |
+| 20 | `code_chunks_fts` virtual table for FTS5 content search over stored code chunks |
 
 ### Schema v12: FTS5 Full-Text Search
 

@@ -123,17 +123,18 @@ mod tests {
         )
         .expect("Failed to write test file");
 
-        let result = dump_mir(&test_file);
-
-        // Clean up
-        let _ = std::fs::remove_file(&test_file);
-
         // This test requires nightly to be installed. If it's not, skip.
         let nightly_available = tool_detector::find_rustc_nightly().is_ok();
         if !nightly_available {
+            let _ = std::fs::remove_file(&test_file);
             eprintln!("Skipping test_dump_mir_on_simple_file — nightly not installed");
             return;
         }
+
+        let result = dump_mir_with_timeout(&test_file, 15);
+
+        // Clean up
+        let _ = std::fs::remove_file(&test_file);
 
         let mir = result.expect("MIR dump should succeed on a valid file");
 
