@@ -11,7 +11,8 @@
 //! 1. **Cargo.toml parsing**: Read `[package].name` from the Cargo.toml file
 //!    located at the project root
 //! 2. **Directory name fallback**: Use the directory name of the project root
-//! 3. **Ultimate fallback**: Return "unknown"
+//! 3. **File parent fallback**: Use the source file's parent directory name
+//! 4. **Ultimate fallback**: Return "unknown"
 //!
 //! # Examples
 //!
@@ -37,7 +38,8 @@ use std::path::Path;
 ///    extracting the `[package].name` value
 /// 2. Falling back to the directory name of `project_root` if no Cargo.toml
 ///    is found or it cannot be parsed
-/// 3. Returning "unknown" as the ultimate fallback
+/// 3. Falling back to the source file's parent directory name
+/// 4. Returning "unknown" as the ultimate fallback
 ///
 /// # Arguments
 ///
@@ -368,14 +370,18 @@ version = "0.1.0"
     }
 
     #[test]
-    fn test_unknown_fallback_empty_string_name() {
-        // Use a path that has no meaningful directory name
-        // This is a bit tricky to test in practice, but we can use "/"
-
+    fn test_fallback_to_file_parent_directory_name() {
         let file_path = std::path::PathBuf::from("/tmp/file.rs");
         let result = detect_crate_name(std::path::Path::new("/"), &file_path);
 
-        // "/" has no file_name, so we should get "unknown"
+        assert_eq!(result, "tmp");
+    }
+
+    #[test]
+    fn test_unknown_fallback_when_no_directory_names_exist() {
+        let file_path = std::path::PathBuf::from("/file.rs");
+        let result = detect_crate_name(std::path::Path::new("/"), &file_path);
+
         assert_eq!(result, "unknown");
     }
 
