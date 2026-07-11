@@ -6,7 +6,7 @@
 use anyhow::{Context, Result};
 use magellan::graph::source_inventory::{self, ScanResult};
 use magellan::output::{generate_execution_id, output_json, JsonResponse, OutputFormat};
-use rusqlite::Connection;
+use magellan::CodeGraph;
 use std::path::PathBuf;
 
 /// Run the source inventory command
@@ -29,36 +29,34 @@ pub fn run_source_inventory(
 ) -> Result<()> {
     let exec_id = generate_execution_id();
 
-    // Open a direct SQLite connection for source inventory operations
-    let conn = Connection::open(&db_path)
-        .with_context(|| format!("open database: {}", db_path.display()))?;
+    let graph = CodeGraph::open(&db_path)?;
+    let (scan_results, docs, stale) = graph.with_side_tables_conn(|conn| {
+        source_inventory::ensure_schema(conn).context("ensure source inventory schema")?;
 
-    source_inventory::ensure_schema(&conn).context("ensure source inventory schema")?;
+        let mut scan_results: Vec<(String, ScanResult)> = Vec::new();
+        for (dir, kind) in scan_dirs {
+            let result = source_inventory::scan_directory(conn, &dir, &kind, "md")
+                .with_context(|| format!("scan directory: {}", dir.display()))?;
+            scan_results.push((format!("{} ({})", dir.display(), kind), result));
+        }
 
-    // Scan directories if requested
-    let mut scan_results: Vec<(String, ScanResult)> = Vec::new();
-    for (dir, kind) in scan_dirs {
-        let result = source_inventory::scan_directory(&conn, &dir, &kind, "md")
-            .with_context(|| format!("scan directory: {}", dir.display()))?;
-        scan_results.push((format!("{} ({})", dir.display(), kind), result));
-    }
+        let docs = if list_kind.is_some() || (!show_stale && scan_results.is_empty()) {
+            Some(
+                source_inventory::list_by_kind(conn, list_kind.as_deref())
+                    .context("list documents")?,
+            )
+        } else {
+            None
+        };
 
-    // List documents if requested
-    let docs = if list_kind.is_some() || (!show_stale && scan_results.is_empty()) {
-        Some(
-            source_inventory::list_by_kind(&conn, list_kind.as_deref())
-                .context("list documents")?,
-        )
-    } else {
-        None
-    };
+        let stale = if show_stale {
+            Some(source_inventory::find_stale(conn).context("find stale documents")?)
+        } else {
+            None
+        };
 
-    // Find stale documents if requested
-    let stale = if show_stale {
-        Some(source_inventory::find_stale(&conn).context("find stale documents")?)
-    } else {
-        None
-    };
+        Ok((scan_results, docs, stale))
+    })?;
 
     // Output
     match output_format {

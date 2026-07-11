@@ -276,6 +276,18 @@ impl CodeGraph {
         &self.side_conn
     }
 
+    /// Execute a closure against the shared side-table SQLite connection.
+    ///
+    /// This keeps command-layer metadata and side-table access on the same
+    /// graph-owned connection lifecycle instead of reopening ad hoc handles.
+    pub fn with_side_tables_conn<T>(
+        &self,
+        f: impl FnOnce(&rusqlite::Connection) -> Result<T>,
+    ) -> Result<T> {
+        let conn = self.side_conn.lock();
+        f(&conn)
+    }
+
     pub(crate) fn compute_content_hash(&self, source: &[u8]) -> String {
         self.files.compute_hash(source)
     }

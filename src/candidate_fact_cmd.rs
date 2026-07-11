@@ -5,7 +5,7 @@
 use anyhow::{Context, Result};
 use magellan::graph::candidate_fact::{self, CandidateFact, CandidateStatus};
 use magellan::output::{generate_execution_id, output_json, JsonResponse, OutputFormat};
-use rusqlite::Connection;
+use magellan::CodeGraph;
 use std::path::PathBuf;
 
 /// Run the candidate fact command
@@ -16,18 +16,17 @@ pub fn run_candidate_fact(
 ) -> Result<()> {
     let exec_id = generate_execution_id();
 
-    let conn = Connection::open(&db_path)
-        .with_context(|| format!("open database: {}", db_path.display()))?;
-
-    // Ensure both schemas exist (candidate_facts depends on source_documents FK)
-    magellan::graph::source_inventory::ensure_schema(&conn)
-        .context("ensure source inventory schema")?;
-    candidate_fact::ensure_schema(&conn).context("ensure candidate fact schema")?;
+    let graph = CodeGraph::open(&db_path)?;
 
     match action {
         CandidateFactAction::Submit { fact } => {
-            let id = candidate_fact::insert(&conn, &fact)
-                .with_context(|| format!("insert candidate fact: {}", fact.candidate_id))?;
+            let id = graph.with_side_tables_conn(|conn| {
+                magellan::graph::source_inventory::ensure_schema(conn)
+                    .context("ensure source inventory schema")?;
+                candidate_fact::ensure_schema(conn).context("ensure candidate fact schema")?;
+                candidate_fact::insert(conn, &fact)
+                    .with_context(|| format!("insert candidate fact: {}", fact.candidate_id))
+            })?;
 
             match output_format {
                 OutputFormat::Json | OutputFormat::Pretty => {
@@ -49,38 +48,44 @@ pub fn run_candidate_fact(
         }
 
         CandidateFactAction::Validate { candidate_id } => {
-            let fact = candidate_fact::find_by_id(&conn, &candidate_id)
-                .with_context(|| format!("find candidate: {}", candidate_id))?
-                .ok_or_else(|| anyhow::anyhow!("Candidate fact not found: {}", candidate_id))?;
+            let (result, new_status) = graph.with_side_tables_conn(|conn| {
+                magellan::graph::source_inventory::ensure_schema(conn)
+                    .context("ensure source inventory schema")?;
+                candidate_fact::ensure_schema(conn).context("ensure candidate fact schema")?;
 
-            let result = candidate_fact::validate_ontology(&fact);
+                let fact = candidate_fact::find_by_id(conn, &candidate_id)
+                    .with_context(|| format!("find candidate: {}", candidate_id))?
+                    .ok_or_else(|| anyhow::anyhow!("Candidate fact not found: {}", candidate_id))?;
 
-            // Update status based on validation result
-            let new_status = if result.accepted {
-                CandidateStatus::Accepted
-            } else {
-                CandidateStatus::Rejected
-            };
-            let reason = if result.accepted {
-                None
-            } else {
-                Some(
-                    result
-                        .errors
-                        .iter()
-                        .map(|e| e.to_string())
-                        .collect::<Vec<_>>()
-                        .join("; "),
+                let result = candidate_fact::validate_ontology(&fact);
+                let new_status = if result.accepted {
+                    CandidateStatus::Accepted
+                } else {
+                    CandidateStatus::Rejected
+                };
+                let reason = if result.accepted {
+                    None
+                } else {
+                    Some(
+                        result
+                            .errors
+                            .iter()
+                            .map(|e| e.to_string())
+                            .collect::<Vec<_>>()
+                            .join("; "),
+                    )
+                };
+
+                candidate_fact::update_status(
+                    conn,
+                    &candidate_id,
+                    new_status.clone(),
+                    reason.as_deref(),
                 )
-            };
+                .with_context(|| format!("update status for: {}", candidate_id))?;
 
-            candidate_fact::update_status(
-                &conn,
-                &candidate_id,
-                new_status.clone(),
-                reason.as_deref(),
-            )
-            .with_context(|| format!("update status for: {}", candidate_id))?;
+                Ok((result, new_status))
+            })?;
 
             match output_format {
                 OutputFormat::Json | OutputFormat::Pretty => {
@@ -114,8 +119,12 @@ pub fn run_candidate_fact(
         }
 
         CandidateFactAction::List { status, limit } => {
-            let facts = candidate_fact::list_by_status(&conn, status, limit)
-                .context("list candidate facts")?;
+            let facts = graph.with_side_tables_conn(|conn| {
+                magellan::graph::source_inventory::ensure_schema(conn)
+                    .context("ensure source inventory schema")?;
+                candidate_fact::ensure_schema(conn).context("ensure candidate fact schema")?;
+                candidate_fact::list_by_status(conn, status, limit).context("list candidate facts")
+            })?;
 
             match output_format {
                 OutputFormat::Json | OutputFormat::Pretty => {
@@ -152,7 +161,12 @@ pub fn run_candidate_fact(
         }
 
         CandidateFactAction::ReviewQueue { limit } => {
-            let queue = candidate_fact::review_queue(&conn, limit).context("get review queue")?;
+            let queue = graph.with_side_tables_conn(|conn| {
+                magellan::graph::source_inventory::ensure_schema(conn)
+                    .context("ensure source inventory schema")?;
+                candidate_fact::ensure_schema(conn).context("ensure candidate fact schema")?;
+                candidate_fact::review_queue(conn, limit).context("get review queue")
+            })?;
 
             match output_format {
                 OutputFormat::Json | OutputFormat::Pretty => {

@@ -120,33 +120,31 @@ pub fn run_status(db_path: PathBuf, output_format: OutputFormat, all: bool) -> R
     graph
         .telemetry()
         .record_phase_start(tracker.exec_id(), "query_coverage")?;
-    let (coverage_blocks, coverage_edges, coverage_meta) = match rusqlite::Connection::open(
-        &db_path,
-    ) {
-        Ok(conn) => {
-            let blocks = query_coverage_count(&conn, "cfg_block_coverage");
-            let edges = query_coverage_count(&conn, "cfg_edge_coverage");
+    let (coverage_blocks, coverage_edges, coverage_meta) =
+        match graph.with_side_tables_conn(|conn| {
+            let blocks = query_coverage_count(conn, "cfg_block_coverage");
+            let edges = query_coverage_count(conn, "cfg_edge_coverage");
             let meta = conn
-                    .query_row(
-                        "SELECT source_kind, source_revision, ingested_at FROM cfg_coverage_meta LIMIT 1",
-                        [],
-                        |row| {
-                            Ok((
-                                row.get::<_, String>(0)?,
-                                row.get::<_, Option<String>>(1)?.unwrap_or_default(),
-                                row.get::<_, i64>(2)?,
-                            ))
-                        },
-                    )
-                    .ok();
-            drop(conn);
-            (blocks, edges, meta)
-        }
-        Err(e) => {
-            eprintln!("Warning: could not query coverage data: {}", e);
-            (0, 0, None)
-        }
-    };
+            .query_row(
+                "SELECT source_kind, source_revision, ingested_at FROM cfg_coverage_meta LIMIT 1",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                        row.get::<_, i64>(2)?,
+                    ))
+                },
+            )
+            .ok();
+            Ok((blocks, edges, meta))
+        }) {
+            Ok(values) => values,
+            Err(e) => {
+                eprintln!("Warning: could not query coverage data: {}", e);
+                (0, 0, None)
+            }
+        };
     graph
         .telemetry()
         .record_phase_end(tracker.exec_id(), "query_coverage")?;

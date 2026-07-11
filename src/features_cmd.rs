@@ -5,7 +5,7 @@
 
 use anyhow::{Context, Result};
 use magellan::output::{generate_execution_id, output_json, JsonResponse};
-use magellan::OutputFormat;
+use magellan::{CodeGraph, OutputFormat};
 use std::collections::HashSet;
 use std::path::PathBuf;
 
@@ -15,17 +15,16 @@ use std::path::PathBuf;
 /// * `db_path` — Path to the magellan database
 /// * `output_format` — Human or JSON output
 pub fn run_features(db_path: PathBuf, output_format: OutputFormat) -> Result<()> {
-    let conn =
-        rusqlite::Connection::open(&db_path).context("Failed to open database connection")?;
-
-    // Query project name and metadata in a single row
-    let (project_name, project_metadata_json): (Option<String>, Option<String>) = conn
-        .query_row(
-            "SELECT project_name, project_metadata FROM magellan_meta WHERE id = 1",
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .context("Failed to query magellan_meta table")?;
+    let graph = CodeGraph::open(&db_path)?;
+    let (project_name, project_metadata_json): (Option<String>, Option<String>) = graph
+        .with_side_tables_conn(|conn| {
+            conn.query_row(
+                "SELECT project_name, project_metadata FROM magellan_meta WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .context("Failed to query magellan_meta table")
+        })?;
 
     // Extract feature names from metadata JSON
     let features: Vec<String> = if let Some(json) = project_metadata_json {

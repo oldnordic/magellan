@@ -4,7 +4,7 @@
 
 use anyhow::{Context, Result};
 use magellan::output::{output_json, JsonResponse};
-use magellan::OutputFormat;
+use magellan::{CodeGraph, OutputFormat};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -27,17 +27,16 @@ pub fn run_project_metadata(
         anyhow::bail!("Database not found: {}", db_path.display());
     }
 
-    let conn =
-        rusqlite::Connection::open(&db_path).context("Failed to open database connection")?;
-
-    // Query project name and metadata
-    let (project_name, project_metadata_json): (Option<String>, Option<String>) = conn
-        .query_row(
-            "SELECT project_name, project_metadata FROM magellan_meta WHERE id = 1",
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .context("Failed to query magellan_meta table")?;
+    let graph = CodeGraph::open(&db_path)?;
+    let (project_name, project_metadata_json): (Option<String>, Option<String>) = graph
+        .with_side_tables_conn(|conn| {
+            conn.query_row(
+                "SELECT project_name, project_metadata FROM magellan_meta WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .context("Failed to query magellan_meta table")
+        })?;
 
     let parsed_metadata: Option<CargoManifestMetadata> = project_metadata_json
         .as_deref()
