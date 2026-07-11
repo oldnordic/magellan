@@ -305,45 +305,6 @@ impl MagellanBackend {
             ),
         }
     }
-
-    /// Find dead code from entry points
-    pub fn dead_code_from_entries(&self, _entry_ids: &[u64]) -> Vec<u64> {
-        Vec::new()
-    }
-
-    /// Get strongly connected components
-    pub fn get_sccs(&self) -> SccResult {
-        SccResult {
-            sccs: Vec::new(),
-            scc_count: 0,
-        }
-    }
-
-    /// Condense graph to DAG
-    pub fn condense_graph(&self) -> CondensationDag {
-        CondensationDag {
-            dag: Vec::new(),
-            node_count: 0,
-        }
-    }
-
-    /// Enumerate execution paths
-    pub fn enumerate_paths(&self, _entry_id: u64, _max_depth: usize) -> PathEnumerationResult {
-        PathEnumerationResult {
-            paths: Vec::new(),
-            path_count: 0,
-        }
-    }
-
-    /// Reverse reachable from a node
-    pub fn reverse_reachable_from(&self, _id: u64) -> Vec<u64> {
-        Vec::new()
-    }
-
-    /// Forward reachable from a node
-    pub fn reachable_from(&self, _id: u64) -> Vec<u64> {
-        Vec::new()
-    }
 }
 
 /// Database statistics
@@ -353,27 +314,6 @@ pub struct BackendStats {
     pub symbol_count: usize,
     pub file_count: usize,
     pub cfg_block_count: usize,
-}
-
-/// SCC result
-#[derive(Debug)]
-pub struct SccResult {
-    pub sccs: Vec<Vec<u64>>,
-    pub scc_count: usize,
-}
-
-/// Condensation DAG
-#[derive(Debug)]
-pub struct CondensationDag {
-    pub dag: Vec<(u64, u64)>,
-    pub node_count: usize,
-}
-
-/// Path enumeration result
-#[derive(Debug)]
-pub struct PathEnumerationResult {
-    pub paths: Vec<Vec<u64>>,
-    pub path_count: usize,
 }
 
 #[cfg(test)]

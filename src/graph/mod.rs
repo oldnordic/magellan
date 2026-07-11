@@ -68,7 +68,6 @@ pub mod schema;
 pub mod scorer;
 pub mod search;
 pub mod side_tables;
-mod symbol_index;
 mod symbol_lookup;
 pub(crate) mod symbols;
 pub mod telemetry;

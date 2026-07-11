@@ -151,13 +151,6 @@ impl<K: Hash + Eq + Clone, V> LruCache<K, V> {
 /// Caches FileNode lookups by file path to avoid repeated database queries.
 pub type FileNodeCache = LruCache<String, crate::graph::schema::FileNode>;
 
-/// Specialized cache for symbol vectors
-///
-/// Caches symbol vectors by file path for faster symbol lookups.
-/// Currently unused internally but provided for API completeness and future use.
-#[expect(dead_code)] // Future use: symbol vector caching
-pub type SymbolCache = LruCache<String, Vec<crate::ingest::SymbolFact>>;
-
 /// Thread-safe LRU cache wrapper for concurrent access from `&self` methods.
 ///
 /// Wraps `LruCache` in `parking_lot::Mutex` so that navigator queries

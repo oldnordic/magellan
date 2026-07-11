@@ -29,8 +29,6 @@ pub struct EmbeddingRecord {
     pub project: String,
     pub symbol: String,
     pub file: String,
-    #[allow(dead_code, reason = "Phase 2: structural embeddings WIP")]
-    pub hash: String,
     pub vec: Vec<u8>, // packed little-endian f32 bytes
 }
 
@@ -38,10 +36,6 @@ pub struct EmbeddingRecord {
 #[derive(Debug, Clone)]
 pub struct CrossRefRecord {
     pub project_a: String,
-    #[allow(dead_code, reason = "Phase 2: structural embeddings WIP")]
-    pub symbol_a: String,
-    #[allow(dead_code, reason = "Phase 2: structural embeddings WIP")]
-    pub file_a: String,
     pub project_b: String,
     pub symbol_b: String,
     pub file_b: String,
@@ -84,8 +78,6 @@ const META_DB_NAME: &str = "meta.db";
 /// Daemon-level meta-index of all registered projects.
 pub struct MetaDb {
     conn: Connection,
-    #[allow(dead_code, reason = "Phase 7: field reserved for future diagnostics")]
-    path: PathBuf,
 }
 
 /// Project health snapshot from meta.db.
@@ -114,7 +106,7 @@ impl MetaDb {
             .with_context(|| format!("Failed to create {}", dir.display()))?;
         let conn = Connection::open(&path)
             .with_context(|| format!("Failed to open meta.db at {}", path.display()))?;
-        let mut db = Self { conn, path };
+        let mut db = Self { conn };
         db.ensure_schema()?;
         Ok(db)
     }
@@ -128,7 +120,7 @@ impl MetaDb {
         }
         let conn = Connection::open(&path)
             .with_context(|| format!("Failed to open meta.db at {}", path.display()))?;
-        let mut db = Self { conn, path };
+        let mut db = Self { conn };
         db.ensure_schema()?;
         Ok(db)
     }
@@ -238,34 +230,12 @@ impl MetaDb {
         Ok(())
     }
 
-    /// Remove a project entry.
-    #[allow(dead_code, reason = "Phase 7: used in tests")]
-    pub fn remove_project(&mut self, name: &str) -> Result<()> {
-        self.conn
-            .execute(
-                "DELETE FROM project_registry WHERE name = ?1",
-                params![name],
-            )
-            .with_context(|| format!("Failed to remove project '{}' from meta.db", name))?;
-        Ok(())
-    }
-
     /// Update last_reindexed to now.
     pub fn update_last_reindexed(&mut self, name: &str) -> Result<()> {
         let now = now_secs();
         self.conn.execute(
             "UPDATE project_registry SET last_reindexed = ?1 WHERE name = ?2",
             params![now, name],
-        )?;
-        Ok(())
-    }
-
-    /// Update file and symbol counts for a project.
-    #[allow(dead_code, reason = "Phase 7: used in tests")]
-    pub fn update_counts(&mut self, name: &str, file_count: i64, symbol_count: i64) -> Result<()> {
-        self.conn.execute(
-            "UPDATE project_registry SET file_count = ?1, symbol_count = ?2 WHERE name = ?3",
-            params![file_count, symbol_count, name],
         )?;
         Ok(())
     }
@@ -343,15 +313,14 @@ impl MetaDb {
     /// List all concept embeddings. `vec` is raw bytes (packed f32 LE).
     pub fn list_embeddings(&self) -> Result<Vec<EmbeddingRecord>> {
         let mut stmt = self.conn.prepare(
-            "SELECT project, symbol, file, hash, vec FROM concept_embeddings ORDER BY project, symbol",
+            "SELECT project, symbol, file, vec FROM concept_embeddings ORDER BY project, symbol",
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(EmbeddingRecord {
                 project: row.get(0)?,
                 symbol: row.get(1)?,
                 file: row.get(2)?,
-                hash: row.get(3)?,
-                vec: row.get(4)?,
+                vec: row.get(3)?,
             })
         })?;
         let mut records = Vec::new();
@@ -395,7 +364,7 @@ impl MetaDb {
         symbol: &str,
     ) -> Result<Vec<CrossRefRecord>> {
         let mut stmt = self.conn.prepare(
-            "SELECT project_a, symbol_a, file_a, project_b, symbol_b, file_b, similarity_score
+            "SELECT project_a, project_b, symbol_b, file_b, similarity_score
              FROM pattern_cross_refs
              WHERE project_a = ?1 AND symbol_a = ?2
              ORDER BY similarity_score DESC",
@@ -403,12 +372,10 @@ impl MetaDb {
         let rows = stmt.query_map(params![project, symbol], |row| {
             Ok(CrossRefRecord {
                 project_a: row.get(0)?,
-                symbol_a: row.get(1)?,
-                file_a: row.get(2)?,
-                project_b: row.get(3)?,
-                symbol_b: row.get(4)?,
-                file_b: row.get(5)?,
-                similarity_score: row.get(6)?,
+                project_b: row.get(1)?,
+                symbol_b: row.get(2)?,
+                file_b: row.get(3)?,
+                similarity_score: row.get(4)?,
             })
         })?;
         let mut records = Vec::new();
@@ -493,6 +460,26 @@ impl MetaDb {
         }
         Ok(events)
     }
+
+    #[cfg(test)]
+    fn remove_project(&mut self, name: &str) -> Result<()> {
+        self.conn
+            .execute(
+                "DELETE FROM project_registry WHERE name = ?1",
+                params![name],
+            )
+            .with_context(|| format!("Failed to remove project '{}' from meta.db", name))?;
+        Ok(())
+    }
+
+    #[cfg(test)]
+    fn update_counts(&mut self, name: &str, file_count: i64, symbol_count: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE project_registry SET file_count = ?1, symbol_count = ?2 WHERE name = ?3",
+            params![file_count, symbol_count, name],
+        )?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -548,7 +535,7 @@ mod tests {
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].project, "proj_a");
         assert_eq!(rows[0].symbol, "greet");
-        assert_eq!(rows[0].hash, "aabbcc");
+        assert_eq!(rows[0].file, "src/lib.rs");
         assert_eq!(rows[0].vec.len(), 3 * 4, "3 f32s × 4 bytes");
     }
 
@@ -565,7 +552,10 @@ mod tests {
 
         let rows = db.list_embeddings().unwrap();
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].hash, "hash2", "second upsert should overwrite hash");
+        assert_eq!(rows[0].project, "p");
+        assert_eq!(rows[0].symbol, "sym");
+        assert_eq!(rows[0].file, "f.rs");
+        assert_eq!(rows[0].vec.len(), 2 * 4, "2 f32s × 4 bytes");
     }
 
     // ── pattern_cross_refs ──

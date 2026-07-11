@@ -284,11 +284,8 @@ pub fn run_chunks(
 
     // For now, we need to use SQLite directly for filtering
 
-    let chunks = {
-        // SQLite-only path
-        use rusqlite::Connection;
-        let conn = Connection::open(&db_path)?;
-
+    let graph = CodeGraph::open(&db_path)?;
+    let chunks = graph.with_side_tables_conn(|conn| {
         let mut query = String::from(
             "SELECT id, file_path, byte_start, byte_end, content, content_hash,
                  symbol_name, symbol_kind, created_at
@@ -333,8 +330,8 @@ pub fn run_chunks(
         })?;
 
         let chunks: Result<Vec<CodeChunk>, _> = chunk_iter.collect();
-        chunks?
-    };
+        Ok(chunks?)
+    })?;
 
     if chunks.is_empty() {
         eprintln!("No code chunks found in database");
@@ -487,10 +484,8 @@ pub fn run_chunk_by_symbol(
     // Global symbol search uses SQLite directly because the graph backend's
     // chunk lookup API requires a file_path filter.
 
-    let chunks = {
-        use rusqlite::Connection;
-        let conn = Connection::open(&db_path)?;
-
+    let graph = CodeGraph::open(&db_path)?;
+    let chunks = graph.with_side_tables_conn(|conn| {
         let mut query = String::from(
             "SELECT id, file_path, byte_start, byte_end, content, content_hash, \
              symbol_name, symbol_kind, created_at \
@@ -509,7 +504,6 @@ pub fn run_chunk_by_symbol(
 
         let mut stmt = conn.prepare(&query)?;
 
-        // Build params as references for rusqlite
         let params_ref: Vec<&dyn rusqlite::ToSql> =
             params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
 
@@ -528,8 +522,8 @@ pub fn run_chunk_by_symbol(
         })?;
 
         let chunks: Result<Vec<CodeChunk>, _> = chunk_iter.collect();
-        chunks?
-    };
+        Ok(chunks?)
+    })?;
 
     if chunks.is_empty() {
         eprintln!("No code chunks found for symbol '{}'", symbol_name);

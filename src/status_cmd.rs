@@ -63,21 +63,6 @@ impl ExecutionTracker {
         )
     }
 
-    /// Set execution outcome to error with message
-    #[expect(dead_code)]
-    pub fn set_error(&mut self, msg: String) {
-        self.outcome = "error".to_string();
-        self.error_message = Some(msg);
-    }
-
-    /// Set indexing counts for execution tracking
-    #[expect(dead_code)]
-    pub fn set_counts(&mut self, files: usize, symbols: usize, references: usize) {
-        self.files_indexed = files;
-        self.symbols_indexed = symbols;
-        self.references_indexed = references;
-    }
-
     pub fn exec_id(&self) -> &str {
         &self.exec_id
     }

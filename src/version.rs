@@ -35,14 +35,6 @@ fn compiled_backends() -> String {
     backends.join(",")
 }
 
-/// Get the package version (e.g., "2.2.0")
-///
-/// Public API for programmatic version access - may be used by external tools.
-#[expect(dead_code)]
-pub fn package_version() -> &'static str {
-    env!("CARGO_PKG_VERSION")
-}
-
 /// Get the build commit SHA
 ///
 /// Returns "unknown" if not built with commit info
