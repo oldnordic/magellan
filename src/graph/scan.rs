@@ -397,9 +397,9 @@ mod tests {
         // Create some test files
         let code_rs = temp_dir.path().join("code.rs");
         let data_db = temp_dir.path().join("data.db");
-        let journal = temp_dir.path().join("test.db-journal");
+        let journal = temp_dir.path().join("fixture.db-journal");
 
-        std::fs::write(&code_rs, b"fn test() {}").unwrap();
+        std::fs::write(&code_rs, b"fn scan_only_me() {}").unwrap();
         std::fs::write(&data_db, b"database data").unwrap();
         std::fs::write(&journal, b"journal data").unwrap();
 
@@ -410,9 +410,10 @@ mod tests {
 
         assert_eq!(result.indexed, 1, "Should only scan 1 .rs file");
 
-        // Verify the code file was indexed
-        let symbols = graph.symbols_in_file(code_rs.to_str().unwrap()).unwrap();
+        // Verify the code symbol was indexed while database files were skipped.
+        let symbols = graph.search_symbols_by_name("scan_only_me").unwrap();
         assert_eq!(symbols.len(), 1);
+        assert_eq!(symbols[0].file_path, code_rs.to_string_lossy());
 
         // Verify diagnostics for skipped files
         assert!(result.diagnostics.len() >= 2);

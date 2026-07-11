@@ -79,6 +79,85 @@ mod pragma_tests {
     use tempfile::TempDir;
 
     #[test]
+    fn test_in_memory_open_initializes_graph_meta() {
+        use sqlitegraph::NodeSpec;
+
+        let graph = crate::CodeGraph::open(":memory:").unwrap();
+        let backend = graph.__backend_for_benchmarks();
+
+        let node_id = backend
+            .insert_node(NodeSpec {
+                kind: "Symbol".to_string(),
+                name: "memory_symbol".to_string(),
+                file_path: Some("/memory/test.rs".to_string()),
+                data: serde_json::json!({"kind": "Function"}),
+            })
+            .expect("in-memory graph should support basic node insertion");
+
+        assert!(node_id > 0, "inserted node should have a positive id");
+    }
+
+    #[test]
+    fn test_file_backed_open_supports_indexing_after_pool_configuration() {
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("pooled-test.db");
+
+        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
+        graph.index_file("src/lib.rs", b"fn pooled() {}").unwrap();
+
+        let symbols = graph.search_symbols_by_name("pooled").unwrap();
+        assert_eq!(
+            symbols.len(),
+            1,
+            "pooled file-backed open should index symbols"
+        );
+    }
+
+    #[test]
+    fn test_file_backed_search_after_delete_and_reference_indexing() {
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("sequence-test.db");
+
+        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
+        let source = b"fn sequence_target() { sequence_target(); }";
+
+        let _ = graph.delete_file("src/lib.rs").unwrap();
+        graph.index_file("src/lib.rs", source).unwrap();
+        graph.index_references("src/lib.rs", source).unwrap();
+
+        let symbols = graph.search_symbols_by_name("sequence_target").unwrap();
+        assert_eq!(
+            symbols.len(),
+            1,
+            "search should work after delete + index_file + index_references"
+        );
+    }
+
+    #[test]
+    fn test_file_backed_search_after_manual_scan_like_sequence() {
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("manual-scan-test.db");
+        let code_path = temp_dir.path().join("code.rs");
+
+        std::fs::write(&code_path, b"fn manual_scan_target() {}").unwrap();
+
+        let mut graph = crate::CodeGraph::open(&db_path).unwrap();
+        let path_str = crate::validation::normalize_path(&code_path).unwrap();
+        let source = std::fs::read(&code_path).unwrap();
+
+        let _ = graph.delete_file(&path_str).unwrap();
+        graph.index_file(&path_str, &source).unwrap();
+        graph.index_references(&path_str, &source).unwrap();
+
+        let symbols = graph.search_symbols_by_name("manual_scan_target").unwrap();
+        assert_eq!(
+            symbols.len(),
+            1,
+            "search should work after manual scan-like sequence"
+        );
+    }
+
+    #[test]
     fn test_pragma_journal_mode_wal() {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");

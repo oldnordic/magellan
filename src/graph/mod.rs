@@ -493,8 +493,12 @@ impl CodeGraph {
             Option<Arc<sqlitegraph::SqliteGraphBackend>>,
         ) = {
             use sqlitegraph::{SqliteGraph, SqliteGraphBackend};
-            let cfg = sqlitegraph::SqliteConfig::new().with_pool_size(1);
-            let sqlite_graph = SqliteGraph::open_with_config(&db_path_buf, &cfg)?;
+            let cfg = sqlitegraph::SqliteConfig::new().with_pool_size(5);
+            let sqlite_graph = if is_memory_db(&db_path_buf) {
+                SqliteGraph::open_in_memory_with_config(&cfg)?
+            } else {
+                SqliteGraph::open_with_config(&db_path_buf, &cfg)?
+            };
             eprintln!("Using SQLite backend: {:?}", db_path_buf);
             let sqlite_backend = Arc::new(SqliteGraphBackend::from_graph(sqlite_graph));
             let backend: Arc<dyn GraphBackend> = { (sqlite_backend.clone()) as _ };

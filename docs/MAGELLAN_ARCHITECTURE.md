@@ -38,6 +38,17 @@ Magellan uses `sqlitegraph` for graph storage:
 - `graph_meta`: sqlitegraph schema metadata
 - `magellan_meta`: Magellan schema metadata
 
+Open-path contract:
+
+- File-backed databases use the normal SQLite `.db` path and are opened through
+  sqlitegraph's pooled file-backed backend.
+- In-memory databases use the SQLite special path `:memory:` and must be opened
+  through sqlitegraph's dedicated in-memory path, not through the pooled
+  file-backed path.
+- This distinction matters because `:memory:` databases are per-connection in
+  SQLite; treating them like file-backed pooled databases leads to isolated
+  state and connection timeouts.
+
 ### Magellan Side Tables
 
 Magellan also maintains side tables for data that is easier to query directly:
