@@ -2,6 +2,7 @@
 //!
 //! Exports graph data to JSON/JSONL/CSV/DOT/SCIP formats with stable IDs.
 
+use crate::status_cmd::ExecutionTracker;
 use anyhow::Result;
 use magellan::common::{find_repo_root, magellan_dir};
 use magellan::graph::export::{
@@ -9,7 +10,6 @@ use magellan::graph::export::{
     ExportFilters, ExportFormat,
 };
 use magellan::graph::query::CollisionField;
-use magellan::output::generate_execution_id;
 use magellan::CodeGraph;
 use std::fs::{self, File};
 use std::io::{self, Write};
@@ -156,7 +156,6 @@ pub fn run_export(
     impact_depth: usize,
 ) -> Result<()> {
     let mut graph = CodeGraph::open(&db_path)?;
-    let exec_id = generate_execution_id();
 
     // Build command args for execution tracking
     let mut args = vec!["export".to_string()];
@@ -205,184 +204,165 @@ pub fn run_export(
         args.push("--cluster".to_string());
     }
 
-    // Start execution tracking
-    graph.execution_log().start_execution(
-        &exec_id,
-        env!("CARGO_PKG_VERSION"),
-        &args,
-        None,
-        &db_path.to_string_lossy(),
-    )?;
+    let mut tracker = ExecutionTracker::new(args, None, db_path.to_string_lossy().to_string());
+    tracker.start(&graph)?;
+    let exec_id = tracker.exec_id().to_string();
 
-    // Phase: export
-    graph.telemetry().record_phase_start(&exec_id, "export")?;
+    let result = (|| -> Result<()> {
+        graph.telemetry().record_phase_start(&exec_id, "export")?;
 
-    // Handle SCIP format specially (binary output)
-    if format == ExportFormat::Scip {
-        let scip_config = scip::ScipExportConfig {
-            project_root: ".".to_string(),
-            project_name: None,
-            version: None,
-        };
-        let scip_bytes = scip::export_scip(&graph, &scip_config)?;
+        if format == ExportFormat::Scip {
+            let scip_config = scip::ScipExportConfig {
+                project_root: ".".to_string(),
+                project_name: None,
+                version: None,
+            };
+            let scip_bytes = scip::export_scip(&graph, &scip_config)?;
 
-        // Write output (SCIP requires file output)
-        match output {
-            Some(path) => {
-                let mut file = File::create(&path)?;
-                file.write_all(&scip_bytes)?;
-                print_export_summary(&path, format, &mut graph)?;
+            match output {
+                Some(path) => {
+                    let mut file = File::create(&path)?;
+                    file.write_all(&scip_bytes)?;
+                    print_export_summary(&path, format, &mut graph)?;
+                }
+                None => {
+                    eprintln!(
+                        "Warning: SCIP format is binary. Use --output file.scip for proper output."
+                    );
+                    io::stdout().write_all(&scip_bytes)?;
+                }
             }
-            None => {
-                // SCIP is binary, warn user but still write to stdout
-                eprintln!(
-                    "Warning: SCIP format is binary. Use --output file.scip for proper output."
-                );
-                io::stdout().write_all(&scip_bytes)?;
+        } else if format == ExportFormat::Lsif {
+            use magellan::lsif;
+
+            let (package_name, package_version) = detect_package_info(&db_path);
+
+            match output {
+                Some(path) => {
+                    let _count = lsif::export::export_lsif(
+                        &mut graph,
+                        &path,
+                        &package_name,
+                        &package_version,
+                    )?;
+                    print_export_summary(&path, format, &mut graph)?;
+                }
+                None => {
+                    eprintln!("Warning: LSIF format requires --output file.lsif");
+                    eprintln!(
+                        "Use: magellan export --db code.db --format lsif --output output.lsif"
+                    );
+                }
             }
-        }
-    // Handle LSIF format specially (JSONL output)
-    } else if format == ExportFormat::Lsif {
-        use magellan::lsif;
+        } else if format == ExportFormat::Impact {
+            use magellan::context::impact_analysis;
 
-        // Get package info from Cargo.toml if available
-        let (package_name, package_version) = detect_package_info(&db_path);
+            let symbol_name = impact_symbol
+                .ok_or_else(|| anyhow::anyhow!("Impact export requires --symbol parameter"))?;
 
-        // Export to LSIF
-        match output {
-            Some(path) => {
-                let _count =
-                    lsif::export::export_lsif(&mut graph, &path, &package_name, &package_version)?;
-                print_export_summary(&path, format, &mut graph)?;
-            }
-            None => {
-                eprintln!("Warning: LSIF format requires --output file.lsif");
-                eprintln!("Use: magellan export --db code.db --format lsif --output output.lsif");
-            }
-        }
-    // Handle Impact format specially (requires --symbol parameter)
-    } else if format == ExportFormat::Impact {
-        use magellan::context::impact_analysis;
+            let impacted = impact_analysis(
+                &mut graph,
+                &symbol_name,
+                impact_file.as_deref(),
+                impact_depth,
+            )?;
 
-        let symbol_name = impact_symbol
-            .ok_or_else(|| anyhow::anyhow!("Impact export requires --symbol parameter"))?;
+            let impact_export = serde_json::json!({
+                "symbol": symbol_name,
+                "file": impact_file,
+                "depth": impact_depth,
+                "total_impacted": impacted.len(),
+                "impacted_symbols": impacted
+            });
 
-        // Run impact analysis
-        let impacted = impact_analysis(
-            &mut graph,
-            &symbol_name,
-            impact_file.as_deref(),
-            impact_depth,
-        )?;
+            let json_str = if minify {
+                serde_json::to_string(&impact_export)?
+            } else {
+                serde_json::to_string_pretty(&impact_export)?
+            };
 
-        // Create export data structure
-        let impact_export = serde_json::json!({
-            "symbol": symbol_name,
-            "file": impact_file,
-            "depth": impact_depth,
-            "total_impacted": impacted.len(),
-            "impacted_symbols": impacted
-        });
-
-        // Write output
-        let json_str = if minify {
-            serde_json::to_string(&impact_export)?
-        } else {
-            serde_json::to_string_pretty(&impact_export)?
-        };
-
-        match output {
-            Some(path) => {
-                let mut file = File::create(&path)?;
-                file.write_all(json_str.as_bytes())?;
-                file.write_all(b"\n")?;
-                eprintln!("Export complete: {}", path.display());
-                eprintln!("  Format: impact");
-                eprintln!("  Symbol: {}", symbol_name);
-                eprintln!("  Total impacted: {}", impacted.len());
-            }
-            None => {
-                // Use repo-root convention if available, otherwise stdout
-                if let Some(default_path) = get_default_repo_root_output(&db_path, &format) {
-                    let mut file = File::create(&default_path)?;
+            match output {
+                Some(path) => {
+                    let mut file = File::create(&path)?;
                     file.write_all(json_str.as_bytes())?;
                     file.write_all(b"\n")?;
-                    eprintln!("Export complete: {}", default_path.display());
+                    eprintln!("Export complete: {}", path.display());
                     eprintln!("  Format: impact");
                     eprintln!("  Symbol: {}", symbol_name);
                     eprintln!("  Total impacted: {}", impacted.len());
-                } else {
-                    // Fall back to stdout
-                    io::stdout().write_all(json_str.as_bytes())?;
-                    io::stdout().write_all(b"\n")?;
+                }
+                None => {
+                    if let Some(default_path) = get_default_repo_root_output(&db_path, &format) {
+                        let mut file = File::create(&default_path)?;
+                        file.write_all(json_str.as_bytes())?;
+                        file.write_all(b"\n")?;
+                        eprintln!("Export complete: {}", default_path.display());
+                        eprintln!("  Format: impact");
+                        eprintln!("  Symbol: {}", symbol_name);
+                        eprintln!("  Total impacted: {}", impacted.len());
+                    } else {
+                        io::stdout().write_all(json_str.as_bytes())?;
+                        io::stdout().write_all(b"\n")?;
+                    }
                 }
             }
-        }
-    } else {
-        // Text-based formats
-        let config = ExportConfig {
-            format,
-            include_symbols,
-            include_references,
-            include_calls,
-            minify,
-            filters,
-            include_collisions,
-            collisions_field,
-        };
+        } else {
+            let config = ExportConfig {
+                format,
+                include_symbols,
+                include_references,
+                include_calls,
+                minify,
+                filters,
+                include_collisions,
+                collisions_field,
+            };
 
-        // Use streaming for JSON and JSONL formats to reduce memory for large graphs
-        match format {
-            ExportFormat::Json => {
-                // Stream JSON output to avoid loading entire graph into memory
-                // Use minified version if requested
-                if minify {
-                    match output {
-                        Some(ref path) => {
-                            let mut file = File::create(path)?;
-                            stream_json_minified(&mut graph, &config, &mut file)?;
-                            print_export_summary(path, format, &mut graph)?;
-                        }
-                        None => {
-                            let stdout = io::stdout();
-                            let mut handle = stdout.lock();
-                            stream_json_minified(&mut graph, &config, &mut handle)?;
-                        }
-                    }
-                } else {
-                    match output {
-                        Some(ref path) => {
-                            let mut file = File::create(path)?;
-                            stream_json(&mut graph, &config, &mut file)?;
-                            print_export_summary(path, format, &mut graph)?;
-                        }
-                        None => {
-                            // Use repo-root convention if available, otherwise stdout
-                            if let Some(default_path) =
-                                get_default_repo_root_output(&db_path, &format)
-                            {
-                                let mut file = File::create(&default_path)?;
-                                stream_json(&mut graph, &config, &mut file)?;
-                                print_export_summary(&default_path, format, &mut graph)?;
-                            } else {
+            match format {
+                ExportFormat::Json => {
+                    if minify {
+                        match output {
+                            Some(ref path) => {
+                                let mut file = File::create(path)?;
+                                stream_json_minified(&mut graph, &config, &mut file)?;
+                                print_export_summary(path, format, &mut graph)?;
+                            }
+                            None => {
                                 let stdout = io::stdout();
                                 let mut handle = stdout.lock();
-                                stream_json(&mut graph, &config, &mut handle)?;
+                                stream_json_minified(&mut graph, &config, &mut handle)?;
+                            }
+                        }
+                    } else {
+                        match output {
+                            Some(ref path) => {
+                                let mut file = File::create(path)?;
+                                stream_json(&mut graph, &config, &mut file)?;
+                                print_export_summary(path, format, &mut graph)?;
+                            }
+                            None => {
+                                if let Some(default_path) =
+                                    get_default_repo_root_output(&db_path, &format)
+                                {
+                                    let mut file = File::create(&default_path)?;
+                                    stream_json(&mut graph, &config, &mut file)?;
+                                    print_export_summary(&default_path, format, &mut graph)?;
+                                } else {
+                                    let stdout = io::stdout();
+                                    let mut handle = stdout.lock();
+                                    stream_json(&mut graph, &config, &mut handle)?;
+                                }
                             }
                         }
                     }
                 }
-            }
-            ExportFormat::JsonL => {
-                // Stream JSONL output (naturally streaming-friendly)
-                match output {
+                ExportFormat::JsonL => match output {
                     Some(ref path) => {
                         let mut file = File::create(path)?;
                         stream_ndjson(&mut graph, &config, &mut file)?;
                         print_export_summary(path, format, &mut graph)?;
                     }
                     None => {
-                        // Use repo-root convention if available, otherwise stdout
                         if let Some(default_path) = get_default_repo_root_output(&db_path, &format)
                         {
                             let mut file = File::create(&default_path)?;
@@ -394,37 +374,34 @@ pub fn run_export(
                             stream_ndjson(&mut graph, &config, &mut handle)?;
                         }
                     }
-                }
-            }
-            _ => {
-                // Other formats (DOT, CSV) use the existing in-memory export
-                let exported_data = export_graph(&mut graph, &config)?;
+                },
+                _ => {
+                    let exported_data = export_graph(&mut graph, &config)?;
 
-                // Write output
-                match output {
-                    Some(ref path) => {
-                        let mut file = File::create(path)?;
-                        file.write_all(exported_data.as_bytes())?;
-                        file.write_all(b"\n")?;
-                        print_export_summary(path, format, &mut graph)?;
-                    }
-                    None => {
-                        println!("{}", exported_data);
+                    match output {
+                        Some(ref path) => {
+                            let mut file = File::create(path)?;
+                            file.write_all(exported_data.as_bytes())?;
+                            file.write_all(b"\n")?;
+                            print_export_summary(path, format, &mut graph)?;
+                        }
+                        None => {
+                            println!("{}", exported_data);
+                        }
                     }
                 }
             }
         }
+
+        graph.telemetry().record_phase_end(&exec_id, "export")?;
+        Ok(())
+    })();
+
+    if let Err(err) = &result {
+        tracker.set_error(format!("{err:#}"));
     }
-
-    // Finish execution tracking
-    graph.telemetry().record_phase_end(&exec_id, "export")?;
-    graph.execution_log().finish_execution(
-        &exec_id, "success", None, 0, // files_indexed
-        0, // symbols_indexed
-        0, // references_indexed
-    )?;
-
-    Ok(())
+    tracker.finish(&graph)?;
+    result
 }
 
 /// Get format name for display/logging
