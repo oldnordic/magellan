@@ -324,30 +324,16 @@ pub fn parse_cypher_args(args: &[String]) -> Result<Command> {
     while i < args.len() {
         match args[i].as_str() {
             "--db" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--db requires an argument"));
-                }
-                db_path = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--db")?;
+                db_path = Some(PathBuf::from(value));
             }
             "--query" | "-q" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--query requires an argument"));
-                }
-                query = Some(args[i + 1].clone());
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--query")?;
+                query = Some(value);
             }
             "--output" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--output requires an argument"));
-                }
-                output_format = match args[i + 1].as_str() {
-                    "human" => OutputFormat::Human,
-                    "json" => OutputFormat::Json,
-                    "pretty" => OutputFormat::Pretty,
-                    _ => return Err(anyhow::anyhow!("Invalid output format: {}", args[i + 1])),
-                };
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output_format = parse_output_format(&value)?;
             }
             _ => {
                 // Positional: first unknown is the query string
@@ -602,66 +588,40 @@ pub fn parse_hnsw_create_args(args: &[String]) -> Result<Command> {
     while i < args.len() {
         match args[i].as_str() {
             "--db" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--db requires an argument"));
-                }
-                db_path = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--db")?;
+                db_path = Some(PathBuf::from(value));
             }
             "--name" | "-n" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--name requires an argument"));
-                }
-                name = Some(args[i + 1].clone());
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--name")?;
+                name = Some(value);
             }
             "--dim" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--dim requires an argument"));
-                }
-                dim = args[i + 1]
+                let value = parse_required_arg(args, &mut i, "--dim")?;
+                dim = value
                     .parse()
                     .map_err(|_| anyhow::anyhow!("--dim must be a number"))?;
-                i += 2;
             }
             "--m" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--m requires an argument"));
-                }
-                m = args[i + 1]
+                let value = parse_required_arg(args, &mut i, "--m")?;
+                m = value
                     .parse()
                     .map_err(|_| anyhow::anyhow!("--m must be a number"))?;
-                i += 2;
             }
             "--ef-construction" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--ef-construction requires an argument"));
-                }
-                ef_construction = args[i + 1]
+                let value = parse_required_arg(args, &mut i, "--ef-construction")?;
+                ef_construction = value
                     .parse()
                     .map_err(|_| anyhow::anyhow!("--ef-construction must be a number"))?;
-                i += 2;
             }
             "--ef-search" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--ef-search requires an argument"));
-                }
-                ef_search = args[i + 1]
+                let value = parse_required_arg(args, &mut i, "--ef-search")?;
+                ef_search = value
                     .parse()
                     .map_err(|_| anyhow::anyhow!("--ef-search must be a number"))?;
-                i += 2;
             }
             "--output" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--output requires an argument"));
-                }
-                output_format = match args[i + 1].as_str() {
-                    "human" => OutputFormat::Human,
-                    "json" => OutputFormat::Json,
-                    "pretty" => OutputFormat::Pretty,
-                    _ => return Err(anyhow::anyhow!("Invalid output format: {}", args[i + 1])),
-                };
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output_format = parse_output_format(&value)?;
             }
             _ => i += 1,
         }
@@ -693,46 +653,26 @@ pub fn parse_hnsw_query_args(args: &[String]) -> Result<Command> {
     while i < args.len() {
         match args[i].as_str() {
             "--db" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--db requires an argument"));
-                }
-                db_path = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--db")?;
+                db_path = Some(PathBuf::from(value));
             }
             "--name" | "-n" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--name requires an argument"));
-                }
-                name = Some(args[i + 1].clone());
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--name")?;
+                name = Some(value);
             }
             "--vector" | "-v" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--vector requires an argument"));
-                }
-                vector = Some(args[i + 1].clone());
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--vector")?;
+                vector = Some(value);
             }
             "--k" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--k requires an argument"));
-                }
-                k = args[i + 1]
+                let value = parse_required_arg(args, &mut i, "--k")?;
+                k = value
                     .parse()
                     .map_err(|_| anyhow::anyhow!("--k must be a number"))?;
-                i += 2;
             }
             "--output" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--output requires an argument"));
-                }
-                output_format = match args[i + 1].as_str() {
-                    "human" => OutputFormat::Human,
-                    "json" => OutputFormat::Json,
-                    "pretty" => OutputFormat::Pretty,
-                    _ => return Err(anyhow::anyhow!("Invalid output format: {}", args[i + 1])),
-                };
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output_format = parse_output_format(&value)?;
             }
             _ => i += 1,
         }
@@ -764,43 +704,26 @@ pub fn parse_telemetry_args(args: &[String]) -> Result<Command> {
     while i < args.len() {
         match args[i].as_str() {
             "--db" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--db requires an argument"));
-                }
-                db_path = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--db")?;
+                db_path = Some(PathBuf::from(value));
             }
             "--recent" => {
                 recent = true;
                 i += 1;
             }
             "--phases" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--phases requires an execution ID"));
-                }
-                phases = Some(args[i + 1].clone());
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--phases")?;
+                phases = Some(value);
             }
             "--limit" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--limit requires an argument"));
-                }
-                limit = args[i + 1]
+                let value = parse_required_arg(args, &mut i, "--limit")?;
+                limit = value
                     .parse()
                     .map_err(|_| anyhow::anyhow!("--limit must be a number"))?;
-                i += 2;
             }
             "--output" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--output requires an argument"));
-                }
-                output_format = match args[i + 1].as_str() {
-                    "human" => OutputFormat::Human,
-                    "json" => OutputFormat::Json,
-                    "pretty" => OutputFormat::Pretty,
-                    _ => return Err(anyhow::anyhow!("Invalid output format: {}", args[i + 1])),
-                };
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output_format = parse_output_format(&value)?;
             }
             _ => i += 1,
         }
@@ -828,37 +751,20 @@ pub fn parse_hopgraph_args(args: &[String]) -> Result<Command> {
     while i < args.len() {
         match args[i].as_str() {
             "--db" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--db requires an argument"));
-                }
-                db_path = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--db")?;
+                db_path = Some(PathBuf::from(value));
             }
             "--k" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--k requires a number"));
-                }
-                k = args[i + 1].parse().unwrap_or(10);
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--k")?;
+                k = value.parse().unwrap_or(10);
             }
             "--hops" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--hops requires a number"));
-                }
-                hops = args[i + 1].parse().unwrap_or(0);
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--hops")?;
+                hops = value.parse().unwrap_or(0);
             }
             "--output" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--output requires an argument"));
-                }
-                output_format = match args[i + 1].as_str() {
-                    "human" => OutputFormat::Human,
-                    "json" => OutputFormat::Json,
-                    "pretty" => OutputFormat::Pretty,
-                    _ => return Err(anyhow::anyhow!("Invalid output format: {}", args[i + 1])),
-                };
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output_format = parse_output_format(&value)?;
             }
             other => {
                 if !other.starts_with('-') && query.is_none() {
@@ -892,49 +798,32 @@ pub fn parse_embed_args(args: &[String]) -> Result<Command> {
     while i < args.len() {
         match args[i].as_str() {
             "--db" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--db requires an argument"));
-                }
-                db_path = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--db")?;
+                db_path = Some(PathBuf::from(value));
             }
             "--force" => {
                 force = true;
                 i += 1;
             }
             "--batch-size" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--batch-size requires a number"));
-                }
+                let value = parse_required_arg(args, &mut i, "--batch-size")?;
                 batch_size = Some(
-                    args[i + 1]
+                    value
                         .parse()
-                        .map_err(|_| anyhow::anyhow!("Invalid batch-size: {}", args[i + 1]))?,
+                        .map_err(|_| anyhow::anyhow!("Invalid batch-size: {}", value))?,
                 );
-                i += 2;
             }
             "--num-parallel" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--num-parallel requires a number"));
-                }
+                let value = parse_required_arg(args, &mut i, "--num-parallel")?;
                 num_parallel = Some(
-                    args[i + 1]
+                    value
                         .parse()
-                        .map_err(|_| anyhow::anyhow!("Invalid num-parallel: {}", args[i + 1]))?,
+                        .map_err(|_| anyhow::anyhow!("Invalid num-parallel: {}", value))?,
                 );
-                i += 2;
             }
             "--output" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--output requires an argument"));
-                }
-                output_format = match args[i + 1].as_str() {
-                    "human" => OutputFormat::Human,
-                    "json" => OutputFormat::Json,
-                    "pretty" => OutputFormat::Pretty,
-                    _ => return Err(anyhow::anyhow!("Invalid output format: {}", args[i + 1])),
-                };
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output_format = parse_output_format(&value)?;
             }
             other => {
                 return Err(anyhow::anyhow!(
