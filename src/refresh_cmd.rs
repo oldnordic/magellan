@@ -5,12 +5,14 @@
 
 use anyhow::{Context, Result};
 use git2::{Repository, StatusOptions};
-use magellan::output::{generate_execution_id, output_json, JsonResponse, OutputFormat};
+use magellan::output::{output_json, JsonResponse, OutputFormat};
 use magellan::{CodeGraph, ReconcileOutcome};
 use serde::Serialize;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
+
+use crate::status_cmd::ExecutionTracker;
 
 /// Arguments for the refresh command
 #[derive(Debug, Clone)]
@@ -135,7 +137,6 @@ pub use crate::db_resolver::resolve_db_path;
 /// Result containing the refresh report or an error
 pub fn run_refresh(args: &RefreshArgs) -> Result<RefreshReport> {
     let start_time = Instant::now();
-    let exec_id = generate_execution_id();
 
     // Open the git repository
     let repo = Repository::open(".")
@@ -146,87 +147,77 @@ pub fn run_refresh(args: &RefreshArgs) -> Result<RefreshReport> {
 
     // Open the graph database
     let mut graph = CodeGraph::open(&args.db_path)?;
+    let mut tracker = ExecutionTracker::new(
+        vec!["refresh".to_string()],
+        Some(".".to_string()),
+        args.db_path.to_string_lossy().to_string(),
+    );
+    tracker.start(&graph)?;
+    let exec_id = tracker.exec_id().to_string();
 
-    // Start execution tracking
-    graph.execution_log().start_execution(
-        &exec_id,
-        env!("CARGO_PKG_VERSION"),
-        &["refresh".to_string()],
-        Some("."),
-        &args.db_path.to_string_lossy(),
-    )?;
-
-    // Phase: get_git_status
-    graph
-        .telemetry()
-        .record_phase_start(&exec_id, "get_git_status")?;
-    let git_status = get_git_status(&repo, args)?;
-    graph
-        .telemetry()
-        .record_phase_end(&exec_id, "get_git_status")?;
-
-    // Phase: compute_delta
-    graph
-        .telemetry()
-        .record_phase_start(&exec_id, "compute_delta")?;
-    let db_files = graph.all_file_nodes()?;
-    let db_file_paths: HashSet<String> = db_files.keys().cloned().collect();
-    let delta = compute_delta(&git_status, &db_file_paths, args, repo_root)?;
-    graph
-        .telemetry()
-        .record_phase_end(&exec_id, "compute_delta")?;
-
-    // Phase: apply_changes
-    if !args.dry_run {
+    let result = (|| -> Result<RefreshReport> {
         graph
             .telemetry()
-            .record_phase_start(&exec_id, "apply_changes")?;
-        apply_changes(&mut graph, &delta)?;
+            .record_phase_start(&exec_id, "get_git_status")?;
+        let git_status = get_git_status(&repo, args)?;
         graph
             .telemetry()
-            .record_phase_end(&exec_id, "apply_changes")?;
+            .record_phase_end(&exec_id, "get_git_status")?;
 
-        // Rebuild FTS5 index so symbol search stays synchronized
-        if let Err(e) = CodeGraph::rebuild_fts5_index(&args.db_path) {
-            eprintln!("  Warning: FTS5 rebuild failed: {}", e);
+        graph
+            .telemetry()
+            .record_phase_start(&exec_id, "compute_delta")?;
+        let db_files = graph.all_file_nodes()?;
+        let db_file_paths: HashSet<String> = db_files.keys().cloned().collect();
+        let delta = compute_delta(&git_status, &db_file_paths, args, repo_root)?;
+        graph
+            .telemetry()
+            .record_phase_end(&exec_id, "compute_delta")?;
+
+        if !args.dry_run {
+            graph
+                .telemetry()
+                .record_phase_start(&exec_id, "apply_changes")?;
+            apply_changes(&mut graph, &delta)?;
+            graph
+                .telemetry()
+                .record_phase_end(&exec_id, "apply_changes")?;
+
+            if let Err(e) = CodeGraph::rebuild_fts5_index(&args.db_path) {
+                eprintln!("  Warning: FTS5 rebuild failed: {}", e);
+            }
         }
+
+        let mut report = RefreshReport::new();
+        report.updated = delta.to_update;
+        report.deleted = delta.to_delete;
+        report.added = delta.to_add;
+        report.unchanged = delta.unchanged;
+        report.dry_run = args.dry_run;
+        report.duration_ms = start_time.elapsed().as_millis() as u64;
+
+        match args.output_format {
+            OutputFormat::Json | OutputFormat::Pretty => {
+                let response = RefreshResponse::from_report(&report, args.dry_run);
+                let json_response = JsonResponse::new(response, &exec_id);
+                output_json(&json_response, args.output_format)?;
+            }
+            OutputFormat::Human => {
+                print_human_output(&report, args.dry_run);
+            }
+        }
+
+        let total_files = report.updated.len() + report.added.len();
+        tracker.set_counts(total_files, 0, 0);
+
+        Ok(report)
+    })();
+
+    if let Err(err) = &result {
+        tracker.set_error(format!("{err:#}"));
     }
-
-    // Build report (after apply_changes, moving fields from delta)
-    let mut report = RefreshReport::new();
-    report.updated = delta.to_update;
-    report.deleted = delta.to_delete;
-    report.added = delta.to_add;
-    report.unchanged = delta.unchanged;
-    report.dry_run = args.dry_run;
-
-    // Calculate duration
-    report.duration_ms = start_time.elapsed().as_millis() as u64;
-
-    // Output results
-    match args.output_format {
-        OutputFormat::Json | OutputFormat::Pretty => {
-            let response = RefreshResponse::from_report(&report, args.dry_run);
-            let json_response = JsonResponse::new(response, &exec_id);
-            output_json(&json_response, args.output_format)?;
-        }
-        OutputFormat::Human => {
-            print_human_output(&report, args.dry_run);
-        }
-    }
-
-    // Finish execution tracking
-    let total_files = report.updated.len() + report.added.len();
-    graph.execution_log().finish_execution(
-        &exec_id,
-        "success",
-        None,
-        total_files,
-        0, // Symbol count not tracked here
-        0, // Reference count not tracked here
-    )?;
-
-    Ok(report)
+    tracker.finish(&graph)?;
+    result
 }
 
 /// Git status information for refresh
