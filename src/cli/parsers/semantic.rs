@@ -26,30 +26,16 @@ pub fn parse_search_args(args: &[String]) -> Result<Command> {
     while i < args.len() {
         match args[i].as_str() {
             "--db" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--db requires an argument"));
-                }
-                db_path = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--db")?;
+                db_path = Some(PathBuf::from(value));
             }
             "--limit" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--limit requires an argument"));
-                }
-                limit = args[i + 1].parse().context("--limit must be a number")?;
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--limit")?;
+                limit = value.parse().context("--limit must be a number")?;
             }
             "--output" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--output requires an argument"));
-                }
-                output_format = match args[i + 1].as_str() {
-                    "human" => OutputFormat::Human,
-                    "json" => OutputFormat::Json,
-                    "pretty" => OutputFormat::Pretty,
-                    _ => return Err(anyhow::anyhow!("--output must be human, json, or pretty")),
-                };
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output_format = parse_output_format(&value)?;
             }
             s if s.starts_with("--") => {
                 return Err(anyhow::anyhow!("Unknown flag: {s}"));
@@ -99,43 +85,29 @@ pub fn parse_query_args(args: &[String]) -> Result<Command> {
     while i < args.len() {
         match args[i].as_str() {
             "--db" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--db requires an argument"));
-                }
-                db_path = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--db")?;
+                db_path = Some(PathBuf::from(value));
             }
             "--file" | "--path" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--file requires an argument"));
-                }
-                file_path = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                let flag = args[i].as_str();
+                let value = parse_required_arg(args, &mut i, flag)?;
+                file_path = Some(PathBuf::from(value));
             }
             "--root" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--root requires an argument"));
-                }
-                root = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--root")?;
+                root = Some(PathBuf::from(value));
             }
             "--kind" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--kind requires an argument"));
-                }
-                kind = Some(args[i + 1].clone());
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--kind")?;
+                kind = Some(value);
             }
             "--explain" => {
                 explain = true;
                 i += 1;
             }
             "--symbol" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--symbol requires an argument"));
-                }
-                symbol = Some(args[i + 1].clone());
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--symbol")?;
+                symbol = Some(value);
             }
             "--show-extent" => {
                 show_extent = true;
@@ -146,21 +118,8 @@ pub fn parse_query_args(args: &[String]) -> Result<Command> {
                 i += 1;
             }
             "--output" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--output requires an argument"));
-                }
-                output_format = match args[i + 1].as_str() {
-                    "human" => OutputFormat::Human,
-                    "json" => OutputFormat::Json,
-                    "pretty" => OutputFormat::Pretty,
-                    _ => {
-                        return Err(anyhow::anyhow!(
-                            "Invalid output format: {}. Must be human, json, or pretty",
-                            args[i + 1]
-                        ))
-                    }
-                };
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output_format = parse_output_format(&value)?;
             }
             "--with-context" => {
                 with_context = true;
@@ -183,17 +142,14 @@ pub fn parse_query_args(args: &[String]) -> Result<Command> {
                 i += 1;
             }
             "--context-lines" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--context-lines requires an argument"));
-                }
-                context_lines = args[i + 1].parse().map_err(|_| {
-                    anyhow::anyhow!("Invalid context lines: {}. Must be a number", args[i + 1])
+                let value = parse_required_arg(args, &mut i, "--context-lines")?;
+                context_lines = value.parse().map_err(|_| {
+                    anyhow::anyhow!("Invalid context lines: {}. Must be a number", value)
                 })?;
                 // Cap context lines at 100 maximum
                 if context_lines > 100 {
                     context_lines = 100;
                 }
-                i += 2;
             }
             _ => return Err(anyhow::anyhow!("Unknown argument: {}", args[i])),
         }
@@ -231,49 +187,25 @@ pub fn parse_chunks_args(args: &[String]) -> Result<Command> {
     while i < args.len() {
         match args[i].as_str() {
             "--db" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--db requires an argument"));
-                }
-                db_path = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--db")?;
+                db_path = Some(PathBuf::from(value));
             }
             "--output" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--output requires an argument"));
-                }
-                output_format = match args[i + 1].as_str() {
-                    "human" => OutputFormat::Human,
-                    "json" => OutputFormat::Json,
-                    "pretty" => OutputFormat::Pretty,
-                    _ => {
-                        return Err(anyhow::anyhow!(
-                            "Invalid output format: {}. Must be human, json, or pretty",
-                            args[i + 1]
-                        ))
-                    }
-                };
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output_format = parse_output_format(&value)?;
             }
             "--limit" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--limit requires an argument"));
-                }
-                limit = Some(args[i + 1].parse()?);
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--limit")?;
+                limit = Some(value.parse()?);
             }
             "--file" | "--path" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--file requires an argument"));
-                }
-                file_filter = Some(args[i + 1].clone());
-                i += 2;
+                let flag = args[i].as_str();
+                let value = parse_required_arg(args, &mut i, flag)?;
+                file_filter = Some(value);
             }
             "--kind" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--kind requires an argument"));
-                }
-                kind_filter = Some(args[i + 1].clone());
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--kind")?;
+                kind_filter = Some(value);
             }
             _ => return Err(anyhow::anyhow!("Unknown argument: {}", args[i])),
         }
@@ -302,49 +234,25 @@ pub fn parse_chunk_by_span_args(args: &[String]) -> Result<Command> {
     while i < args.len() {
         match args[i].as_str() {
             "--db" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--db requires an argument"));
-                }
-                db_path = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--db")?;
+                db_path = Some(PathBuf::from(value));
             }
             "--file" | "--path" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--file requires an argument"));
-                }
-                file_path = Some(args[i + 1].clone());
-                i += 2;
+                let flag = args[i].as_str();
+                let value = parse_required_arg(args, &mut i, flag)?;
+                file_path = Some(value);
             }
             "--start" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--start requires an argument"));
-                }
-                byte_start = Some(args[i + 1].parse()?);
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--start")?;
+                byte_start = Some(value.parse()?);
             }
             "--end" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--end requires an argument"));
-                }
-                byte_end = Some(args[i + 1].parse()?);
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--end")?;
+                byte_end = Some(value.parse()?);
             }
             "--output" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--output requires an argument"));
-                }
-                output_format = match args[i + 1].as_str() {
-                    "human" => OutputFormat::Human,
-                    "json" => OutputFormat::Json,
-                    "pretty" => OutputFormat::Pretty,
-                    _ => {
-                        return Err(anyhow::anyhow!(
-                            "Invalid output format: {}. Must be human, json, or pretty",
-                            args[i + 1]
-                        ))
-                    }
-                };
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output_format = parse_output_format(&value)?;
             }
             _ => return Err(anyhow::anyhow!("Unknown argument: {}", args[i])),
         }
@@ -375,42 +283,21 @@ pub fn parse_chunk_by_symbol_args(args: &[String]) -> Result<Command> {
     while i < args.len() {
         match args[i].as_str() {
             "--db" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--db requires an argument"));
-                }
-                db_path = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--db")?;
+                db_path = Some(PathBuf::from(value));
             }
             "--symbol" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--symbol requires an argument"));
-                }
-                symbol_name = Some(args[i + 1].clone());
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--symbol")?;
+                symbol_name = Some(value);
             }
             "--file" | "--path" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--file requires an argument"));
-                }
-                file_filter = Some(args[i + 1].clone());
-                i += 2;
+                let flag = args[i].as_str();
+                let value = parse_required_arg(args, &mut i, flag)?;
+                file_filter = Some(value);
             }
             "--output" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--output requires an argument"));
-                }
-                output_format = match args[i + 1].as_str() {
-                    "human" => OutputFormat::Human,
-                    "json" => OutputFormat::Json,
-                    "pretty" => OutputFormat::Pretty,
-                    _ => {
-                        return Err(anyhow::anyhow!(
-                            "Invalid output format: {}. Must be human, json, or pretty",
-                            args[i + 1]
-                        ))
-                    }
-                };
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output_format = parse_output_format(&value)?;
             }
             _ => return Err(anyhow::anyhow!("Unknown argument: {}", args[i])),
         }
