@@ -3,6 +3,7 @@ use anyhow::Result;
 use magellan::OutputFormat;
 use std::path::PathBuf;
 
+use crate::cli::parsers::core::{parse_output_format, parse_required_arg};
 use crate::db_resolver::resolve_db_path;
 
 // ============================================================================
@@ -24,42 +25,19 @@ pub fn parse_ast_args(args: &[String]) -> Result<Command> {
     while i < args.len() {
         match args[i].as_str() {
             "--db" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--db requires an argument"));
-                }
-                db_path = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--db")?;
+                db_path = Some(PathBuf::from(value));
             }
             "--file" | "--path" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--file requires an argument"));
-                }
-                file_path = Some(args[i + 1].clone());
-                i += 2;
+                file_path = Some(parse_required_arg(args, &mut i, "--file")?);
             }
             "--position" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--position requires an argument"));
-                }
-                position = Some(args[i + 1].parse()?);
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--position")?;
+                position = Some(value.parse()?);
             }
             "--output" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--output requires an argument"));
-                }
-                output_format = match args[i + 1].as_str() {
-                    "human" => OutputFormat::Human,
-                    "json" => OutputFormat::Json,
-                    "pretty" => OutputFormat::Pretty,
-                    _ => {
-                        return Err(anyhow::anyhow!(
-                            "Invalid output format: {}. Must be human, json, or pretty",
-                            args[i + 1]
-                        ))
-                    }
-                };
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output_format = parse_output_format(&value)?;
             }
             _ => return Err(anyhow::anyhow!("Unknown argument: {}", args[i])),
         }
@@ -86,35 +64,15 @@ pub fn parse_find_ast_args(args: &[String]) -> Result<Command> {
     while i < args.len() {
         match args[i].as_str() {
             "--db" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--db requires an argument"));
-                }
-                db_path = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--db")?;
+                db_path = Some(PathBuf::from(value));
             }
             "--kind" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--kind requires an argument"));
-                }
-                kind = Some(args[i + 1].clone());
-                i += 2;
+                kind = Some(parse_required_arg(args, &mut i, "--kind")?);
             }
             "--output" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--output requires an argument"));
-                }
-                output_format = match args[i + 1].as_str() {
-                    "human" => OutputFormat::Human,
-                    "json" => OutputFormat::Json,
-                    "pretty" => OutputFormat::Pretty,
-                    _ => {
-                        return Err(anyhow::anyhow!(
-                            "Invalid output format: {}. Must be human, json, or pretty",
-                            args[i + 1]
-                        ))
-                    }
-                };
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output_format = parse_output_format(&value)?;
             }
             _ => return Err(anyhow::anyhow!("Unknown argument: {}", args[i])),
         }
@@ -141,39 +99,19 @@ pub fn parse_reachable_args(args: &[String]) -> Result<Command> {
     while i < args.len() {
         match args[i].as_str() {
             "--db" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--db requires an argument"));
-                }
-                db_path = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--db")?;
+                db_path = Some(PathBuf::from(value));
             }
             "--symbol" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--symbol requires an argument"));
-                }
-                symbol_id = Some(args[i + 1].clone());
-                i += 2;
+                symbol_id = Some(parse_required_arg(args, &mut i, "--symbol")?);
             }
             "--reverse" => {
                 reverse = true;
                 i += 1;
             }
             "--output" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--output requires an argument"));
-                }
-                output_format = match args[i + 1].as_str() {
-                    "human" => OutputFormat::Human,
-                    "json" => OutputFormat::Json,
-                    "pretty" => OutputFormat::Pretty,
-                    _ => {
-                        return Err(anyhow::anyhow!(
-                            "Invalid output format: {}. Must be human, json, or pretty",
-                            args[i + 1]
-                        ))
-                    }
-                };
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output_format = parse_output_format(&value)?;
             }
             _ => return Err(anyhow::anyhow!("Unknown argument: {}", args[i])),
         }
@@ -200,39 +138,19 @@ pub fn parse_dead_code_args(args: &[String]) -> Result<Command> {
     while i < args.len() {
         match args[i].as_str() {
             "--db" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--db requires an argument"));
-                }
-                db_path = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--db")?;
+                db_path = Some(PathBuf::from(value));
             }
             "--entry" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--entry requires an argument"));
-                }
-                entry_symbol_id = Some(args[i + 1].clone());
-                i += 2;
+                entry_symbol_id = Some(parse_required_arg(args, &mut i, "--entry")?);
             }
             "--json" => {
                 output_format = OutputFormat::Json;
                 i += 1;
             }
             "--output" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--output requires an argument"));
-                }
-                output_format = match args[i + 1].as_str() {
-                    "human" => OutputFormat::Human,
-                    "json" => OutputFormat::Json,
-                    "pretty" => OutputFormat::Pretty,
-                    _ => {
-                        return Err(anyhow::anyhow!(
-                            "Invalid output format: {}. Must be human, json, or pretty",
-                            args[i + 1]
-                        ))
-                    }
-                };
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output_format = parse_output_format(&value)?;
             }
             _ => return Err(anyhow::anyhow!("Unknown argument: {}", args[i])),
         }
@@ -258,39 +176,19 @@ pub fn parse_cycles_args(args: &[String]) -> Result<Command> {
     while i < args.len() {
         match args[i].as_str() {
             "--db" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--db requires an argument"));
-                }
-                db_path = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--db")?;
+                db_path = Some(PathBuf::from(value));
             }
             "--symbol" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--symbol requires an argument"));
-                }
-                symbol_id = Some(args[i + 1].clone());
-                i += 2;
+                symbol_id = Some(parse_required_arg(args, &mut i, "--symbol")?);
             }
             "--json" => {
                 output_format = OutputFormat::Json;
                 i += 1;
             }
             "--output" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--output requires an argument"));
-                }
-                output_format = match args[i + 1].as_str() {
-                    "human" => OutputFormat::Human,
-                    "json" => OutputFormat::Json,
-                    "pretty" => OutputFormat::Pretty,
-                    _ => {
-                        return Err(anyhow::anyhow!(
-                            "Invalid output format: {}. Must be human, json, or pretty",
-                            args[i + 1]
-                        ))
-                    }
-                };
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output_format = parse_output_format(&value)?;
             }
             _ => return Err(anyhow::anyhow!("Unknown argument: {}", args[i])),
         }
@@ -315,32 +213,16 @@ pub fn parse_condense_args(args: &[String]) -> Result<Command> {
     while i < args.len() {
         match args[i].as_str() {
             "--db" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--db requires an argument"));
-                }
-                db_path = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--db")?;
+                db_path = Some(PathBuf::from(value));
             }
             "--members" => {
                 show_members = true;
                 i += 1;
             }
             "--output" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--output requires an argument"));
-                }
-                output_format = match args[i + 1].as_str() {
-                    "human" => OutputFormat::Human,
-                    "json" => OutputFormat::Json,
-                    "pretty" => OutputFormat::Pretty,
-                    _ => {
-                        return Err(anyhow::anyhow!(
-                            "Invalid output format: {}. Must be human, json, or pretty",
-                            args[i + 1]
-                        ))
-                    }
-                };
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output_format = parse_output_format(&value)?;
             }
             _ => return Err(anyhow::anyhow!("Unknown argument: {}", args[i])),
         }
@@ -368,56 +250,26 @@ pub fn parse_paths_args(args: &[String]) -> Result<Command> {
     while i < args.len() {
         match args[i].as_str() {
             "--db" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--db requires an argument"));
-                }
-                db_path = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--db")?;
+                db_path = Some(PathBuf::from(value));
             }
             "--start" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--start requires an argument"));
-                }
-                start_symbol_id = Some(args[i + 1].clone());
-                i += 2;
+                start_symbol_id = Some(parse_required_arg(args, &mut i, "--start")?);
             }
             "--end" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--end requires an argument"));
-                }
-                end_symbol_id = Some(args[i + 1].clone());
-                i += 2;
+                end_symbol_id = Some(parse_required_arg(args, &mut i, "--end")?);
             }
             "--max-depth" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--max-depth requires an argument"));
-                }
-                max_depth = args[i + 1].parse()?;
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--max-depth")?;
+                max_depth = value.parse()?;
             }
             "--max-paths" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--max-paths requires an argument"));
-                }
-                max_paths = args[i + 1].parse()?;
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--max-paths")?;
+                max_paths = value.parse()?;
             }
             "--output" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--output requires an argument"));
-                }
-                output_format = match args[i + 1].as_str() {
-                    "human" => OutputFormat::Human,
-                    "json" => OutputFormat::Json,
-                    "pretty" => OutputFormat::Pretty,
-                    _ => {
-                        return Err(anyhow::anyhow!(
-                            "Invalid output format: {}. Must be human, json, or pretty",
-                            args[i + 1]
-                        ))
-                    }
-                };
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output_format = parse_output_format(&value)?;
             }
             _ => return Err(anyhow::anyhow!("Unknown argument: {}", args[i])),
         }
@@ -448,52 +300,28 @@ pub fn parse_slice_args(args: &[String]) -> Result<Command> {
     while i < args.len() {
         match args[i].as_str() {
             "--db" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--db requires an argument"));
-                }
-                db_path = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--db")?;
+                db_path = Some(PathBuf::from(value));
             }
             "--target" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--target requires an argument"));
-                }
-                target = Some(args[i + 1].clone());
-                i += 2;
+                target = Some(parse_required_arg(args, &mut i, "--target")?);
             }
             "--direction" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--direction requires an argument"));
-                }
-                direction = args[i + 1].clone();
+                direction = parse_required_arg(args, &mut i, "--direction")?;
                 if direction != "backward" && direction != "forward" {
                     return Err(anyhow::anyhow!(
                         "Invalid direction: {}. Must be backward or forward",
                         direction
                     ));
                 }
-                i += 2;
             }
             "--verbose" => {
                 verbose = true;
                 i += 1;
             }
             "--output" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--output requires an argument"));
-                }
-                output_format = match args[i + 1].as_str() {
-                    "human" => OutputFormat::Human,
-                    "json" => OutputFormat::Json,
-                    "pretty" => OutputFormat::Pretty,
-                    _ => {
-                        return Err(anyhow::anyhow!(
-                            "Invalid output format: {}. Must be human, json, or pretty",
-                            args[i + 1]
-                        ))
-                    }
-                };
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output_format = parse_output_format(&value)?;
             }
             _ => return Err(anyhow::anyhow!("Unknown argument: {}", args[i])),
         }
@@ -522,25 +350,16 @@ pub fn parse_source_inventory_args(args: &[String]) -> Result<Command> {
     while i < args.len() {
         match args[i].as_str() {
             "--db" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--db requires an argument"));
-                }
-                db_path = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--db")?;
+                db_path = Some(PathBuf::from(value));
             }
             "--scan" => {
-                if i + 2 >= args.len() {
-                    return Err(anyhow::anyhow!("--scan requires <dir> <kind> arguments"));
-                }
-                scan_dirs.push((PathBuf::from(&args[i + 1]), args[i + 2].clone()));
-                i += 3;
+                let dir = parse_required_arg(args, &mut i, "--scan")?;
+                let kind = parse_required_arg(args, &mut i, "--scan")?;
+                scan_dirs.push((PathBuf::from(dir), kind));
             }
             "--kind" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--kind requires an argument"));
-                }
-                list_kind = Some(args[i + 1].clone());
-                i += 2;
+                list_kind = Some(parse_required_arg(args, &mut i, "--kind")?);
             }
             "--list" => {
                 i += 1;
@@ -550,21 +369,8 @@ pub fn parse_source_inventory_args(args: &[String]) -> Result<Command> {
                 i += 1;
             }
             "--output" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--output requires an argument"));
-                }
-                output_format = match args[i + 1].as_str() {
-                    "human" => OutputFormat::Human,
-                    "json" => OutputFormat::Json,
-                    "pretty" => OutputFormat::Pretty,
-                    _ => {
-                        return Err(anyhow::anyhow!(
-                            "Invalid output format: {}. Must be human, json, or pretty",
-                            args[i + 1]
-                        ))
-                    }
-                };
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output_format = parse_output_format(&value)?;
             }
             _ => return Err(anyhow::anyhow!("Unknown argument: {}", args[i])),
         }
@@ -608,106 +414,52 @@ pub fn parse_candidate_fact_args(args: &[String]) -> Result<Command> {
                 i += 1;
             }
             "--db" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--db requires an argument"));
-                }
-                db_path = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--db")?;
+                db_path = Some(PathBuf::from(value));
             }
             "--candidate-id" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--candidate-id requires an argument"));
-                }
-                candidate_id = args[i + 1].clone();
-                i += 2;
+                candidate_id = parse_required_arg(args, &mut i, "--candidate-id")?;
             }
             "--from-source" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--from-source requires an argument"));
-                }
+                let value = parse_required_arg(args, &mut i, "--from-source")?;
                 from_source = Some(
-                    args[i + 1]
+                    value
                         .parse()
                         .map_err(|_| anyhow::anyhow!("--from-source must be an integer"))?,
                 );
-                i += 2;
             }
             "--subject-type" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--subject-type requires an argument"));
-                }
-                subject_type = args[i + 1].clone();
-                i += 2;
+                subject_type = parse_required_arg(args, &mut i, "--subject-type")?;
             }
             "--subject-key" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--subject-key requires an argument"));
-                }
-                subject_key = args[i + 1].clone();
-                i += 2;
+                subject_key = parse_required_arg(args, &mut i, "--subject-key")?;
             }
             "--predicate" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--predicate requires an argument"));
-                }
-                predicate = args[i + 1].clone();
-                i += 2;
+                predicate = parse_required_arg(args, &mut i, "--predicate")?;
             }
             "--object-type" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--object-type requires an argument"));
-                }
-                object_type = Some(args[i + 1].clone());
-                i += 2;
+                object_type = Some(parse_required_arg(args, &mut i, "--object-type")?);
             }
             "--object-key" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--object-key requires an argument"));
-                }
-                object_key = Some(args[i + 1].clone());
-                i += 2;
+                object_key = Some(parse_required_arg(args, &mut i, "--object-key")?);
             }
             "--properties" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--properties requires an argument"));
-                }
-                properties_json = Some(args[i + 1].clone());
-                i += 2;
+                properties_json = Some(parse_required_arg(args, &mut i, "--properties")?);
             }
             "--status" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--status requires an argument"));
-                }
-                status = Some(args[i + 1].clone());
-                i += 2;
+                status = Some(parse_required_arg(args, &mut i, "--status")?);
             }
             "--limit" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--limit requires an argument"));
-                }
+                let value = parse_required_arg(args, &mut i, "--limit")?;
                 limit = Some(
-                    args[i + 1]
+                    value
                         .parse()
                         .map_err(|_| anyhow::anyhow!("--limit must be a positive integer"))?,
                 );
-                i += 2;
             }
             "--output" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--output requires an argument"));
-                }
-                output_format = match args[i + 1].as_str() {
-                    "human" => OutputFormat::Human,
-                    "json" => OutputFormat::Json,
-                    "pretty" => OutputFormat::Pretty,
-                    _ => {
-                        return Err(anyhow::anyhow!(
-                            "Invalid output format: {}. Must be human, json, or pretty",
-                            args[i + 1]
-                        ))
-                    }
-                };
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output_format = parse_output_format(&value)?;
             }
             _ => return Err(anyhow::anyhow!("Unknown argument: {}", args[i])),
         }
