@@ -69,18 +69,23 @@ fn test_parent_child_relationships() {
     let graph = CodeGraph::open(&db_path).unwrap();
 
     // Insert test hierarchy
-    let conn = graph.chunks.connect().unwrap();
-    conn.execute(
-        "INSERT INTO ast_nodes (id, parent_id, kind, byte_start, byte_end)
-         VALUES
-            (1, NULL, 'function_item', 0, 200),
-            (2, 1, 'block', 10, 190),
-            (3, 2, 'if_expression', 20, 100),
-            (4, 2, 'return_expression', 110, 130),
-            (5, 3, 'block', 30, 50)",
-        [],
-    )
-    .unwrap();
+    graph
+        .chunks
+        .with_connection_mut(|conn| {
+            conn.execute(
+                "INSERT INTO ast_nodes (id, parent_id, kind, byte_start, byte_end)
+                 VALUES
+                    (1, NULL, 'function_item', 0, 200),
+                    (2, 1, 'block', 10, 190),
+                    (3, 2, 'if_expression', 20, 100),
+                    (4, 2, 'return_expression', 110, 130),
+                    (5, 3, 'block', 30, 50)",
+                [],
+            )
+            .map(|_| ())
+            .map_err(anyhow::Error::from)
+        })
+        .unwrap();
 
     // Get children of function (should be block)
     let children = graph.get_ast_children(1).unwrap();
@@ -105,16 +110,21 @@ fn test_position_based_queries() {
     let graph = CodeGraph::open(&db_path).unwrap();
 
     // Insert nodes with overlapping spans
-    let conn = graph.chunks.connect().unwrap();
-    conn.execute(
-        "INSERT INTO ast_nodes (id, parent_id, kind, byte_start, byte_end)
-         VALUES
-            (1, NULL, 'block', 0, 200),
-            (2, 1, 'if_expression', 50, 150),
-            (3, 2, 'block', 60, 100)",
-        [],
-    )
-    .unwrap();
+    graph
+        .chunks
+        .with_connection_mut(|conn| {
+            conn.execute(
+                "INSERT INTO ast_nodes (id, parent_id, kind, byte_start, byte_end)
+                 VALUES
+                    (1, NULL, 'block', 0, 200),
+                    (2, 1, 'if_expression', 50, 150),
+                    (3, 2, 'block', 60, 100)",
+                [],
+            )
+            .map(|_| ())
+            .map_err(anyhow::Error::from)
+        })
+        .unwrap();
 
     // Position 25 should match outer block
     let node = graph.get_ast_node_at_position("test.rs", 25).unwrap();
@@ -265,17 +275,22 @@ fn test_get_ast_roots() {
     let graph = CodeGraph::open(&db_path).unwrap();
 
     // Insert nodes with mixed parentage
-    let conn = graph.chunks.connect().unwrap();
-    conn.execute(
-        "INSERT INTO ast_nodes (id, parent_id, kind, byte_start, byte_end)
-         VALUES
-            (1, NULL, 'function_item', 0, 100),
-            (2, 1, 'block', 10, 90),
-            (3, NULL, 'struct_item', 100, 200),
-            (4, 3, 'block', 110, 190)",
-        [],
-    )
-    .unwrap();
+    graph
+        .chunks
+        .with_connection_mut(|conn| {
+            conn.execute(
+                "INSERT INTO ast_nodes (id, parent_id, kind, byte_start, byte_end)
+                 VALUES
+                    (1, NULL, 'function_item', 0, 100),
+                    (2, 1, 'block', 10, 90),
+                    (3, NULL, 'struct_item', 100, 200),
+                    (4, 3, 'block', 110, 190)",
+                [],
+            )
+            .map(|_| ())
+            .map_err(anyhow::Error::from)
+        })
+        .unwrap();
 
     let roots = graph.get_ast_roots().unwrap();
     assert_eq!(roots.len(), 2);

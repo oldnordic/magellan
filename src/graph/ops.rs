@@ -1548,20 +1548,27 @@ mod tests {
         graph.index_file("test.rs", source).unwrap();
 
         // Verify AST nodes were created
-        let conn = graph.chunks.connect().unwrap();
-        let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM ast_nodes", [], |row| row.get(0))
+        let count: i64 = graph
+            .chunks
+            .with_conn(|conn| {
+                conn.query_row("SELECT COUNT(*) FROM ast_nodes", [], |row| row.get(0))
+                    .map_err(anyhow::Error::from)
+            })
             .unwrap();
 
         assert!(count > 0, "AST nodes should be created during indexing");
 
         // Verify specific nodes exist
-        let if_count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM ast_nodes WHERE kind = 'if_expression'",
-                [],
-                |row| row.get(0),
-            )
+        let if_count: i64 = graph
+            .chunks
+            .with_conn(|conn| {
+                conn.query_row(
+                    "SELECT COUNT(*) FROM ast_nodes WHERE kind = 'if_expression'",
+                    [],
+                    |row| row.get(0),
+                )
+                .map_err(anyhow::Error::from)
+            })
             .unwrap();
         assert!(if_count > 0, "if_expression should be indexed");
     }

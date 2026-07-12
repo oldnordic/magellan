@@ -132,15 +132,20 @@ mod tests {
         let graph = CodeGraph::open(&db_path).unwrap();
 
         // Insert test data
-        let conn = graph.chunks.connect().unwrap();
-        conn.execute(
-            "INSERT INTO ast_nodes (id, parent_id, kind, byte_start, byte_end)
-             VALUES (1, NULL, 'function_item', 0, 100),
-                    (2, 1, 'block', 10, 90),
-                    (3, 2, 'if_expression', 20, 80)",
-            [],
-        )
-        .unwrap();
+        graph
+            .chunks
+            .with_connection_mut(|conn| {
+                conn.execute(
+                    "INSERT INTO ast_nodes (id, parent_id, kind, byte_start, byte_end)
+                     VALUES (1, NULL, 'function_item', 0, 100),
+                            (2, 1, 'block', 10, 90),
+                            (3, 2, 'if_expression', 20, 80)",
+                    [],
+                )
+                .map(|_| ())
+                .map_err(anyhow::Error::from)
+            })
+            .unwrap();
 
         // Get children of node 1 (should have node 2)
         let children = graph.get_ast_children(1).unwrap();
@@ -160,14 +165,19 @@ mod tests {
         let graph = CodeGraph::open(&db_path).unwrap();
 
         // Insert test data
-        let conn = graph.chunks.connect().unwrap();
-        conn.execute(
-            "INSERT INTO ast_nodes (id, parent_id, kind, byte_start, byte_end)
-             VALUES (1, NULL, 'block', 0, 100),
-                    (2, NULL, 'if_expression', 50, 100)",
-            [],
-        )
-        .unwrap();
+        graph
+            .chunks
+            .with_connection_mut(|conn| {
+                conn.execute(
+                    "INSERT INTO ast_nodes (id, parent_id, kind, byte_start, byte_end)
+                     VALUES (1, NULL, 'block', 0, 100),
+                            (2, NULL, 'if_expression', 50, 100)",
+                    [],
+                )
+                .map(|_| ())
+                .map_err(anyhow::Error::from)
+            })
+            .unwrap();
 
         // Position 25 should match block (0-100)
         let node = graph.get_ast_node_at_position("test.rs", 25).unwrap();
@@ -187,15 +197,20 @@ mod tests {
         let graph = CodeGraph::open(&db_path).unwrap();
 
         // Insert test data
-        let conn = graph.chunks.connect().unwrap();
-        conn.execute(
-            "INSERT INTO ast_nodes (id, parent_id, kind, byte_start, byte_end)
-             VALUES (1, NULL, 'if_expression', 0, 100),
-                    (2, NULL, 'block', 100, 200),
-                    (3, NULL, 'if_expression', 200, 300)",
-            [],
-        )
-        .unwrap();
+        graph
+            .chunks
+            .with_connection_mut(|conn| {
+                conn.execute(
+                    "INSERT INTO ast_nodes (id, parent_id, kind, byte_start, byte_end)
+                     VALUES (1, NULL, 'if_expression', 0, 100),
+                            (2, NULL, 'block', 100, 200),
+                            (3, NULL, 'if_expression', 200, 300)",
+                    [],
+                )
+                .map(|_| ())
+                .map_err(anyhow::Error::from)
+            })
+            .unwrap();
 
         let if_nodes = graph.get_ast_nodes_by_kind("if_expression").unwrap();
         assert_eq!(if_nodes.len(), 2);
@@ -212,13 +227,18 @@ mod tests {
 
         assert_eq!(graph.count_ast_nodes().unwrap(), 0);
 
-        let conn = graph.chunks.connect().unwrap();
-        conn.execute(
-            "INSERT INTO ast_nodes (kind, byte_start, byte_end)
-             VALUES ('block', 0, 100), ('if_expression', 100, 200)",
-            [],
-        )
-        .unwrap();
+        graph
+            .chunks
+            .with_connection_mut(|conn| {
+                conn.execute(
+                    "INSERT INTO ast_nodes (kind, byte_start, byte_end)
+                     VALUES ('block', 0, 100), ('if_expression', 100, 200)",
+                    [],
+                )
+                .map(|_| ())
+                .map_err(anyhow::Error::from)
+            })
+            .unwrap();
 
         assert_eq!(graph.count_ast_nodes().unwrap(), 2);
     }
