@@ -17,7 +17,10 @@ pub use crate::migrate_cmd::MAGELLAN_SCHEMA_VERSION;
 /// Returns `true` when:
 /// - `magellan_meta` table does not exist (new database)
 /// - `magellan_meta.magellan_schema_version` != `MAGELLAN_SCHEMA_VERSION`
-pub fn needs_schema_upgrade(conn: &rusqlite::Connection) -> Result<bool, DbCompatError> {
+pub fn needs_schema_upgrade(
+    conn: &rusqlite::Connection,
+    db_path: &Path,
+) -> Result<bool, DbCompatError> {
     let has_meta: bool = conn
         .query_row(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='magellan_meta' LIMIT 1",
@@ -25,7 +28,7 @@ pub fn needs_schema_upgrade(conn: &rusqlite::Connection) -> Result<bool, DbCompa
             |_| Ok(true),
         )
         .optional()
-        .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?
+        .map_err(|e| map_sqlite_query_err(db_path, e))?
         .unwrap_or(false);
 
     if !has_meta {
@@ -38,7 +41,7 @@ pub fn needs_schema_upgrade(conn: &rusqlite::Connection) -> Result<bool, DbCompa
             [],
             |row| row.get(0),
         )
-        .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+        .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     Ok(version != MAGELLAN_SCHEMA_VERSION)
 }
@@ -84,9 +87,9 @@ pub fn ensure_magellan_meta(
                  VALUES (1, ?1, ?2, ?3, NULL, NULL)",
                 params![MAGELLAN_SCHEMA_VERSION, expected_sqlitegraph, created_at],
             ).map_err(|e| map_sqlite_query_err(db_path, e))?;
-            ensure_symbol_fts_schema(conn)?;
-            ensure_source_inventory_schema(conn)?;
-            ensure_code_chunks_fts_schema(conn)?;
+            ensure_symbol_fts_schema(conn, db_path)?;
+            ensure_source_inventory_schema(conn, db_path)?;
+            ensure_code_chunks_fts_schema(conn, db_path)?;
             Ok(())
         }
         Some((found_magellan, found_sqlitegraph)) => {
@@ -95,62 +98,62 @@ pub fn ensure_magellan_meta(
                 while current_version < MAGELLAN_SCHEMA_VERSION {
                     match current_version {
                         4 => {
-                            ensure_ast_schema(conn)?;
+                            ensure_ast_schema(conn, db_path)?;
                             current_version = 5;
                         }
                         5 => {
-                            ensure_ast_schema(conn)?;
+                            ensure_ast_schema(conn, db_path)?;
                             current_version = 6;
                         }
                         6 => {
-                            ensure_cfg_schema(conn)?;
+                            ensure_cfg_schema(conn, db_path)?;
                             current_version = 7;
                         }
                         7 => {
-                            ensure_cfg_hash_column(conn)?;
+                            ensure_cfg_hash_column(conn, db_path)?;
                             current_version = 8;
                         }
                         8 => {
-                            ensure_statements_column(conn)?;
+                            ensure_statements_column(conn, db_path)?;
                             current_version = 9;
                         }
                         9 => {
                             current_version = 10;
                         }
                         10 => {
-                            ensure_symbol_fts_schema(conn)?;
+                            ensure_symbol_fts_schema(conn, db_path)?;
                             current_version = 12;
                         }
                         12 => {
-                            ensure_source_inventory_schema(conn)?;
+                            ensure_source_inventory_schema(conn, db_path)?;
                             current_version = 13;
                         }
                         13 => {
-                            ensure_candidate_fact_schema(conn)?;
+                            ensure_candidate_fact_schema(conn, db_path)?;
                             current_version = 14;
                         }
                         14 => {
-                            ensure_project_metadata_schema(conn)?;
+                            ensure_project_metadata_schema(conn, db_path)?;
                             current_version = 15;
                         }
                         15 => {
-                            ensure_cfg_condition_column(conn)?;
+                            ensure_cfg_condition_column(conn, db_path)?;
                             current_version = 16;
                         }
                         16 => {
-                            ensure_telemetry_schema(conn)?;
+                            ensure_telemetry_schema(conn, db_path)?;
                             current_version = 17;
                         }
                         17 => {
-                            ensure_temporal_schema(conn)?;
+                            ensure_temporal_schema(conn, db_path)?;
                             current_version = 18;
                         }
                         18 => {
-                            ensure_scorer_schema(conn)?;
+                            ensure_scorer_schema(conn, db_path)?;
                             current_version = 19;
                         }
                         19 => {
-                            ensure_code_chunks_fts_schema(conn)?;
+                            ensure_code_chunks_fts_schema(conn, db_path)?;
                             current_version = 20;
                         }
                         _ => {
@@ -180,35 +183,38 @@ pub fn ensure_magellan_meta(
     }
 }
 
-pub fn ensure_ast_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
-    conn.execute("CREATE TABLE IF NOT EXISTS ast_nodes (id INTEGER PRIMARY KEY AUTOINCREMENT, parent_id INTEGER, kind TEXT NOT NULL, byte_start INTEGER NOT NULL, byte_end INTEGER NOT NULL, file_id INTEGER)", []).map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+pub fn ensure_ast_schema(conn: &rusqlite::Connection, db_path: &Path) -> Result<(), DbCompatError> {
+    conn.execute("CREATE TABLE IF NOT EXISTS ast_nodes (id INTEGER PRIMARY KEY AUTOINCREMENT, parent_id INTEGER, kind TEXT NOT NULL, byte_start INTEGER NOT NULL, byte_end INTEGER NOT NULL, file_id INTEGER)", []).map_err(|e| map_sqlite_query_err(db_path, e))?;
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_ast_nodes_parent ON ast_nodes(parent_id)",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_ast_nodes_span ON ast_nodes(byte_start, byte_end)",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_ast_nodes_file_id ON ast_nodes(file_id)",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
     Ok(())
 }
 
-pub fn ensure_metrics_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
-    conn.execute("CREATE TABLE IF NOT EXISTS file_metrics (file_path TEXT PRIMARY KEY, symbol_count INTEGER NOT NULL, loc INTEGER NOT NULL, estimated_loc REAL NOT NULL, fan_in INTEGER NOT NULL DEFAULT 0, fan_out INTEGER NOT NULL DEFAULT 0, complexity_score REAL NOT NULL DEFAULT 0.0, last_updated INTEGER NOT NULL)", []).map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
-    conn.execute("CREATE TABLE IF NOT EXISTS symbol_metrics (symbol_id INTEGER PRIMARY KEY, symbol_name TEXT NOT NULL, kind TEXT NOT NULL, file_path TEXT NOT NULL, loc INTEGER NOT NULL, estimated_loc REAL NOT NULL, fan_in INTEGER NOT NULL DEFAULT 0, fan_out INTEGER NOT NULL DEFAULT 0, cyclomatic_complexity INTEGER NOT NULL DEFAULT 1, last_updated INTEGER NOT NULL, FOREIGN KEY (symbol_id) REFERENCES graph_entities(id) ON DELETE CASCADE)", []).map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+pub fn ensure_metrics_schema(
+    conn: &rusqlite::Connection,
+    db_path: &Path,
+) -> Result<(), DbCompatError> {
+    conn.execute("CREATE TABLE IF NOT EXISTS file_metrics (file_path TEXT PRIMARY KEY, symbol_count INTEGER NOT NULL, loc INTEGER NOT NULL, estimated_loc REAL NOT NULL, fan_in INTEGER NOT NULL DEFAULT 0, fan_out INTEGER NOT NULL DEFAULT 0, complexity_score REAL NOT NULL DEFAULT 0.0, last_updated INTEGER NOT NULL)", []).map_err(|e| map_sqlite_query_err(db_path, e))?;
+    conn.execute("CREATE TABLE IF NOT EXISTS symbol_metrics (symbol_id INTEGER PRIMARY KEY, symbol_name TEXT NOT NULL, kind TEXT NOT NULL, file_path TEXT NOT NULL, loc INTEGER NOT NULL, estimated_loc REAL NOT NULL, fan_in INTEGER NOT NULL DEFAULT 0, fan_out INTEGER NOT NULL DEFAULT 0, cyclomatic_complexity INTEGER NOT NULL DEFAULT 1, last_updated INTEGER NOT NULL, FOREIGN KEY (symbol_id) REFERENCES graph_entities(id) ON DELETE CASCADE)", []).map_err(|e| map_sqlite_query_err(db_path, e))?;
     Ok(())
 }
 
 pub const CFG_EDGE: &str = "CFG_BLOCK";
 
-pub fn ensure_cfg_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
+pub fn ensure_cfg_schema(conn: &rusqlite::Connection, db_path: &Path) -> Result<(), DbCompatError> {
     conn.execute(
         "CREATE TABLE IF NOT EXISTS cfg_blocks (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -228,17 +234,17 @@ pub fn ensure_cfg_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatErro
     )",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_cfg_blocks_function ON cfg_blocks(function_id)",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_cfg_blocks_hash ON cfg_blocks(cfg_hash)",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     // Check if cfg_edges table already exists (with any schema - legacy or new)
     // If it exists, skip creating tables/indexes to avoid schema conflicts
@@ -266,16 +272,19 @@ pub fn ensure_cfg_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatErro
     )",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_cfg_edges_function ON cfg_edges(function_id)",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
     Ok(())
 }
 
-pub fn ensure_source_inventory_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
+pub fn ensure_source_inventory_schema(
+    conn: &rusqlite::Connection,
+    db_path: &Path,
+) -> Result<(), DbCompatError> {
     conn.execute(
         "CREATE TABLE IF NOT EXISTS source_documents (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -292,30 +301,33 @@ pub fn ensure_source_inventory_schema(conn: &rusqlite::Connection) -> Result<(),
         )",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_source_docs_path ON source_documents(path_or_uri)",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_source_docs_hash ON source_documents(content_hash)",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_source_docs_kind ON source_documents(source_kind)",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     Ok(())
 }
 
-pub fn ensure_candidate_fact_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
+pub fn ensure_candidate_fact_schema(
+    conn: &rusqlite::Connection,
+    db_path: &Path,
+) -> Result<(), DbCompatError> {
     conn.execute(
         "CREATE TABLE IF NOT EXISTS candidate_facts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -335,37 +347,40 @@ pub fn ensure_candidate_fact_schema(conn: &rusqlite::Connection) -> Result<(), D
         )",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_candidate_facts_status ON candidate_facts(status)",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_candidate_facts_source ON candidate_facts(source_document_id)",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_candidate_facts_predicate ON candidate_facts(predicate)",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_candidate_facts_status_created ON candidate_facts(status, created_at)",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     Ok(())
 }
 
 /// Add project_metadata and project_name columns to magellan_meta table (v15).
-pub fn ensure_project_metadata_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
+pub fn ensure_project_metadata_schema(
+    conn: &rusqlite::Connection,
+    db_path: &Path,
+) -> Result<(), DbCompatError> {
     let has_name: bool = conn
         .query_row(
             "SELECT 1 FROM pragma_table_info('magellan_meta') WHERE name='project_name'",
@@ -375,7 +390,7 @@ pub fn ensure_project_metadata_schema(conn: &rusqlite::Connection) -> Result<(),
         .unwrap_or(false);
     if !has_name {
         conn.execute("ALTER TABLE magellan_meta ADD COLUMN project_name TEXT", [])
-            .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+            .map_err(|e| map_sqlite_query_err(db_path, e))?;
     }
 
     let has_meta: bool = conn
@@ -390,13 +405,16 @@ pub fn ensure_project_metadata_schema(conn: &rusqlite::Connection) -> Result<(),
             "ALTER TABLE magellan_meta ADD COLUMN project_metadata TEXT",
             [],
         )
-        .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+        .map_err(|e| map_sqlite_query_err(db_path, e))?;
     }
     Ok(())
 }
 
 /// Add cfg_condition column to cfg_blocks table (v16).
-pub fn ensure_cfg_condition_column(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
+pub fn ensure_cfg_condition_column(
+    conn: &rusqlite::Connection,
+    db_path: &Path,
+) -> Result<(), DbCompatError> {
     let has_col: bool = conn
         .query_row(
             "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='cfg_condition'",
@@ -406,13 +424,16 @@ pub fn ensure_cfg_condition_column(conn: &rusqlite::Connection) -> Result<(), Db
         .unwrap_or(false);
     if !has_col {
         conn.execute("ALTER TABLE cfg_blocks ADD COLUMN cfg_condition TEXT", [])
-            .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+            .map_err(|e| map_sqlite_query_err(db_path, e))?;
     }
     Ok(())
 }
 
 /// Create telemetry_events table (v17).
-pub fn ensure_telemetry_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
+pub fn ensure_telemetry_schema(
+    conn: &rusqlite::Connection,
+    db_path: &Path,
+) -> Result<(), DbCompatError> {
     conn.execute(
         "CREATE TABLE IF NOT EXISTS telemetry_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -427,34 +448,37 @@ pub fn ensure_telemetry_schema(conn: &rusqlite::Connection) -> Result<(), DbComp
         )",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_telemetry_events_execution
          ON telemetry_events(execution_id)",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_telemetry_events_type_name
          ON telemetry_events(event_type, event_name)",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_telemetry_events_timestamp
          ON telemetry_events(timestamp_ns)",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     Ok(())
 }
 
 /// Create repository snapshot tables for temporal tracking (v18).
-pub fn ensure_temporal_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
+pub fn ensure_temporal_schema(
+    conn: &rusqlite::Connection,
+    db_path: &Path,
+) -> Result<(), DbCompatError> {
     conn.execute(
         "CREATE TABLE IF NOT EXISTS repo_snapshots (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -468,14 +492,14 @@ pub fn ensure_temporal_schema(conn: &rusqlite::Connection) -> Result<(), DbCompa
         )",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_repo_snapshots_commit
          ON repo_snapshots(commit_oid)",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS repo_snapshot_parents (
@@ -486,7 +510,7 @@ pub fn ensure_temporal_schema(conn: &rusqlite::Connection) -> Result<(), DbCompa
         )",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS file_versions (
@@ -500,21 +524,21 @@ pub fn ensure_temporal_schema(conn: &rusqlite::Connection) -> Result<(), DbCompa
         )",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_file_versions_snapshot
          ON file_versions(snapshot_id)",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_file_versions_path
          ON file_versions(file_path)",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS symbol_versions (
@@ -533,28 +557,28 @@ pub fn ensure_temporal_schema(conn: &rusqlite::Connection) -> Result<(), DbCompa
         )",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_symbol_versions_snapshot
          ON symbol_versions(snapshot_id)",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_symbol_versions_stable
          ON symbol_versions(stable_id)",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_symbol_versions_name
          ON symbol_versions(name)",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS edge_versions (
@@ -567,33 +591,36 @@ pub fn ensure_temporal_schema(conn: &rusqlite::Connection) -> Result<(), DbCompa
         )",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_edge_versions_snapshot
          ON edge_versions(snapshot_id)",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_edge_versions_source
          ON edge_versions(source_stable_id)",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_edge_versions_target
          ON edge_versions(target_stable_id)",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     Ok(())
 }
 
-pub fn ensure_statements_column(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
+pub fn ensure_statements_column(
+    conn: &rusqlite::Connection,
+    db_path: &Path,
+) -> Result<(), DbCompatError> {
     let has_col: bool = conn
         .query_row(
             "SELECT 1 FROM pragma_table_info('cfg_blocks') WHERE name='statements'",
@@ -603,7 +630,7 @@ pub fn ensure_statements_column(conn: &rusqlite::Connection) -> Result<(), DbCom
         .unwrap_or(false);
     if !has_col {
         conn.execute("ALTER TABLE cfg_blocks ADD COLUMN statements TEXT", [])
-            .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+            .map_err(|e| map_sqlite_query_err(db_path, e))?;
     }
     Ok(())
 }
@@ -612,7 +639,10 @@ pub fn ensure_statements_column(conn: &rusqlite::Connection) -> Result<(), DbCom
 ///
 /// Creates an FTS5 virtual table that indexes symbol names from graph_entities
 /// for prefix and full-text search capabilities.
-pub fn ensure_symbol_fts_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
+pub fn ensure_symbol_fts_schema(
+    conn: &rusqlite::Connection,
+    db_path: &Path,
+) -> Result<(), DbCompatError> {
     conn.execute(
         "CREATE VIRTUAL TABLE IF NOT EXISTS symbol_fts USING fts5(
             name,
@@ -621,7 +651,7 @@ pub fn ensure_symbol_fts_schema(conn: &rusqlite::Connection) -> Result<(), DbCom
         )",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     // Auto-sync triggers so FTS5 stays current without manual rebuild calls.
     conn.execute_batch(
@@ -641,7 +671,7 @@ pub fn ensure_symbol_fts_schema(conn: &rusqlite::Connection) -> Result<(), DbCom
                  INSERT INTO symbol_fts(rowid, name) VALUES (new.id, new.name);
              END;",
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     Ok(())
 }
@@ -650,7 +680,10 @@ pub fn ensure_symbol_fts_schema(conn: &rusqlite::Connection) -> Result<(), DbCom
 ///
 /// Creates an FTS5 virtual table that indexes the content column from code_chunks
 /// for searching inside function bodies, string literals, and implementation details.
-pub fn ensure_code_chunks_fts_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
+pub fn ensure_code_chunks_fts_schema(
+    conn: &rusqlite::Connection,
+    db_path: &Path,
+) -> Result<(), DbCompatError> {
     // Check if code_chunks table exists — it's created by the ChunkStore layer,
     // not by the schema init. If it doesn't exist yet, skip FTS creation;
     // the triggers will be created on first chunk insert via watch pipeline.
@@ -675,7 +708,7 @@ pub fn ensure_code_chunks_fts_schema(conn: &rusqlite::Connection) -> Result<(), 
         )",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     // Auto-sync triggers so FTS5 stays current with code_chunks changes.
     conn.execute_batch(
@@ -697,7 +730,7 @@ pub fn ensure_code_chunks_fts_schema(conn: &rusqlite::Connection) -> Result<(), 
                  VALUES (new.id, new.content);
              END;",
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     Ok(())
 }
@@ -705,7 +738,10 @@ pub fn ensure_code_chunks_fts_schema(conn: &rusqlite::Connection) -> Result<(), 
 /// Ensure cfg_hash column exists in cfg_blocks table (v7 -> v8 migration)
 ///
 /// Adds cfg_hash column for cache invalidation in downstream tools.
-pub fn ensure_cfg_hash_column(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
+pub fn ensure_cfg_hash_column(
+    conn: &rusqlite::Connection,
+    db_path: &Path,
+) -> Result<(), DbCompatError> {
     // Add cfg_hash column if it doesn't exist
     // SQLite doesn't support IF NOT EXISTS for ADD COLUMN, so we check first
     let has_column: bool = conn
@@ -718,7 +754,7 @@ pub fn ensure_cfg_hash_column(conn: &rusqlite::Connection) -> Result<(), DbCompa
 
     if !has_column {
         conn.execute("ALTER TABLE cfg_blocks ADD COLUMN cfg_hash TEXT", [])
-            .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+            .map_err(|e| map_sqlite_query_err(db_path, e))?;
     }
 
     // Create index for hash-based cache lookups
@@ -727,7 +763,7 @@ pub fn ensure_cfg_hash_column(conn: &rusqlite::Connection) -> Result<(), DbCompa
          ON cfg_blocks(cfg_hash)",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     Ok(())
 }
@@ -935,7 +971,10 @@ fn map_sqlite_query_err(path: &Path, _e: rusqlite::Error) -> DbCompatError {
     }
 }
 
-pub fn ensure_scorer_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatError> {
+pub fn ensure_scorer_schema(
+    conn: &rusqlite::Connection,
+    db_path: &Path,
+) -> Result<(), DbCompatError> {
     conn.execute(
         "CREATE TABLE IF NOT EXISTS symbol_scores (
             symbol_id INTEGER PRIMARY KEY,
@@ -959,19 +998,19 @@ pub fn ensure_scorer_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatE
         )",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_symbol_scores_score ON symbol_scores(score DESC)",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_symbol_scores_stable ON symbol_scores(stable_id)",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS scorer_features (
@@ -982,7 +1021,7 @@ pub fn ensure_scorer_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatE
         )",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS scorer_runs (
@@ -996,7 +1035,7 @@ pub fn ensure_scorer_schema(conn: &rusqlite::Connection) -> Result<(), DbCompatE
         )",
         [],
     )
-    .map_err(|e| map_sqlite_query_err(Path::new(":memory:"), e))?;
+    .map_err(|e| map_sqlite_query_err(db_path, e))?;
 
     Ok(())
 }
@@ -1008,7 +1047,7 @@ mod tests {
     #[test]
     fn test_cfg_edges_schema_created() {
         let conn = rusqlite::Connection::open_in_memory().unwrap();
-        ensure_cfg_schema(&conn).unwrap();
+        ensure_cfg_schema(&conn, Path::new(":memory:")).unwrap();
         let count: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='cfg_edges'",
@@ -1032,7 +1071,7 @@ mod tests {
     #[test]
     fn test_coverage_schema_created() {
         let conn = rusqlite::Connection::open_in_memory().unwrap();
-        ensure_cfg_schema(&conn).unwrap();
+        ensure_cfg_schema(&conn, Path::new(":memory:")).unwrap();
         ensure_coverage_schema(&conn, std::path::Path::new(":memory:")).unwrap();
 
         let block_count: i64 = conn
@@ -1057,7 +1096,7 @@ mod tests {
     #[test]
     fn test_source_inventory_schema_created() {
         let conn = rusqlite::Connection::open_in_memory().unwrap();
-        ensure_source_inventory_schema(&conn).unwrap();
+        ensure_source_inventory_schema(&conn, Path::new(":memory:")).unwrap();
 
         let table_count: i64 = conn
             .query_row(

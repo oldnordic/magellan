@@ -588,7 +588,7 @@ impl CodeGraph {
             let side_conn_arc = Arc::new(parking_lot::Mutex::new(side_conn));
 
             // Check whether DDL needs to run at all.
-            let needs_ddl = db_compat::needs_schema_upgrade(&side_conn_arc.lock())
+            let needs_ddl = db_compat::needs_schema_upgrade(&side_conn_arc.lock(), &db_path_buf)
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
             // Phase 3a: Magellan-owned DB compatibility metadata.
@@ -618,7 +618,8 @@ impl CodeGraph {
                 execution_log::ExecutionLog::with_connection(Arc::clone(&side_conn_arc));
 
             // Initialize MetricsOps reusing the shared connection
-            let metrics = metrics::MetricsOps::with_connection(Arc::clone(&side_conn_arc));
+            let metrics =
+                metrics::MetricsOps::with_connection(Arc::clone(&side_conn_arc), &db_path_buf);
 
             // Initialize TelemetryOps reusing the shared connection
             let telemetry = telemetry::TelemetryOps::with_connection(Arc::clone(&side_conn_arc));
@@ -626,19 +627,19 @@ impl CodeGraph {
             // Only run AST / CFG / coverage DDL when the schema is new or was upgraded.
             // On warm opens this skips ~6 redundant CREATE TABLE IF NOT EXISTS calls.
             if needs_ddl {
-                db_compat::ensure_ast_schema(&side_conn_arc.lock())
+                db_compat::ensure_ast_schema(&side_conn_arc.lock(), &db_path_buf)
                     .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                db_compat::ensure_cfg_schema(&side_conn_arc.lock())
+                db_compat::ensure_cfg_schema(&side_conn_arc.lock(), &db_path_buf)
                     .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                db_compat::ensure_metrics_schema(&side_conn_arc.lock())
+                db_compat::ensure_metrics_schema(&side_conn_arc.lock(), &db_path_buf)
                     .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                db_compat::ensure_source_inventory_schema(&side_conn_arc.lock())
+                db_compat::ensure_source_inventory_schema(&side_conn_arc.lock(), &db_path_buf)
                     .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                db_compat::ensure_candidate_fact_schema(&side_conn_arc.lock())
+                db_compat::ensure_candidate_fact_schema(&side_conn_arc.lock(), &db_path_buf)
                     .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                db_compat::ensure_telemetry_schema(&side_conn_arc.lock())
+                db_compat::ensure_telemetry_schema(&side_conn_arc.lock(), &db_path_buf)
                     .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                db_compat::ensure_temporal_schema(&side_conn_arc.lock())
+                db_compat::ensure_temporal_schema(&side_conn_arc.lock(), &db_path_buf)
                     .map_err(|e| anyhow::anyhow!(e.to_string()))?;
             }
 

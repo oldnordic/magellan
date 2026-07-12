@@ -34,7 +34,10 @@ enum MetricsOpsBackend {
     /// SQLite database path
     Sqlite(std::path::PathBuf),
     /// Shared connection from CodeGraph (avoids opening new connections)
-    Shared(Arc<parking_lot::Mutex<rusqlite::Connection>>),
+    Shared {
+        conn: Arc<parking_lot::Mutex<rusqlite::Connection>>,
+        db_path: std::path::PathBuf,
+    },
     /// SideTables abstraction (V3 backend)
     SideTables(Arc<dyn super::side_tables::SideTables>),
 }
@@ -49,6 +52,14 @@ pub struct MetricsOps {
 }
 
 impl MetricsOps {
+    fn db_path(&self) -> &Path {
+        match &self.backend {
+            MetricsOpsBackend::Sqlite(path) => path,
+            MetricsOpsBackend::Shared { db_path, .. } => db_path,
+            MetricsOpsBackend::SideTables(_) => Path::new(":memory:"),
+        }
+    }
+
     /// Create a new MetricsOps with the given database path
     pub fn new(db_path: &Path) -> Self {
         Self {
@@ -70,9 +81,15 @@ impl MetricsOps {
     ///
     /// This avoids opening a separate connection to the same database,
     /// reducing connection overhead and WAL contention.
-    pub fn with_connection(conn: Arc<parking_lot::Mutex<rusqlite::Connection>>) -> Self {
+    pub fn with_connection(
+        conn: Arc<parking_lot::Mutex<rusqlite::Connection>>,
+        db_path: &Path,
+    ) -> Self {
         let metrics = Self {
-            backend: MetricsOpsBackend::Shared(conn),
+            backend: MetricsOpsBackend::Shared {
+                conn,
+                db_path: db_path.to_path_buf(),
+            },
         };
         if let Err(e) = metrics.ensure_schema() {
             eprintln!("Warning: Failed to ensure MetricsOps schema: {}", e);
@@ -113,12 +130,12 @@ impl MetricsOps {
         match &self.backend {
             MetricsOpsBackend::Sqlite(_) => {
                 let conn = self.connect()?;
-                crate::graph::db_compat::ensure_metrics_schema(&conn)
+                crate::graph::db_compat::ensure_metrics_schema(&conn, self.db_path())
                     .map_err(|e| anyhow::anyhow!("Failed to ensure metrics schema: {}", e))
             }
-            MetricsOpsBackend::Shared(conn_arc) => {
-                let conn = conn_arc.lock();
-                crate::graph::db_compat::ensure_metrics_schema(&conn)
+            MetricsOpsBackend::Shared { conn, .. } => {
+                let conn = conn.lock();
+                crate::graph::db_compat::ensure_metrics_schema(&conn, self.db_path())
                     .map_err(|e| anyhow::anyhow!("Failed to ensure metrics schema: {}", e))
             }
             MetricsOpsBackend::SideTables(_) => Ok(()),
@@ -129,7 +146,7 @@ impl MetricsOps {
     fn connect(&self) -> Result<rusqlite::Connection, rusqlite::Error> {
         match &self.backend {
             MetricsOpsBackend::Sqlite(path) => rusqlite::Connection::open(path),
-            MetricsOpsBackend::Shared(_) => Err(rusqlite::Error::InvalidParameterName(
+            MetricsOpsBackend::Shared { .. } => Err(rusqlite::Error::InvalidParameterName(
                 "Direct SQLite connection not available for shared backend".to_string(),
             )),
             MetricsOpsBackend::SideTables(_) => Err(rusqlite::Error::InvalidParameterName(
@@ -148,8 +165,8 @@ impl MetricsOps {
                 let conn = self.connect()?;
                 f(&conn)
             }
-            MetricsOpsBackend::Shared(conn_arc) => {
-                let conn = conn_arc.lock();
+            MetricsOpsBackend::Shared { conn, .. } => {
+                let conn = conn.lock();
                 f(&conn)
             }
             MetricsOpsBackend::SideTables(_) => {
@@ -165,8 +182,8 @@ impl MetricsOps {
                 let conn = self.connect()?;
                 Self::upsert_file_metrics_conn(&conn, metrics)
             }
-            MetricsOpsBackend::Shared(conn_arc) => {
-                let conn = conn_arc.lock();
+            MetricsOpsBackend::Shared { conn, .. } => {
+                let conn = conn.lock();
                 Self::upsert_file_metrics_conn(&conn, metrics)
             }
             MetricsOpsBackend::SideTables(side_tables) => side_tables.store_file_metrics(metrics),
@@ -201,8 +218,8 @@ impl MetricsOps {
                 let conn = self.connect()?;
                 Self::upsert_symbol_metrics_conn(&conn, metrics)
             }
-            MetricsOpsBackend::Shared(conn_arc) => {
-                let conn = conn_arc.lock();
+            MetricsOpsBackend::Shared { conn, .. } => {
+                let conn = conn.lock();
                 Self::upsert_symbol_metrics_conn(&conn, metrics)
             }
             MetricsOpsBackend::SideTables(side_tables) => side_tables.store_symbol_metrics(metrics),
@@ -243,8 +260,8 @@ impl MetricsOps {
                 let conn = self.connect()?;
                 Self::delete_file_metrics_conn(&conn, file_path)
             }
-            MetricsOpsBackend::Shared(conn_arc) => {
-                let conn = conn_arc.lock();
+            MetricsOpsBackend::Shared { conn, .. } => {
+                let conn = conn.lock();
                 Self::delete_file_metrics_conn(&conn, file_path)
             }
             MetricsOpsBackend::SideTables(side_tables) => {
@@ -277,8 +294,8 @@ impl MetricsOps {
                 let conn = self.connect()?;
                 Self::get_file_metrics_conn(&conn, file_path)
             }
-            MetricsOpsBackend::Shared(conn_arc) => {
-                let conn = conn_arc.lock();
+            MetricsOpsBackend::Shared { conn, .. } => {
+                let conn = conn.lock();
                 Self::get_file_metrics_conn(&conn, file_path)
             }
             MetricsOpsBackend::SideTables(side_tables) => side_tables.get_file_metrics(file_path),
@@ -322,8 +339,8 @@ impl MetricsOps {
                 let conn = self.connect()?;
                 Self::get_symbol_metrics_conn(&conn, symbol_id)
             }
-            MetricsOpsBackend::Shared(conn_arc) => {
-                let conn = conn_arc.lock();
+            MetricsOpsBackend::Shared { conn, .. } => {
+                let conn = conn.lock();
                 Self::get_symbol_metrics_conn(&conn, symbol_id)
             }
             MetricsOpsBackend::SideTables(side_tables) => side_tables.get_symbol_metrics(symbol_id),
@@ -378,8 +395,8 @@ impl MetricsOps {
                 let conn = self.connect()?;
                 Self::get_hotspots_conn(&conn, limit, min_loc, min_fan_in, min_fan_out)
             }
-            MetricsOpsBackend::Shared(conn_arc) => {
-                let conn = conn_arc.lock();
+            MetricsOpsBackend::Shared { conn, .. } => {
+                let conn = conn.lock();
                 Self::get_hotspots_conn(&conn, limit, min_loc, min_fan_in, min_fan_out)
             }
             MetricsOpsBackend::SideTables(side_tables) => {
