@@ -20,27 +20,35 @@ pub fn run_delete(db_path: PathBuf, file_path: PathBuf, root: Option<PathBuf>) -
         file_path.to_string_lossy().to_string()
     };
 
-    let tracker = ExecutionTracker::new(
+    let mut tracker = ExecutionTracker::new(
         vec!["delete".to_string(), path_str.clone()],
         root.as_ref().map(|p| p.to_string_lossy().to_string()),
         db_path.to_string_lossy().to_string(),
     );
     tracker.start(&graph)?;
 
-    let result = graph
-        .delete_file_facts(&path_str)
-        .with_context(|| format!("Failed to delete file facts: {}", path_str))?;
+    let result = (|| -> Result<()> {
+        let result = graph
+            .delete_file_facts(&path_str)
+            .with_context(|| format!("Failed to delete file facts: {}", path_str))?;
 
-    println!("Deleted {}:", path_str);
-    println!("  symbols: {}", result.symbols_deleted);
-    println!("  references: {}", result.references_deleted);
-    println!("  calls: {}", result.calls_deleted);
-    println!("  chunks: {}", result.chunks_deleted);
-    println!("  ast_nodes: {}", result.ast_nodes_deleted);
-    println!("  cfg_blocks: {}", result.cfg_blocks_deleted);
-    println!("  edges: {}", result.edges_deleted);
-    println!("  total: {}", result.total_deleted());
+        tracker.set_counts(1, result.symbols_deleted, result.references_deleted);
 
+        println!("Deleted {}:", path_str);
+        println!("  symbols: {}", result.symbols_deleted);
+        println!("  references: {}", result.references_deleted);
+        println!("  calls: {}", result.calls_deleted);
+        println!("  chunks: {}", result.chunks_deleted);
+        println!("  ast_nodes: {}", result.ast_nodes_deleted);
+        println!("  cfg_blocks: {}", result.cfg_blocks_deleted);
+        println!("  edges: {}", result.edges_deleted);
+        println!("  total: {}", result.total_deleted());
+        Ok(())
+    })();
+
+    if let Err(err) = &result {
+        tracker.set_error(format!("{err:#}"));
+    }
     tracker.finish(&graph)?;
-    Ok(())
+    result
 }

@@ -14,17 +14,22 @@ use crate::status_cmd::ExecutionTracker;
 pub fn run_backfill(db_path: PathBuf) -> Result<()> {
     let mut graph = CodeGraph::open(&db_path)?;
 
-    let tracker = ExecutionTracker::new(
+    let mut tracker = ExecutionTracker::new(
         vec!["backfill".to_string()],
         None,
         db_path.to_string_lossy().to_string(),
     );
     tracker.start(&graph)?;
 
-    graph.backfill_metrics(None)?;
+    let result = (|| -> Result<()> {
+        graph.backfill_metrics(None)?;
+        println!("Backfill complete");
+        Ok(())
+    })();
 
-    println!("Backfill complete");
-
+    if let Err(err) = &result {
+        tracker.set_error(format!("{err:#}"));
+    }
     tracker.finish(&graph)?;
-    Ok(())
+    result
 }

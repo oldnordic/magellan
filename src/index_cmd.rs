@@ -20,20 +20,27 @@ pub fn run_index(db_path: PathBuf, file_path: PathBuf, root: Option<PathBuf>) ->
         file_path.to_string_lossy().to_string()
     };
 
-    let tracker = ExecutionTracker::new(
+    let mut tracker = ExecutionTracker::new(
         vec!["index".to_string(), path_str.clone()],
         root.as_ref().map(|p| p.to_string_lossy().to_string()),
         db_path.to_string_lossy().to_string(),
     );
     tracker.start(&graph)?;
 
-    let source =
-        std::fs::read(&path_str).with_context(|| format!("Failed to read file: {}", path_str))?;
+    let result = (|| -> Result<()> {
+        let source = std::fs::read(&path_str)
+            .with_context(|| format!("Failed to read file: {}", path_str))?;
 
-    let symbol_count = graph.index_file(&path_str, &source)?;
+        let symbol_count = graph.index_file(&path_str, &source)?;
+        tracker.set_counts(1, symbol_count, 0);
 
-    println!("Indexed {}: {} symbols", path_str, symbol_count);
+        println!("Indexed {}: {} symbols", path_str, symbol_count);
+        Ok(())
+    })();
 
+    if let Err(err) = &result {
+        tracker.set_error(format!("{err:#}"));
+    }
     tracker.finish(&graph)?;
-    Ok(())
+    result
 }

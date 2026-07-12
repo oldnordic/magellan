@@ -28,47 +28,53 @@ pub fn run_cross_file_refs(
     output_format: OutputFormat,
 ) -> Result<()> {
     let graph = CodeGraph::open(&db_path)?;
-    let tracker = ExecutionTracker::new(
+    let mut tracker = ExecutionTracker::new(
         vec!["cross-file-refs".to_string(), fqn.clone()],
         None,
         db_path.to_string_lossy().to_string(),
     );
     tracker.start(&graph)?;
 
-    let refs = cross_file_references_to(&graph, &fqn)?;
+    let result = (|| -> Result<()> {
+        let refs = cross_file_references_to(&graph, &fqn)?;
 
-    match output_format {
-        OutputFormat::Json | OutputFormat::Pretty => {
-            let matches: Vec<CrossFileRefMatch> = refs
-                .into_iter()
-                .map(|r| CrossFileRefMatch {
-                    from_symbol_id: r.from_symbol_id,
-                    file_path: r.file_path,
-                    line_number: r.line_number,
-                    byte_start: r.byte_start,
-                    byte_end: r.byte_end,
-                })
-                .collect();
+        match output_format {
+            OutputFormat::Json | OutputFormat::Pretty => {
+                let matches: Vec<CrossFileRefMatch> = refs
+                    .into_iter()
+                    .map(|r| CrossFileRefMatch {
+                        from_symbol_id: r.from_symbol_id,
+                        file_path: r.file_path,
+                        line_number: r.line_number,
+                        byte_start: r.byte_start,
+                        byte_end: r.byte_end,
+                    })
+                    .collect();
 
-            let exec_id = tracker.exec_id().to_string();
-            let json_response = JsonResponse::new(matches, &exec_id);
-            output_json(&json_response, output_format)?;
-        }
-        OutputFormat::Human => {
-            if refs.is_empty() {
-                println!("No cross-file references to '{}'", fqn);
-            } else {
-                println!("{} cross-file reference(s) to '{}':", refs.len(), fqn);
-                for r in refs {
-                    println!(
-                        "  {} at {}:{} (bytes {}-{})",
-                        r.from_symbol_id, r.file_path, r.line_number, r.byte_start, r.byte_end
-                    );
+                let exec_id = tracker.exec_id().to_string();
+                let json_response = JsonResponse::new(matches, &exec_id);
+                output_json(&json_response, output_format)?;
+            }
+            OutputFormat::Human => {
+                if refs.is_empty() {
+                    println!("No cross-file references to '{}'", fqn);
+                } else {
+                    println!("{} cross-file reference(s) to '{}':", refs.len(), fqn);
+                    for r in refs {
+                        println!(
+                            "  {} at {}:{} (bytes {}-{})",
+                            r.from_symbol_id, r.file_path, r.line_number, r.byte_start, r.byte_end
+                        );
+                    }
                 }
             }
         }
-    }
+        Ok(())
+    })();
 
+    if let Err(err) = &result {
+        tracker.set_error(format!("{err:#}"));
+    }
     tracker.finish(&graph)?;
-    Ok(())
+    result
 }
