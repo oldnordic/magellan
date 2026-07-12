@@ -36,8 +36,12 @@ pub fn run_enrich(db_path: PathBuf, files: Option<Vec<PathBuf>>, timeout_secs: u
 
     let mut tracker = ExecutionTracker::new(args, None, db_path.to_string_lossy().to_string());
     tracker.start(&graph)?;
+    let exec_id = tracker.exec_id().to_string();
 
     let result: Result<()> = {
+        graph
+            .telemetry()
+            .record_phase_start(&exec_id, "enrich_symbols")?;
         let config = lsp::enrich::EnrichConfig {
             analyzers: None,
             files,
@@ -45,11 +49,16 @@ pub fn run_enrich(db_path: PathBuf, files: Option<Vec<PathBuf>>, timeout_secs: u
         };
 
         let enrich_result = lsp::enrich::enrich_symbols(&mut graph, &config)?;
+        graph
+            .telemetry()
+            .record_phase_end(&exec_id, "enrich_symbols")?;
 
+        graph.telemetry().record_phase_start(&exec_id, "output")?;
         println!("\nEnrichment Summary:");
         println!("  Files processed: {}", enrich_result.files_processed);
         println!("  Symbols enriched: {}", enrich_result.symbols_enriched);
         println!("  Errors: {}", enrich_result.errors);
+        graph.telemetry().record_phase_end(&exec_id, "output")?;
 
         Ok(())
     };
