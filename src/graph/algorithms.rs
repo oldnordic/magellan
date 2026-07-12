@@ -553,50 +553,46 @@ impl CodeGraph {
     /// # Errors
     /// Returns an error if the symbol is not found in the database
     pub fn resolve_symbol_entity(&self, symbol_id_or_fqn: &str) -> Result<i64> {
-        let conn = self.chunks.connect()?;
+        self.chunks.with_conn(|conn| {
+            let mut stmt = conn
+                .prepare_cached(
+                    "SELECT id FROM graph_entities
+                     WHERE kind = 'Symbol'
+                     AND json_extract(data, '$.symbol_id') = ?1",
+                )
+                .map_err(|e| anyhow::anyhow!("Failed to prepare symbol ID query: {}", e))?;
 
-        // First try: lookup by symbol_id
-        let mut stmt = conn
-            .prepare_cached(
-                "SELECT id FROM graph_entities
-                 WHERE kind = 'Symbol'
-                 AND json_extract(data, '$.symbol_id') = ?1",
-            )
-            .map_err(|e| anyhow::anyhow!("Failed to prepare symbol ID query: {}", e))?;
+            let result = stmt.query_row(params![symbol_id_or_fqn], |row| row.get::<_, i64>(0));
 
-        let result = stmt.query_row(params![symbol_id_or_fqn], |row| row.get::<_, i64>(0));
-
-        match result {
-            Ok(entity_id) => return Ok(entity_id),
-            Err(rusqlite::Error::QueryReturnedNoRows) => {
-                // Fallback: try FQN lookup
-            }
-            Err(e) => {
-                return Err(anyhow::anyhow!("Failed to query symbol ID: {}", e));
-            }
-        }
-
-        // Fallback: lookup by FQN or display_fqn
-        let mut stmt = conn
-            .prepare_cached(
-                "SELECT id FROM graph_entities
-                 WHERE kind = 'Symbol'
-                 AND (json_extract(data, '$.fqn') = ?1
-                      OR json_extract(data, '$.display_fqn') = ?1
-                      OR json_extract(data, '$.canonical_fqn') = ?1)",
-            )
-            .map_err(|e| anyhow::anyhow!("Failed to prepare FQN query: {}", e))?;
-
-        stmt.query_row(params![symbol_id_or_fqn], |row| row.get::<_, i64>(0))
-            .map_err(|e| match e {
-                rusqlite::Error::QueryReturnedNoRows => {
-                    anyhow::anyhow!(
-                        "Symbol '{}' not found in database (tried symbol_id, fqn, display_fqn, canonical_fqn)",
-                        symbol_id_or_fqn
-                    )
+            match result {
+                Ok(entity_id) => return Ok(entity_id),
+                Err(rusqlite::Error::QueryReturnedNoRows) => {}
+                Err(e) => {
+                    return Err(anyhow::anyhow!("Failed to query symbol ID: {}", e));
                 }
-                _ => anyhow::anyhow!("Failed to query symbol by FQN: {}", e),
-            })
+            }
+
+            let mut stmt = conn
+                .prepare_cached(
+                    "SELECT id FROM graph_entities
+                     WHERE kind = 'Symbol'
+                     AND (json_extract(data, '$.fqn') = ?1
+                          OR json_extract(data, '$.display_fqn') = ?1
+                          OR json_extract(data, '$.canonical_fqn') = ?1)",
+                )
+                .map_err(|e| anyhow::anyhow!("Failed to prepare FQN query: {}", e))?;
+
+            stmt.query_row(params![symbol_id_or_fqn], |row| row.get::<_, i64>(0))
+                .map_err(|e| match e {
+                    rusqlite::Error::QueryReturnedNoRows => {
+                        anyhow::anyhow!(
+                            "Symbol '{}' not found in database (tried symbol_id, fqn, display_fqn, canonical_fqn)",
+                            symbol_id_or_fqn
+                        )
+                    }
+                    _ => anyhow::anyhow!("Failed to query symbol by FQN: {}", e),
+                })
+        })
     }
 
     /// Get symbol information by entity ID
@@ -641,25 +637,23 @@ impl CodeGraph {
     /// # Returns
     /// Vector of entity IDs for call graph symbols
     fn all_call_graph_entities(&self) -> Result<Vec<i64>> {
-        let conn = self.chunks.connect()?;
+        self.chunks.with_conn(|conn| {
+            let mut stmt = conn
+                .prepare_cached(
+                    "SELECT DISTINCT from_id FROM graph_edges WHERE edge_type = 'CALLER'
+                     UNION
+                     SELECT DISTINCT to_id FROM graph_edges WHERE edge_type = 'CALLS'",
+                )
+                .map_err(|e| anyhow::anyhow!("Failed to prepare call graph query: {}", e))?;
 
-        // Find all symbols that participate in CALLS edges
-        // (either as caller via CALLER edges or as callee via CALLS edges)
-        let mut stmt = conn
-            .prepare_cached(
-                "SELECT DISTINCT from_id FROM graph_edges WHERE edge_type = 'CALLER'
-                 UNION
-                 SELECT DISTINCT to_id FROM graph_edges WHERE edge_type = 'CALLS'",
-            )
-            .map_err(|e| anyhow::anyhow!("Failed to prepare call graph query: {}", e))?;
+            let entity_ids = stmt
+                .query_map([], |row| row.get::<_, i64>(0))
+                .map_err(|e| anyhow::anyhow!("Failed to execute call graph query: {}", e))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| anyhow::anyhow!("Failed to collect call graph results: {}", e))?;
 
-        let entity_ids = stmt
-            .query_map([], |row| row.get::<_, i64>(0))
-            .map_err(|e| anyhow::anyhow!("Failed to execute call graph query: {}", e))?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| anyhow::anyhow!("Failed to collect call graph results: {}", e))?;
-
-        Ok(entity_ids)
+            Ok(entity_ids)
+        })
     }
 
     /// Find all symbols reachable from a given symbol (forward reachability)

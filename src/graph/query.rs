@@ -512,24 +512,24 @@ pub fn edge_endpoints(graph: &CodeGraph) -> Result<Vec<EdgeEndpoints>> {
     // sqlitegraph doesn't currently provide a public API to list edge endpoints.
     // We therefore query the underlying tables via a rusqlite connection to the same DB file,
     // using the ChunkStore connection (same file).
-    let conn = graph.chunks.connect()?;
+    graph.chunks.with_conn(|conn| {
+        let mut stmt = conn
+            .prepare_cached("SELECT from_id, to_id FROM graph_edges ORDER BY id")
+            .map_err(|e| anyhow::anyhow!("Failed to prepare edge endpoint query: {}", e))?;
 
-    let mut stmt = conn
-        .prepare_cached("SELECT from_id, to_id FROM graph_edges ORDER BY id")
-        .map_err(|e| anyhow::anyhow!("Failed to prepare edge endpoint query: {}", e))?;
-
-    let endpoints = stmt
-        .query_map([], |row: &rusqlite::Row| {
-            Ok(EdgeEndpoints {
-                from_id: row.get(0)?,
-                to_id: row.get(1)?,
+        let endpoints = stmt
+            .query_map([], |row: &rusqlite::Row| {
+                Ok(EdgeEndpoints {
+                    from_id: row.get(0)?,
+                    to_id: row.get(1)?,
+                })
             })
-        })
-        .map_err(|e| anyhow::anyhow!("Failed to query edge endpoints: {}", e))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| anyhow::anyhow!("Failed to collect edge endpoints: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to query edge endpoints: {}", e))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| anyhow::anyhow!("Failed to collect edge endpoints: {}", e))?;
 
-    Ok(endpoints)
+        Ok(endpoints)
+    })
 }
 
 // ============================================================================
@@ -558,19 +558,19 @@ impl CodeGraph {
     /// Uses raw SQL to query the graph_labels table directly.
     ///
     pub fn get_entities_by_label(&self, label: &str) -> Result<Vec<i64>> {
-        let conn = self.chunks.connect()?;
+        self.chunks.with_conn(|conn| {
+            let mut stmt = conn
+                .prepare_cached("SELECT DISTINCT entity_id FROM graph_labels WHERE label = ?1")
+                .map_err(|e| anyhow::anyhow!("Failed to prepare label query: {}", e))?;
 
-        let mut stmt = conn
-            .prepare_cached("SELECT DISTINCT entity_id FROM graph_labels WHERE label = ?1")
-            .map_err(|e| anyhow::anyhow!("Failed to prepare label query: {}", e))?;
+            let entity_ids = stmt
+                .query_map(params![label], |row: &rusqlite::Row| row.get(0))
+                .map_err(|e| anyhow::anyhow!("Failed to execute label query: {}", e))?
+                .collect::<Result<Vec<i64>, _>>()
+                .map_err(|e| anyhow::anyhow!("Failed to collect label results: {}", e))?;
 
-        let entity_ids = stmt
-            .query_map(params![label], |row: &rusqlite::Row| row.get(0))
-            .map_err(|e| anyhow::anyhow!("Failed to execute label query: {}", e))?
-            .collect::<Result<Vec<i64>, _>>()
-            .map_err(|e| anyhow::anyhow!("Failed to collect label results: {}", e))?;
-
-        Ok(entity_ids)
+            Ok(entity_ids)
+        })
     }
 
     /// Get all entity IDs that have all of the specified labels (AND semantics)
@@ -580,74 +580,71 @@ impl CodeGraph {
             return Ok(Vec::new());
         }
 
-        let conn = self.chunks.connect()?;
+        self.chunks.with_conn(|conn| {
+            let placeholders = std::iter::repeat_n("?", labels.len())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let query = format!(
+                "SELECT entity_id FROM graph_labels WHERE label IN ({})
+                 GROUP BY entity_id HAVING COUNT(DISTINCT label) = ?",
+                placeholders
+            );
 
-        // Build query with positional placeholders for each label
-        let placeholders = std::iter::repeat_n("?", labels.len())
-            .collect::<Vec<_>>()
-            .join(", ");
-        let query = format!(
-            "SELECT entity_id FROM graph_labels WHERE label IN ({})
-             GROUP BY entity_id HAVING COUNT(DISTINCT label) = ?",
-            placeholders
-        );
+            let label_params: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+            let count_param: i64 = labels.len() as i64;
 
-        // Build params: label strings + count as i64
-        let label_params: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
-        let count_param: i64 = labels.len() as i64;
+            let mut stmt = conn
+                .prepare_cached(&query)
+                .map_err(|e| anyhow::anyhow!("Failed to prepare multi-label query: {}", e))?;
 
-        let mut stmt = conn
-            .prepare_cached(&query)
-            .map_err(|e| anyhow::anyhow!("Failed to prepare multi-label query: {}", e))?;
+            let params: Vec<&dyn rusqlite::ToSql> = label_params
+                .iter()
+                .map(|s| s as &dyn rusqlite::ToSql)
+                .chain(std::iter::once(&count_param as &dyn rusqlite::ToSql))
+                .collect();
 
-        // Combine label params and count param into a single slice
-        let params: Vec<&dyn rusqlite::ToSql> = label_params
-            .iter()
-            .map(|s| s as &dyn rusqlite::ToSql)
-            .chain(std::iter::once(&count_param as &dyn rusqlite::ToSql))
-            .collect();
+            let entity_ids = stmt
+                .query_map(&params[..], |row: &rusqlite::Row| row.get(0))
+                .map_err(|e| anyhow::anyhow!("Failed to execute multi-label query: {}", e))?
+                .collect::<Result<Vec<i64>, _>>()
+                .map_err(|e| anyhow::anyhow!("Failed to collect multi-label results: {}", e))?;
 
-        let entity_ids = stmt
-            .query_map(&params[..], |row: &rusqlite::Row| row.get(0))
-            .map_err(|e| anyhow::anyhow!("Failed to execute multi-label query: {}", e))?
-            .collect::<Result<Vec<i64>, _>>()
-            .map_err(|e| anyhow::anyhow!("Failed to collect multi-label results: {}", e))?;
-
-        Ok(entity_ids)
+            Ok(entity_ids)
+        })
     }
 
     /// Get all labels currently in use
     ///
     pub fn get_all_labels(&self) -> Result<Vec<String>> {
-        let conn = self.chunks.connect()?;
+        self.chunks.with_conn(|conn| {
+            let mut stmt = conn
+                .prepare_cached("SELECT DISTINCT label FROM graph_labels ORDER BY label")
+                .map_err(|e| anyhow::anyhow!("Failed to prepare labels query: {}", e))?;
 
-        let mut stmt = conn
-            .prepare_cached("SELECT DISTINCT label FROM graph_labels ORDER BY label")
-            .map_err(|e| anyhow::anyhow!("Failed to prepare labels query: {}", e))?;
+            let labels = stmt
+                .query_map([], |row: &rusqlite::Row| row.get::<_, String>(0))
+                .map_err(|e| anyhow::anyhow!("Failed to execute labels query: {}", e))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| anyhow::anyhow!("Failed to collect labels: {}", e))?;
 
-        let labels = stmt
-            .query_map([], |row: &rusqlite::Row| row.get::<_, String>(0))
-            .map_err(|e| anyhow::anyhow!("Failed to execute labels query: {}", e))?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| anyhow::anyhow!("Failed to collect labels: {}", e))?;
-
-        Ok(labels)
+            Ok(labels)
+        })
     }
 
     /// Get count of entities with a specific label
     ///
     pub fn count_entities_by_label(&self, label: &str) -> Result<usize> {
-        let conn = self.chunks.connect()?;
+        self.chunks.with_conn(|conn| {
+            let count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(DISTINCT entity_id) FROM graph_labels WHERE label = ?1",
+                    params![label],
+                    |row: &rusqlite::Row| row.get(0),
+                )
+                .map_err(|e| anyhow::anyhow!("Failed to count entities by label: {}", e))?;
 
-        let count: i64 = conn
-            .query_row(
-                "SELECT COUNT(DISTINCT entity_id) FROM graph_labels WHERE label = ?1",
-                params![label],
-                |row: &rusqlite::Row| row.get(0),
-            )
-            .map_err(|e| anyhow::anyhow!("Failed to count entities by label: {}", e))?;
-
-        Ok(count as usize)
+            Ok(count as usize)
+        })
     }
 
     /// Get symbols by label with full metadata
@@ -743,55 +740,55 @@ impl CodeGraph {
     /// # Returns
     /// Vector of `SymbolQueryResult` for all matching symbols
     pub fn search_symbols_by_name(&self, name: &str) -> Result<Vec<SymbolQueryResult>> {
-        let conn = self.chunks.connect()?;
+        self.chunks.with_conn(|conn| {
+            let mut stmt = conn
+                .prepare_cached(
+                    "SELECT id, name, file_path, data
+                     FROM graph_entities
+                     WHERE name = ?1",
+                )
+                .map_err(|e| anyhow::anyhow!("Failed to prepare name search: {}", e))?;
 
-        let mut stmt = conn
-            .prepare_cached(
-                "SELECT id, name, file_path, data
-                 FROM graph_entities
-                 WHERE name = ?1",
-            )
-            .map_err(|e| anyhow::anyhow!("Failed to prepare name search: {}", e))?;
+            let results = stmt
+                .query_map(params![name], |row| {
+                    let entity_id: i64 = row.get(0)?;
+                    let sym_name: String = row.get(1)?;
+                    let file_path: Option<String> = row.get(2)?;
+                    let data: Option<String> = row.get(3)?;
 
-        let results = stmt
-            .query_map(params![name], |row| {
-                let entity_id: i64 = row.get(0)?;
-                let sym_name: String = row.get(1)?;
-                let file_path: Option<String> = row.get(2)?;
-                let data: Option<String> = row.get(3)?;
+                    let symbol_node: SymbolNode = data
+                        .and_then(|d| serde_json::from_value(serde_json::Value::String(d)).ok())
+                        .unwrap_or(SymbolNode {
+                            symbol_id: None,
+                            fqn: None,
+                            canonical_fqn: None,
+                            display_fqn: None,
+                            name: None,
+                            kind: "Unknown".to_string(),
+                            kind_normalized: None,
+                            byte_start: 0,
+                            byte_end: 0,
+                            start_line: 0,
+                            start_col: 0,
+                            end_line: 0,
+                            end_col: 0,
+                        });
 
-                let symbol_node: SymbolNode = data
-                    .and_then(|d| serde_json::from_value(serde_json::Value::String(d)).ok())
-                    .unwrap_or(SymbolNode {
-                        symbol_id: None,
-                        fqn: None,
-                        canonical_fqn: None,
-                        display_fqn: None,
-                        name: None,
-                        kind: "Unknown".to_string(),
-                        kind_normalized: None,
-                        byte_start: 0,
-                        byte_end: 0,
-                        start_line: 0,
-                        start_col: 0,
-                        end_line: 0,
-                        end_col: 0,
-                    });
-
-                Ok(SymbolQueryResult {
-                    entity_id,
-                    name: sym_name,
-                    file_path: file_path.unwrap_or_else(|| "?".to_string()),
-                    kind: symbol_node.kind_normalized.unwrap_or(symbol_node.kind),
-                    byte_start: symbol_node.byte_start,
-                    byte_end: symbol_node.byte_end,
+                    Ok(SymbolQueryResult {
+                        entity_id,
+                        name: sym_name,
+                        file_path: file_path.unwrap_or_else(|| "?".to_string()),
+                        kind: symbol_node.kind_normalized.unwrap_or(symbol_node.kind),
+                        byte_start: symbol_node.byte_start,
+                        byte_end: symbol_node.byte_end,
+                    })
                 })
-            })
-            .map_err(|e| anyhow::anyhow!("Failed to execute name search: {}", e))?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| anyhow::anyhow!("Failed to collect name search results: {}", e))?;
+                .map_err(|e| anyhow::anyhow!("Failed to execute name search: {}", e))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| anyhow::anyhow!("Failed to collect name search results: {}", e))?;
 
-        Ok(results)
+            Ok(results)
+        })
     }
 }
 
