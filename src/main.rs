@@ -61,6 +61,7 @@ mod verify_cmd;
 mod version;
 mod watch_cmd;
 
+use anyhow::Result;
 use magellan::output::{output_json, JsonResponse, MigrateResponse, OutputFormat};
 use magellan::CodeGraph;
 use std::process::ExitCode;
@@ -77,6 +78,16 @@ fn print_short_usage() {
 
 fn print_full_usage() {
     cli::print_full_usage();
+}
+
+fn exit_from_result(result: Result<()>) -> ExitCode {
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            ExitCode::from(1)
+        }
+    }
 }
 
 fn main() -> ExitCode {
@@ -129,41 +140,23 @@ fn main() -> ExitCode {
     }
 
     match parse_args() {
-        Ok(Command::Backfill { db_path }) => {
-            if let Err(e) = backfill_cmd::run_backfill(db_path) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        Ok(Command::Backfill { db_path }) => exit_from_result(backfill_cmd::run_backfill(db_path)),
         Ok(Command::CrossFileRefs {
             db_path,
             fqn,
             output_format,
-        }) => {
-            if let Err(e) = cross_file_refs_cmd::run_cross_file_refs(db_path, fqn, output_format) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(cross_file_refs_cmd::run_cross_file_refs(
+            db_path,
+            fqn,
+            output_format,
+        )),
         Ok(Command::Catalog { output_format }) => {
-            if let Err(e) = catalog_cmd::run_catalog(output_format) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
+            exit_from_result(catalog_cmd::run_catalog(output_format))
         }
         Ok(Command::CatalogDescribe {
             name,
             output_format,
-        }) => {
-            if let Err(e) = catalog_cmd::run_catalog_describe(&name, output_format) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(catalog_cmd::run_catalog_describe(&name, output_format)),
         Ok(Command::Score {
             db,
             top,
@@ -172,9 +165,9 @@ fn main() -> ExitCode {
             min_complexity,
             min_lifetime,
             output,
-        }) => {
+        }) => exit_from_result({
             let output = output.unwrap_or(magellan::OutputFormat::Human);
-            if let Err(e) = score_cmd::run_score(
+            score_cmd::run_score(
                 &db,
                 top,
                 min_score,
@@ -182,87 +175,41 @@ fn main() -> ExitCode {
                 min_complexity,
                 min_lifetime,
                 output,
-            ) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+            )
+        }),
         Ok(Command::InstallHook { threshold, strict }) => {
-            if let Err(e) = hook_cmd::run_install_hook(threshold, strict) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
+            exit_from_result(hook_cmd::run_install_hook(threshold, strict))
         }
         Ok(Command::ConfigShow { output_format }) => {
-            if let Err(e) = config_cmd::run_config_show(output_format) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
+            exit_from_result(config_cmd::run_config_show(output_format))
         }
-        Ok(Command::ConfigInit { force }) => {
-            if let Err(e) = config_cmd::run_config_init(force) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
-        Ok(Command::ProjectInit { path }) => {
-            if let Err(e) = init_cmd::run_project_init(path) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        Ok(Command::ConfigInit { force }) => exit_from_result(config_cmd::run_config_init(force)),
+        Ok(Command::ProjectInit { path }) => exit_from_result(init_cmd::run_project_init(path)),
         Ok(Command::Delete {
             db_path,
             file_path,
             root,
-        }) => {
-            if let Err(e) = delete_cmd::run_delete(db_path, file_path, root) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(delete_cmd::run_delete(db_path, file_path, root)),
         Ok(Command::Index {
             db_path,
             file_path,
             root,
-        }) => {
-            if let Err(e) = index_cmd::run_index(db_path, file_path, root) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(index_cmd::run_index(db_path, file_path, root)),
         Ok(Command::Status {
             output_format,
             db_path,
             all,
             ..
-        }) => {
-            if let Err(e) = run_status(db_path, output_format, all) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(run_status(db_path, output_format, all)),
         Ok(Command::ProjectMetadata {
             db_path,
             query,
             output_format,
-        }) => {
-            if let Err(e) =
-                project_metadata_cmd::run_project_metadata(db_path, query, output_format)
-            {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(project_metadata_cmd::run_project_metadata(
+            db_path,
+            query,
+            output_format,
+        )),
         Ok(Command::Export {
             db_path,
             format,
@@ -277,55 +224,33 @@ fn main() -> ExitCode {
             impact_symbol,
             impact_file,
             impact_depth,
-        }) => {
-            if let Err(e) = export_cmd::run_export(
-                db_path,
-                format,
-                output,
-                include_symbols,
-                include_references,
-                include_calls,
-                minify,
-                include_collisions,
-                collisions_field,
-                filters,
-                impact_symbol,
-                impact_file,
-                impact_depth,
-            ) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(export_cmd::run_export(
+            db_path,
+            format,
+            output,
+            include_symbols,
+            include_references,
+            include_calls,
+            minify,
+            include_collisions,
+            collisions_field,
+            filters,
+            impact_symbol,
+            impact_file,
+            impact_depth,
+        )),
         Ok(Command::ImportLsif {
             db_path,
             lsif_paths,
-        }) => {
-            if let Err(e) = import_lsif_cmd::run_import_lsif(db_path, lsif_paths) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(import_lsif_cmd::run_import_lsif(db_path, lsif_paths)),
         Ok(Command::IngestCoverage { db_path, lcov_path }) => {
-            if let Err(e) = ingest_coverage_cmd::run_ingest_coverage(db_path, lcov_path) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
+            exit_from_result(ingest_coverage_cmd::run_ingest_coverage(db_path, lcov_path))
         }
         Ok(Command::Enrich {
             db_path,
             files,
             timeout_secs,
-        }) => {
-            if let Err(e) = enrich_cmd::run_enrich(db_path, files, timeout_secs) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(enrich_cmd::run_enrich(db_path, files, timeout_secs)),
         Ok(Command::Context {
             subcommand,
             db_paths,
@@ -430,13 +355,7 @@ fn main() -> ExitCode {
             db_path,
             fix,
             output_format,
-        }) => {
-            if let Err(e) = doctor_cmd::run_doctor(db_path, fix, output_format) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(doctor_cmd::run_doctor(db_path, fix, output_format)),
         Ok(Command::Query {
             db_path,
             file_path,
@@ -452,40 +371,33 @@ fn main() -> ExitCode {
             with_semantics,
             with_checksums,
             context_lines,
-        }) => {
-            if let Err(e) = query_cmd::run_query(
-                db_path,
-                file_path,
-                root,
-                kind,
-                explain,
-                symbol,
-                show_extent,
-                output_format,
-                with_context,
-                with_callers,
-                with_callees,
-                with_semantics,
-                with_checksums,
-                context_lines,
-            ) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(query_cmd::run_query(
+            db_path,
+            file_path,
+            root,
+            kind,
+            explain,
+            symbol,
+            show_extent,
+            output_format,
+            with_context,
+            with_callers,
+            with_callees,
+            with_semantics,
+            with_checksums,
+            context_lines,
+        )),
         Ok(Command::Search {
             db_path,
             pattern,
             limit,
             output_format,
-        }) => {
-            if let Err(e) = search_cmd::run_search(db_path, pattern, limit, output_format) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(search_cmd::run_search(
+            db_path,
+            pattern,
+            limit,
+            output_format,
+        )),
         Ok(Command::Find {
             db_path,
             name,
@@ -503,30 +415,24 @@ fn main() -> ExitCode {
             with_checksums,
             context_lines,
             all,
-        }) => {
-            if let Err(e) = find_cmd::run_find(
-                db_path,
-                name,
-                root,
-                path,
-                glob_pattern,
-                symbol_id,
-                ambiguous_name,
-                first,
-                output_format,
-                with_context,
-                with_callers,
-                with_callees,
-                with_semantics,
-                with_checksums,
-                context_lines,
-                all,
-            ) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(find_cmd::run_find(
+            db_path,
+            name,
+            root,
+            path,
+            glob_pattern,
+            symbol_id,
+            ambiguous_name,
+            first,
+            output_format,
+            with_context,
+            with_callers,
+            with_callees,
+            with_semantics,
+            with_checksums,
+            context_lines,
+            all,
+        )),
         Ok(Command::Refs {
             db_path,
             name,
@@ -541,50 +447,37 @@ fn main() -> ExitCode {
             context_lines,
             all,
             tokens,
-        }) => {
-            if let Err(e) = refs_cmd::run_refs(
-                db_path,
-                name,
-                root,
-                path,
-                symbol_id,
-                direction,
-                output_format,
-                with_context,
-                with_semantics,
-                with_checksums,
-                context_lines,
-                all,
-                tokens,
-            ) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(refs_cmd::run_refs(
+            db_path,
+            name,
+            root,
+            path,
+            symbol_id,
+            direction,
+            output_format,
+            with_context,
+            with_semantics,
+            with_checksums,
+            context_lines,
+            all,
+            tokens,
+        )),
         Ok(Command::Files {
             db_path,
             output_format,
             with_symbols,
-        }) => {
-            if let Err(e) = files_cmd::run_files(db_path, with_symbols, output_format) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(files_cmd::run_files(db_path, with_symbols, output_format)),
         Ok(Command::Collisions {
             db_path,
             field,
             limit,
             output_format,
-        }) => {
-            if let Err(e) = collisions_cmd::run_collisions(db_path, field, limit, output_format) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(collisions_cmd::run_collisions(
+            db_path,
+            field,
+            limit,
+            output_format,
+        )),
         Ok(Command::Migrate {
             db_path,
             dry_run,
