@@ -5,6 +5,26 @@ Project adheres to [Semantic Versioning](https://semverver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Changed
+
+- **Ingestion parser internals were modularized without changing CLI or stored
+  fact behavior** (`src/ingest/mod.rs`, `src/ingest/java.rs`,
+  `src/ingest/java_symbols.rs`, `src/ingest/cpp.rs`,
+  `src/ingest/cpp_symbols.rs`, `src/ingest/typescript.rs`,
+  `src/ingest/typescript_symbols.rs`, `src/ingest/javascript.rs`,
+  `src/ingest/javascript_symbols.rs`): the Java, C++, TypeScript, and
+  JavaScript frontends now keep parser entry points, parser-pool entry points,
+  reference extraction, and call extraction in the language module, while
+  moving scope walking, name extraction, and FQN/symbol construction into
+  private sibling helper modules. This reduces four oversized ingestion files
+  to sub-1K modules (`java.rs` 1018 -> 605, `cpp.rs` 1018 -> 585,
+  `typescript.rs` 978 -> 578, `javascript.rs` 858 -> 508) and makes the
+  language frontends structurally consistent with the existing shared
+  `generic_extraction` and `types` splits. No CLI/API/schema changes were
+  introduced; this is an internal maintainability refactor verified by the full
+  library gate (`cargo fmt --all -- --check`, `cargo check --all-targets`,
+  `cargo clippy --all-targets -- -D warnings`, `cargo test --lib`).
+
 ### Fixed
 
 - **CI advisory policy now matches between `cargo audit` and `cargo deny`**

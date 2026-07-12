@@ -17,6 +17,10 @@ Splice.
 - Tree-sitter multi-language symbol extraction: Rust, Python, C, C++, Java, JavaScript, TypeScript, Go, CUDA
 - C/C++ CFG via clang → LLVM IR (`llvm_ir_parser`; clang detected at runtime, tree-sitter fallback)
 - Java CFG via javac → `.class` bytecode (`javac_invoker`, `class_parser`)
+- Language frontends in `src/ingest/` keep parser entry points thin and delegate
+  language-specific scope walking / FQN construction to private helper modules
+  such as `java_symbols`, `cpp_symbols`, `typescript_symbols`, and
+  `javascript_symbols`
 
 **Indexed facts**
 - Symbols with canonical / display FQNs, byte + line spans, stable IDs

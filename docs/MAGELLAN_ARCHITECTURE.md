@@ -94,6 +94,30 @@ Current parser dispatch covers Rust, Python, C, C++, Java, JavaScript,
 TypeScript, Go, and CUDA. `.hip` files are detected as C++ (HIP is C++ with AMD
 extensions; no dedicated tree-sitter grammar exists).
 
+### Ingest module layout
+
+The language frontends in `src/ingest/` now follow a consistent split between
+public parser entry modules and private symbol-construction helpers:
+
+| File | Responsibility |
+|------|----------------|
+| `src/ingest/mod.rs:1-26` | Declares public language modules plus private helper modules (`cpp_symbols`, `java_symbols`, `javascript_symbols`, `typescript_symbols`) and re-exports shared ingest types |
+| `src/ingest/java.rs:5-78` | Owns Java parser creation plus symbol/reference/call entry points; delegates symbol fact construction to `java_symbols` |
+| `src/ingest/java_symbols.rs:7-185` | Owns Java package-scope initialization, scope walking, method-name extraction, and FQN-backed symbol fact construction |
+| `src/ingest/cpp.rs:5-78` | Owns C++ parser creation plus symbol/reference/call entry points; delegates symbol fact construction to `cpp_symbols` |
+| `src/ingest/cpp_symbols.rs:6-176` | Owns C++ namespace/name resolution, recursive declarator-name lookup, scope walking, and FQN-backed symbol fact construction |
+| `src/ingest/typescript.rs:5-78` | Owns TypeScript parser creation plus symbol/reference/call entry points; delegates symbol fact construction to `typescript_symbols` |
+| `src/ingest/typescript_symbols.rs:6-169` | Owns TypeScript namespace/name extraction, function-name extraction, scope walking, and FQN-backed symbol fact construction |
+| `src/ingest/javascript.rs:5-78` | Owns JavaScript parser creation plus symbol/reference/call entry points; delegates symbol fact construction to `javascript_symbols` |
+| `src/ingest/javascript_symbols.rs:6-135` | Owns JavaScript name extraction, class-scope walking, and FQN-backed symbol fact construction |
+
+Call path for the affected languages:
+
+1. The language parser parses source in the public frontend module (`java.rs:45-50`, `cpp.rs:45-50`, `typescript.rs:45-50`, `javascript.rs:45-50`).
+2. The frontend delegates symbol extraction to `build_symbol_facts_from_tree(...)` in the matching helper module (`java_symbols.rs:167-185`, `cpp_symbols.rs:157-176`, `typescript_symbols.rs:150-169`, `javascript_symbols.rs:116-135`).
+3. The helper module performs language-specific scope walking and FQN assembly before returning `Vec<SymbolFact>` to the frontend (`java_symbols.rs:35-154`, `cpp_symbols.rs:59-155`, `typescript_symbols.rs:50-148`, `javascript_symbols.rs:25-114`).
+4. Reference and call extraction stay in the public frontend modules and continue to use `generic_extraction` with language-specific closures (`java.rs:95-164`, `cpp.rs:95-187`, `typescript.rs:103-188`, `javascript.rs:103-188`).
+
 ## Identity Model
 
 Magellan exposes two different identifier classes:
