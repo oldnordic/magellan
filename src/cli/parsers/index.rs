@@ -52,18 +52,12 @@ pub fn parse_cross_file_refs_args(args: &[String]) -> Result<Command> {
     while i < args.len() {
         match args[i].as_str() {
             "--db" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--db requires an argument"));
-                }
-                db_path = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--db")?;
+                db_path = Some(PathBuf::from(value));
             }
             "--fqn" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--fqn requires an argument"));
-                }
-                fqn = Some(args[i + 1].clone());
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--fqn")?;
+                fqn = Some(value);
             }
             "--output" => {
                 let value = parse_required_arg(args, &mut i, "--output")?;
@@ -229,17 +223,12 @@ pub fn parse_export_args(args: &[String]) -> Result<Command> {
     while i < args.len() {
         match args[i].as_str() {
             "--db" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--db requires an argument"));
-                }
-                db_path = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--db")?;
+                db_path = Some(PathBuf::from(value));
             }
             "--format" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--format requires an argument"));
-                }
-                format = match args[i + 1].as_str() {
+                let value = parse_required_arg(args, &mut i, "--format")?;
+                format = match value.as_str() {
                     "json" => ExportFormat::Json,
                     "jsonl" => ExportFormat::JsonL,
                     "csv" => ExportFormat::Csv,
@@ -247,16 +236,12 @@ pub fn parse_export_args(args: &[String]) -> Result<Command> {
                     "dot" => ExportFormat::Dot,
                     "lsif" => ExportFormat::Lsif,
                     "impact" => ExportFormat::Impact,
-                    _ => return Err(anyhow::anyhow!("Invalid format: {}", args[i + 1])),
+                    _ => return Err(anyhow::anyhow!("Invalid format: {}", value)),
                 };
-                i += 2;
             }
             "--output" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--output requires an argument"));
-                }
-                output = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output = Some(PathBuf::from(value));
             }
             "--no-symbols" => {
                 include_symbols = false;
@@ -279,57 +264,40 @@ pub fn parse_export_args(args: &[String]) -> Result<Command> {
                 i += 1;
             }
             "--collisions-field" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--collisions-field requires an argument"));
-                }
-                collisions_field = match args[i + 1].as_str() {
+                let value = parse_required_arg(args, &mut i, "--collisions-field")?;
+                collisions_field = match value.as_str() {
                     "fqn" => CollisionField::Fqn,
                     "display_fqn" => CollisionField::DisplayFqn,
                     "canonical_fqn" => CollisionField::CanonicalFqn,
-                    _ => return Err(anyhow::anyhow!("Invalid collisions field: {}", args[i + 1])),
+                    _ => return Err(anyhow::anyhow!("Invalid collisions field: {}", value)),
                 };
-                i += 2;
             }
             "--filter-file" | "--file" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--filter-file requires an argument"));
-                }
-                filters.file = Some(args[i + 1].clone());
-                i += 2;
+                let flag = args[i].as_str();
+                let value = parse_required_arg(args, &mut i, flag)?;
+                filters.file = Some(value);
             }
             "--filter-kind" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--filter-kind requires an argument"));
-                }
-                filters.kind = Some(args[i + 1].clone());
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--filter-kind")?;
+                filters.kind = Some(value);
             }
             "--cluster" => {
                 filters.cluster = true;
                 i += 1;
             }
             "--symbol" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--symbol requires an argument"));
-                }
-                impact_symbol = Some(args[i + 1].clone());
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--symbol")?;
+                impact_symbol = Some(value);
             }
             "--impact-file" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--impact-file requires an argument"));
-                }
-                impact_file = Some(args[i + 1].clone());
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--impact-file")?;
+                impact_file = Some(value);
             }
             "--depth" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--depth requires an argument"));
-                }
-                impact_depth = args[i + 1]
+                let value = parse_required_arg(args, &mut i, "--depth")?;
+                impact_depth = value
                     .parse()
                     .map_err(|_| anyhow::anyhow!("--depth must be a number"))?;
-                i += 2;
             }
             _ => {
                 return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
@@ -365,18 +333,13 @@ pub fn parse_import_lsif_args(args: &[String]) -> Result<Command> {
     while i < args.len() {
         match args[i].as_str() {
             "--db" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--db requires an argument"));
-                }
-                db_path = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--db")?;
+                db_path = Some(PathBuf::from(value));
             }
             "--input" | "--file" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--input requires an argument"));
-                }
-                lsif_paths.push(PathBuf::from(&args[i + 1]));
-                i += 2;
+                let flag = args[i].as_str();
+                let value = parse_required_arg(args, &mut i, flag)?;
+                lsif_paths.push(PathBuf::from(value));
             }
             _ => {
                 // Treat as LSIF file path
@@ -409,18 +372,12 @@ pub fn parse_ingest_coverage_args(args: &[String]) -> Result<Command> {
     while i < args.len() {
         match args[i].as_str() {
             "--db" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--db requires a value"));
-                }
-                db_path = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--db")?;
+                db_path = Some(PathBuf::from(value));
             }
             "--lcov" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--lcov requires a value"));
-                }
-                lcov_path = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--lcov")?;
+                lcov_path = Some(PathBuf::from(value));
             }
             _ => i += 1,
         }
@@ -444,41 +401,27 @@ pub fn parse_blast_score_args(args: &[String]) -> Result<Command> {
     while i < args.len() {
         match args[i].as_str() {
             "--db" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--db requires an argument"));
-                }
-                db_path = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--db")?;
+                db_path = Some(PathBuf::from(value));
             }
             "--symbol" | "--name" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--symbol requires an argument"));
-                }
-                symbol = Some(args[i + 1].clone());
-                i += 2;
+                let flag = args[i].as_str();
+                let value = parse_required_arg(args, &mut i, flag)?;
+                symbol = Some(value);
             }
             "--file" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--file requires an argument"));
-                }
-                file = Some(args[i + 1].clone());
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--file")?;
+                file = Some(value);
             }
             "--depth" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--depth requires an argument"));
-                }
-                depth = args[i + 1]
+                let value = parse_required_arg(args, &mut i, "--depth")?;
+                depth = value
                     .parse()
                     .map_err(|_| anyhow::anyhow!("--depth must be a positive integer"))?;
-                i += 2;
             }
             "--output" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--output requires an argument"));
-                }
-                output_format = parse_output_format(&args[i + 1])?;
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output_format = parse_output_format(&value)?;
             }
             _ => {
                 return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
