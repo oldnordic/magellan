@@ -13,6 +13,7 @@ mod collisions_cmd;
 mod condense_cmd;
 mod config_cmd;
 mod context_cmd;
+mod context_output;
 mod cross_file_refs_cmd;
 mod cycles_cmd;
 mod cypher_cmd;
