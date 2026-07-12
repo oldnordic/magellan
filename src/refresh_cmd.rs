@@ -198,12 +198,20 @@ pub fn run_refresh(args: &RefreshArgs) -> Result<RefreshReport> {
 
         match args.output_format {
             OutputFormat::Json | OutputFormat::Pretty => {
+                graph
+                    .telemetry()
+                    .record_phase_start(&exec_id, "build_response")?;
                 let response = RefreshResponse::from_report(&report, args.dry_run);
                 let json_response = JsonResponse::new(response, &exec_id);
                 output_json(&json_response, args.output_format)?;
+                graph
+                    .telemetry()
+                    .record_phase_end(&exec_id, "build_response")?;
             }
             OutputFormat::Human => {
+                graph.telemetry().record_phase_start(&exec_id, "output")?;
                 print_human_output(&report, args.dry_run);
+                graph.telemetry().record_phase_end(&exec_id, "output")?;
             }
         }
 
