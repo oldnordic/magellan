@@ -4,6 +4,7 @@
 
 use crate::service::registry::Registry;
 use anyhow::Result;
+use magellan::backend_router::MagellanBackend;
 use magellan::capabilities::capabilities_for_path;
 use magellan::output::{
     generate_execution_id, output_json, CoverageInfo, JsonResponse, StatusResponse,
@@ -54,6 +55,28 @@ impl ExecutionTracker {
 
     pub fn finish(&self, graph: &CodeGraph) -> Result<()> {
         graph.execution_log().finish_execution(
+            &self.exec_id,
+            &self.outcome,
+            self.error_message.as_deref(),
+            self.files_indexed,
+            self.symbols_indexed,
+            self.references_indexed,
+        )
+    }
+
+    pub fn start_backend(&self, backend: &MagellanBackend) -> Result<()> {
+        backend.start_execution(
+            &self.exec_id,
+            &self.tool_version,
+            &self.args,
+            self.root.as_deref(),
+            &self.db_path,
+        )?;
+        Ok(())
+    }
+
+    pub fn finish_backend(&self, backend: &MagellanBackend) -> Result<()> {
+        backend.finish_execution(
             &self.exec_id,
             &self.outcome,
             self.error_message.as_deref(),
