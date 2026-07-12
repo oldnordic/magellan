@@ -45,10 +45,6 @@ use crate::ingest::{SymbolFact, SymbolKind};
 
 /// Entry in the symbol lookup index
 #[derive(Debug, Clone)]
-#[allow(
-    dead_code,
-    reason = "SymbolEntry data model: fields populated during index build, reserved for future query paths"
-)]
 pub struct SymbolEntry {
     /// Entity ID in the graph database
     pub entity_id: i64,
