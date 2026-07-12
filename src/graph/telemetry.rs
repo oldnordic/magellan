@@ -157,6 +157,22 @@ impl TelemetryOps {
         }
     }
 
+    fn with_conn<F, R>(&self, f: F) -> Result<R>
+    where
+        F: FnOnce(&rusqlite::Connection) -> Result<R>,
+    {
+        match &self.backend {
+            TelemetryBackend::Sqlite(_) => {
+                let conn = self.connect()?;
+                f(&conn)
+            }
+            TelemetryBackend::Shared(conn_arc) => {
+                let conn = conn_arc.lock();
+                f(&conn)
+            }
+        }
+    }
+
     fn ensure_schema_sqlite(conn: &rusqlite::Connection) -> Result<(), anyhow::Error> {
         conn.execute(
             "CREATE TABLE IF NOT EXISTS telemetry_events (
@@ -199,16 +215,7 @@ impl TelemetryOps {
     }
 
     pub fn ensure_schema(&self) -> Result<()> {
-        match &self.backend {
-            TelemetryBackend::Sqlite(_) => {
-                let conn = self.connect()?;
-                Self::ensure_schema_sqlite(&conn)
-            }
-            TelemetryBackend::Shared(conn_arc) => {
-                let conn = conn_arc.lock();
-                Self::ensure_schema_sqlite(&conn)
-            }
-        }
+        self.with_conn(Self::ensure_schema_sqlite)
     }
 
     fn now_ns() -> i64 {
@@ -281,41 +288,21 @@ impl TelemetryOps {
         // table, locked WAL, or full disk must NEVER abort the host command. All five
         // public record_* methods funnel through here, so catching the failure at this
         // single chokepoint fixes the entire class (130+ call sites) at once.
-        let row_id = match &self.backend {
-            TelemetryBackend::Sqlite(_) => match self.connect() {
-                Ok(conn) => match Self::insert_event_sqlite(
-                    &conn,
-                    execution_id,
-                    event_type,
-                    event_name,
-                    timestamp_ns,
-                    duration_ns,
-                    value,
-                    unit,
-                    metadata,
-                ) {
-                    Ok(id) => id,
-                    Err(e) => return Ok(Self::swallow_telemetry_error(e)),
-                },
-                Err(e) => return Ok(Self::swallow_telemetry_error(anyhow::anyhow!(e))),
-            },
-            TelemetryBackend::Shared(conn_arc) => {
-                let conn = conn_arc.lock();
-                match Self::insert_event_sqlite(
-                    &conn,
-                    execution_id,
-                    event_type,
-                    event_name,
-                    timestamp_ns,
-                    duration_ns,
-                    value,
-                    unit,
-                    metadata,
-                ) {
-                    Ok(id) => id,
-                    Err(e) => return Ok(Self::swallow_telemetry_error(e)),
-                }
-            }
+        let row_id = match self.with_conn(|conn| {
+            Self::insert_event_sqlite(
+                conn,
+                execution_id,
+                event_type,
+                event_name,
+                timestamp_ns,
+                duration_ns,
+                value,
+                unit,
+                metadata,
+            )
+        }) {
+            Ok(id) => id,
+            Err(e) => return Ok(Self::swallow_telemetry_error(e)),
         };
 
         // Push to ring buffer for real-time access
@@ -332,6 +319,21 @@ impl TelemetryOps {
         });
 
         Ok(row_id)
+    }
+
+    fn latest_phase_start(&self, execution_id: &str, phase: &str) -> Option<i64> {
+        self.with_conn(|conn| {
+            conn.query_row(
+                "SELECT timestamp_ns FROM telemetry_events
+                 WHERE execution_id = ?1 AND event_type = 'phase_start' AND event_name = ?2
+                 ORDER BY timestamp_ns DESC LIMIT 1",
+                params![execution_id, phase],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()
+            .map_err(anyhow::Error::from)
+        })
+        .unwrap_or(None)
     }
 
     /// Swallow a telemetry write failure: warn once per process, return sentinel
@@ -371,33 +373,7 @@ impl TelemetryOps {
 
         // Find the matching phase_start to compute duration. Best-effort: a
         // failure here means we lose the duration value, not the whole event.
-        let start_ns = match &self.backend {
-            TelemetryBackend::Sqlite(_) => match self.connect() {
-                Ok(conn) => conn
-                    .query_row(
-                        "SELECT timestamp_ns FROM telemetry_events
-                         WHERE execution_id = ?1 AND event_type = 'phase_start' AND event_name = ?2
-                         ORDER BY timestamp_ns DESC LIMIT 1",
-                        params![execution_id, phase],
-                        |row| row.get::<_, i64>(0),
-                    )
-                    .optional()
-                    .unwrap_or(None),
-                Err(_) => None,
-            },
-            TelemetryBackend::Shared(conn_arc) => {
-                let conn = conn_arc.lock();
-                conn.query_row(
-                    "SELECT timestamp_ns FROM telemetry_events
-                     WHERE execution_id = ?1 AND event_type = 'phase_start' AND event_name = ?2
-                     ORDER BY timestamp_ns DESC LIMIT 1",
-                    params![execution_id, phase],
-                    |row| row.get::<_, i64>(0),
-                )
-                .optional()
-                .unwrap_or(None)
-            }
-        };
+        let start_ns = self.latest_phase_start(execution_id, phase);
 
         let duration_ns = start_ns.map(|s| end_ns - s);
 
@@ -510,69 +486,63 @@ impl TelemetryOps {
         })
     }
 
-    /// Get all telemetry events for an execution
-    pub fn get_events_for_execution(&self, execution_id: &str) -> Result<Vec<TelemetryEvent>> {
+    fn get_events_for_execution_sqlite(
+        conn: &rusqlite::Connection,
+        execution_id: &str,
+    ) -> Result<Vec<TelemetryEvent>> {
         let sql = "SELECT id, execution_id, event_type, event_name, timestamp_ns,
                           duration_ns, value, unit, metadata
                    FROM telemetry_events
                    WHERE execution_id = ?1
                    ORDER BY timestamp_ns ASC";
+        let mut stmt = conn.prepare(sql)?;
+        let events = stmt
+            .query_map(params![execution_id], Self::row_to_event)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| anyhow::anyhow!("Failed to collect telemetry events: {}", e))?;
+        Ok(events)
+    }
 
-        match &self.backend {
-            TelemetryBackend::Sqlite(_) => {
-                let conn = self.connect()?;
-                let mut stmt = conn.prepare(sql)?;
-                let events = stmt
-                    .query_map(params![execution_id], Self::row_to_event)?
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(|e| anyhow::anyhow!("Failed to collect telemetry events: {}", e))?;
-                Ok(events)
-            }
-            TelemetryBackend::Shared(conn_arc) => {
-                let conn = conn_arc.lock();
-                let mut stmt = conn.prepare(sql)?;
-                let events = stmt
-                    .query_map(params![execution_id], Self::row_to_event)?
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(|e| anyhow::anyhow!("Failed to collect telemetry events: {}", e))?;
-                Ok(events)
-            }
-        }
+    /// Get all telemetry events for an execution
+    pub fn get_events_for_execution(&self, execution_id: &str) -> Result<Vec<TelemetryEvent>> {
+        self.with_conn(|conn| Self::get_events_for_execution_sqlite(conn, execution_id))
+    }
+
+    fn get_phase_durations_sqlite(
+        conn: &rusqlite::Connection,
+        execution_id: &str,
+    ) -> Result<Vec<(String, i64)>> {
+        let sql = "SELECT event_name, duration_ns
+                   FROM telemetry_events
+                   WHERE execution_id = ?1 AND event_type = 'phase_end' AND duration_ns IS NOT NULL
+                   ORDER BY timestamp_ns ASC";
+        let mut stmt = conn.prepare(sql)?;
+        let rows = stmt
+            .query_map(params![execution_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| anyhow::anyhow!("Failed to collect phase durations: {}", e))?;
+        Ok(rows)
     }
 
     /// Get phase durations for an execution
     ///
     /// Returns (phase_name, duration_ns) pairs from phase_end events
     pub fn get_phase_durations(&self, execution_id: &str) -> Result<Vec<(String, i64)>> {
-        let sql = "SELECT event_name, duration_ns
-                   FROM telemetry_events
-                   WHERE execution_id = ?1 AND event_type = 'phase_end' AND duration_ns IS NOT NULL
-                   ORDER BY timestamp_ns ASC";
+        self.with_conn(|conn| Self::get_phase_durations_sqlite(conn, execution_id))
+    }
 
-        match &self.backend {
-            TelemetryBackend::Sqlite(_) => {
-                let conn = self.connect()?;
-                let mut stmt = conn.prepare(sql)?;
-                let rows = stmt
-                    .query_map(params![execution_id], |row| {
-                        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-                    })?
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(|e| anyhow::anyhow!("Failed to collect phase durations: {}", e))?;
-                Ok(rows)
-            }
-            TelemetryBackend::Shared(conn_arc) => {
-                let conn = conn_arc.lock();
-                let mut stmt = conn.prepare(sql)?;
-                let rows = stmt
-                    .query_map(params![execution_id], |row| {
-                        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-                    })?
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(|e| anyhow::anyhow!("Failed to collect phase durations: {}", e))?;
-                Ok(rows)
-            }
-        }
+    fn get_recent_events_sqlite(
+        conn: &rusqlite::Connection,
+        sql: &str,
+    ) -> Result<Vec<TelemetryEvent>> {
+        let mut stmt = conn.prepare(sql)?;
+        let events = stmt
+            .query_map([], Self::row_to_event)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| anyhow::anyhow!("Failed to collect recent events: {}", e))?;
+        Ok(events)
     }
 
     /// Get recent events across all executions
@@ -586,26 +556,7 @@ impl TelemetryOps {
             limit
         );
 
-        match &self.backend {
-            TelemetryBackend::Sqlite(_) => {
-                let conn = self.connect()?;
-                let mut stmt = conn.prepare(&sql)?;
-                let events = stmt
-                    .query_map([], Self::row_to_event)?
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(|e| anyhow::anyhow!("Failed to collect recent events: {}", e))?;
-                Ok(events)
-            }
-            TelemetryBackend::Shared(conn_arc) => {
-                let conn = conn_arc.lock();
-                let mut stmt = conn.prepare(&sql)?;
-                let events = stmt
-                    .query_map([], Self::row_to_event)?
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(|e| anyhow::anyhow!("Failed to collect recent events: {}", e))?;
-                Ok(events)
-            }
-        }
+        self.with_conn(|conn| Self::get_recent_events_sqlite(conn, &sql))
     }
 
     /// Get a snapshot of the in-memory ring buffer
