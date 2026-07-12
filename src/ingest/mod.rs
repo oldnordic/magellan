@@ -7,6 +7,7 @@ pub mod generic_extraction;
 pub mod go;
 pub mod imports;
 pub mod java;
+mod java_symbols;
 pub mod javascript;
 pub mod pool;
 pub mod python;

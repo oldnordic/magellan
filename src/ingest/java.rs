@@ -2,12 +2,11 @@
 //!
 //! Extracts classes, interfaces, enums, methods, and packages from Java source code.
 
-use crate::common::safe_slice;
-use crate::graph::canonical_fqn::FqnBuilder;
-use crate::ingest::{ScopeSeparator, ScopeStack, SymbolFact, SymbolKind};
+use crate::ingest::java_symbols::{build_symbol_facts_from_tree, extract_method_name};
+use crate::ingest::SymbolFact;
 use crate::references::{CallFact, ReferenceFact};
 use anyhow::Result;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Parser that extracts symbol facts from Java source code.
 ///
@@ -48,208 +47,7 @@ impl JavaParser {
             Some(t) => t,
             None => return Vec::new(), // Parse error: return empty
         };
-
-        let root_node = tree.root_node();
-        let mut facts = Vec::new();
-        let mut scope_stack = ScopeStack::new(ScopeSeparator::Dot);
-
-        // Find package declaration first (it comes first in the file)
-        let mut pkg_name = String::new();
-        let mut cursor = root_node.walk();
-        for child in root_node.children(&mut cursor) {
-            if child.kind() == "package_declaration" {
-                if let Some(name) = self.extract_name(&child, source, "package_declaration") {
-                    pkg_name = name.clone();
-                    // Extract the package symbol itself (before pushing to scope)
-                    if let Some(fact) = self.extract_symbol_with_fqn(
-                        &child,
-                        source,
-                        &file_path,
-                        &scope_stack,
-                        &pkg_name,
-                    ) {
-                        facts.push(fact);
-                    }
-                    // Package becomes root scope: com.example.Class
-                    for part in pkg_name.split('.') {
-                        scope_stack.push(part);
-                    }
-                }
-                break;
-            }
-        }
-
-        // Walk tree with scope tracking
-        self.walk_tree_with_scope(
-            &root_node,
-            source,
-            &file_path,
-            &mut facts,
-            &mut scope_stack,
-            &pkg_name,
-        );
-
-        facts
-    }
-
-    /// Walk tree-sitter tree recursively with scope tracking
-    ///
-    /// Tracks class and interface scope boundaries to build proper FQNs.
-    /// - class_declaration: pushes class name to scope
-    /// - interface_declaration: pushes interface name to scope
-    /// - enum_declaration: pushes enum name to scope
-    fn walk_tree_with_scope(
-        &self,
-        node: &tree_sitter::Node,
-        source: &[u8],
-        file_path: &Path,
-        facts: &mut Vec<SymbolFact>,
-        scope_stack: &mut ScopeStack,
-        package_name: &str,
-    ) {
-        let kind = node.kind();
-
-        // Skip package_declaration (already handled)
-        if kind == "package_declaration" {
-            return;
-        }
-
-        // Track type scope
-        let is_type_scope = matches!(
-            kind,
-            "class_declaration" | "interface_declaration" | "enum_declaration"
-        );
-
-        if is_type_scope {
-            if let Some(name) = self.extract_name(node, source, kind) {
-                // Create type symbol with parent scope
-                if let Some(fact) =
-                    self.extract_symbol_with_fqn(node, source, file_path, scope_stack, package_name)
-                {
-                    facts.push(fact);
-                }
-                // Push type scope for children (methods, nested types)
-                scope_stack.push(&name);
-                let mut cursor = node.walk();
-                for child in node.children(&mut cursor) {
-                    self.walk_tree_with_scope(
-                        &child,
-                        source,
-                        file_path,
-                        facts,
-                        scope_stack,
-                        package_name,
-                    );
-                }
-                scope_stack.pop();
-                return;
-            }
-        }
-
-        // Check if this node is a symbol we care about
-        if let Some(fact) =
-            self.extract_symbol_with_fqn(node, source, file_path, scope_stack, package_name)
-        {
-            facts.push(fact);
-        }
-
-        // Recurse into children
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack, package_name);
-        }
-    }
-
-    /// Extract a symbol fact with FQN from a tree-sitter node, if applicable
-    ///
-    /// Uses the current scope stack to build a fully-qualified name.
-    /// Creates symbols for all relevant node types including type scope nodes.
-    fn extract_symbol_with_fqn(
-        &self,
-        node: &tree_sitter::Node,
-        source: &[u8],
-        file_path: &Path,
-        scope_stack: &ScopeStack,
-        _package_name: &str, // Not used - package is in ScopeStack
-    ) -> Option<SymbolFact> {
-        let kind = node.kind();
-
-        let symbol_kind = match kind {
-            "method_declaration" => SymbolKind::Method,
-            "class_declaration" => SymbolKind::Class,
-            "interface_declaration" => SymbolKind::Interface,
-            "enum_declaration" => SymbolKind::Enum,
-            "package_declaration" => SymbolKind::Module,
-            _ => return None, // Not a symbol we track
-        };
-
-        let name = self.extract_name(node, source, kind)?;
-        let normalized_kind = symbol_kind.normalized_key().to_string();
-
-        // Build FQN from current scope + symbol name
-        let fqn = scope_stack.fqn_for_symbol(&name);
-
-        // Compute canonical and display FQN using FqnBuilder
-        // For Java: use empty crate_name since package is already in ScopeStack
-        let builder = FqnBuilder::new(
-            String::new(),
-            file_path.to_string_lossy().to_string(),
-            ScopeSeparator::Dot,
-        );
-        let canonical_fqn = builder.canonical(scope_stack, symbol_kind.clone(), &name);
-        let display_fqn = builder.display(scope_stack, symbol_kind.clone(), &name);
-
-        Some(SymbolFact {
-            file_path: file_path.to_path_buf(),
-            kind: symbol_kind,
-            kind_normalized: normalized_kind,
-            name: Some(name),
-            fqn: Some(fqn),
-            canonical_fqn: Some(canonical_fqn),
-            display_fqn: Some(display_fqn),
-            byte_start: node.start_byte(),
-            byte_end: node.end_byte(),
-            start_line: node.start_position().row + 1, // tree-sitter is 0-indexed
-            start_col: node.start_position().column,
-            end_line: node.end_position().row + 1,
-            end_col: node.end_position().column,
-        })
-    }
-
-    /// Extract name from a symbol node.
-    ///
-    /// Java uses different identifier patterns:
-    /// - Classes/interfaces/enums: direct `identifier` child
-    /// - Methods: direct `identifier` child
-    /// - Packages: `scoped_identifier` child (e.g., com.example)
-    fn extract_name(
-        &self,
-        node: &tree_sitter::Node,
-        source: &[u8],
-        node_kind: &str,
-    ) -> Option<String> {
-        // For package_declaration, extract from scoped_identifier
-        if node_kind == "package_declaration" {
-            let mut cursor = node.walk();
-            for child in node.children(&mut cursor) {
-                if child.kind() == "scoped_identifier" || child.kind() == "identifier" {
-                    let name_bytes = safe_slice(source, child.start_byte(), child.end_byte())?;
-                    return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
-                }
-            }
-            return None;
-        }
-
-        // For other symbols, name is a direct identifier child
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            if child.kind() == "identifier" {
-                let name_bytes = safe_slice(source, child.start_byte(), child.end_byte())?;
-                return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
-            }
-        }
-
-        None
+        build_symbol_facts_from_tree(&tree.root_node(), file_path, source)
     }
 
     /// Extract symbol facts using an external parser (for parser pooling).
@@ -266,48 +64,7 @@ impl JavaParser {
             None => return Vec::new(),
         };
 
-        let root_node = tree.root_node();
-        let mut facts = Vec::new();
-        let mut scope_stack = ScopeStack::new(ScopeSeparator::Dot);
-
-        // Find package declaration first (it comes first in the file)
-        let mut pkg_name = String::new();
-        let mut cursor = root_node.walk();
-        for child in root_node.children(&mut cursor) {
-            if child.kind() == "package_declaration" {
-                if let Some(name) = Self::extract_name_static(&child, source, "package_declaration")
-                {
-                    pkg_name = name.clone();
-                    // Extract the package symbol itself (before pushing to scope)
-                    if let Some(fact) = Self::extract_symbol_with_fqn_static(
-                        &child,
-                        source,
-                        &file_path,
-                        &scope_stack,
-                        &pkg_name,
-                    ) {
-                        facts.push(fact);
-                    }
-                    // Package becomes root scope: com.example.Class
-                    for part in pkg_name.split('.') {
-                        scope_stack.push(part);
-                    }
-                }
-                break;
-            }
-        }
-
-        // Walk tree with scope tracking
-        Self::walk_tree_with_scope_static(
-            &root_node,
-            source,
-            &file_path,
-            &mut facts,
-            &mut scope_stack,
-            &pkg_name,
-        );
-
-        facts
+        build_symbol_facts_from_tree(&tree.root_node(), file_path, source)
     }
 
     /// Extract symbol facts from a pre-parsed tree.
@@ -318,196 +75,7 @@ impl JavaParser {
         file_path: PathBuf,
         source: &[u8],
     ) -> Vec<SymbolFact> {
-        let root_node = tree.root_node();
-        let mut facts = Vec::new();
-        let mut scope_stack = ScopeStack::new(ScopeSeparator::Dot);
-        let mut pkg_name = String::new();
-        let mut cursor = root_node.walk();
-        for child in root_node.children(&mut cursor) {
-            if child.kind() == "package_declaration" {
-                if let Some(name) = Self::extract_name_static(&child, source, "package_declaration")
-                {
-                    pkg_name = name.clone();
-                    if let Some(fact) = Self::extract_symbol_with_fqn_static(
-                        &child,
-                        source,
-                        &file_path,
-                        &scope_stack,
-                        &pkg_name,
-                    ) {
-                        facts.push(fact);
-                    }
-                    for part in pkg_name.split('.') {
-                        scope_stack.push(part);
-                    }
-                }
-                break;
-            }
-        }
-        Self::walk_tree_with_scope_static(
-            &root_node,
-            source,
-            &file_path,
-            &mut facts,
-            &mut scope_stack,
-            &pkg_name,
-        );
-        facts
-    }
-
-    /// Static version of walk_tree_with_scope for external parser usage.
-    fn walk_tree_with_scope_static(
-        node: &tree_sitter::Node,
-        source: &[u8],
-        file_path: &Path,
-        facts: &mut Vec<SymbolFact>,
-        scope_stack: &mut ScopeStack,
-        package_name: &str,
-    ) {
-        let kind = node.kind();
-
-        // Skip package_declaration (already handled)
-        if kind == "package_declaration" {
-            return;
-        }
-
-        // Track type scope
-        let is_type_scope = matches!(
-            kind,
-            "class_declaration" | "interface_declaration" | "enum_declaration"
-        );
-
-        if is_type_scope {
-            if let Some(name) = Self::extract_name_static(node, source, kind) {
-                // Create type symbol with parent scope
-                if let Some(fact) = Self::extract_symbol_with_fqn_static(
-                    node,
-                    source,
-                    file_path,
-                    scope_stack,
-                    package_name,
-                ) {
-                    facts.push(fact);
-                }
-                // Push type scope for children (methods, nested types)
-                scope_stack.push(&name);
-                let mut cursor = node.walk();
-                for child in node.children(&mut cursor) {
-                    Self::walk_tree_with_scope_static(
-                        &child,
-                        source,
-                        file_path,
-                        facts,
-                        scope_stack,
-                        package_name,
-                    );
-                }
-                scope_stack.pop();
-                return;
-            }
-        }
-
-        // Check if this node is a symbol we care about
-        if let Some(fact) =
-            Self::extract_symbol_with_fqn_static(node, source, file_path, scope_stack, package_name)
-        {
-            facts.push(fact);
-        }
-
-        // Recurse into children
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            Self::walk_tree_with_scope_static(
-                &child,
-                source,
-                file_path,
-                facts,
-                scope_stack,
-                package_name,
-            );
-        }
-    }
-
-    /// Static version of extract_symbol_with_fqn for external parser usage.
-    fn extract_symbol_with_fqn_static(
-        node: &tree_sitter::Node,
-        source: &[u8],
-        file_path: &Path,
-        scope_stack: &ScopeStack,
-        _package_name: &str, // Not used - package is in ScopeStack
-    ) -> Option<SymbolFact> {
-        let kind = node.kind();
-
-        let symbol_kind = match kind {
-            "method_declaration" => SymbolKind::Method,
-            "class_declaration" => SymbolKind::Class,
-            "interface_declaration" => SymbolKind::Interface,
-            "enum_declaration" => SymbolKind::Enum,
-            "package_declaration" => SymbolKind::Module,
-            _ => return None,
-        };
-
-        let name = Self::extract_name_static(node, source, kind)?;
-        let normalized_kind = symbol_kind.normalized_key().to_string();
-
-        // Build FQN from current scope + symbol name
-        let fqn = scope_stack.fqn_for_symbol(&name);
-
-        // Compute canonical and display FQN using FqnBuilder
-        // For Java: use empty crate_name since package is already in ScopeStack
-        let builder = FqnBuilder::new(
-            String::new(),
-            file_path.to_string_lossy().to_string(),
-            ScopeSeparator::Dot,
-        );
-        let canonical_fqn = builder.canonical(scope_stack, symbol_kind.clone(), &name);
-        let display_fqn = builder.display(scope_stack, symbol_kind.clone(), &name);
-
-        Some(SymbolFact {
-            file_path: file_path.to_path_buf(),
-            kind: symbol_kind,
-            kind_normalized: normalized_kind,
-            name: Some(name),
-            fqn: Some(fqn),
-            canonical_fqn: Some(canonical_fqn),
-            display_fqn: Some(display_fqn),
-            byte_start: node.start_byte(),
-            byte_end: node.end_byte(),
-            start_line: node.start_position().row + 1,
-            start_col: node.start_position().column,
-            end_line: node.end_position().row + 1,
-            end_col: node.end_position().column,
-        })
-    }
-
-    /// Static version of extract_name for external parser usage.
-    fn extract_name_static(
-        node: &tree_sitter::Node,
-        source: &[u8],
-        node_kind: &str,
-    ) -> Option<String> {
-        // For package_declaration, extract from scoped_identifier
-        if node_kind == "package_declaration" {
-            let mut cursor = node.walk();
-            for child in node.children(&mut cursor) {
-                if child.kind() == "scoped_identifier" || child.kind() == "identifier" {
-                    let name_bytes = safe_slice(source, child.start_byte(), child.end_byte())?;
-                    return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
-                }
-            }
-            return None;
-        }
-
-        // For other symbols, name is a direct identifier child
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            if child.kind() == "identifier" {
-                let name_bytes = safe_slice(source, child.start_byte(), child.end_byte())?;
-                return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
-            }
-        }
-
-        None
+        build_symbol_facts_from_tree(&tree.root_node(), file_path, source)
     }
 
     /// Extract reference facts from Java source code.
@@ -577,7 +145,7 @@ impl JavaParser {
             source,
             symbols,
             |node| node.kind() == "method_declaration",
-            Self::extract_method_name_static,
+            extract_method_name,
             "method_invocation",
             |node, source| {
                 let mut cursor = node.walk();
@@ -596,17 +164,6 @@ impl JavaParser {
             },
         )
     }
-
-    fn extract_method_name_static(node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            if child.kind() == "identifier" {
-                let name_bytes = safe_slice(source, child.start_byte(), child.end_byte())?;
-                return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
-            }
-        }
-        None
-    }
 }
 
 impl Default for JavaParser {
@@ -618,6 +175,7 @@ impl Default for JavaParser {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ingest::SymbolKind;
 
     #[test]
     fn test_extract_class() {
