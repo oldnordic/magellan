@@ -178,13 +178,13 @@ impl SymbolLookup {
     }
 
     /// Get number of symbols in index
-    #[allow(dead_code, reason = "used in module tests")]
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.count
     }
 
     /// Check if index is empty
-    #[allow(dead_code, reason = "used in module tests")]
+    #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         self.count == 0
     }
@@ -318,7 +318,7 @@ impl SymbolLookup {
     ///
     /// # Returns
     /// Reference to SymbolEntry if found, None if not in index
-    #[allow(dead_code, reason = "used in module tests")]
+    #[cfg(test)]
     pub fn get_by_fqn(&self, fqn: &str) -> Option<&SymbolEntry> {
         self.fqn_index.get(fqn)
     }
@@ -327,7 +327,7 @@ impl SymbolLookup {
     ///
     /// # Returns
     /// Slice of entity_ids matching this name, empty if none found
-    #[allow(dead_code, reason = "used in module tests")]
+    #[cfg(test)]
     pub fn get_ids_by_name(&self, name: &str) -> &[i64] {
         self.name_index
             .get(name)

@@ -78,8 +78,8 @@ impl RefreshReport {
         }
     }
 
-    #[allow(dead_code, reason = "used in tests, future public API")]
     /// Total number of changes (updated + deleted + added)
+    #[cfg(test)]
     pub fn total_changes(&self) -> usize {
         self.updated.len() + self.deleted.len() + self.added.len()
     }
