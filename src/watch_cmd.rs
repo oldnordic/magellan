@@ -1,12 +1,11 @@
 //! Watch command implementation
 
+use crate::status_cmd::ExecutionTracker;
 use anyhow::{Context, Result};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use walkdir::WalkDir;
-
-use crate::generate_execution_id;
 
 use magellan::backend_router::MagellanBackend;
 use magellan::graph::filter::FileFilter;
@@ -135,7 +134,12 @@ pub fn run_watch(
     args.push("--debounce-ms".to_string());
     args.push(config.debounce_ms.to_string());
 
-    let exec_id = generate_execution_id();
+    let mut tracker = ExecutionTracker::new(
+        args,
+        Some(root_path.to_string_lossy().to_string()),
+        db_path.to_string_lossy().to_string(),
+    );
+    let exec_id = tracker.exec_id().to_string();
 
     // svc-8: if daemon is running, signal it instead of local watch
     if crate::service::is_daemon_running() {
@@ -143,21 +147,11 @@ pub fn run_watch(
         return send_watch_request(&req_line, &exec_id);
     }
 
-    let root_str = root_path.to_string_lossy().to_string();
-    let db_path_str = db_path.to_string_lossy().to_string();
-
     // Open the backend for execution logging
     let mut backend = Some(MagellanBackend::open_or_create(&db_path)?);
 
-    // Start execution log if supported (SQLite only)
-    if let Some(MagellanBackend::SQLite(ref mut graph)) = &mut backend {
-        graph.execution_log().start_execution(
-            &exec_id,
-            env!("CARGO_PKG_VERSION"),
-            &args,
-            Some(&root_str),
-            &db_path_str,
-        )?;
+    if let Some(ref backend_ref) = backend {
+        tracker.start_backend(backend_ref)?;
     }
 
     // Pre-run validation if enabled (SQLite only)
@@ -175,14 +169,10 @@ pub fn run_watch(
                     graph
                         .telemetry()
                         .record_phase_end(&exec_id, "pre_validation")?;
-                    graph.execution_log().finish_execution(
-                        &exec_id,
-                        "error",
-                        Some(&error_msg),
-                        0,
-                        0,
-                        0,
-                    )?;
+                    tracker.set_error(error_msg);
+                    if let Some(ref backend_ref) = backend {
+                        tracker.finish_backend(backend_ref)?;
+                    }
                     return Err(anyhow::anyhow!("Pre-validation failed"));
                 }
                 Ok(_) => {}
@@ -192,9 +182,9 @@ pub fn run_watch(
                 .telemetry()
                 .record_phase_end(&exec_id, "pre_validation")?;
             if validate_only {
-                graph
-                    .execution_log()
-                    .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
+                if let Some(ref backend_ref) = backend {
+                    tracker.finish_backend(backend_ref)?;
+                }
                 return Ok(());
             }
         }
@@ -225,17 +215,11 @@ pub fn run_watch(
     let result = magellan::run_watch_pipeline(pipeline_config, shutdown);
 
     // Record execution completion (SQLite only)
-    if let Some(MagellanBackend::SQLite(ref mut graph)) = &mut backend {
-        let outcome = if result.is_ok() { "success" } else { "error" };
-        let error_msg = result.as_ref().err().map(|e| e.to_string());
-        let _ = graph.execution_log().finish_execution(
-            &exec_id,
-            outcome,
-            error_msg.as_deref(),
-            0,
-            0,
-            0,
-        );
+    if let Some(ref backend_ref) = backend {
+        if let Err(err) = &result {
+            tracker.set_error(err.to_string());
+        }
+        let _ = tracker.finish_backend(backend_ref);
     }
 
     match result {
