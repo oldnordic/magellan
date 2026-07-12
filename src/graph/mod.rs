@@ -73,6 +73,7 @@ pub mod schema;
 pub mod scorer;
 pub mod search;
 pub mod side_tables;
+mod side_tables_sqlite_schema;
 mod symbol_lookup;
 pub(crate) mod symbols;
 pub mod telemetry;

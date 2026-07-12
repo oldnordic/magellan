@@ -3,6 +3,12 @@ use parking_lot::{Mutex, MutexGuard};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::sync::Arc;
 
+use crate::graph::side_tables_sqlite_schema::{
+    ast_node_from_row, code_chunk_from_row, code_content_search_result_from_row,
+    cross_file_ref_from_row, ensure_schema, execution_record_from_row, file_metrics_from_row,
+    symbol_metrics_from_row,
+};
+
 /// SQLite-based side tables implementation
 pub struct SqliteSideTables {
     conn: Arc<Mutex<Connection>>,
@@ -32,105 +38,7 @@ impl SqliteSideTables {
 
     fn ensure_schema(&self) -> Result<()> {
         let conn = self.lock_conn();
-
-        // File metrics table
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS file_metrics (
-                    file_path TEXT PRIMARY KEY,
-                    symbol_count INTEGER DEFAULT 0,
-                    loc INTEGER DEFAULT 0,
-                    estimated_loc REAL DEFAULT 0,
-                    fan_in INTEGER DEFAULT 0,
-                    fan_out INTEGER DEFAULT 0,
-                    complexity_score REAL DEFAULT 0,
-                    last_updated INTEGER NOT NULL
-                )",
-            [],
-        )?;
-
-        // Symbol metrics table
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS symbol_metrics (
-                    symbol_id INTEGER PRIMARY KEY,
-                    symbol_name TEXT NOT NULL,
-                    kind TEXT NOT NULL,
-                    file_path TEXT NOT NULL,
-                    loc INTEGER DEFAULT 0,
-                    estimated_loc REAL DEFAULT 0,
-                    fan_in INTEGER DEFAULT 0,
-                    fan_out INTEGER DEFAULT 0,
-                    cyclomatic_complexity INTEGER DEFAULT 0,
-                    last_updated INTEGER NOT NULL
-                )",
-            [],
-        )?;
-
-        // Execution log table
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS execution_log (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    execution_id TEXT NOT NULL UNIQUE,
-                    tool_version TEXT NOT NULL,
-                    args TEXT NOT NULL,
-                    root TEXT,
-                    db_path TEXT NOT NULL,
-                    started_at INTEGER NOT NULL,
-                    finished_at INTEGER,
-                    duration_ms INTEGER,
-                    outcome TEXT NOT NULL,
-                    error_message TEXT,
-                    files_indexed INTEGER DEFAULT 0,
-                    symbols_indexed INTEGER DEFAULT 0,
-                    references_indexed INTEGER DEFAULT 0
-                )",
-            [],
-        )?;
-
-        // Indexes
-        conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_execution_log_started_at ON execution_log(started_at DESC)",
-                [],
-            )?;
-        conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_execution_log_execution_id ON execution_log(execution_id)",
-                [],
-            )?;
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_execution_log_outcome ON execution_log(outcome)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_symbol_metrics_file_path ON symbol_metrics(file_path)",
-            [],
-        )?;
-
-        // Cross-file references table
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS cross_file_refs (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    from_symbol_id TEXT NOT NULL,
-                    to_symbol_id TEXT NOT NULL,
-                    file_path TEXT NOT NULL,
-                    line_number INTEGER NOT NULL,
-                    byte_start INTEGER NOT NULL,
-                    byte_end INTEGER NOT NULL
-                )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_cross_file_refs_to ON cross_file_refs(to_symbol_id)",
-            [],
-        )?;
-        conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_cross_file_refs_from ON cross_file_refs(from_symbol_id)",
-                [],
-            )?;
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_cross_file_refs_file ON cross_file_refs(file_path)",
-            [],
-        )?;
-
-        Ok(())
+        ensure_schema(&conn)
     }
 }
 
@@ -226,24 +134,7 @@ impl SideTables for SqliteSideTables {
                      FROM execution_log
                      WHERE execution_id = ?1",
                 params![execution_id],
-                |row| {
-                    Ok(ExecutionRecord {
-                        id: row.get(0)?,
-                        execution_id: row.get(1)?,
-                        tool_version: row.get(2)?,
-                        args: row.get(3)?,
-                        root: row.get(4)?,
-                        db_path: row.get(5)?,
-                        started_at: row.get(6)?,
-                        finished_at: row.get(7)?,
-                        duration_ms: row.get(8)?,
-                        outcome: row.get(9)?,
-                        error_message: row.get(10)?,
-                        files_indexed: row.get(11)?,
-                        symbols_indexed: row.get(12)?,
-                        references_indexed: row.get(13)?,
-                    })
-                },
+                execution_record_from_row,
             )
             .optional()?;
 
@@ -265,24 +156,7 @@ impl SideTables for SqliteSideTables {
 
         let mut stmt = conn.prepare(&sql)?;
         let records = stmt
-            .query_map([], |row| {
-                Ok(ExecutionRecord {
-                    id: row.get(0)?,
-                    execution_id: row.get(1)?,
-                    tool_version: row.get(2)?,
-                    args: row.get(3)?,
-                    root: row.get(4)?,
-                    db_path: row.get(5)?,
-                    started_at: row.get(6)?,
-                    finished_at: row.get(7)?,
-                    duration_ms: row.get(8)?,
-                    outcome: row.get(9)?,
-                    error_message: row.get(10)?,
-                    files_indexed: row.get(11)?,
-                    symbols_indexed: row.get(12)?,
-                    references_indexed: row.get(13)?,
-                })
-            })?
+            .query_map([], execution_record_from_row)?
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(records)
@@ -318,18 +192,7 @@ impl SideTables for SqliteSideTables {
                      FROM file_metrics
                      WHERE file_path = ?1",
                 params![file_path],
-                |row| {
-                    Ok(FileMetrics {
-                        file_path: row.get(0)?,
-                        symbol_count: row.get(1)?,
-                        loc: row.get(2)?,
-                        estimated_loc: row.get(3)?,
-                        fan_in: row.get(4)?,
-                        fan_out: row.get(5)?,
-                        complexity_score: row.get(6)?,
-                        last_updated: row.get(7)?,
-                    })
-                },
+                file_metrics_from_row,
             )
             .optional()?;
 
@@ -370,20 +233,7 @@ impl SideTables for SqliteSideTables {
                      FROM symbol_metrics
                      WHERE symbol_id = ?1",
                 params![symbol_id],
-                |row| {
-                    Ok(SymbolMetrics {
-                        symbol_id: row.get(0)?,
-                        symbol_name: row.get(1)?,
-                        kind: row.get(2)?,
-                        file_path: row.get(3)?,
-                        loc: row.get(4)?,
-                        estimated_loc: row.get(5)?,
-                        fan_in: row.get(6)?,
-                        fan_out: row.get(7)?,
-                        cyclomatic_complexity: row.get(8)?,
-                        last_updated: row.get(9)?,
-                    })
-                },
+                symbol_metrics_from_row,
             )
             .optional()?;
 
@@ -468,16 +318,7 @@ impl SideTables for SqliteSideTables {
 
         let mut results = Vec::new();
         while let Some(row) = rows.next()? {
-            results.push(FileMetrics {
-                file_path: row.get(0)?,
-                symbol_count: row.get(1)?,
-                loc: row.get(2)?,
-                estimated_loc: row.get(3)?,
-                fan_in: row.get(4)?,
-                fan_out: row.get(5)?,
-                complexity_score: row.get(6)?,
-                last_updated: row.get(7)?,
-            });
+            results.push(file_metrics_from_row(row)?);
         }
 
         Ok(results)
@@ -523,19 +364,7 @@ impl SideTables for SqliteSideTables {
                             symbol_name, symbol_kind, created_at
                      FROM code_chunks WHERE id = ?1",
                 params![chunk_id],
-                |row| {
-                    Ok(CodeChunk {
-                        id: Some(row.get(0)?),
-                        file_path: row.get(1)?,
-                        byte_start: row.get::<_, i64>(2)? as usize,
-                        byte_end: row.get::<_, i64>(3)? as usize,
-                        content: row.get(4)?,
-                        content_hash: row.get(5)?,
-                        symbol_name: row.get(6)?,
-                        symbol_kind: row.get(7)?,
-                        created_at: row.get(8)?,
-                    })
-                },
+                code_chunk_from_row,
             )
             .optional()?;
         Ok(result)
@@ -554,19 +383,7 @@ impl SideTables for SqliteSideTables {
                             symbol_name, symbol_kind, created_at
                      FROM code_chunks WHERE file_path = ?1 AND byte_start = ?2 AND byte_end = ?3",
                 params![file_path, byte_start as i64, byte_end as i64],
-                |row| {
-                    Ok(CodeChunk {
-                        id: Some(row.get(0)?),
-                        file_path: row.get(1)?,
-                        byte_start: row.get::<_, i64>(2)? as usize,
-                        byte_end: row.get::<_, i64>(3)? as usize,
-                        content: row.get(4)?,
-                        content_hash: row.get(5)?,
-                        symbol_name: row.get(6)?,
-                        symbol_kind: row.get(7)?,
-                        created_at: row.get(8)?,
-                    })
-                },
+                code_chunk_from_row,
             )
             .optional()?;
         Ok(result)
@@ -580,19 +397,7 @@ impl SideTables for SqliteSideTables {
                  FROM code_chunks WHERE file_path = ?1 ORDER BY byte_start",
         )?;
         let chunks = stmt
-            .query_map(params![file_path], |row| {
-                Ok(CodeChunk {
-                    id: Some(row.get(0)?),
-                    file_path: row.get(1)?,
-                    byte_start: row.get::<_, i64>(2)? as usize,
-                    byte_end: row.get::<_, i64>(3)? as usize,
-                    content: row.get(4)?,
-                    content_hash: row.get(5)?,
-                    symbol_name: row.get(6)?,
-                    symbol_kind: row.get(7)?,
-                    created_at: row.get(8)?,
-                })
-            })?
+            .query_map(params![file_path], code_chunk_from_row)?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(chunks)
     }
@@ -636,19 +441,7 @@ impl SideTables for SqliteSideTables {
                  ORDER BY byte_start",
         )?;
         let chunks = stmt
-            .query_map(params![file_path, symbol_name], |row| {
-                Ok(CodeChunk {
-                    id: Some(row.get(0)?),
-                    file_path: row.get(1)?,
-                    byte_start: row.get::<_, i64>(2)? as usize,
-                    byte_end: row.get::<_, i64>(3)? as usize,
-                    content: row.get(4)?,
-                    content_hash: row.get(5)?,
-                    symbol_name: row.get(6)?,
-                    symbol_kind: row.get(7)?,
-                    created_at: row.get(8)?,
-                })
-            })?
+            .query_map(params![file_path, symbol_name], code_chunk_from_row)?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(chunks)
     }
@@ -661,19 +454,7 @@ impl SideTables for SqliteSideTables {
                  FROM code_chunks ORDER BY file_path, byte_start",
         )?;
         let chunks = stmt
-            .query_map([], |row| {
-                Ok(CodeChunk {
-                    id: Some(row.get(0)?),
-                    file_path: row.get(1)?,
-                    byte_start: row.get::<_, i64>(2)? as usize,
-                    byte_end: row.get::<_, i64>(3)? as usize,
-                    content: row.get(4)?,
-                    content_hash: row.get(5)?,
-                    symbol_name: row.get(6)?,
-                    symbol_kind: row.get(7)?,
-                    created_at: row.get(8)?,
-                })
-            })?
+            .query_map([], code_chunk_from_row)?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(chunks)
     }
@@ -702,43 +483,7 @@ impl SideTables for SqliteSideTables {
         )?;
         let results = stmt
             .query_map(params![pattern, limit as i64], |row| {
-                let symbol_name: Option<String> = row.get(0)?;
-                let symbol_kind: Option<String> = row.get(1)?;
-                let file_path: String = row.get(2)?;
-                let byte_start: i64 = row.get(3)?;
-                let byte_end: i64 = row.get(4)?;
-                let content: String = row.get(5)?;
-                let rank: f64 = row.get(6)?;
-
-                // Compute line numbers from byte offsets.
-                let start_line = content
-                    .char_indices()
-                    .take_while(|(i, _)| *i < byte_start as usize)
-                    .filter(|(_, c)| *c == '\n')
-                    .count()
-                    + 1;
-                let end_line = content
-                    .char_indices()
-                    .take_while(|(i, _)| *i < byte_end as usize)
-                    .filter(|(_, c)| *c == '\n')
-                    .count()
-                    + 1;
-
-                // Build excerpt: find the first occurrence of any query token
-                // in the content, show ~200 chars around it.
-                let excerpt = build_excerpt(&content, pattern);
-
-                Ok(CodeContentSearchResult {
-                    symbol_name,
-                    symbol_kind,
-                    file_path,
-                    byte_start: byte_start as usize,
-                    byte_end: byte_end as usize,
-                    start_line,
-                    end_line,
-                    excerpt,
-                    rank,
-                })
+                code_content_search_result_from_row(row, pattern)
             })?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(results)
@@ -799,15 +544,7 @@ impl SideTables for SqliteSideTables {
                 "SELECT id, parent_id, kind, byte_start, byte_end
                      FROM ast_nodes WHERE id = ?1",
                 params![node_id],
-                |row| {
-                    Ok(crate::graph::AstNode {
-                        id: Some(row.get(0)?),
-                        parent_id: row.get(1)?,
-                        kind: row.get(2)?,
-                        byte_start: row.get::<_, i64>(3)? as usize,
-                        byte_end: row.get::<_, i64>(4)? as usize,
-                    })
-                },
+                ast_node_from_row,
             )
             .optional()?;
         Ok(result)
@@ -829,15 +566,7 @@ impl SideTables for SqliteSideTables {
                  FROM ast_nodes WHERE file_id = ?1 ORDER BY byte_start",
         )?;
         let nodes = stmt
-            .query_map(params![file_id], |row| {
-                Ok(crate::graph::AstNode {
-                    id: Some(row.get(0)?),
-                    parent_id: row.get(1)?,
-                    kind: row.get(2)?,
-                    byte_start: row.get::<_, i64>(3)? as usize,
-                    byte_end: row.get::<_, i64>(4)? as usize,
-                })
-            })?
+            .query_map(params![file_id], ast_node_from_row)?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(nodes)
     }
@@ -849,15 +578,7 @@ impl SideTables for SqliteSideTables {
                  FROM ast_nodes ORDER BY byte_start",
         )?;
         let nodes = stmt
-            .query_map([], |row| {
-                Ok(crate::graph::AstNode {
-                    id: Some(row.get(0)?),
-                    parent_id: row.get(1)?,
-                    kind: row.get(2)?,
-                    byte_start: row.get::<_, i64>(3)? as usize,
-                    byte_end: row.get::<_, i64>(4)? as usize,
-                })
-            })?
+            .query_map([], ast_node_from_row)?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(nodes)
     }
@@ -869,15 +590,7 @@ impl SideTables for SqliteSideTables {
                  FROM ast_nodes WHERE kind = ?1 ORDER BY byte_start",
         )?;
         let nodes = stmt
-            .query_map(params![kind], |row| {
-                Ok(crate::graph::AstNode {
-                    id: Some(row.get(0)?),
-                    parent_id: row.get(1)?,
-                    kind: row.get(2)?,
-                    byte_start: row.get::<_, i64>(3)? as usize,
-                    byte_end: row.get::<_, i64>(4)? as usize,
-                })
-            })?
+            .query_map(params![kind], ast_node_from_row)?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(nodes)
     }
@@ -889,15 +602,7 @@ impl SideTables for SqliteSideTables {
                  FROM ast_nodes WHERE parent_id = ?1 ORDER BY byte_start",
         )?;
         let nodes = stmt
-            .query_map(params![parent_id], |row| {
-                Ok(crate::graph::AstNode {
-                    id: Some(row.get(0)?),
-                    parent_id: row.get(1)?,
-                    kind: row.get(2)?,
-                    byte_start: row.get::<_, i64>(3)? as usize,
-                    byte_end: row.get::<_, i64>(4)? as usize,
-                })
-            })?
+            .query_map(params![parent_id], ast_node_from_row)?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(nodes)
     }
@@ -954,16 +659,7 @@ impl SideTables for SqliteSideTables {
             "SELECT from_symbol_id, to_symbol_id, file_path, line_number, byte_start, byte_end
                  FROM cross_file_refs WHERE to_symbol_id = ?1",
         )?;
-        let rows = stmt.query_map(params![to_symbol_id], |row| {
-            Ok(crate::graph::schema::CrossFileRef {
-                from_symbol_id: row.get(0)?,
-                to_symbol_id: row.get(1)?,
-                file_path: row.get(2)?,
-                line_number: row.get::<_, i64>(3)? as usize,
-                byte_start: row.get::<_, i64>(4)? as usize,
-                byte_end: row.get::<_, i64>(5)? as usize,
-            })
-        })?;
+        let rows = stmt.query_map(params![to_symbol_id], cross_file_ref_from_row)?;
         let mut results = Vec::new();
         for row in rows {
             results.push(row?);
@@ -980,16 +676,7 @@ impl SideTables for SqliteSideTables {
             "SELECT from_symbol_id, to_symbol_id, file_path, line_number, byte_start, byte_end
                  FROM cross_file_refs WHERE from_symbol_id = ?1",
         )?;
-        let rows = stmt.query_map(params![from_symbol_id], |row| {
-            Ok(crate::graph::schema::CrossFileRef {
-                from_symbol_id: row.get(0)?,
-                to_symbol_id: row.get(1)?,
-                file_path: row.get(2)?,
-                line_number: row.get::<_, i64>(3)? as usize,
-                byte_start: row.get::<_, i64>(4)? as usize,
-                byte_end: row.get::<_, i64>(5)? as usize,
-            })
-        })?;
+        let rows = stmt.query_map(params![from_symbol_id], cross_file_ref_from_row)?;
         let mut results = Vec::new();
         for row in rows {
             results.push(row?);

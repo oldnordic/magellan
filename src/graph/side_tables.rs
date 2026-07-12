@@ -315,33 +315,3 @@ pub use side_tables_sqlite::SqliteSideTables;
 pub fn create_side_tables(db_path: &Path) -> Result<Box<dyn SideTables>> {
     Ok(Box::new(SqliteSideTables::open(db_path)?))
 }
-
-/// Build a text excerpt from content around the first match of the FTS query.
-///
-/// Extracts the first query token, finds it (case-insensitive) in the content,
-/// and returns ~200 chars centered on the match. If no token is found, returns
-/// the first 200 chars of the content.
-fn build_excerpt(content: &str, pattern: &str) -> String {
-    let excerpt_len = 200usize;
-    let tokens: Vec<&str> = pattern.split_whitespace().filter(|t| t.len() > 1).collect();
-
-    for token in &tokens {
-        if let Some(pos) = content.to_lowercase().find(&token.to_lowercase()) {
-            let start = pos.saturating_sub(excerpt_len / 2);
-            let end = (start + excerpt_len).min(content.len());
-            let excerpt = &content[start..end];
-            let prefix = if start > 0 { "..." } else { "" };
-            let suffix = if end < content.len() { "..." } else { "" };
-            return format!("{prefix}{excerpt}{suffix}");
-        }
-    }
-
-    // No token found — return first N chars
-    let end = excerpt_len.min(content.len());
-    let excerpt = &content[..end];
-    if content.len() > end {
-        format!("{excerpt}...")
-    } else {
-        excerpt.to_string()
-    }
-}
