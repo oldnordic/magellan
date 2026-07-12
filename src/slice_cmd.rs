@@ -8,6 +8,8 @@ use magellan::output::{output_json, JsonResponse, OutputFormat};
 use magellan::CodeGraph;
 use std::path::{Path, PathBuf};
 
+use crate::status_cmd::ExecutionTracker;
+
 /// Resolved target information
 struct ResolvedTarget {
     /// The symbol ID (BLAKE3 hash) for SQLite backend
@@ -196,161 +198,116 @@ pub fn run_slice(
     }
 
     let mut graph = CodeGraph::open(&db_path)?;
-    let exec_id = magellan::output::generate_execution_id();
-    let db_path_str = db_path.to_string_lossy().to_string();
+    let mut tracker = ExecutionTracker::new(args, None, db_path.to_string_lossy().to_string());
+    tracker.start(&graph)?;
+    let exec_id = tracker.exec_id().to_string();
 
-    graph.execution_log().start_execution(
-        &exec_id,
-        env!("CARGO_PKG_VERSION"),
-        &args,
-        None,
-        &db_path_str,
-    )?;
+    let result = (|| -> Result<()> {
+        graph
+            .telemetry()
+            .record_phase_start(&exec_id, "resolve_target")?;
+        let resolved = resolve_target(&mut graph, &db_path, &target)?;
+        graph
+            .telemetry()
+            .record_phase_end(&exec_id, "resolve_target")?;
 
-    // Phase: resolve_target
-    graph
-        .telemetry()
-        .record_phase_start(&exec_id, "resolve_target")?;
-    let resolved = match resolve_target(&mut graph, &db_path, &target) {
-        Ok(r) => r,
-        Err(e) => {
-            graph
-                .telemetry()
-                .record_phase_end(&exec_id, "resolve_target")?;
-            graph.execution_log().finish_execution(
-                &exec_id,
-                "error",
-                Some(&e.to_string()),
-                0,
-                0,
-                0,
-            )?;
-            return Err(e);
-        }
-    };
-    graph
-        .telemetry()
-        .record_phase_end(&exec_id, "resolve_target")?;
-
-    // Phase: compute_slice
-    graph
-        .telemetry()
-        .record_phase_start(&exec_id, "compute_slice")?;
-    let included_symbols = {
-        // For SQLite backend, use symbol-based reachability
-        let symbols_result = match direction {
+        graph
+            .telemetry()
+            .record_phase_start(&exec_id, "compute_slice")?;
+        let included_symbols = match direction {
             CliSliceDirection::Backward => {
-                graph.reverse_reachable_symbols(&resolved.symbol_id, None)
+                graph.reverse_reachable_symbols(&resolved.symbol_id, None)?
             }
-            CliSliceDirection::Forward => graph.reachable_symbols(&resolved.symbol_id, None),
+            CliSliceDirection::Forward => graph.reachable_symbols(&resolved.symbol_id, None)?,
+        };
+        graph
+            .telemetry()
+            .record_phase_end(&exec_id, "compute_slice")?;
+
+        let target_info = magellan::graph::SymbolInfo {
+            symbol_id: Some(resolved.symbol_id.clone()),
+            fqn: Some(resolved.fqn.clone()),
+            kind: resolved.kind.clone(),
+            file_path: resolved.file_path.clone(),
         };
 
-        match symbols_result {
-            Ok(symbols) => symbols,
-            Err(e) => {
-                graph
-                    .telemetry()
-                    .record_phase_end(&exec_id, "compute_slice")?;
-                graph.execution_log().finish_execution(
-                    &exec_id,
-                    "error",
-                    Some(&e.to_string()),
-                    0,
-                    0,
-                    0,
-                )?;
-                return Err(e);
-            }
-        }
-    };
-    graph
-        .telemetry()
-        .record_phase_end(&exec_id, "compute_slice")?;
-
-    let target_info = magellan::graph::SymbolInfo {
-        symbol_id: Some(resolved.symbol_id.clone()),
-        fqn: Some(resolved.fqn.clone()),
-        kind: resolved.kind.clone(),
-        file_path: resolved.file_path.clone(),
-    };
-
-    let slice_result = magellan::graph::SliceResult {
-        slice: magellan::graph::ProgramSlice {
-            direction: match direction {
-                CliSliceDirection::Backward => magellan::graph::SliceDirection::Backward,
-                CliSliceDirection::Forward => magellan::graph::SliceDirection::Forward,
+        let slice_result = magellan::graph::SliceResult {
+            slice: magellan::graph::ProgramSlice {
+                direction: match direction {
+                    CliSliceDirection::Backward => magellan::graph::SliceDirection::Backward,
+                    CliSliceDirection::Forward => magellan::graph::SliceDirection::Forward,
+                },
+                target: target_info.clone(),
+                included_symbols: included_symbols.clone(),
+                symbol_count: included_symbols.len(),
             },
-            target: target_info.clone(),
-            included_symbols: included_symbols.clone(),
-            symbol_count: included_symbols.len(),
-        },
-        statistics: magellan::graph::SliceStatistics {
-            total_symbols: included_symbols.len(),
-            data_dependencies: 0,
-            control_dependencies: included_symbols.len().saturating_sub(1),
-        },
-    };
+            statistics: magellan::graph::SliceStatistics {
+                total_symbols: included_symbols.len(),
+                data_dependencies: 0,
+                control_dependencies: included_symbols.len().saturating_sub(1),
+            },
+        };
 
-    if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
-        graph
-            .execution_log()
-            .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
-        return output_json_mode(
-            &resolved.fqn,
-            slice_result,
-            verbose,
-            &exec_id,
-            output_format,
-        );
-    }
-
-    // Human mode
-    let direction_label = match direction {
-        CliSliceDirection::Backward => "that affect",
-        CliSliceDirection::Forward => "affected by",
-    };
-
-    println!(
-        "Program slice: symbols {} \"{}\"",
-        direction_label, resolved.fqn
-    );
-    println!("  Target: {} ({})", resolved.fqn, resolved.kind);
-    println!("  File:   {}", resolved.file_path);
-    println!("  Total symbols: {}", slice_result.statistics.total_symbols);
-    if verbose {
-        println!(
-            "  Data dependencies: {} (not computed in call-graph fallback)",
-            slice_result.statistics.data_dependencies
-        );
-        println!(
-            "  Control dependencies: {}",
-            slice_result.statistics.control_dependencies
-        );
-    }
-
-    if slice_result.slice.included_symbols.is_empty() {
-        println!("\n  No symbols in slice.");
-    } else {
-        println!("\n  Symbols in slice:");
-        for symbol in &slice_result.slice.included_symbols {
-            let fqn_display = symbol.fqn.as_deref().unwrap_or("?");
-            println!(
-                "    {} ({}) in {}",
-                fqn_display, symbol.kind, symbol.file_path
+        if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
+            return output_json_mode(
+                &resolved.fqn,
+                slice_result,
+                verbose,
+                &exec_id,
+                output_format,
             );
         }
-    }
 
-    if slice_result.statistics.data_dependencies == 0
-        && !slice_result.slice.included_symbols.is_empty()
-    {
-        println!("\n  Note: Current implementation uses call-graph reachability.");
-    }
+        let direction_label = match direction {
+            CliSliceDirection::Backward => "that affect",
+            CliSliceDirection::Forward => "affected by",
+        };
 
-    graph
-        .execution_log()
-        .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
-    Ok(())
+        println!(
+            "Program slice: symbols {} \"{}\"",
+            direction_label, resolved.fqn
+        );
+        println!("  Target: {} ({})", resolved.fqn, resolved.kind);
+        println!("  File:   {}", resolved.file_path);
+        println!("  Total symbols: {}", slice_result.statistics.total_symbols);
+        if verbose {
+            println!(
+                "  Data dependencies: {} (not computed in call-graph fallback)",
+                slice_result.statistics.data_dependencies
+            );
+            println!(
+                "  Control dependencies: {}",
+                slice_result.statistics.control_dependencies
+            );
+        }
+
+        if slice_result.slice.included_symbols.is_empty() {
+            println!("\n  No symbols in slice.");
+        } else {
+            println!("\n  Symbols in slice:");
+            for symbol in &slice_result.slice.included_symbols {
+                let fqn_display = symbol.fqn.as_deref().unwrap_or("?");
+                println!(
+                    "    {} ({}) in {}",
+                    fqn_display, symbol.kind, symbol.file_path
+                );
+            }
+        }
+
+        if slice_result.statistics.data_dependencies == 0
+            && !slice_result.slice.included_symbols.is_empty()
+        {
+            println!("\n  Note: Current implementation uses call-graph reachability.");
+        }
+
+        Ok(())
+    })();
+
+    if let Err(err) = &result {
+        tracker.set_error(format!("{err:#}"));
+    }
+    tracker.finish(&graph)?;
+    result
 }
 
 fn output_json_mode(
