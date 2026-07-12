@@ -50,11 +50,7 @@ pub fn parse_project_init_args(args: &[String]) -> Result<Command> {
     while i < args.len() {
         match args[i].as_str() {
             "--path" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--path requires an argument"));
-                }
-                path = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                path = Some(parse_path_arg(args, &mut i, "--path")?);
             }
             _ => i += 1,
         }
@@ -70,25 +66,13 @@ pub fn parse_delete_args(args: &[String]) -> Result<Command> {
     while i < args.len() {
         match args[i].as_str() {
             "--db" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--db requires an argument"));
-                }
-                db_path = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                db_path = Some(parse_path_arg(args, &mut i, "--db")?);
             }
             "--file" | "--path" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--file requires an argument"));
-                }
-                file_path = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                file_path = Some(parse_path_arg(args, &mut i, "--file")?);
             }
             "--root" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--root requires an argument"));
-                }
-                root = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                root = Some(parse_path_arg(args, &mut i, "--root")?);
             }
             _ => i += 1,
         }
@@ -208,13 +192,7 @@ pub fn parse_doctor_args(args: &[String]) -> Result<Command> {
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
-            "--db" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--db requires an argument"));
-                }
-                db_path = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
-            }
+            "--db" => db_path = Some(parse_path_arg(args, &mut i, "--db")?),
             "--fix" => {
                 fix = true;
                 i += 1;
@@ -224,11 +202,8 @@ pub fn parse_doctor_args(args: &[String]) -> Result<Command> {
                 i += 1;
             }
             "--output" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--output requires an argument"));
-                }
-                output_format = parse_output_format(&args[i + 1])?;
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output_format = parse_output_format(&value)?;
             }
             _ => {
                 return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
