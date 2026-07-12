@@ -178,13 +178,8 @@ impl MetricsOps {
     /// Upsert file metrics (insert or replace)
     pub fn upsert_file_metrics(&self, metrics: &FileMetrics) -> Result<()> {
         match &self.backend {
-            MetricsOpsBackend::Sqlite(_) => {
-                let conn = self.connect()?;
-                Self::upsert_file_metrics_conn(&conn, metrics)
-            }
-            MetricsOpsBackend::Shared { conn, .. } => {
-                let conn = conn.lock();
-                Self::upsert_file_metrics_conn(&conn, metrics)
+            MetricsOpsBackend::Sqlite(_) | MetricsOpsBackend::Shared { .. } => {
+                self.with_conn(|conn| Self::upsert_file_metrics_conn(conn, metrics))
             }
             MetricsOpsBackend::SideTables(side_tables) => side_tables.store_file_metrics(metrics),
         }
@@ -214,13 +209,8 @@ impl MetricsOps {
     /// Upsert symbol metrics (insert or replace)
     pub fn upsert_symbol_metrics(&self, metrics: &SymbolMetrics) -> Result<()> {
         match &self.backend {
-            MetricsOpsBackend::Sqlite(_) => {
-                let conn = self.connect()?;
-                Self::upsert_symbol_metrics_conn(&conn, metrics)
-            }
-            MetricsOpsBackend::Shared { conn, .. } => {
-                let conn = conn.lock();
-                Self::upsert_symbol_metrics_conn(&conn, metrics)
+            MetricsOpsBackend::Sqlite(_) | MetricsOpsBackend::Shared { .. } => {
+                self.with_conn(|conn| Self::upsert_symbol_metrics_conn(conn, metrics))
             }
             MetricsOpsBackend::SideTables(side_tables) => side_tables.store_symbol_metrics(metrics),
         }
@@ -256,13 +246,8 @@ impl MetricsOps {
     /// Delete all metrics for a file (both file_metrics and symbol_metrics rows)
     pub fn delete_file_metrics(&self, file_path: &str) -> Result<usize> {
         match &self.backend {
-            MetricsOpsBackend::Sqlite(_) => {
-                let conn = self.connect()?;
-                Self::delete_file_metrics_conn(&conn, file_path)
-            }
-            MetricsOpsBackend::Shared { conn, .. } => {
-                let conn = conn.lock();
-                Self::delete_file_metrics_conn(&conn, file_path)
+            MetricsOpsBackend::Sqlite(_) | MetricsOpsBackend::Shared { .. } => {
+                self.with_conn(|conn| Self::delete_file_metrics_conn(conn, file_path))
             }
             MetricsOpsBackend::SideTables(side_tables) => {
                 side_tables.delete_metrics_for_file(file_path)
@@ -290,13 +275,8 @@ impl MetricsOps {
     /// Get file metrics by path
     pub fn get_file_metrics(&self, file_path: &str) -> Result<Option<FileMetrics>> {
         match &self.backend {
-            MetricsOpsBackend::Sqlite(_) => {
-                let conn = self.connect()?;
-                Self::get_file_metrics_conn(&conn, file_path)
-            }
-            MetricsOpsBackend::Shared { conn, .. } => {
-                let conn = conn.lock();
-                Self::get_file_metrics_conn(&conn, file_path)
+            MetricsOpsBackend::Sqlite(_) | MetricsOpsBackend::Shared { .. } => {
+                self.with_conn(|conn| Self::get_file_metrics_conn(conn, file_path))
             }
             MetricsOpsBackend::SideTables(side_tables) => side_tables.get_file_metrics(file_path),
         }
@@ -335,13 +315,8 @@ impl MetricsOps {
     /// Get symbol metrics by symbol_id
     pub fn get_symbol_metrics(&self, symbol_id: i64) -> Result<Option<SymbolMetrics>> {
         match &self.backend {
-            MetricsOpsBackend::Sqlite(_) => {
-                let conn = self.connect()?;
-                Self::get_symbol_metrics_conn(&conn, symbol_id)
-            }
-            MetricsOpsBackend::Shared { conn, .. } => {
-                let conn = conn.lock();
-                Self::get_symbol_metrics_conn(&conn, symbol_id)
+            MetricsOpsBackend::Sqlite(_) | MetricsOpsBackend::Shared { .. } => {
+                self.with_conn(|conn| Self::get_symbol_metrics_conn(conn, symbol_id))
             }
             MetricsOpsBackend::SideTables(side_tables) => side_tables.get_symbol_metrics(symbol_id),
         }
@@ -391,13 +366,10 @@ impl MetricsOps {
         min_fan_out: Option<i64>,
     ) -> Result<Vec<FileMetrics>> {
         match &self.backend {
-            MetricsOpsBackend::Sqlite(_) => {
-                let conn = self.connect()?;
-                Self::get_hotspots_conn(&conn, limit, min_loc, min_fan_in, min_fan_out)
-            }
-            MetricsOpsBackend::Shared { conn, .. } => {
-                let conn = conn.lock();
-                Self::get_hotspots_conn(&conn, limit, min_loc, min_fan_in, min_fan_out)
+            MetricsOpsBackend::Sqlite(_) | MetricsOpsBackend::Shared { .. } => {
+                self.with_conn(|conn| {
+                    Self::get_hotspots_conn(conn, limit, min_loc, min_fan_in, min_fan_out)
+                })
             }
             MetricsOpsBackend::SideTables(side_tables) => {
                 side_tables.get_hotspots(limit, min_loc, min_fan_in, min_fan_out)
