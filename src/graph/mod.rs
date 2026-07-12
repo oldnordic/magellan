@@ -255,6 +255,16 @@ pub struct CodeGraph {
     db_path: PathBuf,
 }
 
+struct SqliteRuntimeComponents {
+    side_tables: Arc<dyn side_tables::SideTables>,
+    chunks: ChunkStore,
+    execution_log: execution_log::ExecutionLog,
+    metrics: metrics::MetricsOps,
+    telemetry: telemetry::TelemetryOps,
+    needs_backfill: bool,
+    side_conn: Arc<parking_lot::Mutex<rusqlite::Connection>>,
+}
+
 impl CodeGraph {
     /// Get the database file path
     pub fn db_path(&self) -> &Path {
@@ -318,6 +328,113 @@ impl CodeGraph {
     pub fn enable_embeddings_for_test(&mut self) {
         self.embeddings_enabled = true;
         self.embedder = Box::new(crate::graph::embed::HashEmbedder::new(128));
+    }
+
+    #[cfg(feature = "sqlite-backend")]
+    fn configure_sqlite_pragmas(db_path: &Path) -> Result<()> {
+        let pragma_conn = rusqlite::Connection::open(db_path)
+            .map_err(|e| anyhow::anyhow!("Failed to open connection for PRAGMA config: {}", e))?;
+
+        let journal_mode = pragma_conn
+            .query_row("PRAGMA journal_mode = WAL", [], |row| {
+                let mode: String = row.get(0)?;
+                Ok(mode)
+            })
+            .map_err(|e| anyhow::anyhow!("Failed to set WAL mode: {}", e))?;
+        if !is_memory_db(db_path) {
+            debug_assert_eq!(journal_mode, "wal", "WAL mode should be enabled");
+        }
+
+        pragma_conn
+            .execute("PRAGMA synchronous = NORMAL", [])
+            .map_err(|e| anyhow::anyhow!("Failed to set synchronous: {}", e))?;
+        pragma_conn
+            .execute("PRAGMA cache_size = -64000", [])
+            .map_err(|e| anyhow::anyhow!("Failed to set cache_size: {}", e))?;
+        pragma_conn
+            .execute("PRAGMA temp_store = MEMORY", [])
+            .map_err(|e| anyhow::anyhow!("Failed to set temp_store: {}", e))?;
+
+        Ok(())
+    }
+
+    #[cfg(feature = "sqlite-backend")]
+    fn initialize_sqlite_runtime(db_path: &Path) -> Result<SqliteRuntimeComponents> {
+        let side_conn = rusqlite::Connection::open(db_path)
+            .map_err(|e| anyhow::anyhow!("Failed to open shared side-table connection: {}", e))?;
+        side_conn.pragma_update(None, "busy_timeout", 5000)?;
+        let side_conn_arc = Arc::new(parking_lot::Mutex::new(side_conn));
+
+        let needs_ddl = db_compat::needs_schema_upgrade(&side_conn_arc.lock(), db_path)
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+
+        db_compat::ensure_magellan_meta(&side_conn_arc.lock(), db_path)
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+
+        let side_tables: Arc<dyn side_tables::SideTables> = Arc::new(
+            side_tables::SqliteSideTables::with_shared(Arc::clone(&side_conn_arc))?,
+        );
+
+        let shared_conn = rusqlite::Connection::open(db_path).map_err(|e| {
+            anyhow::anyhow!("Failed to open shared connection for ChunkStore: {}", e)
+        })?;
+        shared_conn.pragma_update(None, "busy_timeout", 5000)?;
+
+        let chunks = ChunkStore::with_connection(shared_conn);
+        chunks.ensure_schema()?;
+
+        let execution_log =
+            execution_log::ExecutionLog::with_connection(Arc::clone(&side_conn_arc));
+        let metrics = metrics::MetricsOps::with_connection(Arc::clone(&side_conn_arc), db_path);
+        let telemetry = telemetry::TelemetryOps::with_connection(Arc::clone(&side_conn_arc));
+
+        if needs_ddl {
+            db_compat::ensure_ast_schema(&side_conn_arc.lock(), db_path)
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            db_compat::ensure_cfg_schema(&side_conn_arc.lock(), db_path)
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            db_compat::ensure_metrics_schema(&side_conn_arc.lock(), db_path)
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            db_compat::ensure_source_inventory_schema(&side_conn_arc.lock(), db_path)
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            db_compat::ensure_candidate_fact_schema(&side_conn_arc.lock(), db_path)
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            db_compat::ensure_telemetry_schema(&side_conn_arc.lock(), db_path)
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            db_compat::ensure_temporal_schema(&side_conn_arc.lock(), db_path)
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        }
+
+        db_compat::ensure_coverage_schema(&side_conn_arc.lock(), db_path)
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+
+        let needs_backfill = {
+            let metric_count: i64 = side_conn_arc
+                .lock()
+                .query_row("SELECT COUNT(*) FROM file_metrics", [], |row| row.get(0))
+                .unwrap_or(0);
+
+            let symbol_count: i64 = side_conn_arc
+                .lock()
+                .query_row(
+                    "SELECT COUNT(*) FROM graph_entities WHERE kind = 'Symbol'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0);
+
+            metric_count == 0 && symbol_count > 0
+        };
+
+        Ok(SqliteRuntimeComponents {
+            side_tables,
+            chunks,
+            execution_log,
+            metrics,
+            telemetry,
+            needs_backfill,
+            side_conn: side_conn_arc,
+        })
     }
 
     /// Check whether embeddings are stale relative to the graph index.
@@ -521,51 +638,7 @@ impl CodeGraph {
 
         // Phase 2b: Configure SQLite performance PRAGMAs
         #[cfg(feature = "sqlite-backend")]
-        {
-            // Note: sqlitegraph 1.0.0 already configures these in from_connection(),
-            // but we set them explicitly here to ensure they're applied even if
-            // sqlitegraph changes its defaults in future versions.
-            //
-            // These PRAGMA settings are configured on a separate connection but affect
-            // the entire database file (PRAGMA is file-level, not connection-level).
-            //
-            // Scoped block ensures connection closes even if PRAGMA operations fail.
-            // Without this scope, early returns via ? would leak the connection.
-            let pragma_conn = rusqlite::Connection::open(&db_path_buf).map_err(|e| {
-                anyhow::anyhow!("Failed to open connection for PRAGMA config: {}", e)
-            })?;
-
-            // WAL mode for better concurrency (allows reads during writes)
-            // query() returns the new mode value, execute() would error
-            // Note: :memory: databases don't support WAL mode (returns "memory")
-            let journal_mode = pragma_conn
-                .query_row("PRAGMA journal_mode = WAL", [], |row| {
-                    let mode: String = row.get(0)?;
-                    Ok(mode)
-                })
-                .map_err(|e| anyhow::anyhow!("Failed to set WAL mode: {}", e))?;
-            // Only assert WAL mode for file-based databases (not :memory:)
-            if !is_memory_db(&db_path_buf) {
-                debug_assert_eq!(journal_mode, "wal", "WAL mode should be enabled");
-            }
-
-            // Faster writes (safe with WAL mode - durability still guaranteed)
-            pragma_conn
-                .execute("PRAGMA synchronous = NORMAL", [])
-                .map_err(|e| anyhow::anyhow!("Failed to set synchronous: {}", e))?;
-
-            // Increase cache (negative value = KB, -64000 = 64MB)
-            // Note: sqlitegraph also sets this to -64000, ensuring 64MB cache
-            pragma_conn
-                .execute("PRAGMA cache_size = -64000", [])
-                .map_err(|e| anyhow::anyhow!("Failed to set cache_size: {}", e))?;
-
-            // Temp tables in memory (faster than disk)
-            pragma_conn
-                .execute("PRAGMA temp_store = MEMORY", [])
-                .map_err(|e| anyhow::anyhow!("Failed to set temp_store: {}", e))?;
-            // pragma_conn drops automatically here at block end
-        }
+        Self::configure_sqlite_pragmas(&db_path_buf)?;
 
         // Build initial file_index from database (eager initialization)
         let file_index = HashMap::new();
@@ -578,106 +651,15 @@ impl CodeGraph {
         files.rebuild_file_index()?;
 
         // Phase 3: SQLite-specific side-table initialization
-        let (side_tables, chunks, execution_log, metrics, telemetry, needs_backfill, side_conn) = {
-            // Open ONE shared connection for all Magellan side-table operations.
-            // Previously each subsystem opened its own connection (~10 total).
-            let side_conn = rusqlite::Connection::open(&db_path_buf).map_err(|e| {
-                anyhow::anyhow!("Failed to open shared side-table connection: {}", e)
-            })?;
-            side_conn.pragma_update(None, "busy_timeout", 5000)?;
-            let side_conn_arc = Arc::new(parking_lot::Mutex::new(side_conn));
-
-            // Check whether DDL needs to run at all.
-            let needs_ddl = db_compat::needs_schema_upgrade(&side_conn_arc.lock(), &db_path_buf)
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-
-            // Phase 3a: Magellan-owned DB compatibility metadata.
-            // MUST run after sqlitegraph open and before any other Magellan side-table writes.
-            db_compat::ensure_magellan_meta(&side_conn_arc.lock(), &db_path_buf)
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-
-            // Create SQLite side tables reusing the shared connection
-            let side_tables: Arc<dyn side_tables::SideTables> = Arc::new(
-                side_tables::SqliteSideTables::with_shared(Arc::clone(&side_conn_arc))?,
-            );
-
-            // Open a shared connection for ChunkStore to enable transactional operations
-            // This allows chunk operations to participate in transactions with graph operations
-            let shared_conn = rusqlite::Connection::open(&db_path_buf).map_err(|e| {
-                anyhow::anyhow!("Failed to open shared connection for ChunkStore: {}", e)
-            })?;
-            shared_conn.pragma_update(None, "busy_timeout", 5000)?;
-
-            // Initialize ChunkStore with shared connection and ensure schema exists
-            let chunks = ChunkStore::with_connection(shared_conn);
-            chunks.ensure_schema()?;
-
-            // Initialize ExecutionLog reusing the shared connection
-            let execution_log =
-                execution_log::ExecutionLog::with_connection(Arc::clone(&side_conn_arc));
-
-            // Initialize MetricsOps reusing the shared connection
-            let metrics =
-                metrics::MetricsOps::with_connection(Arc::clone(&side_conn_arc), &db_path_buf);
-
-            // Initialize TelemetryOps reusing the shared connection
-            let telemetry = telemetry::TelemetryOps::with_connection(Arc::clone(&side_conn_arc));
-
-            // Only run AST / CFG / coverage DDL when the schema is new or was upgraded.
-            // On warm opens this skips ~6 redundant CREATE TABLE IF NOT EXISTS calls.
-            if needs_ddl {
-                db_compat::ensure_ast_schema(&side_conn_arc.lock(), &db_path_buf)
-                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                db_compat::ensure_cfg_schema(&side_conn_arc.lock(), &db_path_buf)
-                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                db_compat::ensure_metrics_schema(&side_conn_arc.lock(), &db_path_buf)
-                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                db_compat::ensure_source_inventory_schema(&side_conn_arc.lock(), &db_path_buf)
-                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                db_compat::ensure_candidate_fact_schema(&side_conn_arc.lock(), &db_path_buf)
-                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                db_compat::ensure_telemetry_schema(&side_conn_arc.lock(), &db_path_buf)
-                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                db_compat::ensure_temporal_schema(&side_conn_arc.lock(), &db_path_buf)
-                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-            }
-
-            // Coverage schema is not versioned in magellan_meta; always ensure it.
-            db_compat::ensure_coverage_schema(&side_conn_arc.lock(), &db_path_buf)
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-
-            // Detect if this is an upgrade (metrics tables exist but are empty)
-            let needs_backfill = {
-                // Check if metrics tables are empty
-                let metric_count: i64 = side_conn_arc
-                    .lock()
-                    .query_row("SELECT COUNT(*) FROM file_metrics", [], |row| row.get(0))
-                    .unwrap_or(0);
-
-                // Also check if we have symbols (indicating existing database)
-                let symbol_count: i64 = side_conn_arc
-                    .lock()
-                    .query_row(
-                        "SELECT COUNT(*) FROM graph_entities WHERE kind = 'Symbol'",
-                        [],
-                        |row| row.get(0),
-                    )
-                    .unwrap_or(0);
-
-                // Backfill needed if: no metrics but we have symbols
-                metric_count == 0 && symbol_count > 0
-            };
-
-            (
-                side_tables,
-                chunks,
-                execution_log,
-                metrics,
-                telemetry,
-                needs_backfill,
-                side_conn_arc,
-            )
-        };
+        let SqliteRuntimeComponents {
+            side_tables,
+            chunks,
+            execution_log,
+            metrics,
+            telemetry,
+            needs_backfill,
+            side_conn,
+        } = Self::initialize_sqlite_runtime(&db_path_buf)?;
 
         // Initialize file node cache with capacity of 128 entries
         let file_node_cache = cache::FileNodeCache::new(128);
