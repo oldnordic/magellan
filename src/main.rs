@@ -595,33 +595,21 @@ fn main() -> ExitCode {
             with_semantics,
             with_checksums,
             context_lines,
-        }) => {
-            if let Err(e) = get_cmd::run_get(
-                db_path,
-                file_path,
-                symbol_name,
-                output_format,
-                with_context,
-                with_semantics,
-                with_checksums,
-                context_lines,
-            ) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(get_cmd::run_get(
+            db_path,
+            file_path,
+            symbol_name,
+            output_format,
+            with_context,
+            with_semantics,
+            with_checksums,
+            context_lines,
+        )),
         Ok(Command::GetFile {
             db_path,
             file_path,
             output_format,
-        }) => {
-            if let Err(e) = get_cmd::run_get_file(db_path, file_path, output_format) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(get_cmd::run_get_file(db_path, file_path, output_format)),
         Ok(Command::TemporalSweep {
             db_path,
             repo_path,
@@ -631,34 +619,25 @@ fn main() -> ExitCode {
             since_commit_time,
             until_commit_time,
             output_format,
-        }) => {
-            if let Err(e) = temporal_sweep_cmd::run_temporal_sweep(
-                db_path,
-                repo_path,
-                magellan::temporal::worktrees::TemporalSweepSelection {
-                    every_n,
-                    tags_only,
-                    merge_commits_only,
-                    since_commit_time,
-                    until_commit_time,
-                },
-                output_format,
-            ) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(temporal_sweep_cmd::run_temporal_sweep(
+            db_path,
+            repo_path,
+            magellan::temporal::worktrees::TemporalSweepSelection {
+                every_n,
+                tags_only,
+                merge_commits_only,
+                since_commit_time,
+                until_commit_time,
+            },
+            output_format,
+        )),
         Ok(Command::TemporalStatus {
             db_path,
             output_format,
-        }) => {
-            if let Err(e) = temporal_query_cmd::run_temporal_status(db_path, output_format) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(temporal_query_cmd::run_temporal_status(
+            db_path,
+            output_format,
+        )),
         Ok(Command::TemporalBarcode {
             db_path,
             stable_id,
@@ -667,91 +646,74 @@ fn main() -> ExitCode {
             edge_kind,
             scc,
             output_format,
-        }) => {
-            if let Err(e) = temporal_query_cmd::run_temporal_barcode(
-                db_path,
-                stable_id,
-                edge_source,
-                edge_target,
-                edge_kind,
-                scc,
-                output_format,
-            ) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(temporal_query_cmd::run_temporal_barcode(
+            db_path,
+            stable_id,
+            edge_source,
+            edge_target,
+            edge_kind,
+            scc,
+            output_format,
+        )),
         Ok(Command::AsOf {
             db_path,
             commit_oid,
             symbol_name,
             output_format,
-        }) => {
-            if let Err(e) =
-                temporal_query_cmd::run_as_of(db_path, commit_oid, symbol_name, output_format)
-            {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(temporal_query_cmd::run_as_of(
+            db_path,
+            commit_oid,
+            symbol_name,
+            output_format,
+        )),
         Ok(Command::Orient {
             db_path,
             repo_path,
             top_n,
             output_format,
-        }) => {
-            if let Err(e) = orient_cmd::run_orient(db_path, repo_path, top_n, output_format) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(orient_cmd::run_orient(
+            db_path,
+            repo_path,
+            top_n,
+            output_format,
+        )),
         Ok(Command::Chunks {
             db_path,
             output_format,
             limit,
             file_filter,
             kind_filter,
-        }) => {
-            if let Err(e) =
-                get_cmd::run_chunks(db_path, output_format, limit, file_filter, kind_filter)
-            {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(get_cmd::run_chunks(
+            db_path,
+            output_format,
+            limit,
+            file_filter,
+            kind_filter,
+        )),
         Ok(Command::ChunkBySpan {
             db_path,
             file_path,
             byte_start,
             byte_end,
             output_format,
-        }) => {
-            if let Err(e) =
-                get_cmd::run_chunk_by_span(db_path, file_path, byte_start, byte_end, output_format)
-            {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(get_cmd::run_chunk_by_span(
+            db_path,
+            file_path,
+            byte_start,
+            byte_end,
+            output_format,
+        )),
         Ok(Command::ChunkBySymbol {
             db_path,
             symbol_name,
             output_format,
             file_filter,
-        }) => {
-            if let Err(e) =
-                get_cmd::run_chunk_by_symbol(db_path, symbol_name, output_format, file_filter)
-            {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(get_cmd::run_chunk_by_symbol(
+            db_path,
+            symbol_name,
+            output_format,
+            file_filter,
+        )),
         Ok(Command::Label {
             db_path,
             label,
@@ -759,15 +721,14 @@ fn main() -> ExitCode {
             count,
             show_code,
             output_format,
-        }) => {
-            if let Err(e) =
-                label_cmd::run_label(db_path, label, list, count, show_code, output_format)
-            {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(label_cmd::run_label(
+            db_path,
+            label,
+            list,
+            count,
+            show_code,
+            output_format,
+        )),
         Ok(Command::Verify {
             root_path,
             db_path,
@@ -787,68 +748,51 @@ fn main() -> ExitCode {
             validate,
             validate_only,
             compile_commands,
-        }) => {
-            if let Err(e) = watch_cmd::run_watch(
-                root_path,
-                db_path,
-                config,
-                scan_initial,
-                validate,
-                validate_only,
-                compile_commands,
-            ) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(watch_cmd::run_watch(
+            root_path,
+            db_path,
+            config,
+            scan_initial,
+            validate,
+            validate_only,
+            compile_commands,
+        )),
         Ok(Command::Ast {
             db_path,
             file_path,
             position,
             output_format,
-        }) => {
-            if let Err(e) = ast_cmd::run_ast_command(db_path, file_path, position, output_format) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(ast_cmd::run_ast_command(
+            db_path,
+            file_path,
+            position,
+            output_format,
+        )),
         Ok(Command::FindAst {
             db_path,
             kind,
             output_format,
-        }) => {
-            if let Err(e) = ast_cmd::run_find_ast_command(db_path, kind, output_format) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(ast_cmd::run_find_ast_command(db_path, kind, output_format)),
         Ok(Command::Reachable {
             db_path,
             symbol_id,
             reverse,
             output_format,
-        }) => {
-            if let Err(e) = reachable_cmd::run_reachable(db_path, symbol_id, reverse, output_format)
-            {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(reachable_cmd::run_reachable(
+            db_path,
+            symbol_id,
+            reverse,
+            output_format,
+        )),
         Ok(Command::DeadCode {
             db_path,
             entry_symbol_id,
             output_format,
-        }) => {
-            if let Err(e) = dead_code_cmd::run_dead_code(db_path, entry_symbol_id, output_format) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(dead_code_cmd::run_dead_code(
+            db_path,
+            entry_symbol_id,
+            output_format,
+        )),
         Ok(Command::Paths {
             db_path,
             start_symbol_id,
@@ -856,42 +800,28 @@ fn main() -> ExitCode {
             max_depth,
             max_paths,
             output_format,
-        }) => {
-            if let Err(e) = path_enumeration_cmd::run_paths(
-                db_path,
-                start_symbol_id,
-                end_symbol_id,
-                max_depth,
-                max_paths,
-                output_format,
-            ) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(path_enumeration_cmd::run_paths(
+            db_path,
+            start_symbol_id,
+            end_symbol_id,
+            max_depth,
+            max_paths,
+            output_format,
+        )),
         Ok(Command::Cycles {
             db_path,
             symbol_id,
             output_format,
-        }) => {
-            if let Err(e) = cycles_cmd::run_cycles(db_path, symbol_id, output_format) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(cycles_cmd::run_cycles(db_path, symbol_id, output_format)),
         Ok(Command::Condense {
             db_path,
             show_members,
             output_format,
-        }) => {
-            if let Err(e) = condense_cmd::run_condense(db_path, show_members, output_format) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(condense_cmd::run_condense(
+            db_path,
+            show_members,
+            output_format,
+        )),
         Ok(Command::Slice {
             db_path,
             target,
@@ -980,30 +910,22 @@ fn main() -> ExitCode {
             list_kind,
             show_stale,
             output_format,
-        }) => {
-            if let Err(e) = source_inventory_cmd::run_source_inventory(
-                db_path,
-                scan_dirs,
-                list_kind,
-                show_stale,
-                output_format,
-            ) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(source_inventory_cmd::run_source_inventory(
+            db_path,
+            scan_dirs,
+            list_kind,
+            show_stale,
+            output_format,
+        )),
         Ok(Command::CandidateFact {
             db_path,
             action,
             output_format,
-        }) => {
-            if let Err(e) = candidate_fact_cmd::run_candidate_fact(db_path, action, output_format) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(candidate_fact_cmd::run_candidate_fact(
+            db_path,
+            action,
+            output_format,
+        )),
         Ok(Command::Service {
             action,
             output_format,
@@ -1051,13 +973,7 @@ fn main() -> ExitCode {
             db_path,
             query,
             output_format,
-        }) => {
-            if let Err(e) = cypher_cmd::run_cypher(db_path, query, output_format) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(cypher_cmd::run_cypher(db_path, query, output_format)),
         Ok(Command::HnswCreate {
             db_path,
             name,
@@ -1066,61 +982,47 @@ fn main() -> ExitCode {
             ef_construction,
             ef_search,
             output_format,
-        }) => {
-            if let Err(e) = hnsw_cmd::run_hnsw_create(
-                db_path,
-                name,
-                dim,
-                m,
-                ef_construction,
-                ef_search,
-                output_format,
-            ) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(hnsw_cmd::run_hnsw_create(
+            db_path,
+            name,
+            dim,
+            m,
+            ef_construction,
+            ef_search,
+            output_format,
+        )),
         Ok(Command::HnswQuery {
             db_path,
             name,
             vector,
             k,
             output_format,
-        }) => {
-            if let Err(e) = hnsw_cmd::run_hnsw_query(db_path, name, vector, k, output_format) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(hnsw_cmd::run_hnsw_query(
+            db_path,
+            name,
+            vector,
+            k,
+            output_format,
+        )),
         Ok(Command::Ask {
             question,
             db_path,
             output_format,
             all,
-        }) => {
-            if let Err(e) = ask_cmd::run_ask(question, db_path, all, output_format) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(ask_cmd::run_ask(question, db_path, all, output_format)),
         Ok(Command::BlastScore {
             db_path,
             symbol,
             file,
             depth,
             output_format,
-        }) => {
-            if let Err(e) =
-                blast_score_cmd::run_blast_score(db_path, symbol, file, depth, output_format)
-            {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(blast_score_cmd::run_blast_score(
+            db_path,
+            symbol,
+            file,
+            depth,
+            output_format,
+        )),
         Ok(Command::Navigate {
             task,
             db_path,
@@ -1132,7 +1034,7 @@ fn main() -> ExitCode {
             with_llmgrep,
             with_mirage,
             tokens,
-        }) => {
+        }) => exit_from_result({
             let cfg = navigate_cmd::NavigateConfig {
                 db_path,
                 task,
@@ -1145,12 +1047,8 @@ fn main() -> ExitCode {
                 with_mirage,
                 tokens,
             };
-            if let Err(e) = navigate_cmd::run_navigate(cfg) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+            navigate_cmd::run_navigate(cfg)
+        }),
         Ok(Command::Explore {
             db_path,
             symbol,
@@ -1161,7 +1059,7 @@ fn main() -> ExitCode {
             chain,
             depth,
             json,
-        }) => {
+        }) => exit_from_result({
             let cfg = explore_cmd::ExploreConfig {
                 db_path,
                 symbol,
@@ -1177,65 +1075,51 @@ fn main() -> ExitCode {
                     explore_cmd::OutputFormat::Human
                 },
             };
-            if let Err(e) = explore_cmd::run_explore(cfg) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+            explore_cmd::run_explore(cfg)
+        }),
         Ok(Command::Telemetry {
             db_path,
             recent,
             phases,
             limit,
             output_format,
-        }) => {
-            if let Err(e) =
-                telemetry_cmd::run_telemetry(db_path, recent, phases, limit, output_format)
-            {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(telemetry_cmd::run_telemetry(
+            db_path,
+            recent,
+            phases,
+            limit,
+            output_format,
+        )),
         Ok(Command::Features {
             db_path,
             output_format,
-        }) => {
-            if let Err(e) = features_cmd::run_features(db_path, output_format) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(features_cmd::run_features(db_path, output_format)),
         Ok(Command::Hopgraph {
             db_path,
             query,
             k,
             hops,
             output_format,
-        }) => {
-            if let Err(e) = hopgraph_cmd::run_hopgraph(db_path, query, k, hops, output_format) {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(hopgraph_cmd::run_hopgraph(
+            db_path,
+            query,
+            k,
+            hops,
+            output_format,
+        )),
         Ok(Command::Embed {
             db_path,
             force,
             batch_size,
             num_parallel,
             output_format,
-        }) => {
-            if let Err(e) =
-                embed_cmd::run_embed(db_path, force, batch_size, num_parallel, output_format)
-            {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
+        }) => exit_from_result(embed_cmd::run_embed(
+            db_path,
+            force,
+            batch_size,
+            num_parallel,
+            output_format,
+        )),
         Err(e) => {
             eprintln!("Error: {}", e);
             print_short_usage();
