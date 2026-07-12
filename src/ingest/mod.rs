@@ -14,6 +14,7 @@ pub mod pool;
 pub mod python;
 mod types;
 pub mod typescript;
+mod typescript_symbols;
 
 // Re-exports from detect module
 pub use detect::{detect_language, Language};
