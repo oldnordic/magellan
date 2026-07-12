@@ -1292,18 +1292,19 @@ fn count_cfg_blocks_for_file(graph: &CodeGraph, path: &str) -> usize {
     use rusqlite::params;
 
     // Count CFG blocks by joining with graph_entities
-    match graph.chunks.connect() {
-        Ok(conn) => conn
-            .query_row(
+    graph
+        .chunks
+        .with_conn(|conn| {
+            conn.query_row(
                 "SELECT COUNT(*) FROM cfg_blocks c
                  JOIN graph_entities e ON c.function_id = e.id
                  WHERE e.file_path = ?1",
                 params![path],
                 |row| row.get(0),
             )
-            .unwrap_or(0),
-        Err(_) => 0,
-    }
+            .map_err(anyhow::Error::from)
+        })
+        .unwrap_or(0)
 }
 
 /// Reconcile a file path against filesystem + content hash.

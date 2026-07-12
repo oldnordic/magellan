@@ -244,8 +244,9 @@ pub trait AmbiguityOps {
 impl AmbiguityOps for CodeGraph {
     fn create_ambiguous_group(&mut self, display_fqn: &str, symbol_ids: &[i64]) -> Result<()> {
         // Step1: Find or create DisplayName node
-        let conn = self.chunks.connect()?;
-        let display_name_id = find_or_create_display_name(&conn, display_fqn)?;
+        let display_name_id = self
+            .chunks
+            .with_conn(|conn| find_or_create_display_name(conn, display_fqn))?;
 
         // Step2: Create alias_of edges to all symbols
         for symbol_id in symbol_ids {
