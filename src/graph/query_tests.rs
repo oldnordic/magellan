@@ -1,4 +1,3 @@
-
 use crate::graph::query::{
     collision_groups, find_by_symbol_id, get_ambiguous_candidates, symbol_nodes_in_file_with_ids,
     symbols_in_file, CollisionField,

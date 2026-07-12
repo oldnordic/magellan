@@ -1,4 +1,3 @@
-
 #[test]
 fn test_ast_nodes_indexed_with_file() {
     use tempfile::tempdir;
