@@ -4,6 +4,7 @@
 //! Now supports multiple backends: SQLite, Geometric, V3
 
 use crate::service::registry::Registry;
+use crate::status_cmd::ExecutionTracker;
 use anyhow::{Context, Result};
 use globset::GlobBuilder;
 use magellan::common::{detect_language_from_path, format_symbol_kind, resolve_path};
@@ -229,7 +230,6 @@ pub fn run_find(
         );
     }
 
-    // Build args for execution tracking
     let mut args = vec!["find".to_string()];
     if let Some(ref n) = name {
         args.push("--name".to_string());
@@ -260,199 +260,149 @@ pub fn run_find(
     }
 
     let mut graph = CodeGraph::open(&db_path)?;
-    let exec_id = magellan::output::generate_execution_id();
-    let root_str = root.as_ref().map(|p| p.to_string_lossy().to_string());
-    let db_path_str = db_path.to_string_lossy().to_string();
+    let mut tracker = ExecutionTracker::new(
+        args,
+        root.as_ref().map(|p| p.to_string_lossy().to_string()),
+        db_path.to_string_lossy().to_string(),
+    );
+    tracker.start(&graph)?;
+    let exec_id = tracker.exec_id().to_string();
 
-    graph.execution_log().start_execution(
-        &exec_id,
-        env!("CARGO_PKG_VERSION"),
-        &args,
-        root_str.as_deref(),
-        &db_path_str,
-    )?;
-
-    // Phase: resolve_target
-    graph
-        .telemetry()
-        .record_phase_start(&exec_id, "resolve_target")?;
-
-    if let Some(pattern) = glob_pattern {
-        let result = run_glob_listing(&mut graph, &pattern, output_format, &exec_id);
-        let _ = graph.execution_log().finish_execution(
-            &exec_id,
-            if result.is_ok() { "success" } else { "error" },
-            result
-                .as_ref()
-                .err()
-                .map(|e: &anyhow::Error| e.to_string())
-                .as_deref(),
-            0,
-            0,
-            0,
-        );
-        return result;
-    }
-
-    // Handle --symbol-id precise lookup
-    if let Some(sid) = symbol_id {
-        let result = match query::find_by_symbol_id(&mut graph, &sid)? {
-            Some(symbol) => {
-                println!("Found symbol ID: {}", sid);
-                if let Some(name) = &symbol.name {
-                    println!("  Name:     {}", name);
-                }
-                println!("  Kind:     {}", symbol.kind);
-                if let Some(canon) = &symbol.canonical_fqn {
-                    println!("  Canonical: {}", canon);
-                }
-                if let Some(display) = &symbol.display_fqn {
-                    println!("  Display:  {}", display);
-                }
-                println!(
-                    "  Location: Line {}, Column {}",
-                    symbol.start_line, symbol.start_col
-                );
-                Ok(())
-            }
-            None => {
-                eprintln!("Symbol ID '{}' not found", sid);
-                Ok(())
-            }
-        };
-        let _ = graph.execution_log().finish_execution(
-            &exec_id,
-            if result.is_ok() { "success" } else { "error" },
-            result
-                .as_ref()
-                .err()
-                .map(|e: &anyhow::Error| e.to_string())
-                .as_deref(),
-            0,
-            0,
-            0,
-        );
-        return result;
-    }
-
-    // Handle --ambiguous symbol name query (show all candidates)
-    if let Some(amb_name) = ambiguous_name {
-        let result = match query::get_ambiguous_candidates(&mut graph, &amb_name) {
-            Ok(candidates) => {
-                if candidates.is_empty() {
-                    eprintln!("No symbols found with name '{}'", amb_name);
-                    Ok(())
-                } else {
-                    for (entity_id, symbol) in candidates.iter().enumerate() {
-                        let sid = symbol.1.symbol_id.as_deref().unwrap_or("<none>");
-                        let canon = symbol.1.canonical_fqn.as_deref().unwrap_or("<none>");
-                        eprintln!("  [{}]", entity_id + 1);
-                        eprintln!("    Symbol ID: {}", sid);
-                        eprintln!("    Canonical: {}", canon);
-                        eprintln!("    Name: {}", symbol.1.name.as_deref().unwrap_or("<none>"));
-                        eprintln!("    Kind: {}", symbol.1.kind);
-                    }
-                    Ok(())
-                }
-            }
-            Err(e) => Err(e),
-        };
-        let _ = graph.execution_log().finish_execution(
-            &exec_id,
-            if result.is_ok() { "success" } else { "error" },
-            result
-                .as_ref()
-                .err()
-                .map(|e: &anyhow::Error| e.to_string())
-                .as_deref(),
-            0,
-            0,
-            0,
-        );
-        return result;
-    }
-
-    let name = name.ok_or_else(|| {
-        anyhow::anyhow!(
-            "--name is required unless --list-glob, --symbol-id, or --ambiguous is provided"
-        )
-    })?;
-
-    // End resolve_target phase, start search phase
-    graph
-        .telemetry()
-        .record_phase_end(&exec_id, "resolve_target")?;
-    graph.telemetry().record_phase_start(&exec_id, "search")?;
-
-    let results = match path.as_ref() {
-        Some(file_path) => {
-            let path_str = resolve_path(file_path, &root);
-            match find_in_file(&mut graph, &path_str, &name)? {
-                Some(symbol) => vec![symbol],
-                None => vec![],
-            }
-        }
-        None => find_all_files(&mut graph, &name)?,
-    };
-
-    if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
-        // End search phase, start build_response phase
-        graph.telemetry().record_phase_end(&exec_id, "search")?;
+    let result = (|| -> Result<()> {
         graph
             .telemetry()
-            .record_phase_start(&exec_id, "build_response")?;
+            .record_phase_start(&exec_id, "resolve_target")?;
 
-        let result = output_json_mode(
-            &mut graph,
-            &name,
-            results,
-            path.as_ref().map(|p| resolve_path(p, &root)),
-            &exec_id,
-            output_format,
-            with_context,
-            with_callers,
-            with_callees,
-            with_semantics,
-            with_checksums,
-            context_lines,
-        );
-        let _ = graph.execution_log().finish_execution(
-            &exec_id,
-            if result.is_ok() { "success" } else { "error" },
-            result
-                .as_ref()
-                .err()
-                .map(|e: &anyhow::Error| e.to_string())
-                .as_deref(),
-            0,
-            0,
-            0,
-        );
-        return result;
-    }
+        if let Some(pattern) = glob_pattern {
+            graph
+                .telemetry()
+                .record_phase_end(&exec_id, "resolve_target")?;
+            return run_glob_listing(&mut graph, &pattern, output_format, &exec_id);
+        }
 
-    // End search phase for human output
-    graph.telemetry().record_phase_end(&exec_id, "search")?;
+        if let Some(sid) = symbol_id {
+            let symbol_result = match query::find_by_symbol_id(&mut graph, &sid)? {
+                Some(symbol) => {
+                    println!("Found symbol ID: {}", sid);
+                    if let Some(name) = &symbol.name {
+                        println!("  Name:     {}", name);
+                    }
+                    println!("  Kind:     {}", symbol.kind);
+                    if let Some(canon) = &symbol.canonical_fqn {
+                        println!("  Canonical: {}", canon);
+                    }
+                    if let Some(display) = &symbol.display_fqn {
+                        println!("  Display:  {}", display);
+                    }
+                    println!(
+                        "  Location: Line {}, Column {}",
+                        symbol.start_line, symbol.start_col
+                    );
+                    Ok(())
+                }
+                None => {
+                    eprintln!("Symbol ID '{}' not found", sid);
+                    Ok(())
+                }
+            };
+            graph
+                .telemetry()
+                .record_phase_end(&exec_id, "resolve_target")?;
+            return symbol_result;
+        }
 
-    if results.is_empty() {
-        println!("Symbol '{}' not found", name);
-        println!(
-            "Hint: use `magellan find --list-glob \"{}\"` to preview name variants.",
-            name
-        );
-    } else if results.len() == 1 {
-        let symbol = &results[0];
-        println!("Found \"{}\":", name);
-        println!("  File:     {}", symbol.file);
-        println!(
-            "  Kind:     {} [{}]",
-            format_symbol_kind(&symbol.kind),
-            symbol.kind_normalized
-        );
-        println!("  Location: Line {}, Column {}", symbol.line, symbol.col);
-        println!("  Node ID:  {}", symbol.node_id);
-    } else {
-        if first {
+        if let Some(amb_name) = ambiguous_name {
+            let ambiguous_result = match query::get_ambiguous_candidates(&mut graph, &amb_name) {
+                Ok(candidates) => {
+                    if candidates.is_empty() {
+                        eprintln!("No symbols found with name '{}'", amb_name);
+                        Ok(())
+                    } else {
+                        for (entity_id, symbol) in candidates.iter().enumerate() {
+                            let sid = symbol.1.symbol_id.as_deref().unwrap_or("<none>");
+                            let canon = symbol.1.canonical_fqn.as_deref().unwrap_or("<none>");
+                            eprintln!("  [{}]", entity_id + 1);
+                            eprintln!("    Symbol ID: {}", sid);
+                            eprintln!("    Canonical: {}", canon);
+                            eprintln!("    Name: {}", symbol.1.name.as_deref().unwrap_or("<none>"));
+                            eprintln!("    Kind: {}", symbol.1.kind);
+                        }
+                        Ok(())
+                    }
+                }
+                Err(e) => Err(e),
+            };
+            graph
+                .telemetry()
+                .record_phase_end(&exec_id, "resolve_target")?;
+            return ambiguous_result;
+        }
+
+        let name = name.ok_or_else(|| {
+            anyhow::anyhow!(
+                "--name is required unless --list-glob, --symbol-id, or --ambiguous is provided"
+            )
+        })?;
+
+        graph
+            .telemetry()
+            .record_phase_end(&exec_id, "resolve_target")?;
+        graph.telemetry().record_phase_start(&exec_id, "search")?;
+
+        let results = match path.as_ref() {
+            Some(file_path) => {
+                let path_str = resolve_path(file_path, &root);
+                match find_in_file(&mut graph, &path_str, &name)? {
+                    Some(symbol) => vec![symbol],
+                    None => vec![],
+                }
+            }
+            None => find_all_files(&mut graph, &name)?,
+        };
+
+        tracker.set_counts(0, results.len(), 0);
+
+        if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
+            graph.telemetry().record_phase_end(&exec_id, "search")?;
+            graph
+                .telemetry()
+                .record_phase_start(&exec_id, "build_response")?;
+            return output_json_mode(
+                &mut graph,
+                &name,
+                results,
+                path.as_ref().map(|p| resolve_path(p, &root)),
+                &exec_id,
+                output_format,
+                with_context,
+                with_callers,
+                with_callees,
+                with_semantics,
+                with_checksums,
+                context_lines,
+            );
+        }
+
+        graph.telemetry().record_phase_end(&exec_id, "search")?;
+
+        if results.is_empty() {
+            println!("Symbol '{}' not found", name);
+            println!(
+                "Hint: use `magellan find --list-glob \"{}\"` to preview name variants.",
+                name
+            );
+        } else if results.len() == 1 {
+            let symbol = &results[0];
+            println!("Found \"{}\":", name);
+            println!("  File:     {}", symbol.file);
+            println!(
+                "  Kind:     {} [{}]",
+                format_symbol_kind(&symbol.kind),
+                symbol.kind_normalized
+            );
+            println!("  Location: Line {}, Column {}", symbol.line, symbol.col);
+            println!("  Node ID:  {}", symbol.node_id);
+        } else if first {
             eprintln!("WARNING: --first is deprecated. Use --symbol-id for precise lookups.");
             let symbol = &results[0];
             println!("Found \"{}\" (using first match):", name);
@@ -503,17 +453,18 @@ pub fn run_find(
             eprintln!();
             eprintln!("Use --path <file> to disambiguate, or --symbol-id <id> for precise lookup");
         }
+
+        graph.telemetry().record_phase_start(&exec_id, "output")?;
+        graph.telemetry().record_phase_end(&exec_id, "output")?;
+
+        Ok(())
+    })();
+
+    if let Err(err) = &result {
+        tracker.set_error(format!("{err:#}"));
     }
-
-    let _ = graph
-        .execution_log()
-        .finish_execution(&exec_id, "success", None, 0, 0, 0);
-
-    // Record output phase for human output
-    graph.telemetry().record_phase_start(&exec_id, "output")?;
-    graph.telemetry().record_phase_end(&exec_id, "output")?;
-
-    Ok(())
+    tracker.finish(&graph)?;
+    result
 }
 
 /// Output find results in JSON format
