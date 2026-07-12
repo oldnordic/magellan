@@ -31,11 +31,8 @@ pub fn parse_backfill_args(args: &[String]) -> Result<Command> {
     while i < args.len() {
         match args[i].as_str() {
             "--db" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--db requires an argument"));
-                }
-                db_path = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--db")?;
+                db_path = Some(PathBuf::from(value));
             }
             _ => i += 1,
         }
@@ -95,25 +92,17 @@ pub fn parse_index_args(args: &[String]) -> Result<Command> {
     while i < args.len() {
         match args[i].as_str() {
             "--db" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--db requires an argument"));
-                }
-                db_path = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--db")?;
+                db_path = Some(PathBuf::from(value));
             }
             "--file" | "--path" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--file requires an argument"));
-                }
-                file_path = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                let flag = args[i].as_str();
+                let value = parse_required_arg(args, &mut i, flag)?;
+                file_path = Some(PathBuf::from(value));
             }
             "--root" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--root requires an argument"));
-                }
-                root = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--root")?;
+                root = Some(PathBuf::from(value));
             }
             _ => i += 1,
         }
@@ -144,25 +133,16 @@ pub fn parse_watch_args(args: &[String]) -> Result<Command> {
     while i < args.len() {
         match args[i].as_str() {
             "--root" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--root requires an argument"));
-                }
-                root_path = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--root")?;
+                root_path = Some(PathBuf::from(value));
             }
             "--db" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--db requires an argument"));
-                }
-                db_path = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--db")?;
+                db_path = Some(PathBuf::from(value));
             }
             "--debounce-ms" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--debounce-ms requires an argument"));
-                }
-                debounce_ms = args[i + 1].parse()?;
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--debounce-ms")?;
+                debounce_ms = value.parse()?;
             }
             "--watch-only" => {
                 watch_only = true;
@@ -190,11 +170,8 @@ pub fn parse_watch_args(args: &[String]) -> Result<Command> {
             }
 
             "--compile-commands" => {
-                if i + 1 >= args.len() {
-                    return Err(anyhow::anyhow!("--compile-commands requires an argument"));
-                }
-                compile_commands = Some(PathBuf::from(&args[i + 1]));
-                i += 2;
+                let value = parse_required_arg(args, &mut i, "--compile-commands")?;
+                compile_commands = Some(PathBuf::from(value));
             }
             _ => {
                 return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
