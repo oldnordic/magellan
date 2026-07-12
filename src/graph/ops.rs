@@ -1307,6 +1307,90 @@ fn count_cfg_blocks_for_file(graph: &CodeGraph, path: &str) -> usize {
         .unwrap_or(0)
 }
 
+fn delete_file_facts_with_context(
+    graph: &mut CodeGraph,
+    path_key: &str,
+    action: &str,
+) -> Result<()> {
+    #[cfg(debug_assertions)]
+    {
+        let deleted = delete_file_facts(graph, path_key)
+            .with_context(|| format!("delete existing facts {action} for {path_key}"))?;
+        if !deleted.is_empty() {
+            eprintln!(
+                "Deleted {} symbols, {} references, {} calls {} {}",
+                deleted.symbols_deleted,
+                deleted.references_deleted,
+                deleted.calls_deleted,
+                action,
+                path_key
+            );
+        }
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = delete_file_facts(graph, path_key)
+            .with_context(|| format!("delete existing facts {action} for {path_key}"))?;
+    }
+
+    Ok(())
+}
+
+fn stored_file_hash_matches(graph: &mut CodeGraph, path_key: &str, new_hash: &str) -> Result<bool> {
+    let snapshot = SnapshotId::current();
+    if let Some(file_id) = graph.files.find_file_node(path_key)? {
+        match graph.files.backend.get_node(snapshot, file_id.as_i64()) {
+            Ok(node) => {
+                let file_node: crate::graph::schema::FileNode = serde_json::from_value(node.data)
+                    .unwrap_or_else(|_| crate::graph::schema::FileNode {
+                        path: path_key.to_string(),
+                        hash: String::new(),
+                        last_indexed_at: 0,
+                        last_modified: 0,
+                    });
+                Ok(file_node.hash == new_hash)
+            }
+            Err(sqlitegraph::SqliteGraphError::NotFound(_)) => {
+                let normalized_path = crate::graph::files::normalize_path_for_index(path_key);
+                graph.files.file_index.remove(&normalized_path);
+                Ok(false)
+            }
+            Err(e) => Err(e.into()),
+        }
+    } else {
+        Ok(false)
+    }
+}
+
+fn reconcile_with_loaded_source(
+    graph: &mut CodeGraph,
+    path_key: &str,
+    source: &[u8],
+) -> Result<ReconcileOutcome> {
+    let new_hash = graph.files.compute_hash(source);
+    if stored_file_hash_matches(graph, path_key, &new_hash)? {
+        return Ok(ReconcileOutcome::Unchanged);
+    }
+
+    delete_file_facts_with_context(graph, path_key, "before reindex")?;
+
+    graph
+        .module_resolver
+        .build_module_index()
+        .with_context(|| format!("rebuild module index before reconcile for {path_key}"))?;
+
+    let symbols = index_file(graph, path_key, source)
+        .with_context(|| format!("index symbols for {path_key}"))?;
+    query::index_references(graph, path_key, source)
+        .with_context(|| format!("index references for {path_key}"))?;
+
+    Ok(ReconcileOutcome::Reindexed {
+        symbols,
+        references: count_references_in_file(graph, path_key),
+        calls: count_calls_in_file(graph, path_key),
+    })
+}
+
 /// Reconcile a file path against filesystem + content hash.
 ///
 /// This is the deterministic primitive used by scan and watcher updates.
@@ -1322,109 +1406,13 @@ pub fn reconcile_file_path(
 ) -> Result<ReconcileOutcome> {
     use std::fs;
 
-    // 1) Check if file exists on filesystem
     if !path.exists() {
-        // Delete facts for missing file
-        #[cfg(debug_assertions)]
-        {
-            let deleted = delete_file_facts(graph, path_key)
-                .with_context(|| format!("delete existing facts for missing file {path_key}"))?;
-            if !deleted.is_empty() {
-                eprintln!(
-                    "Deleted {} symbols, {} references, {} calls for missing file {}",
-                    deleted.symbols_deleted,
-                    deleted.references_deleted,
-                    deleted.calls_deleted,
-                    path_key
-                );
-            }
-        }
-        #[cfg(not(debug_assertions))]
-        {
-            let _ = delete_file_facts(graph, path_key)
-                .with_context(|| format!("delete existing facts for missing file {path_key}"))?;
-        }
+        delete_file_facts_with_context(graph, path_key, "for missing file")?;
         return Ok(ReconcileOutcome::Deleted);
     }
 
-    // 2) Read file and compute hash
     let source = fs::read(path)?;
-    let new_hash = graph.files.compute_hash(&source);
-
-    // 3) Check if hash matches stored file node
-    let snapshot = SnapshotId::current();
-    let unchanged = if let Some(file_id) = graph.files.find_file_node(path_key)? {
-        match graph.files.backend.get_node(snapshot, file_id.as_i64()) {
-            Ok(node) => {
-                let file_node: crate::graph::schema::FileNode = serde_json::from_value(node.data)
-                    .unwrap_or_else(|_| crate::graph::schema::FileNode {
-                        path: path_key.to_string(),
-                        hash: String::new(),
-                        last_indexed_at: 0,
-                        last_modified: 0,
-                    });
-                file_node.hash == new_hash
-            }
-            Err(sqlitegraph::SqliteGraphError::NotFound(_)) => {
-                // Stale entry in file_index - entity was deleted but index not updated
-                // Remove stale entry and treat as new file
-                let normalized_path = crate::graph::files::normalize_path_for_index(path_key);
-                graph.files.file_index.remove(&normalized_path);
-                false // File needs to be re-indexed
-            }
-            Err(e) => return Err(e.into()),
-        }
-    } else {
-        false // File doesn't exist in DB, needs to be indexed
-    };
-
-    // 4) If unchanged, skip reindexing
-    if unchanged {
-        return Ok(ReconcileOutcome::Unchanged);
-    }
-
-    // 5) Delete all existing facts for this file, then re-index
-    #[cfg(debug_assertions)]
-    {
-        let deleted = delete_file_facts(graph, path_key)
-            .with_context(|| format!("delete existing facts before reindex for {path_key}"))?;
-        if !deleted.is_empty() {
-            eprintln!(
-                "Deleted {} symbols, {} references, {} calls for reindex of {}",
-                deleted.symbols_deleted,
-                deleted.references_deleted,
-                deleted.calls_deleted,
-                path_key
-            );
-        }
-    }
-    #[cfg(not(debug_assertions))]
-    {
-        let _ = delete_file_facts(graph, path_key)
-            .with_context(|| format!("delete existing facts before reindex for {path_key}"))?;
-    }
-
-    graph
-        .module_resolver
-        .build_module_index()
-        .with_context(|| format!("rebuild module index before reconcile for {path_key}"))?;
-
-    let symbols = index_file(graph, path_key, &source)
-        .with_context(|| format!("index symbols for {path_key}"))?;
-    query::index_references(graph, path_key, &source)
-        .with_context(|| format!("index references for {path_key}"))?;
-
-    // Count calls for this file only (index_file already indexed calls internally)
-    let calls = count_calls_in_file(graph, path_key);
-
-    // Count references for this file only
-    let references = count_references_in_file(graph, path_key);
-
-    Ok(ReconcileOutcome::Reindexed {
-        symbols,
-        references,
-        calls,
-    })
+    reconcile_with_loaded_source(graph, path_key, &source)
 }
 
 /// Reconcile a file path using pre-read source bytes.
@@ -1437,101 +1425,12 @@ pub fn reconcile_file_path_with_source(
     path_key: &str,
     source: &[u8],
 ) -> Result<ReconcileOutcome> {
-    // 1) Check if file exists on filesystem
     if !path.exists() {
-        #[cfg(debug_assertions)]
-        {
-            let deleted = delete_file_facts(graph, path_key)
-                .with_context(|| format!("delete existing facts for missing file {path_key}"))?;
-            if !deleted.is_empty() {
-                eprintln!(
-                    "Deleted {} symbols, {} references, {} calls for missing file {}",
-                    deleted.symbols_deleted,
-                    deleted.references_deleted,
-                    deleted.calls_deleted,
-                    path_key
-                );
-            }
-        }
-        #[cfg(not(debug_assertions))]
-        {
-            let _ = delete_file_facts(graph, path_key)
-                .with_context(|| format!("delete existing facts for missing file {path_key}"))?;
-        }
+        delete_file_facts_with_context(graph, path_key, "for missing file")?;
         return Ok(ReconcileOutcome::Deleted);
     }
 
-    // 2) Use provided source bytes (skip fs::read)
-    let new_hash = graph.files.compute_hash(source);
-
-    // 3) Check if hash matches stored file node
-    let snapshot = SnapshotId::current();
-    let unchanged = if let Some(file_id) = graph.files.find_file_node(path_key)? {
-        match graph.files.backend.get_node(snapshot, file_id.as_i64()) {
-            Ok(node) => {
-                let file_node: crate::graph::schema::FileNode = serde_json::from_value(node.data)
-                    .unwrap_or_else(|_| crate::graph::schema::FileNode {
-                        path: path_key.to_string(),
-                        hash: String::new(),
-                        last_indexed_at: 0,
-                        last_modified: 0,
-                    });
-                file_node.hash == new_hash
-            }
-            Err(sqlitegraph::SqliteGraphError::NotFound(_)) => {
-                let normalized_path = crate::graph::files::normalize_path_for_index(path_key);
-                graph.files.file_index.remove(&normalized_path);
-                false
-            }
-            Err(e) => return Err(e.into()),
-        }
-    } else {
-        false
-    };
-
-    // 4) If unchanged, skip reindexing
-    if unchanged {
-        return Ok(ReconcileOutcome::Unchanged);
-    }
-
-    // 5) Delete all existing facts, then re-index
-    #[cfg(debug_assertions)]
-    {
-        let deleted = delete_file_facts(graph, path_key)
-            .with_context(|| format!("delete existing facts before reindex for {path_key}"))?;
-        if !deleted.is_empty() {
-            eprintln!(
-                "Deleted {} symbols, {} references, {} calls for reindex of {}",
-                deleted.symbols_deleted,
-                deleted.references_deleted,
-                deleted.calls_deleted,
-                path_key
-            );
-        }
-    }
-    #[cfg(not(debug_assertions))]
-    {
-        let _ = delete_file_facts(graph, path_key)
-            .with_context(|| format!("delete existing facts before reindex for {path_key}"))?;
-    }
-
-    graph
-        .module_resolver
-        .build_module_index()
-        .with_context(|| format!("rebuild module index before reconcile for {path_key}"))?;
-
-    let symbols = index_file(graph, path_key, source)
-        .with_context(|| format!("index symbols for {path_key}"))?;
-    query::index_references(graph, path_key, source)
-        .with_context(|| format!("index references for {path_key}"))?;
-    let calls = count_calls_in_file(graph, path_key);
-    let references = count_references_in_file(graph, path_key);
-
-    Ok(ReconcileOutcome::Reindexed {
-        symbols,
-        references,
-        calls,
-    })
+    reconcile_with_loaded_source(graph, path_key, source)
 }
 #[cfg(test)]
 #[path = "ops_tests.rs"]
