@@ -692,9 +692,6 @@ pub fn run_doctor(db_path: PathBuf, fix: bool, output_format: OutputFormat) -> R
         }
     }
 
-    // Track execution
-    let _exec_id = generate_execution_id();
-
     // End output phase
     graph.telemetry().record_phase_end(&exec_id, "output")?;
 
