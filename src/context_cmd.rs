@@ -142,7 +142,7 @@ pub fn run_context_list(
             });
             let response = serde_json::json!({
                 "schema_version": "1.0",
-                "execution_id": generate_execution_id(),
+                "execution_id": exec_id,
                 "command": "context list",
                 "data": data,
             });
