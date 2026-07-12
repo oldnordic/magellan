@@ -4,9 +4,10 @@
 
 use anyhow::Result;
 use magellan::lsp;
-use magellan::output::generate_execution_id;
 use magellan::CodeGraph;
 use std::path::PathBuf;
+
+use crate::status_cmd::ExecutionTracker;
 
 /// Run the enrich command
 ///
@@ -21,9 +22,6 @@ use std::path::PathBuf;
 /// Result indicating success or failure
 pub fn run_enrich(db_path: PathBuf, files: Option<Vec<PathBuf>>, timeout_secs: u64) -> Result<()> {
     let mut graph = CodeGraph::open(&db_path)?;
-    let exec_id = generate_execution_id();
-
-    // Build command args for execution tracking
     let mut args = vec!["enrich".to_string()];
     if let Some(ref files) = files {
         for file in files {
@@ -36,36 +34,29 @@ pub fn run_enrich(db_path: PathBuf, files: Option<Vec<PathBuf>>, timeout_secs: u
         args.push(timeout_secs.to_string());
     }
 
-    // Start execution tracking
-    graph.execution_log().start_execution(
-        &exec_id,
-        env!("CARGO_PKG_VERSION"),
-        &args,
-        None,
-        &db_path.to_string_lossy(),
-    )?;
+    let mut tracker = ExecutionTracker::new(args, None, db_path.to_string_lossy().to_string());
+    tracker.start(&graph)?;
 
-    // Create enrichment configuration
-    let config = lsp::enrich::EnrichConfig {
-        analyzers: None, // Use all available analyzers
-        files,
-        timeout_secs,
+    let result: Result<()> = {
+        let config = lsp::enrich::EnrichConfig {
+            analyzers: None,
+            files,
+            timeout_secs,
+        };
+
+        let enrich_result = lsp::enrich::enrich_symbols(&mut graph, &config)?;
+
+        println!("\nEnrichment Summary:");
+        println!("  Files processed: {}", enrich_result.files_processed);
+        println!("  Symbols enriched: {}", enrich_result.symbols_enriched);
+        println!("  Errors: {}", enrich_result.errors);
+
+        Ok(())
     };
 
-    // Run enrichment
-    let result = lsp::enrich::enrich_symbols(&mut graph, &config)?;
-
-    // Finish execution tracking
-    graph.execution_log().finish_execution(
-        &exec_id, "success", None, 0, // files_indexed
-        0, // symbols_indexed
-        0, // references_indexed
-    )?;
-
-    println!("\nEnrichment Summary:");
-    println!("  Files processed: {}", result.files_processed);
-    println!("  Symbols enriched: {}", result.symbols_enriched);
-    println!("  Errors: {}", result.errors);
-
-    Ok(())
+    if let Err(err) = &result {
+        tracker.set_error(format!("{err:#}"));
+    }
+    tracker.finish(&graph)?;
+    result
 }
