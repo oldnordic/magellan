@@ -1,5 +1,6 @@
 pub mod c;
 pub mod cpp;
+mod cpp_symbols;
 pub mod cuda;
 pub mod detect;
 pub mod fqn_resolver;
