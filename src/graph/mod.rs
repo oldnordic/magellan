@@ -597,10 +597,9 @@ impl CodeGraph {
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
             // Create SQLite side tables reusing the shared connection
-            let side_tables: Arc<dyn side_tables::SideTables> =
-                Arc::new(side_tables::sqlite_impl::SqliteSideTables::with_shared(
-                    Arc::clone(&side_conn_arc),
-                )?);
+            let side_tables: Arc<dyn side_tables::SideTables> = Arc::new(
+                side_tables::SqliteSideTables::with_shared(Arc::clone(&side_conn_arc))?,
+            );
 
             // Open a shared connection for ChunkStore to enable transactional operations
             // This allows chunk operations to participate in transactions with graph operations
