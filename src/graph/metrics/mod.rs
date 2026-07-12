@@ -2,20 +2,15 @@
 //!
 //! Pre-computed metrics (fan-in, fan-out, LOC, complexity) enable fast debug tool queries.
 //!
-//! # Thread Safety
+//! # Backend Model
 //!
-//! **This module is NOT thread-safe.**
+//! `MetricsOps` supports:
+//! - an owned SQLite path
+//! - a shared SQLite connection borrowed from `CodeGraph`
+//! - a `SideTables` abstraction for backend-agnostic storage
 //!
-//! `MetricsOps` is designed for single-threaded use only:
-//! - All methods require `&mut self` (exclusive access)
-//! - Uses separate rusqlite connection to same database file
-//! - No `Send` or `Sync` impls
-//!
-//! # Usage Pattern
-//!
-//! `MetricsOps` is accessed exclusively through `CodeGraph`, which
-//! enforces single-threaded access. The parent `CodeGraph` instance
-//! must not be shared across threads.
+//! `CodeGraph` constructs the shared-connection variant in normal runtime use to
+//! avoid reopening side-table handles against the same database.
 
 use anyhow::Result;
 use rusqlite::{params, OptionalExtension};
@@ -52,14 +47,6 @@ pub struct MetricsOps {
 }
 
 impl MetricsOps {
-    fn db_path(&self) -> &Path {
-        match &self.backend {
-            MetricsOpsBackend::Sqlite(path) => path,
-            MetricsOpsBackend::Shared { db_path, .. } => db_path,
-            MetricsOpsBackend::SideTables(_) => Path::new(":memory:"),
-        }
-    }
-
     /// Create a new MetricsOps with the given database path
     pub fn new(db_path: &Path) -> Self {
         Self {
@@ -128,14 +115,14 @@ impl MetricsOps {
     /// Ensure metrics tables exist (creates if new DB)
     pub fn ensure_schema(&self) -> Result<()> {
         match &self.backend {
-            MetricsOpsBackend::Sqlite(_) => {
+            MetricsOpsBackend::Sqlite(path) => {
                 let conn = self.connect()?;
-                crate::graph::db_compat::ensure_metrics_schema(&conn, self.db_path())
+                crate::graph::db_compat::ensure_metrics_schema(&conn, path)
                     .map_err(|e| anyhow::anyhow!("Failed to ensure metrics schema: {}", e))
             }
-            MetricsOpsBackend::Shared { conn, .. } => {
+            MetricsOpsBackend::Shared { conn, db_path } => {
                 let conn = conn.lock();
-                crate::graph::db_compat::ensure_metrics_schema(&conn, self.db_path())
+                crate::graph::db_compat::ensure_metrics_schema(&conn, db_path)
                     .map_err(|e| anyhow::anyhow!("Failed to ensure metrics schema: {}", e))
             }
             MetricsOpsBackend::SideTables(_) => Ok(()),
