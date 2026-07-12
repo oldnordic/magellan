@@ -367,7 +367,7 @@ pub fn run_find(
             graph
                 .telemetry()
                 .record_phase_start(&exec_id, "build_response")?;
-            return output_json_mode(
+            let json_result = output_json_mode(
                 &mut graph,
                 &name,
                 results,
@@ -381,9 +381,14 @@ pub fn run_find(
                 with_checksums,
                 context_lines,
             );
+            graph
+                .telemetry()
+                .record_phase_end(&exec_id, "build_response")?;
+            return json_result;
         }
 
         graph.telemetry().record_phase_end(&exec_id, "search")?;
+        graph.telemetry().record_phase_start(&exec_id, "output")?;
 
         if results.is_empty() {
             println!("Symbol '{}' not found", name);
@@ -454,7 +459,6 @@ pub fn run_find(
             eprintln!("Use --path <file> to disambiguate, or --symbol-id <id> for precise lookup");
         }
 
-        graph.telemetry().record_phase_start(&exec_id, "output")?;
         graph.telemetry().record_phase_end(&exec_id, "output")?;
 
         Ok(())

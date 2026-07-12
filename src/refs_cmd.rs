@@ -293,7 +293,7 @@ pub fn run_refs(
             graph
                 .telemetry()
                 .record_phase_start(&exec_id, "build_response")?;
-            return output_json_mode(
+            let json_result = output_json_mode(
                 &db_path,
                 &name,
                 &path_str,
@@ -307,10 +307,16 @@ pub fn run_refs(
                 context_lines,
                 tokens,
             );
+            graph
+                .telemetry()
+                .record_phase_end(&exec_id, "build_response")?;
+            return json_result;
         }
 
+        graph.telemetry().record_phase_end(&exec_id, "query_refs")?;
+        graph.telemetry().record_phase_start(&exec_id, "output")?;
+
         if direction == "in" || direction == "incoming" {
-            graph.telemetry().record_phase_end(&exec_id, "query_refs")?;
             if calls.is_empty() {
                 println!("No incoming calls to \"{}\"", name);
             } else {
@@ -338,7 +344,6 @@ pub fn run_refs(
             }
         }
 
-        graph.telemetry().record_phase_start(&exec_id, "output")?;
         graph.telemetry().record_phase_end(&exec_id, "output")?;
 
         Ok(())

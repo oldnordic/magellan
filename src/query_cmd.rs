@@ -37,6 +37,14 @@ Examples:
   magellan query --db mag.db --file src/lib.rs --symbol main --show-extent
   magellan find  --db mag.db --list-glob \"handler_*\""#;
 
+enum QueryAction {
+    Explain,
+    Run {
+        kind_filter: Option<magellan::SymbolKind>,
+        path_str: String,
+    },
+}
+
 #[allow(
     clippy::too_many_arguments,
     reason = "CLI command surface: each arg maps to a flag"
@@ -96,35 +104,57 @@ pub fn run_query(
             .telemetry()
             .record_phase_start(&exec_id, "validate_args")?;
 
-        if explain {
-            println!("{}", QUERY_EXPLAIN_TEXT);
-            return Ok(());
-        }
+        let action = (|| -> Result<QueryAction> {
+            if explain {
+                return Ok(QueryAction::Explain);
+            }
 
-        if show_extent && symbol.is_none() {
-            anyhow::bail!("--show-extent requires --symbol <name>");
-        }
+            if show_extent && symbol.is_none() {
+                anyhow::bail!("--show-extent requires --symbol <name>");
+            }
 
-        let kind_filter = match kind_str {
-            Some(ref s) => match parse_symbol_kind(s) {
-                Some(k) => Some(k),
-                None => {
-                    anyhow::bail!(
-                        "Unknown symbol kind: '{}'. Valid kinds: function, method, class, interface, enum, module, union, namespace, typealias",
-                        s
-                    );
-                }
-            },
-            None => None,
-        };
+            let kind_filter = match kind_str {
+                Some(ref s) => match parse_symbol_kind(s) {
+                    Some(k) => Some(k),
+                    None => {
+                        anyhow::bail!(
+                            "Unknown symbol kind: '{}'. Valid kinds: function, method, class, interface, enum, module, union, namespace, typealias",
+                            s
+                        );
+                    }
+                },
+                None => None,
+            };
 
-        let file_path = file_path
-            .ok_or_else(|| anyhow::anyhow!("--file is required unless --explain is used"))?;
-        let path_str = resolve_path(&file_path, &root);
+            let file_path = file_path
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("--file is required unless --explain is used"))?;
+            let path_str = resolve_path(file_path, &root);
+
+            Ok(QueryAction::Run {
+                kind_filter,
+                path_str,
+            })
+        })();
 
         graph
             .telemetry()
             .record_phase_end(&exec_id, "validate_args")?;
+        let action = action?;
+
+        let (kind_filter, path_str) = match action {
+            QueryAction::Explain => {
+                graph.telemetry().record_phase_start(&exec_id, "output")?;
+                println!("{}", QUERY_EXPLAIN_TEXT);
+                graph.telemetry().record_phase_end(&exec_id, "output")?;
+                return Ok(());
+            }
+            QueryAction::Run {
+                kind_filter,
+                path_str,
+            } => (kind_filter, path_str),
+        };
+
         graph.telemetry().record_phase_start(&exec_id, "query")?;
 
         if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
@@ -152,7 +182,7 @@ pub fn run_query(
             graph
                 .telemetry()
                 .record_phase_start(&exec_id, "build_response")?;
-            return output_json_mode(
+            let json_result = output_json_mode(
                 &path_str,
                 symbols_with_ids,
                 kind_str,
@@ -168,9 +198,14 @@ pub fn run_query(
                 with_checksums,
                 context_lines,
             );
+            graph
+                .telemetry()
+                .record_phase_end(&exec_id, "build_response")?;
+            return json_result;
         }
 
         graph.telemetry().record_phase_end(&exec_id, "query")?;
+        graph.telemetry().record_phase_start(&exec_id, "output")?;
 
         let mut symbols = graph.symbols_in_file_with_kind(&path_str, kind_filter)?;
 
@@ -191,6 +226,7 @@ pub fn run_query(
                 ),
                 None => println!("  Hint: run `magellan query --explain` for selector syntax."),
             }
+            graph.telemetry().record_phase_end(&exec_id, "output")?;
             return Ok(());
         }
 
@@ -237,6 +273,7 @@ pub fn run_query(
                 let mut extents = graph.symbol_extents(&path_str, symbol_name)?;
                 if extents.is_empty() {
                     println!("  (no extent info found for '{}')", symbol_name);
+                    graph.telemetry().record_phase_end(&exec_id, "output")?;
                     return Ok(());
                 }
                 println!();
@@ -252,7 +289,6 @@ pub fn run_query(
             }
         }
 
-        graph.telemetry().record_phase_start(&exec_id, "output")?;
         graph.telemetry().record_phase_end(&exec_id, "output")?;
 
         Ok(())
