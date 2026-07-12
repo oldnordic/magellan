@@ -1,6 +1,5 @@
 //! Tests for graph module
 
-#[cfg(test)]
 mod graph_tests {
 
     #[test]
@@ -23,8 +22,8 @@ mod graph_tests {
 
     #[test]
     fn test_cross_file_references() {
-        // This test demonstrates the bug: cross-file references are NOT created
-        // Use file-based database because :memory: doesn't work with separate connections
+        // Use file-based database because :memory: doesn't work with separate connections.
+        // This is a regression test for cross-file reference indexing.
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("test.db");
         let mut graph = crate::CodeGraph::open(&db_path).unwrap();
@@ -59,17 +58,12 @@ mod graph_tests {
         assert!(symbol_id.is_some(), "Symbol defined_in_file1 should exist");
         let symbol_id = symbol_id.unwrap();
 
-        // Check for REFERENCES edges to defined_in_file1
-        // This SHOULD find references from file2, but currently doesn't (BUG)
+        // Check for REFERENCES edges to defined_in_file1.
         let references = graph.references_to_symbol(symbol_id).unwrap();
 
-        // THIS ASSERTION FAILS - demonstrates the bug
-        // Expected: at least 1 reference from file2
-        // Actual: 0 references (only same-file references are indexed)
         assert!(
             !references.is_empty(),
-            "Cross-file references should be created. Found: {} references. \
-             This demonstrates the bug: only same-file references are indexed.",
+            "Cross-file references should be created. Found: {} references.",
             references.len()
         );
     }
