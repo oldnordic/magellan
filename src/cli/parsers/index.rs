@@ -718,18 +718,12 @@ pub fn parse_context_args(args: &[String]) -> Result<Command> {
             while i < args.len() {
                 match args[i].as_str() {
                     "--db" => {
-                        if i + 1 >= args.len() {
-                            return Err(anyhow::anyhow!("--db requires an argument"));
-                        }
-                        db_paths.extend(parse_db_paths(&args[i + 1])?);
-                        i += 2;
+                        let value = parse_required_arg(args, &mut i, "--db")?;
+                        db_paths.extend(parse_db_paths(&value)?);
                     }
                     "--path" => {
-                        if i + 1 >= args.len() {
-                            return Err(anyhow::anyhow!("--path requires an argument"));
-                        }
-                        path = Some(args[i + 1].clone());
-                        i += 2;
+                        let value = parse_required_arg(args, &mut i, "--path")?;
+                        path = Some(value);
                     }
                     "--all" => {
                         all = true;
@@ -759,55 +753,35 @@ pub fn parse_context_args(args: &[String]) -> Result<Command> {
             while i < args.len() {
                 match args[i].as_str() {
                     "--db" => {
-                        if i + 1 >= args.len() {
-                            return Err(anyhow::anyhow!("--db requires an argument"));
-                        }
-                        db_paths.extend(parse_db_paths(&args[i + 1])?);
-                        i += 2;
+                        let value = parse_required_arg(args, &mut i, "--db")?;
+                        db_paths.extend(parse_db_paths(&value)?);
                     }
                     "--name" => {
-                        if i + 1 >= args.len() {
-                            return Err(anyhow::anyhow!("--name requires an argument"));
-                        }
-                        symbol = Some(args[i + 1].clone());
-                        i += 2;
+                        let value = parse_required_arg(args, &mut i, "--name")?;
+                        symbol = Some(value);
                     }
                     "--file" | "--path" => {
-                        if i + 1 >= args.len() {
-                            return Err(anyhow::anyhow!("{} requires an argument", args[i]));
-                        }
-                        file = Some(args[i + 1].clone());
-                        i += 2;
+                        let flag = args[i].as_str();
+                        let value = parse_required_arg(args, &mut i, flag)?;
+                        file = Some(value);
                     }
                     "--depth" => {
-                        if i + 1 >= args.len() {
-                            return Err(anyhow::anyhow!("--depth requires an argument"));
-                        }
-                        depth = args[i + 1]
+                        let value = parse_required_arg(args, &mut i, "--depth")?;
+                        depth = value
                             .parse()
                             .map_err(|_| anyhow::anyhow!("--depth must be a positive integer"))?;
-                        i += 2;
                     }
                     "--project" => {
-                        if i + 1 >= args.len() {
-                            return Err(anyhow::anyhow!("--project requires an argument"));
-                        }
-                        project = Some(args[i + 1].clone());
-                        i += 2;
+                        let value = parse_required_arg(args, &mut i, "--project")?;
+                        project = Some(value);
                     }
                     "--output" => {
-                        if i + 1 >= args.len() {
-                            return Err(anyhow::anyhow!("--output requires an argument"));
-                        }
-                        output_format = parse_output_format(&args[i + 1])?;
-                        i += 2;
+                        let value = parse_required_arg(args, &mut i, "--output")?;
+                        output_format = parse_output_format(&value)?;
                     }
                     "--detail" => {
-                        if i + 1 >= args.len() {
-                            return Err(anyhow::anyhow!("--detail requires an argument"));
-                        }
-                        detail = Some(args[i + 1].clone());
-                        i += 2;
+                        let value = parse_required_arg(args, &mut i, "--detail")?;
+                        detail = Some(value);
                     }
                     "--concise" => {
                         concise = true;
@@ -818,14 +792,11 @@ pub fn parse_context_args(args: &[String]) -> Result<Command> {
                         i += 1;
                     }
                     "--tokens" => {
-                        if i + 1 >= args.len() {
-                            return Err(anyhow::anyhow!("--tokens requires an argument"));
-                        }
+                        let value = parse_required_arg(args, &mut i, "--tokens")?;
                         tokens =
-                            Some(args[i + 1].parse().map_err(|_| {
+                            Some(value.parse().map_err(|_| {
                                 anyhow::anyhow!("--tokens must be a positive integer")
                             })?);
-                        i += 2;
                     }
                     _ => {
                         return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
@@ -860,55 +831,35 @@ pub fn parse_context_args(args: &[String]) -> Result<Command> {
             while i < args.len() {
                 match args[i].as_str() {
                     "--db" => {
-                        if i + 1 >= args.len() {
-                            return Err(anyhow::anyhow!("--db requires an argument"));
-                        }
-                        db_paths.extend(parse_db_paths(&args[i + 1])?);
-                        i += 2;
+                        let value = parse_required_arg(args, &mut i, "--db")?;
+                        db_paths.extend(parse_db_paths(&value)?);
                     }
                     "--name" => {
-                        if i + 1 >= args.len() {
-                            return Err(anyhow::anyhow!("--name requires an argument"));
-                        }
-                        symbol = Some(args[i + 1].clone());
-                        i += 2;
+                        let value = parse_required_arg(args, &mut i, "--name")?;
+                        symbol = Some(value);
                     }
                     "--file" | "--path" => {
-                        if i + 1 >= args.len() {
-                            return Err(anyhow::anyhow!("{} requires an argument", args[i]));
-                        }
-                        file = Some(args[i + 1].clone());
-                        i += 2;
+                        let flag = args[i].as_str();
+                        let value = parse_required_arg(args, &mut i, flag)?;
+                        file = Some(value);
                     }
                     "--depth" => {
-                        if i + 1 >= args.len() {
-                            return Err(anyhow::anyhow!("--depth requires an argument"));
-                        }
-                        depth = args[i + 1]
+                        let value = parse_required_arg(args, &mut i, "--depth")?;
+                        depth = value
                             .parse()
                             .map_err(|_| anyhow::anyhow!("--depth must be a positive integer"))?;
-                        i += 2;
                     }
                     "--project" => {
-                        if i + 1 >= args.len() {
-                            return Err(anyhow::anyhow!("--project requires an argument"));
-                        }
-                        project = Some(args[i + 1].clone());
-                        i += 2;
+                        let value = parse_required_arg(args, &mut i, "--project")?;
+                        project = Some(value);
                     }
                     "--output" => {
-                        if i + 1 >= args.len() {
-                            return Err(anyhow::anyhow!("--output requires an argument"));
-                        }
-                        output_format = parse_output_format(&args[i + 1])?;
-                        i += 2;
+                        let value = parse_required_arg(args, &mut i, "--output")?;
+                        output_format = parse_output_format(&value)?;
                     }
                     "--detail" => {
-                        if i + 1 >= args.len() {
-                            return Err(anyhow::anyhow!("--detail requires an argument"));
-                        }
-                        detail = Some(args[i + 1].clone());
-                        i += 2;
+                        let value = parse_required_arg(args, &mut i, "--detail")?;
+                        detail = Some(value);
                     }
                     "--concise" => {
                         concise = true;
@@ -919,14 +870,11 @@ pub fn parse_context_args(args: &[String]) -> Result<Command> {
                         i += 1;
                     }
                     "--tokens" => {
-                        if i + 1 >= args.len() {
-                            return Err(anyhow::anyhow!("--tokens requires an argument"));
-                        }
+                        let value = parse_required_arg(args, &mut i, "--tokens")?;
                         tokens =
-                            Some(args[i + 1].parse().map_err(|_| {
+                            Some(value.parse().map_err(|_| {
                                 anyhow::anyhow!("--tokens must be a positive integer")
                             })?);
-                        i += 2;
                     }
                     _ => {
                         return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
@@ -959,8 +907,9 @@ pub fn parse_context_args(args: &[String]) -> Result<Command> {
     if db_paths.is_empty() {
         let mut i = 1;
         while i < args.len() {
-            if args[i] == "--db" && i + 1 < args.len() {
-                db_paths.extend(parse_db_paths(&args[i + 1])?);
+            if args[i] == "--db" {
+                let value = parse_required_arg(args, &mut i, "--db")?;
+                db_paths.extend(parse_db_paths(&value)?);
                 break;
             }
             i += 1;
