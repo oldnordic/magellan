@@ -14,6 +14,8 @@ use magellan::output::{
 use magellan::{CodeGraph, SymbolFact};
 use std::path::PathBuf;
 
+use crate::status_cmd::ExecutionTracker;
+
 const QUERY_EXPLAIN_TEXT: &str = r#"Query Selector Cheatsheet
 --------------------------------
 Selectors:
@@ -81,226 +83,186 @@ pub fn run_query(
     }
 
     let mut graph = CodeGraph::open(&db_path)?;
-    let exec_id = magellan::output::generate_execution_id();
-    let root_str = root.as_ref().map(|p| p.to_string_lossy().to_string());
-    let db_path_str = db_path.to_string_lossy().to_string();
+    let mut tracker = ExecutionTracker::new(
+        args,
+        root.as_ref().map(|p| p.to_string_lossy().to_string()),
+        db_path.to_string_lossy().to_string(),
+    );
+    tracker.start(&graph)?;
+    let exec_id = tracker.exec_id().to_string();
 
-    graph.execution_log().start_execution(
-        &exec_id,
-        env!("CARGO_PKG_VERSION"),
-        &args,
-        root_str.as_deref(),
-        &db_path_str,
-    )?;
-
-    // Phase: validate_args
-    graph
-        .telemetry()
-        .record_phase_start(&exec_id, "validate_args")?;
-
-    if explain {
-        println!("{}", QUERY_EXPLAIN_TEXT);
-        let _ = graph
-            .execution_log()
-            .finish_execution(&exec_id, "success", None, 0, 0, 0);
-        return Ok(());
-    }
-
-    if show_extent && symbol.is_none() {
-        let err_msg = "--show-extent requires --symbol <name>".to_string();
-        let _ = graph
-            .execution_log()
-            .finish_execution(&exec_id, "error", Some(&err_msg), 0, 0, 0);
-        anyhow::bail!(err_msg);
-    }
-
-    // Parse kind filter if provided
-    let kind_filter = match kind_str {
-        Some(ref s) => match parse_symbol_kind(s) {
-            Some(k) => Some(k),
-            None => {
-                let err_msg = format!("Unknown symbol kind: '{}'. Valid kinds: function, method, class, interface, enum, module, union, namespace, typealias", s);
-                let _ = graph.execution_log().finish_execution(
-                    &exec_id,
-                    "error",
-                    Some(&err_msg),
-                    0,
-                    0,
-                    0,
-                );
-                anyhow::bail!(err_msg);
-            }
-        },
-        None => None,
-    };
-
-    let file_path = match file_path {
-        Some(fp) => fp,
-        None => {
-            let err_msg = "--file is required unless --explain is used".to_string();
-            let _ =
-                graph
-                    .execution_log()
-                    .finish_execution(&exec_id, "error", Some(&err_msg), 0, 0, 0);
-            anyhow::bail!(err_msg);
-        }
-    };
-
-    let path_str = resolve_path(&file_path, &root);
-
-    // End validate_args phase, start query phase
-    graph
-        .telemetry()
-        .record_phase_end(&exec_id, "validate_args")?;
-    graph.telemetry().record_phase_start(&exec_id, "query")?;
-
-    // Handle JSON output mode - use symbol_nodes_in_file_with_ids for symbol_id propagation
-    if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
-        let mut symbols_with_ids =
-            magellan::graph::query::symbol_nodes_in_file_with_ids(&mut graph, &path_str)?;
-
-        // Apply kind filter
-        if let Some(ref filter_kind) = kind_filter {
-            symbols_with_ids.retain(|(_, fact, _)| fact.kind == *filter_kind);
-        }
-
-        // Apply symbol name filter
-        if let Some(ref symbol_name) = symbol {
-            symbols_with_ids
-                .retain(|(_, fact, _)| fact.name.as_deref() == Some(symbol_name.as_str()));
-        }
-
-        let symbols_with_ids: Vec<(SymbolFact, Option<String>)> = symbols_with_ids
-            .into_iter()
-            .map(|(_, fact, symbol_id)| (fact, symbol_id))
-            .collect();
-
-        let _ = graph
-            .execution_log()
-            .finish_execution(&exec_id, "success", None, 0, 0, 0);
-        // End query phase, start build_response phase
-        graph.telemetry().record_phase_end(&exec_id, "query")?;
+    let result = (|| -> Result<()> {
         graph
             .telemetry()
-            .record_phase_start(&exec_id, "build_response")?;
-        return output_json_mode(
-            &path_str,
-            symbols_with_ids,
-            kind_str,
-            show_extent,
-            &symbol,
-            &mut graph,
-            &exec_id,
-            output_format,
-            with_context,
-            with_callers,
-            with_callees,
-            with_semantics,
-            with_checksums,
-            context_lines,
-        );
-    }
+            .record_phase_start(&exec_id, "validate_args")?;
 
-    // Human mode - use existing flow
-    // End query phase for human output
-    graph.telemetry().record_phase_end(&exec_id, "query")?;
-
-    let mut symbols = graph.symbols_in_file_with_kind(&path_str, kind_filter)?;
-
-    if let Some(ref symbol_name) = symbol {
-        symbols.retain(|s| s.name.as_deref() == Some(symbol_name.as_str()));
-    }
-
-    // Human mode (existing behavior)
-    println!("{}:", path_str);
-
-    if symbols.is_empty() {
-        println!("  (no symbols found)");
-        match symbol {
-            Some(ref sym) => println!(
-                "  Hint: verify the symbol name or run `magellan find --list-glob \"{}\"`.",
-                sym
-            ),
-            None => println!("  Hint: run `magellan query --explain` for selector syntax."),
+        if explain {
+            println!("{}", QUERY_EXPLAIN_TEXT);
+            return Ok(());
         }
-        let _ = graph
-            .execution_log()
-            .finish_execution(&exec_id, "success", None, 0, 0, 0);
-        return Ok(());
-    }
 
-    for symbol in &symbols {
-        let kind_str = format_symbol_kind(&symbol.kind);
-        let name = symbol.name.as_deref().unwrap_or("(unnamed)");
-        println!(
-            "  Line {:4}: {:12} {:<} [{}]",
-            symbol.start_line, kind_str, name, symbol.kind_normalized
-        );
+        if show_extent && symbol.is_none() {
+            anyhow::bail!("--show-extent requires --symbol <name>");
+        }
 
-        // Show callers if requested
-        if with_callers {
-            let symbol_path = symbol.file_path.to_string_lossy().to_string();
-            if let Ok(callers) = graph.callers_of_symbol(&symbol_path, name) {
-                if !callers.is_empty() {
-                    println!("    Called from:");
-                    for caller in &callers {
-                        println!(
-                            "      {} at {}:{}",
-                            caller.caller,
-                            caller.file_path.display(),
-                            caller.start_line
-                        );
-                    }
+        let kind_filter = match kind_str {
+            Some(ref s) => match parse_symbol_kind(s) {
+                Some(k) => Some(k),
+                None => {
+                    anyhow::bail!(
+                        "Unknown symbol kind: '{}'. Valid kinds: function, method, class, interface, enum, module, union, namespace, typealias",
+                        s
+                    );
                 }
+            },
+            None => None,
+        };
+
+        let file_path = file_path
+            .ok_or_else(|| anyhow::anyhow!("--file is required unless --explain is used"))?;
+        let path_str = resolve_path(&file_path, &root);
+
+        graph
+            .telemetry()
+            .record_phase_end(&exec_id, "validate_args")?;
+        graph.telemetry().record_phase_start(&exec_id, "query")?;
+
+        if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
+            let mut symbols_with_ids =
+                magellan::graph::query::symbol_nodes_in_file_with_ids(&mut graph, &path_str)?;
+
+            if let Some(ref filter_kind) = kind_filter {
+                symbols_with_ids.retain(|(_, fact, _)| fact.kind == *filter_kind);
             }
+
+            if let Some(ref symbol_name) = symbol {
+                symbols_with_ids
+                    .retain(|(_, fact, _)| fact.name.as_deref() == Some(symbol_name.as_str()));
+            }
+
+            let symbol_count = symbols_with_ids.len();
+            tracker.set_counts(1, symbol_count, 0);
+
+            let symbols_with_ids: Vec<(SymbolFact, Option<String>)> = symbols_with_ids
+                .into_iter()
+                .map(|(_, fact, symbol_id)| (fact, symbol_id))
+                .collect();
+
+            graph.telemetry().record_phase_end(&exec_id, "query")?;
+            graph
+                .telemetry()
+                .record_phase_start(&exec_id, "build_response")?;
+            return output_json_mode(
+                &path_str,
+                symbols_with_ids,
+                kind_str,
+                show_extent,
+                &symbol,
+                &mut graph,
+                &exec_id,
+                output_format,
+                with_context,
+                with_callers,
+                with_callees,
+                with_semantics,
+                with_checksums,
+                context_lines,
+            );
         }
 
-        // Show callees if requested
-        if with_callees {
-            let symbol_path = symbol.file_path.to_string_lossy().to_string();
-            if let Ok(callees) = graph.calls_from_symbol(&symbol_path, name) {
-                if !callees.is_empty() {
-                    println!("    Calls:");
-                    for callee in &callees {
-                        println!("      {} at {}", callee.callee, callee.file_path.display());
-                    }
-                }
-            }
-        }
-    }
+        graph.telemetry().record_phase_end(&exec_id, "query")?;
 
-    if show_extent {
+        let mut symbols = graph.symbols_in_file_with_kind(&path_str, kind_filter)?;
+
         if let Some(ref symbol_name) = symbol {
-            let mut extents = graph.symbol_extents(&path_str, symbol_name)?;
-            if extents.is_empty() {
-                println!("  (no extent info found for '{}')", symbol_name);
-                let _ = graph
-                    .execution_log()
-                    .finish_execution(&exec_id, "success", None, 0, 0, 0);
-                return Ok(());
+            symbols.retain(|s| s.name.as_deref() == Some(symbol_name.as_str()));
+        }
+
+        tracker.set_counts(1, symbols.len(), 0);
+
+        println!("{}:", path_str);
+
+        if symbols.is_empty() {
+            println!("  (no symbols found)");
+            match symbol {
+                Some(ref sym) => println!(
+                    "  Hint: verify the symbol name or run `magellan find --list-glob \"{}\"`.",
+                    sym
+                ),
+                None => println!("  Hint: run `magellan query --explain` for selector syntax."),
             }
-            println!();
-            println!("Symbol Extents for '{}':", symbol_name);
-            extents.sort_by(|(_, a), (_, b)| {
-                a.start_line
-                    .cmp(&b.start_line)
-                    .then_with(|| a.start_col.cmp(&b.start_col))
-            });
-            for (node_id, fact) in extents {
-                print_extent_block(node_id, &fact);
+            return Ok(());
+        }
+
+        for symbol in &symbols {
+            let kind_str = format_symbol_kind(&symbol.kind);
+            let name = symbol.name.as_deref().unwrap_or("(unnamed)");
+            println!(
+                "  Line {:4}: {:12} {:<} [{}]",
+                symbol.start_line, kind_str, name, symbol.kind_normalized
+            );
+
+            if with_callers {
+                let symbol_path = symbol.file_path.to_string_lossy().to_string();
+                if let Ok(callers) = graph.callers_of_symbol(&symbol_path, name) {
+                    if !callers.is_empty() {
+                        println!("    Called from:");
+                        for caller in &callers {
+                            println!(
+                                "      {} at {}:{}",
+                                caller.caller,
+                                caller.file_path.display(),
+                                caller.start_line
+                            );
+                        }
+                    }
+                }
+            }
+
+            if with_callees {
+                let symbol_path = symbol.file_path.to_string_lossy().to_string();
+                if let Ok(callees) = graph.calls_from_symbol(&symbol_path, name) {
+                    if !callees.is_empty() {
+                        println!("    Calls:");
+                        for callee in &callees {
+                            println!("      {} at {}", callee.callee, callee.file_path.display());
+                        }
+                    }
+                }
             }
         }
+
+        if show_extent {
+            if let Some(ref symbol_name) = symbol {
+                let mut extents = graph.symbol_extents(&path_str, symbol_name)?;
+                if extents.is_empty() {
+                    println!("  (no extent info found for '{}')", symbol_name);
+                    return Ok(());
+                }
+                println!();
+                println!("Symbol Extents for '{}':", symbol_name);
+                extents.sort_by(|(_, a), (_, b)| {
+                    a.start_line
+                        .cmp(&b.start_line)
+                        .then_with(|| a.start_col.cmp(&b.start_col))
+                });
+                for (node_id, fact) in extents {
+                    print_extent_block(node_id, &fact);
+                }
+            }
+        }
+
+        graph.telemetry().record_phase_start(&exec_id, "output")?;
+        graph.telemetry().record_phase_end(&exec_id, "output")?;
+
+        Ok(())
+    })();
+
+    if let Err(err) = &result {
+        tracker.set_error(format!("{err:#}"));
     }
-
-    let _ = graph
-        .execution_log()
-        .finish_execution(&exec_id, "success", None, 0, 0, 0);
-
-    // Record output phase
-    graph.telemetry().record_phase_start(&exec_id, "output")?;
-    graph.telemetry().record_phase_end(&exec_id, "output")?;
-
-    Ok(())
+    tracker.finish(&graph)?;
+    result
 }
 
 /// Output query results in JSON format

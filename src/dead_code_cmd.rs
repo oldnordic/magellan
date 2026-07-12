@@ -8,6 +8,8 @@ use magellan::output::{output_json, JsonResponse, OutputFormat};
 use magellan::CodeGraph;
 use std::path::PathBuf;
 
+use crate::status_cmd::ExecutionTracker;
+
 /// Run the dead-code command
 ///
 /// # Arguments
@@ -22,57 +24,50 @@ pub fn run_dead_code(
     entry_symbol_id: String,
     output_format: OutputFormat,
 ) -> Result<()> {
-    // Build args for execution tracking
-    let args = vec![
-        "dead-code".to_string(),
-        "--entry".to_string(),
-        entry_symbol_id.clone(),
-    ];
-
     let graph = CodeGraph::open(&db_path)?;
-    let exec_id = magellan::output::generate_execution_id();
-    let db_path_str = db_path.to_string_lossy().to_string();
-
-    graph.execution_log().start_execution(
-        &exec_id,
-        env!("CARGO_PKG_VERSION"),
-        &args,
+    let mut tracker = ExecutionTracker::new(
+        vec![
+            "dead-code".to_string(),
+            "--entry".to_string(),
+            entry_symbol_id.clone(),
+        ],
         None,
-        &db_path_str,
-    )?;
+        db_path.to_string_lossy().to_string(),
+    );
+    tracker.start(&graph)?;
+    let exec_id = tracker.exec_id().to_string();
 
-    // Query dead symbols
-    let dead_symbols = graph.dead_symbols(&entry_symbol_id)?;
+    let result = (|| -> Result<()> {
+        let dead_symbols = graph.dead_symbols(&entry_symbol_id)?;
 
-    // Handle JSON output mode
-    if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
-        graph
-            .execution_log()
-            .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
-        return output_json_mode(&entry_symbol_id, dead_symbols, &exec_id, output_format);
-    }
-
-    // Human mode
-    if dead_symbols.is_empty() {
-        println!(
-            "No dead code found. All symbols are reachable from \"{}\"",
-            entry_symbol_id
-        );
-    } else {
-        println!("Dead code (unreachable from \"{}\"):", entry_symbol_id);
-        for dead in &dead_symbols {
-            let fqn_display = dead.symbol.fqn.as_deref().unwrap_or("?");
-            println!(
-                "  {} ({}) in {} - {}",
-                fqn_display, dead.symbol.kind, dead.symbol.file_path, dead.reason
-            );
+        if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
+            return output_json_mode(&entry_symbol_id, dead_symbols, &exec_id, output_format);
         }
-    }
 
-    graph
-        .execution_log()
-        .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
-    Ok(())
+        if dead_symbols.is_empty() {
+            println!(
+                "No dead code found. All symbols are reachable from \"{}\"",
+                entry_symbol_id
+            );
+        } else {
+            println!("Dead code (unreachable from \"{}\"):", entry_symbol_id);
+            for dead in &dead_symbols {
+                let fqn_display = dead.symbol.fqn.as_deref().unwrap_or("?");
+                println!(
+                    "  {} ({}) in {} - {}",
+                    fqn_display, dead.symbol.kind, dead.symbol.file_path, dead.reason
+                );
+            }
+        }
+
+        Ok(())
+    })();
+
+    if let Err(err) = &result {
+        tracker.set_error(format!("{err:#}"));
+    }
+    tracker.finish(&graph)?;
+    result
 }
 
 /// Response structure for dead-code command

@@ -9,6 +9,8 @@ use magellan::CodeGraph;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use crate::status_cmd::ExecutionTracker;
+
 /// Run the condense command
 ///
 /// # Arguments
@@ -23,88 +25,81 @@ pub fn run_condense(
     show_members: bool,
     output_format: OutputFormat,
 ) -> Result<()> {
-    // Build args for execution tracking
-    let args = vec![
-        "condense".to_string(),
-        if show_members {
-            "--members".to_string()
-        } else {
-            "--no-members".to_string()
-        },
-    ];
-
     let graph = CodeGraph::open(&db_path)?;
-    let exec_id = magellan::output::generate_execution_id();
-    let db_path_str = db_path.to_string_lossy().to_string();
-
-    graph.execution_log().start_execution(
-        &exec_id,
-        env!("CARGO_PKG_VERSION"),
-        &args,
-        None,
-        &db_path_str,
-    )?;
-
-    // Query condensation
-    let condensation = graph.condense_call_graph()?;
-
-    // Handle JSON output mode
-    if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
-        graph
-            .execution_log()
-            .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
-        return output_json_mode(condensation, show_members, &exec_id, output_format);
-    }
-
-    // Human mode
-    println!("Call Graph Condensation:");
-    println!("  Supernodes: {}", condensation.graph.supernodes.len());
-    println!("  Edges: {}", condensation.graph.edges.len());
-    println!();
-
-    for supernode in &condensation.graph.supernodes {
-        let fqn_display = if let Some(first) = supernode.members.first() {
-            first.fqn.as_deref().unwrap_or("?")
-        } else {
-            "?"
-        };
-
-        if show_members && supernode.members.len() > 1 {
-            println!(
-                "  [Supernode {}] {} ({} members):",
-                supernode.id,
-                fqn_display,
-                supernode.members.len()
-            );
-            for member in &supernode.members {
-                let member_fqn = member.fqn.as_deref().unwrap_or("?");
-                println!("      - {} ({})", member_fqn, member.kind);
-            }
-        } else {
-            let member_count = if supernode.members.len() > 1 {
-                format!(" ({} members)", supernode.members.len())
+    let mut tracker = ExecutionTracker::new(
+        vec![
+            "condense".to_string(),
+            if show_members {
+                "--members".to_string()
             } else {
-                String::new()
-            };
-            println!(
-                "  [Supernode {}] {}{}",
-                supernode.id, fqn_display, member_count
-            );
-        }
-    }
+                "--no-members".to_string()
+            },
+        ],
+        None,
+        db_path.to_string_lossy().to_string(),
+    );
+    tracker.start(&graph)?;
+    let exec_id = tracker.exec_id().to_string();
 
-    if !condensation.graph.edges.is_empty() {
+    let result = (|| -> Result<()> {
+        let condensation = graph.condense_call_graph()?;
+
+        if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
+            return output_json_mode(condensation, show_members, &exec_id, output_format);
+        }
+
+        println!("Call Graph Condensation:");
+        println!("  Supernodes: {}", condensation.graph.supernodes.len());
+        println!("  Edges: {}", condensation.graph.edges.len());
         println!();
-        println!("  Edges:");
-        for (from, to) in &condensation.graph.edges {
-            println!("    {} -> {}", from, to);
-        }
-    }
 
-    graph
-        .execution_log()
-        .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
-    Ok(())
+        for supernode in &condensation.graph.supernodes {
+            let fqn_display = if let Some(first) = supernode.members.first() {
+                first.fqn.as_deref().unwrap_or("?")
+            } else {
+                "?"
+            };
+
+            if show_members && supernode.members.len() > 1 {
+                println!(
+                    "  [Supernode {}] {} ({} members):",
+                    supernode.id,
+                    fqn_display,
+                    supernode.members.len()
+                );
+                for member in &supernode.members {
+                    let member_fqn = member.fqn.as_deref().unwrap_or("?");
+                    println!("      - {} ({})", member_fqn, member.kind);
+                }
+            } else {
+                let member_count = if supernode.members.len() > 1 {
+                    format!(" ({} members)", supernode.members.len())
+                } else {
+                    String::new()
+                };
+                println!(
+                    "  [Supernode {}] {}{}",
+                    supernode.id, fqn_display, member_count
+                );
+            }
+        }
+
+        if !condensation.graph.edges.is_empty() {
+            println!();
+            println!("  Edges:");
+            for (from, to) in &condensation.graph.edges {
+                println!("    {} -> {}", from, to);
+            }
+        }
+
+        Ok(())
+    })();
+
+    if let Err(err) = &result {
+        tracker.set_error(format!("{err:#}"));
+    }
+    tracker.finish(&graph)?;
+    result
 }
 
 /// Response structure for condense command

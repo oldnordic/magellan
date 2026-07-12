@@ -8,6 +8,8 @@ use magellan::output::{output_json, JsonResponse, OutputFormat};
 use magellan::CodeGraph;
 use std::path::PathBuf;
 
+use crate::status_cmd::ExecutionTracker;
+
 /// Run the paths command
 ///
 /// # Arguments
@@ -44,81 +46,76 @@ pub fn run_paths(
     }
 
     let graph = CodeGraph::open(&db_path)?;
-    let exec_id = magellan::output::generate_execution_id();
-    let db_path_str = db_path.to_string_lossy().to_string();
+    let mut tracker = ExecutionTracker::new(args, None, db_path.to_string_lossy().to_string());
+    tracker.start(&graph)?;
+    let exec_id = tracker.exec_id().to_string();
 
-    graph.execution_log().start_execution(
-        &exec_id,
-        env!("CARGO_PKG_VERSION"),
-        &args,
-        None,
-        &db_path_str,
-    )?;
-
-    // Query paths
-    let result = graph.enumerate_paths(
-        &start_symbol_id,
-        end_symbol_id.as_deref(),
-        max_depth,
-        max_paths,
-    )?;
-
-    // Handle JSON output mode
-    if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
-        graph
-            .execution_log()
-            .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
-        return output_json_mode(
+    let result = (|| -> Result<()> {
+        let path_result = graph.enumerate_paths(
             &start_symbol_id,
             end_symbol_id.as_deref(),
-            result,
-            &exec_id,
-            output_format,
-        );
-    }
+            max_depth,
+            max_paths,
+        )?;
 
-    // Human mode
-    let end_label = end_symbol_id
-        .as_ref()
-        .map(|s| format!(" to \"{}\"", s))
-        .unwrap_or_default();
-
-    if result.paths.is_empty() {
-        println!("No paths found from \"{}\"{}", start_symbol_id, end_label);
-    } else {
-        println!("Execution paths from \"{}\"{}:", start_symbol_id, end_label);
-        println!("  Total paths enumerated: {}", result.total_enumerated);
-        println!("  Paths returned: {}", result.paths.len());
-        if result.bounded_hit {
-            println!(
-                "  Note: Enumeration hit bounds (max_depth={}, max_paths={})",
-                max_depth, max_paths
+        if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
+            return output_json_mode(
+                &start_symbol_id,
+                end_symbol_id.as_deref(),
+                path_result,
+                &exec_id,
+                output_format,
             );
         }
 
-        println!("\nStatistics:");
-        println!("  Average length: {:.2}", result.statistics.avg_length);
-        println!("  Min length: {}", result.statistics.min_length);
-        println!("  Max length: {}", result.statistics.max_length);
-        println!("  Unique symbols: {}", result.statistics.unique_symbols);
+        let end_label = end_symbol_id
+            .as_ref()
+            .map(|s| format!(" to \"{}\"", s))
+            .unwrap_or_default();
 
-        println!("\nPaths:");
-        for (i, path) in result.paths.iter().enumerate() {
-            println!("  [{}] Length: {}", i + 1, path.length);
-            for (j, symbol) in path.symbols.iter().enumerate() {
-                let fqn_display = symbol.fqn.as_deref().unwrap_or("?");
-                println!("    {}. {} ({})", j + 1, fqn_display, symbol.kind);
+        if path_result.paths.is_empty() {
+            println!("No paths found from \"{}\"{}", start_symbol_id, end_label);
+        } else {
+            println!("Execution paths from \"{}\"{}:", start_symbol_id, end_label);
+            println!("  Total paths enumerated: {}", path_result.total_enumerated);
+            println!("  Paths returned: {}", path_result.paths.len());
+            if path_result.bounded_hit {
+                println!(
+                    "  Note: Enumeration hit bounds (max_depth={}, max_paths={})",
+                    max_depth, max_paths
+                );
             }
-            if i < result.paths.len().saturating_sub(1) {
-                println!();
+
+            println!("\nStatistics:");
+            println!("  Average length: {:.2}", path_result.statistics.avg_length);
+            println!("  Min length: {}", path_result.statistics.min_length);
+            println!("  Max length: {}", path_result.statistics.max_length);
+            println!(
+                "  Unique symbols: {}",
+                path_result.statistics.unique_symbols
+            );
+
+            println!("\nPaths:");
+            for (i, path) in path_result.paths.iter().enumerate() {
+                println!("  [{}] Length: {}", i + 1, path.length);
+                for (j, symbol) in path.symbols.iter().enumerate() {
+                    let fqn_display = symbol.fqn.as_deref().unwrap_or("?");
+                    println!("    {}. {} ({})", j + 1, fqn_display, symbol.kind);
+                }
+                if i < path_result.paths.len().saturating_sub(1) {
+                    println!();
+                }
             }
         }
-    }
 
-    graph
-        .execution_log()
-        .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
-    Ok(())
+        Ok(())
+    })();
+
+    if let Err(err) = &result {
+        tracker.set_error(format!("{err:#}"));
+    }
+    tracker.finish(&graph)?;
+    result
 }
 
 /// Response structure for paths command

@@ -8,6 +8,8 @@ use magellan::output::{output_json, JsonResponse, OutputFormat};
 use magellan::CodeGraph;
 use std::path::PathBuf;
 
+use crate::status_cmd::ExecutionTracker;
+
 /// Run the cycles command
 ///
 /// # Arguments
@@ -22,61 +24,51 @@ pub fn run_cycles(
     symbol_id: Option<String>,
     output_format: OutputFormat,
 ) -> Result<()> {
-    // Build args for execution tracking
+    let graph = CodeGraph::open(&db_path)?;
     let mut args = vec!["cycles".to_string()];
     if let Some(ref sym) = symbol_id {
         args.push("--symbol".to_string());
         args.push(sym.clone());
     }
+    let mut tracker = ExecutionTracker::new(args, None, db_path.to_string_lossy().to_string());
+    tracker.start(&graph)?;
+    let exec_id = tracker.exec_id().to_string();
 
-    let graph = CodeGraph::open(&db_path)?;
-    let exec_id = magellan::output::generate_execution_id();
-    let db_path_str = db_path.to_string_lossy().to_string();
+    let result = (|| -> Result<()> {
+        let cycles = if let Some(ref sym) = symbol_id {
+            graph.find_cycles_containing(sym)?
+        } else {
+            graph.detect_cycles()?.cycles
+        };
 
-    graph.execution_log().start_execution(
-        &exec_id,
-        env!("CARGO_PKG_VERSION"),
-        &args,
-        None,
-        &db_path_str,
-    )?;
+        if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
+            return output_json_mode(symbol_id.as_deref(), cycles, &exec_id, output_format);
+        }
 
-    // Query cycles
-    let cycles = if let Some(ref sym) = symbol_id {
-        graph.find_cycles_containing(sym)?
-    } else {
-        graph.detect_cycles()?.cycles
-    };
-
-    // Handle JSON output mode
-    if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
-        graph
-            .execution_log()
-            .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
-        return output_json_mode(symbol_id.as_deref(), cycles, &exec_id, output_format);
-    }
-
-    // Human mode
-    if cycles.is_empty() {
-        println!("No cycles detected in the call graph.");
-    } else {
-        println!("Detected {} cycle(s):", cycles.len());
-        for (idx, cycle) in cycles.iter().enumerate() {
-            println!("  [{}] {}:", idx + 1, cycle_kind_display(&cycle.kind));
-            for member in &cycle.members {
-                let fqn_display = member.fqn.as_deref().unwrap_or("?");
-                println!(
-                    "      {} ({}) in {}",
-                    fqn_display, member.kind, member.file_path
-                );
+        if cycles.is_empty() {
+            println!("No cycles detected in the call graph.");
+        } else {
+            println!("Detected {} cycle(s):", cycles.len());
+            for (idx, cycle) in cycles.iter().enumerate() {
+                println!("  [{}] {}:", idx + 1, cycle_kind_display(&cycle.kind));
+                for member in &cycle.members {
+                    let fqn_display = member.fqn.as_deref().unwrap_or("?");
+                    println!(
+                        "      {} ({}) in {}",
+                        fqn_display, member.kind, member.file_path
+                    );
+                }
             }
         }
-    }
 
-    graph
-        .execution_log()
-        .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
-    Ok(())
+        Ok(())
+    })();
+
+    if let Err(err) = &result {
+        tracker.set_error(format!("{err:#}"));
+    }
+    tracker.finish(&graph)?;
+    result
 }
 
 fn cycle_kind_display(kind: &CycleKind) -> &'static str {

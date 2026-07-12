@@ -8,6 +8,8 @@ use magellan::output::{output_json, JsonResponse, OutputFormat};
 use magellan::CodeGraph;
 use std::path::PathBuf;
 
+use crate::status_cmd::ExecutionTracker;
+
 /// Run the reachable command
 ///
 /// # Arguments
@@ -24,7 +26,6 @@ pub fn run_reachable(
     reverse: bool,
     output_format: OutputFormat,
 ) -> Result<()> {
-    // Build args for execution tracking
     let mut args = vec!["reachable".to_string()];
     args.push("--symbol".to_string());
     args.push(symbol_id.clone());
@@ -33,56 +34,48 @@ pub fn run_reachable(
     }
 
     let graph = CodeGraph::open(&db_path)?;
-    let exec_id = magellan::output::generate_execution_id();
-    let db_path_str = db_path.to_string_lossy().to_string();
+    let mut tracker = ExecutionTracker::new(args, None, db_path.to_string_lossy().to_string());
+    tracker.start(&graph)?;
+    let exec_id = tracker.exec_id().to_string();
 
-    graph.execution_log().start_execution(
-        &exec_id,
-        env!("CARGO_PKG_VERSION"),
-        &args,
-        None,
-        &db_path_str,
-    )?;
+    let result = (|| -> Result<()> {
+        let symbols = if reverse {
+            graph.reverse_reachable_symbols(&symbol_id, None)?
+        } else {
+            graph.reachable_symbols(&symbol_id, None)?
+        };
 
-    // Query reachability
-    let symbols = if reverse {
-        graph.reverse_reachable_symbols(&symbol_id, None)?
-    } else {
-        graph.reachable_symbols(&symbol_id, None)?
-    };
-
-    // Handle JSON output mode
-    if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
-        graph
-            .execution_log()
-            .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
-        return output_json_mode(&symbol_id, reverse, symbols, &exec_id, output_format);
-    }
-
-    // Human mode
-    let direction_label = if reverse {
-        "that can reach"
-    } else {
-        "reachable from"
-    };
-
-    if symbols.is_empty() {
-        println!("No symbols {} \"{}\"", direction_label, symbol_id);
-    } else {
-        println!("Symbols {} \"{}\":", direction_label, symbol_id);
-        for symbol in &symbols {
-            let fqn_display = symbol.fqn.as_deref().unwrap_or("?");
-            println!(
-                "  {} ({}) in {}",
-                fqn_display, symbol.kind, symbol.file_path
-            );
+        if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
+            return output_json_mode(&symbol_id, reverse, symbols, &exec_id, output_format);
         }
-    }
 
-    graph
-        .execution_log()
-        .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
-    Ok(())
+        let direction_label = if reverse {
+            "that can reach"
+        } else {
+            "reachable from"
+        };
+
+        if symbols.is_empty() {
+            println!("No symbols {} \"{}\"", direction_label, symbol_id);
+        } else {
+            println!("Symbols {} \"{}\":", direction_label, symbol_id);
+            for symbol in &symbols {
+                let fqn_display = symbol.fqn.as_deref().unwrap_or("?");
+                println!(
+                    "  {} ({}) in {}",
+                    fqn_display, symbol.kind, symbol.file_path
+                );
+            }
+        }
+
+        Ok(())
+    })();
+
+    if let Err(err) = &result {
+        tracker.set_error(format!("{err:#}"));
+    }
+    tracker.finish(&graph)?;
+    result
 }
 
 /// Response structure for reachable command
