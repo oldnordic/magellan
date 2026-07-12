@@ -3,6 +3,7 @@
 //! Shows calls (incoming/outgoing) for a symbol.
 
 use crate::service::registry::Registry;
+use crate::status_cmd::ExecutionTracker;
 use anyhow::Context;
 use anyhow::Result;
 use magellan::common::{detect_language_from_path, resolve_path};
@@ -115,333 +116,239 @@ pub fn run_refs(
     args.push(direction.clone());
 
     let graph = CodeGraph::open(&db_path)?;
-    let exec_id = magellan::output::generate_execution_id();
-    let root_str = root.as_ref().map(|p| p.to_string_lossy().to_string());
-    let db_path_str = db_path.to_string_lossy().to_string();
+    let mut tracker = ExecutionTracker::new(
+        args,
+        root.as_ref().map(|p| p.to_string_lossy().to_string()),
+        db_path.to_string_lossy().to_string(),
+    );
+    tracker.start(&graph)?;
+    let exec_id = tracker.exec_id().to_string();
 
-    graph.execution_log().start_execution(
-        &exec_id,
-        env!("CARGO_PKG_VERSION"),
-        &args,
-        root_str.as_deref(),
-        &db_path_str,
-    )?;
+    let result = (|| -> Result<()> {
+        graph
+            .telemetry()
+            .record_phase_start(&exec_id, "resolve_target")?;
 
-    // Phase: resolve_target
-    graph
-        .telemetry()
-        .record_phase_start(&exec_id, "resolve_target")?;
+        if let Some(sid) = symbol_id {
+            let mut graph_mut = CodeGraph::open(&db_path)?;
+            let target_symbol = query::find_by_symbol_id(&mut graph_mut, &sid)?;
 
-    // Handle --symbol-id alternative
-    if let Some(sid) = symbol_id {
-        let mut graph_mut = CodeGraph::open(&db_path)?;
-        let target_symbol = query::find_by_symbol_id(&mut graph_mut, &sid)?;
+            graph
+                .telemetry()
+                .record_phase_end(&exec_id, "resolve_target")?;
 
-        match target_symbol {
-            Some(symbol) => {
-                // Query references by SymbolId
-                // Fall back to FQN-based if symbol has display_fqn
-                if let Some(ref fqn) = symbol.display_fqn {
-                    // Use existing FQN-based reference query via name/path
-                    // For now, we use the name from the symbol
-                    let symbol_name = symbol.name.clone().unwrap_or_else(|| fqn.clone());
-                    // Use the provided path for FQN lookup (required when using --symbol-id)
-                    let path_str = match path {
-                        Some(p) => resolve_path(&p, &root),
-                        None => {
-                            graph.execution_log().finish_execution(
+            return match target_symbol {
+                Some(symbol) => {
+                    if let Some(ref fqn) = symbol.display_fqn {
+                        let symbol_name = symbol.name.clone().unwrap_or_else(|| fqn.clone());
+                        let path_str = match path {
+                            Some(p) => resolve_path(&p, &root),
+                            None => {
+                                eprintln!("Error: --path is required when using --symbol-id");
+                                return Ok(());
+                            }
+                        };
+
+                        let calls: Vec<CallFact> = match direction.as_str() {
+                            "in" | "incoming" => {
+                                graph_mut.callers_of_symbol(&path_str, &symbol_name)?
+                            }
+                            "out" | "outgoing" => {
+                                graph_mut.calls_from_symbol(&path_str, &symbol_name)?
+                            }
+                            _ => {
+                                anyhow::bail!(
+                                    "Invalid direction: '{}'. Use 'in' or 'out'",
+                                    direction
+                                );
+                            }
+                        };
+
+                        tracker.set_counts(0, calls.len(), 0);
+
+                        if output_format == OutputFormat::Json
+                            || output_format == OutputFormat::Pretty
+                        {
+                            return output_json_mode(
+                                &db_path,
+                                &symbol_name,
+                                &path_str,
+                                &direction,
+                                calls,
                                 &exec_id,
-                                "error",
-                                Some("--path is required when using --symbol-id"),
-                                0,
-                                0,
-                                0,
-                            )?;
-                            eprintln!("Error: --path is required when using --symbol-id");
-                            return Ok(());
+                                output_format,
+                                with_context,
+                                with_semantics,
+                                with_checksums,
+                                context_lines,
+                                tokens,
+                            );
                         }
-                    };
 
-                    let calls: Vec<CallFact> = match direction.as_str() {
-                        "in" | "incoming" => {
-                            graph_mut.callers_of_symbol(&path_str, &symbol_name)?
-                        }
-                        "out" | "outgoing" => {
-                            graph_mut.calls_from_symbol(&path_str, &symbol_name)?
-                        }
-                        _ => {
-                            let err_msg =
-                                format!("Invalid direction: '{}'. Use 'in' or 'out'", direction);
-                            graph.execution_log().finish_execution(
-                                &exec_id,
-                                "error",
-                                Some(err_msg.as_str()),
-                                0,
-                                0,
-                                0,
-                            )?;
-                            anyhow::bail!(err_msg);
-                        }
-                    };
-
-                    // Handle JSON output mode
-                    if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty
-                    {
-                        graph
-                            .execution_log()
-                            .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
-                        return output_json_mode(
-                            &db_path,
-                            &symbol_name,
-                            &path_str,
-                            &direction,
-                            calls,
-                            &exec_id,
-                            output_format,
-                            with_context,
-                            with_semantics,
-                            with_checksums,
-                            context_lines,
-                            tokens,
-                        );
-                    }
-
-                    // Human mode
-                    if direction == "in" || direction == "incoming" {
-                        if calls.is_empty() {
-                            println!("No incoming calls to \"{}\"", symbol_name);
+                        if direction == "in" || direction == "incoming" {
+                            if calls.is_empty() {
+                                println!("No incoming calls to \"{}\"", symbol_name);
+                            } else {
+                                println!("Calls TO \"{}\":", symbol_name);
+                                for call in &calls {
+                                    println!(
+                                        "  From: {} (Function) at {}:{}",
+                                        call.caller,
+                                        call.file_path.display(),
+                                        call.start_line
+                                    );
+                                }
+                            }
+                        } else if calls.is_empty() {
+                            println!("No outgoing calls from \"{}\"", symbol_name);
                         } else {
-                            println!("Calls TO \"{}\":", symbol_name);
+                            println!("Calls FROM \"{}\":", symbol_name);
                             for call in &calls {
                                 println!(
-                                    "  From: {} (Function) at {}:{}",
-                                    call.caller,
+                                    "  To: {} at {}:{}",
+                                    call.callee,
                                     call.file_path.display(),
                                     call.start_line
                                 );
                             }
                         }
-                    } else if calls.is_empty() {
-                        println!("No outgoing calls from \"{}\"", symbol_name);
-                    } else {
-                        println!("Calls FROM \"{}\":", symbol_name);
-                        for call in &calls {
-                            println!(
-                                "  To: {} at {}:{}",
-                                call.callee,
-                                call.file_path.display(),
-                                call.start_line
-                            );
-                        }
-                    }
 
-                    graph
-                        .execution_log()
-                        .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
-                    return Ok(());
-                } else {
-                    // Symbol has no display_fqn, cannot lookup references
-                    graph.execution_log().finish_execution(
-                        &exec_id,
-                        "error",
-                        Some("Symbol has no display FQN for reference lookup"),
-                        0,
-                        0,
-                        0,
-                    )?;
-                    eprintln!(
-                        "Symbol ID '{}' has no display FQN, cannot lookup references",
-                        sid
-                    );
-                    return Ok(());
+                        Ok(())
+                    } else {
+                        eprintln!(
+                            "Symbol ID '{}' has no display FQN, cannot lookup references",
+                            sid
+                        );
+                        Ok(())
+                    }
                 }
+                None => {
+                    eprintln!("Symbol ID '{}' not found", sid);
+                    Ok(())
+                }
+            };
+        }
+
+        let path_str = match path {
+            Some(p) => {
+                graph
+                    .telemetry()
+                    .record_phase_end(&exec_id, "resolve_target")?;
+                resolve_path(&p, &root)
             }
             None => {
-                graph.execution_log().finish_execution(
-                    &exec_id,
-                    "error",
-                    Some("Symbol ID not found"),
-                    0,
-                    0,
-                    0,
-                )?;
-                eprintln!("Symbol ID '{}' not found", sid);
-                return Ok(());
-            }
-        }
-    }
+                graph
+                    .telemetry()
+                    .record_phase_end(&exec_id, "resolve_target")?;
+                graph.telemetry().record_phase_start(&exec_id, "search")?;
 
-    // Determine the file path to use for the symbol lookup
-    let path_str = match path {
-        Some(p) => {
-            // User provided a specific path - use existing behavior
-            resolve_path(&p, &root)
-        }
-        None => {
-            // End resolve_target phase, start search phase
-            graph
-                .telemetry()
-                .record_phase_end(&exec_id, "resolve_target")?;
-            graph.telemetry().record_phase_start(&exec_id, "search")?;
+                let mut graph_mut = CodeGraph::open(&db_path)?;
+                let matches = find_symbol_all_files(&mut graph_mut, &name)?;
 
-            // No path provided - search all files for the symbol
-            let mut graph_mut = CodeGraph::open(&db_path)?;
-            let matches = find_symbol_all_files(&mut graph_mut, &name)?;
-
-            match matches.len() {
-                0 => {
-                    graph.execution_log().finish_execution(
-                        &exec_id,
-                        "error",
-                        Some("Symbol not found"),
-                        0,
-                        0,
-                        0,
-                    )?;
-                    eprintln!("Symbol '{}' not found anywhere", name);
-                    return Ok(());
-                }
-                1 => {
-                    // Exactly one match - use it automatically
-                    let matched_symbol = &matches[0];
-                    if output_format == OutputFormat::Human {
-                        println!("Found '{}' in {}", name, matched_symbol.file_path);
+                match matches.len() {
+                    0 => {
+                        eprintln!("Symbol '{}' not found anywhere", name);
+                        return Ok(());
                     }
-                    matched_symbol.file_path.clone()
-                }
-                _ => {
-                    // Multiple matches - show ranked list
-                    graph.execution_log().finish_execution(
-                        &exec_id,
-                        "error",
-                        Some("Ambiguous symbol name"),
-                        0,
-                        0,
-                        0,
-                    )?;
-                    eprintln!("Symbol '{}' found in multiple locations:", name);
-                    for (i, matched_symbol) in matches.iter().enumerate() {
-                        eprintln!("  [{}] {}", i + 1, matched_symbol.file_path);
+                    1 => {
+                        let matched_symbol = &matches[0];
+                        if output_format == OutputFormat::Human {
+                            println!("Found '{}' in {}", name, matched_symbol.file_path);
+                        }
+                        matched_symbol.file_path.clone()
                     }
-                    eprintln!("\nUse --path <file> to specify which one to use");
-                    return Ok(());
+                    _ => {
+                        eprintln!("Symbol '{}' found in multiple locations:", name);
+                        for (i, matched_symbol) in matches.iter().enumerate() {
+                            eprintln!("  [{}] {}", i + 1, matched_symbol.file_path);
+                        }
+                        eprintln!("\nUse --path <file> to specify which one to use");
+                        return Ok(());
+                    }
                 }
             }
-        }
-    };
+        };
 
-    let calls: Vec<CallFact> = match direction.as_str() {
-        "in" | "incoming" => {
-            // End resolve_target phase, start query phase
-            graph
-                .telemetry()
-                .record_phase_end(&exec_id, "resolve_target")?;
-            graph
-                .telemetry()
-                .record_phase_start(&exec_id, "query_refs")?;
-
-            // Get callers of this symbol
-            {
+        graph
+            .telemetry()
+            .record_phase_start(&exec_id, "query_refs")?;
+        let calls: Vec<CallFact> = match direction.as_str() {
+            "in" | "incoming" => {
                 let mut graph_mut = CodeGraph::open(&db_path)?;
                 graph_mut.callers_of_symbol(&path_str, &name)?
             }
-        }
-        "out" | "outgoing" => {
-            // End resolve_target phase, start query phase
-            graph
-                .telemetry()
-                .record_phase_end(&exec_id, "resolve_target")?;
-            graph
-                .telemetry()
-                .record_phase_start(&exec_id, "query_refs")?;
-
-            // Get calls from this symbol
-            {
+            "out" | "outgoing" => {
                 let mut graph_mut = CodeGraph::open(&db_path)?;
                 graph_mut.calls_from_symbol(&path_str, &name)?
             }
-        }
-        _ => {
-            let err_msg = format!("Invalid direction: '{}'. Use 'in' or 'out'", direction);
-            graph.execution_log().finish_execution(
+            _ => {
+                anyhow::bail!("Invalid direction: '{}'. Use 'in' or 'out'", direction);
+            }
+        };
+
+        tracker.set_counts(0, calls.len(), 0);
+
+        if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
+            graph.telemetry().record_phase_end(&exec_id, "query_refs")?;
+            graph
+                .telemetry()
+                .record_phase_start(&exec_id, "build_response")?;
+            return output_json_mode(
+                &db_path,
+                &name,
+                &path_str,
+                &direction,
+                calls,
                 &exec_id,
-                "error",
-                Some(err_msg.as_str()),
-                0,
-                0,
-                0,
-            )?;
-            anyhow::bail!(err_msg);
+                output_format,
+                with_context,
+                with_semantics,
+                with_checksums,
+                context_lines,
+                tokens,
+            );
         }
-    };
 
-    // Handle JSON output mode
-    if output_format == OutputFormat::Json || output_format == OutputFormat::Pretty {
-        // End query phase, start build_response phase
-        graph.telemetry().record_phase_end(&exec_id, "query_refs")?;
-        graph
-            .telemetry()
-            .record_phase_start(&exec_id, "build_response")?;
-
-        graph
-            .execution_log()
-            .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
-        return output_json_mode(
-            &db_path,
-            &name,
-            &path_str,
-            &direction,
-            calls,
-            &exec_id,
-            output_format,
-            with_context,
-            with_semantics,
-            with_checksums,
-            context_lines,
-            tokens,
-        );
-    }
-
-    // Human mode (existing behavior)
-    if direction == "in" || direction == "incoming" {
-        // End query phase for human output
-        graph.telemetry().record_phase_end(&exec_id, "query_refs")?;
-        if calls.is_empty() {
-            println!("No incoming calls to \"{}\"", name);
+        if direction == "in" || direction == "incoming" {
+            graph.telemetry().record_phase_end(&exec_id, "query_refs")?;
+            if calls.is_empty() {
+                println!("No incoming calls to \"{}\"", name);
+            } else {
+                println!("Calls TO \"{}\":", name);
+                for call in &calls {
+                    println!(
+                        "  From: {} (Function) at {}:{}",
+                        call.caller,
+                        call.file_path.display(),
+                        call.start_line
+                    );
+                }
+            }
+        } else if calls.is_empty() {
+            println!("No outgoing calls from \"{}\"", name);
         } else {
-            println!("Calls TO \"{}\":", name);
+            println!("Calls FROM \"{}\":", name);
             for call in &calls {
                 println!(
-                    "  From: {} (Function) at {}:{}",
-                    call.caller,
+                    "  To: {} at {}:{}",
+                    call.callee,
                     call.file_path.display(),
                     call.start_line
                 );
             }
         }
-    } else if calls.is_empty() {
-        println!("No outgoing calls from \"{}\"", name);
-    } else {
-        println!("Calls FROM \"{}\":", name);
-        for call in &calls {
-            println!(
-                "  To: {} at {}:{}",
-                call.callee,
-                call.file_path.display(),
-                call.start_line
-            );
-        }
+
+        graph.telemetry().record_phase_start(&exec_id, "output")?;
+        graph.telemetry().record_phase_end(&exec_id, "output")?;
+
+        Ok(())
+    })();
+
+    if let Err(err) = &result {
+        tracker.set_error(format!("{err:#}"));
     }
-
-    graph
-        .execution_log()
-        .finish_execution(&exec_id, "success", None, 0, 0, 0)?;
-
-    // Record output phase
-    graph.telemetry().record_phase_start(&exec_id, "output")?;
-    graph.telemetry().record_phase_end(&exec_id, "output")?;
-
-    Ok(())
+    tracker.finish(&graph)?;
+    result
 }
 
 /// Output refs results in JSON format
