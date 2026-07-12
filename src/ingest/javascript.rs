@@ -2,12 +2,11 @@
 //!
 //! Extracts functions, classes, and methods from JavaScript source code.
 
-use crate::common::safe_slice;
-use crate::graph::canonical_fqn::FqnBuilder;
-use crate::ingest::{ScopeSeparator, ScopeStack, SymbolFact, SymbolKind};
+use crate::ingest::javascript_symbols::{build_symbol_facts_from_tree, extract_function_name};
+use crate::ingest::SymbolFact;
 use crate::references::{CallFact, ReferenceFact};
 use anyhow::Result;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Parser that extracts symbol facts from JavaScript source code.
 ///
@@ -48,169 +47,7 @@ impl JavaScriptParser {
             Some(t) => t,
             None => return Vec::new(), // Parse error: return empty
         };
-
-        let root_node = tree.root_node();
-        let mut facts = Vec::new();
-        let mut scope_stack = ScopeStack::new(ScopeSeparator::Dot);
-
-        // Use "." as project_root placeholder per decision FQN-17
-        let package_name = ".";
-
-        // Walk tree with scope tracking
-        self.walk_tree_with_scope(
-            &root_node,
-            source,
-            &file_path,
-            &mut facts,
-            &mut scope_stack,
-            package_name,
-        );
-
-        facts
-    }
-
-    /// Walk tree-sitter tree recursively with scope tracking
-    ///
-    /// Tracks class scope boundaries to build proper FQNs.
-    /// - class_declaration: pushes class name to scope
-    fn walk_tree_with_scope(
-        &self,
-        node: &tree_sitter::Node,
-        source: &[u8],
-        file_path: &Path,
-        facts: &mut Vec<SymbolFact>,
-        scope_stack: &mut ScopeStack,
-        package_name: &str,
-    ) {
-        let kind = node.kind();
-
-        // export_statement wraps the actual declaration - skip it here
-        // The walk_tree will recurse into its children and find the actual symbol
-        if kind == "export_statement" {
-            let mut cursor = node.walk();
-            for child in node.children(&mut cursor) {
-                self.walk_tree_with_scope(
-                    &child,
-                    source,
-                    file_path,
-                    facts,
-                    scope_stack,
-                    package_name,
-                );
-            }
-            return;
-        }
-
-        // Track class scope
-        if kind == "class_declaration" {
-            if let Some(name) = self.extract_name(node, source) {
-                // Create class symbol with parent scope
-                if let Some(fact) =
-                    self.extract_symbol_with_fqn(node, source, file_path, scope_stack, package_name)
-                {
-                    facts.push(fact);
-                }
-                // Push class scope for children (methods)
-                scope_stack.push(&name);
-                let mut cursor = node.walk();
-                for child in node.children(&mut cursor) {
-                    self.walk_tree_with_scope(
-                        &child,
-                        source,
-                        file_path,
-                        facts,
-                        scope_stack,
-                        package_name,
-                    );
-                }
-                scope_stack.pop();
-                return;
-            }
-        }
-
-        // Check if this node is a symbol we care about
-        if let Some(fact) =
-            self.extract_symbol_with_fqn(node, source, file_path, scope_stack, package_name)
-        {
-            facts.push(fact);
-        }
-
-        // Recurse into children
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            self.walk_tree_with_scope(&child, source, file_path, facts, scope_stack, package_name);
-        }
-    }
-
-    /// Extract a symbol fact with FQN from a tree-sitter node, if applicable
-    ///
-    /// Uses the current scope stack to build a fully-qualified name.
-    /// Creates symbols for all relevant node types including class_declaration.
-    fn extract_symbol_with_fqn(
-        &self,
-        node: &tree_sitter::Node,
-        source: &[u8],
-        file_path: &Path,
-        scope_stack: &ScopeStack,
-        package_name: &str,
-    ) -> Option<SymbolFact> {
-        let kind = node.kind();
-
-        let symbol_kind = match kind {
-            "function_declaration" => SymbolKind::Function,
-            "method_definition" => SymbolKind::Method,
-            "class_declaration" => SymbolKind::Class,
-            _ => return None, // Not a symbol we track
-        };
-
-        let name = self.extract_name(node, source)?;
-        let normalized_kind = symbol_kind.normalized_key().to_string();
-
-        // Build FQN from current scope + symbol name
-        let fqn = scope_stack.fqn_for_symbol(&name);
-
-        // Build canonical and display FQNs using FqnBuilder
-        let builder = FqnBuilder::new(
-            package_name.to_string(),
-            file_path.to_string_lossy().to_string(),
-            ScopeSeparator::Dot,
-        );
-        let canonical_fqn = builder.canonical(scope_stack, symbol_kind.clone(), &name);
-        let display_fqn = builder.display(scope_stack, symbol_kind.clone(), &name);
-
-        Some(SymbolFact {
-            file_path: file_path.to_path_buf(),
-            kind: symbol_kind,
-            kind_normalized: normalized_kind,
-            name: Some(name),
-            fqn: Some(fqn),
-            canonical_fqn: Some(canonical_fqn),
-            display_fqn: Some(display_fqn),
-            byte_start: node.start_byte(),
-            byte_end: node.end_byte(),
-            start_line: node.start_position().row + 1, // tree-sitter is 0-indexed
-            start_col: node.start_position().column,
-            end_line: node.end_position().row + 1,
-            end_col: node.end_position().column,
-        })
-    }
-
-    /// Extract name from a symbol node.
-    fn extract_name(&self, node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
-        // For functions and classes, name is in "identifier" child
-        // For methods, name is in "property_identifier" child
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            match child.kind() {
-                "identifier" | "property_identifier" => {
-                    let name_bytes = safe_slice(source, child.start_byte(), child.end_byte())?;
-                    return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
-                }
-                _ => {}
-            }
-        }
-
-        None
+        build_symbol_facts_from_tree(&tree.root_node(), file_path, source)
     }
 
     /// Extract symbol facts using an external parser (for parser pooling).
@@ -227,24 +64,7 @@ impl JavaScriptParser {
             None => return Vec::new(),
         };
 
-        let root_node = tree.root_node();
-        let mut facts = Vec::new();
-        let mut scope_stack = ScopeStack::new(ScopeSeparator::Dot);
-
-        // Use "." as project_root placeholder per decision FQN-17
-        let package_name = ".";
-
-        // Walk tree with scope tracking
-        Self::walk_tree_with_scope_static(
-            &root_node,
-            source,
-            &file_path,
-            &mut facts,
-            &mut scope_stack,
-            package_name,
-        );
-
-        facts
+        build_symbol_facts_from_tree(&tree.root_node(), file_path, source)
     }
 
     /// Extract symbol facts from a pre-parsed tree.
@@ -255,165 +75,7 @@ impl JavaScriptParser {
         file_path: PathBuf,
         source: &[u8],
     ) -> Vec<SymbolFact> {
-        let root_node = tree.root_node();
-        let mut facts = Vec::new();
-        let mut scope_stack = ScopeStack::new(ScopeSeparator::Dot);
-        let package_name = ".";
-        Self::walk_tree_with_scope_static(
-            &root_node,
-            source,
-            &file_path,
-            &mut facts,
-            &mut scope_stack,
-            package_name,
-        );
-        facts
-    }
-
-    /// Static version of walk_tree_with_scope for external parser usage.
-    fn walk_tree_with_scope_static(
-        node: &tree_sitter::Node,
-        source: &[u8],
-        file_path: &Path,
-        facts: &mut Vec<SymbolFact>,
-        scope_stack: &mut ScopeStack,
-        package_name: &str,
-    ) {
-        let kind = node.kind();
-
-        // export_statement wraps the actual declaration - skip it here
-        if kind == "export_statement" {
-            let mut cursor = node.walk();
-            for child in node.children(&mut cursor) {
-                Self::walk_tree_with_scope_static(
-                    &child,
-                    source,
-                    file_path,
-                    facts,
-                    scope_stack,
-                    package_name,
-                );
-            }
-            return;
-        }
-
-        // Track class scope
-        if kind == "class_declaration" {
-            if let Some(name) = Self::extract_name_static(node, source) {
-                // Create class symbol with parent scope
-                if let Some(fact) = Self::extract_symbol_with_fqn_static(
-                    node,
-                    source,
-                    file_path,
-                    scope_stack,
-                    package_name,
-                ) {
-                    facts.push(fact);
-                }
-                // Push class scope for children (methods)
-                scope_stack.push(&name);
-                let mut cursor = node.walk();
-                for child in node.children(&mut cursor) {
-                    Self::walk_tree_with_scope_static(
-                        &child,
-                        source,
-                        file_path,
-                        facts,
-                        scope_stack,
-                        package_name,
-                    );
-                }
-                scope_stack.pop();
-                return;
-            }
-        }
-
-        // Check if this node is a symbol we care about
-        if let Some(fact) =
-            Self::extract_symbol_with_fqn_static(node, source, file_path, scope_stack, package_name)
-        {
-            facts.push(fact);
-        }
-
-        // Recurse into children
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            Self::walk_tree_with_scope_static(
-                &child,
-                source,
-                file_path,
-                facts,
-                scope_stack,
-                package_name,
-            );
-        }
-    }
-
-    /// Static version of extract_symbol_with_fqn for external parser usage.
-    fn extract_symbol_with_fqn_static(
-        node: &tree_sitter::Node,
-        source: &[u8],
-        file_path: &Path,
-        scope_stack: &ScopeStack,
-        package_name: &str,
-    ) -> Option<SymbolFact> {
-        let kind = node.kind();
-
-        let symbol_kind = match kind {
-            "function_declaration" => SymbolKind::Function,
-            "method_definition" => SymbolKind::Method,
-            "class_declaration" => SymbolKind::Class,
-            _ => return None,
-        };
-
-        let name = Self::extract_name_static(node, source)?;
-        let normalized_kind = symbol_kind.normalized_key().to_string();
-
-        // Build FQN from current scope + symbol name
-        let fqn = scope_stack.fqn_for_symbol(&name);
-
-        // Build canonical and display FQNs using FqnBuilder
-        let builder = FqnBuilder::new(
-            package_name.to_string(),
-            file_path.to_string_lossy().to_string(),
-            ScopeSeparator::Dot,
-        );
-        let canonical_fqn = builder.canonical(scope_stack, symbol_kind.clone(), &name);
-        let display_fqn = builder.display(scope_stack, symbol_kind.clone(), &name);
-
-        Some(SymbolFact {
-            file_path: file_path.to_path_buf(),
-            kind: symbol_kind,
-            kind_normalized: normalized_kind,
-            name: Some(name),
-            fqn: Some(fqn),
-            canonical_fqn: Some(canonical_fqn),
-            display_fqn: Some(display_fqn),
-            byte_start: node.start_byte(),
-            byte_end: node.end_byte(),
-            start_line: node.start_position().row + 1,
-            start_col: node.start_position().column,
-            end_line: node.end_position().row + 1,
-            end_col: node.end_position().column,
-        })
-    }
-
-    /// Static version of extract_name for external parser usage.
-    fn extract_name_static(node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
-        // For functions and classes, name is in "identifier" child
-        // For methods, name is in "property_identifier" child
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            match child.kind() {
-                "identifier" | "property_identifier" => {
-                    let name_bytes = safe_slice(source, child.start_byte(), child.end_byte())?;
-                    return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
-                }
-                _ => {}
-            }
-        }
-
-        None
+        build_symbol_facts_from_tree(&tree.root_node(), file_path, source)
     }
 
     /// Extract reference facts from JavaScript source code.
@@ -507,7 +169,7 @@ impl JavaScriptParser {
                         | "arrow_function"
                 )
             },
-            Self::extract_function_name_static,
+            extract_function_name,
             "call_expression",
             |node, source| {
                 let mut cursor = node.walk();
@@ -526,20 +188,6 @@ impl JavaScriptParser {
             },
         )
     }
-
-    fn extract_function_name_static(node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            match child.kind() {
-                "identifier" | "property_identifier" => {
-                    let name_bytes = safe_slice(source, child.start_byte(), child.end_byte())?;
-                    return std::str::from_utf8(name_bytes).ok().map(|s| s.to_string());
-                }
-                _ => {}
-            }
-        }
-        None
-    }
 }
 
 impl Default for JavaScriptParser {
@@ -551,6 +199,7 @@ impl Default for JavaScriptParser {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ingest::SymbolKind;
 
     #[test]
     fn test_extract_function() {

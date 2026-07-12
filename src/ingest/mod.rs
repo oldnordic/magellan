@@ -10,6 +10,7 @@ pub mod imports;
 pub mod java;
 mod java_symbols;
 pub mod javascript;
+mod javascript_symbols;
 pub mod pool;
 pub mod python;
 mod types;
