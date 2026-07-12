@@ -19,6 +19,8 @@
 //! **Workaround:** Use file-based databases for CodeGraph operations.
 //! See [MANUAL.md](../../MANUAL.md#known-limitations) for details.
 pub mod algorithms;
+mod algorithms_traversal;
+mod algorithms_types;
 pub mod ambiguity;
 pub mod backend;
 pub mod candidate_fact;
