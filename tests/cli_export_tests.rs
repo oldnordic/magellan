@@ -72,13 +72,13 @@ fn distance(p1: &Point, p2: &Point) -> i32 {
     if !stdout.is_empty() {
         eprintln!(
             "DEBUG test_export_json_basic: stdout preview = {}",
-            &stdout.chars().take(200).collect::<String>()
+            stdout.chars().take(200).collect::<String>()
         );
     }
     if !stderr.is_empty() {
         eprintln!(
             "DEBUG test_export_json_basic: stderr preview = {}",
-            &stderr.chars().take(200).collect::<String>()
+            stderr.chars().take(200).collect::<String>()
         );
     }
 

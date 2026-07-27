@@ -142,9 +142,10 @@ impl FileOps {
     ///      basename (same-basename preference is structural).
     ///    - absolute query: a *relative* stored key `k` matches if the
     ///      normalized query ends with `/k`.
-    ///    Exactly one matching node -> returned. Zero -> None. More than one
-    ///    -> None (ambiguous; never guess). This makes lookups resolve against
-    ///    the paths recorded in the index instead of the caller's cwd.
+    /// 3. OUTCOME: exactly one matching node -> returned. Zero -> None. More
+    ///    than one -> None (ambiguous; never guess). This makes lookups
+    ///    resolve against the paths recorded in the index instead of the
+    ///    caller's cwd.
     pub fn find_file_node(&mut self, path: &str) -> Result<Option<NodeId>> {
         // Stage 1: exact lookup after query-side normalization.
         let normalized_path = normalize_path_for_index(path);
