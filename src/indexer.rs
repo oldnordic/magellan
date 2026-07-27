@@ -125,9 +125,13 @@ fn reconcile_deleted_files(graph: &mut CodeGraph, root_path: &std::path::Path) -
     let file_nodes = graph.all_file_nodes()?;
 
     for (path, _file_node) in file_nodes {
-        let file_path = std::path::Path::new(&path);
+        // Stored paths are root-relative POSIX in phase-2 databases and
+        // absolute in legacy ones. Joining onto the watched root re-anchors
+        // the relative form; an absolute stored path passes through
+        // `Path::join` unchanged, so both forms land on the real file.
+        let fs_path = root_path.join(&path);
         // Only check files within our watched root
-        if file_path.starts_with(root_path) && !file_path.exists() {
+        if fs_path.starts_with(root_path) && !fs_path.exists() {
             graph.delete_file(&path)?;
         }
     }

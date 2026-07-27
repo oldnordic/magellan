@@ -103,6 +103,37 @@ pub(crate) fn normalize_stored_path(path: &str) -> String {
     nfc(&normalize_segments(&PathBuf::from(path)).to_string_lossy())
 }
 
+/// Convert an absolute, segment-normalized path to root-relative POSIX
+/// storage form (path-identity contract phase 2, recommendation R2).
+///
+/// The result is relative to `index_root`, uses `/` separators on every
+/// platform (SCIP `Document.relative_path` rule 4), is canonical by
+/// construction (no `.` / `..` / `//`, because both inputs are
+/// segment-normalized before the strip), and is NFC-normalized.
+///
+/// Returns `None` when `abs_path` is not under `index_root` (out-of-root
+/// files are stored absolute, graphify's rule) or the strip is degenerate
+/// (the root itself).
+pub(crate) fn root_relative_posix(abs_path: &str, index_root: &str) -> Option<String> {
+    let abs = normalize_segments(&PathBuf::from(abs_path));
+    let root = normalize_segments(&PathBuf::from(index_root));
+    if !abs.is_absolute() || !root.is_absolute() {
+        return None;
+    }
+    let rel = abs.strip_prefix(&root).ok()?;
+    if rel.as_os_str().is_empty() {
+        return None;
+    }
+    // Join components with '/' explicitly so the stored form is POSIX even
+    // on platforms whose native separator differs.
+    let joined = rel
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/");
+    Some(nfc(&joined))
+}
+
 /// Strip `./` segments and fold `..` segments without touching the filesystem.
 fn normalize_segments(path_buf: &std::path::Path) -> PathBuf {
     let mut normalized = PathBuf::new();
@@ -154,9 +185,15 @@ impl FileOps {
     ///    `index_root` (ingest-time anchor) and looked up. This resolves
     ///    repo-relative queries from ANY caller cwd whenever the database
     ///    was ingested by a v21+ indexer.
-    /// 3. CWD: a relative query is joined onto the process cwd and looked
+    /// 3. INDEX_ROOT-STRIPPED (phase 2): an absolute query has the recorded
+    ///    `index_root` stripped, yielding the root-relative POSIX key under
+    ///    which phase-2 databases store file paths. This is the dual-read
+    ///    counterpart of root-relative storage: absolute queries keep
+    ///    working against both legacy absolute rows (stage 1) and
+    ///    root-relative rows (this stage).
+    /// 4. CWD: a relative query is joined onto the process cwd and looked
     ///    up (historical behavior for callers whose cwd is the index root).
-    /// 4. SUFFIX FALLBACK (last resort, deprecation-logged): path-segment
+    /// 5. SUFFIX FALLBACK (last resort, deprecation-logged): path-segment
     ///    suffix matching between the query and the stored index keys, in
     ///    both directions:
     ///    - relative query `q`: a stored key matches if it equals `q`
@@ -169,7 +206,7 @@ impl FileOps {
     ///    This stage is transitional: it exists for pre-v21 databases that
     ///    lack a recorded `index_root`. Every firing is logged so remaining
     ///    callers can be fixed; do not rely on it in new code.
-    /// 5. OUTCOME: exactly one matching node -> returned. Zero -> None. More
+    /// 6. OUTCOME: exactly one matching node -> returned. Zero -> None. More
     ///    than one -> None (ambiguous; never guess).
     pub fn find_file_node(&mut self, path: &str) -> Result<Option<NodeId>> {
         // Stage 1: exact lookup of the query as-given (normalized, no anchor).
@@ -177,20 +214,28 @@ impl FileOps {
         if let Some(id) = self.file_index.get(&as_given) {
             return Ok(Some(*id));
         }
-        // Stage 2: index_root-anchored lookup for relative queries.
         if !PathBuf::from(path).is_absolute() {
+            // Stage 2: index_root-anchored lookup for relative queries.
             if let Some(anchored) = self.anchor_to_index_root(path) {
                 if let Some(id) = self.file_index.get(&anchored) {
                     return Ok(Some(*id));
                 }
             }
+        } else {
+            // Stage 3: index_root-stripped lookup for absolute queries
+            // (phase-2 root-relative stored keys).
+            if let Some(stripped) = self.strip_to_index_root(path) {
+                if let Some(id) = self.file_index.get(&stripped) {
+                    return Ok(Some(*id));
+                }
+            }
         }
-        // Stage 3: cwd-joined lookup (historical query-side normalization).
+        // Stage 4: cwd-joined lookup (historical query-side normalization).
         let normalized_path = normalize_path_for_index(path);
         if let Some(id) = self.file_index.get(&normalized_path) {
             return Ok(Some(*id));
         }
-        // Stage 4: deterministic suffix fallback against stored index keys
+        // Stage 5: deterministic suffix fallback against stored index keys
         // (transitional; deprecation-logged when it fires).
         Ok(self.suffix_match_file_node(path, &normalized_path))
     }
@@ -206,6 +251,77 @@ impl FileOps {
         }
         let joined = PathBuf::from(root).join(raw_query);
         Some(normalize_stored_path(&joined.to_string_lossy()))
+    }
+
+    /// Strip the recorded index root from an absolute query, yielding the
+    /// root-relative POSIX candidate under which phase-2 databases store
+    /// file paths.
+    ///
+    /// Returns `None` when no index root is recorded, the query is
+    /// relative, or the query is outside the recorded root.
+    fn strip_to_index_root(&self, raw_query: &str) -> Option<String> {
+        let root = self.index_root.as_ref()?;
+        if !PathBuf::from(raw_query).is_absolute() {
+            return None;
+        }
+        root_relative_posix(raw_query, root)
+    }
+
+    /// Storage form for a freshly indexed file (path-identity contract
+    /// phase 2, write side).
+    ///
+    /// `abs_normalized` must be absolute and segment-normalized (the output
+    /// of `normalize_path_for_index`). When an index root is recorded and
+    /// the file lives under it, the stored form is root-relative POSIX;
+    /// out-of-root files and root-less (in-memory or unstamped) databases
+    /// keep the legacy absolute form.
+    fn storage_form(&self, abs_normalized: &str) -> String {
+        match &self.index_root {
+            Some(root) => root_relative_posix(abs_normalized, root)
+                .unwrap_or_else(|| abs_normalized.to_string()),
+            None => abs_normalized.to_string(),
+        }
+    }
+
+    /// Re-anchor a STORED path to an absolute filesystem path (dual-read
+    /// side of the phase-2 contract).
+    ///
+    /// Relative stored paths are joined onto the recorded index root;
+    /// absolute stored paths pass through unchanged (legacy rows). When no
+    /// index root is recorded, the stored path is returned as-is — callers
+    /// that need a filesystem path must treat that as best-effort.
+    pub fn absolute_fs_path(&self, stored_path: &str) -> String {
+        if PathBuf::from(stored_path).is_absolute() {
+            return stored_path.to_string();
+        }
+        match &self.index_root {
+            Some(root) => PathBuf::from(root)
+                .join(stored_path)
+                .to_string_lossy()
+                .to_string(),
+            None => stored_path.to_string(),
+        }
+    }
+
+    /// Remove every file_index key under which `query_path` could resolve:
+    /// the exact stored form, the cwd-joined form, the index_root-anchored
+    /// form, and the root-stripped form. Deletion paths must purge all
+    /// candidates — removing only one normalization leaves stale entries
+    /// that resurrect deleted files on the next lookup.
+    pub fn remove_index_keys_for(&mut self, query_path: &str) {
+        let mut candidates = vec![
+            normalize_stored_path(query_path),
+            normalize_path_for_index(query_path),
+        ];
+        if let Some(anchored) = self.anchor_to_index_root(query_path) {
+            candidates.push(anchored);
+        }
+        if let Some(stripped) = self.strip_to_index_root(query_path) {
+            candidates.push(stripped);
+        }
+        for key in candidates {
+            self.file_index.remove(&key);
+        }
     }
 
     /// Deterministic suffix fallback for `find_file_node` (stage 4, last
@@ -260,6 +376,13 @@ impl FileOps {
         } else {
             self.anchor_to_index_root(path)
         };
+        // Index_root-stripped form of an absolute query (phase 2): the
+        // root-relative POSIX key under which new databases store paths.
+        let stripped_path = if raw_is_absolute {
+            self.strip_to_index_root(path)
+        } else {
+            None
+        };
         let query_rel = if raw_is_absolute {
             None
         } else {
@@ -285,6 +408,9 @@ impl FileOps {
                     let anchor_hit = anchored_path
                         .as_ref()
                         .is_some_and(|anchored| stored_path == *anchored);
+                    let strip_hit = stripped_path
+                        .as_ref()
+                        .is_some_and(|stripped| stored_path == *stripped);
                     let suffix_hit = match &query_rel {
                         Some(q) => {
                             !q.is_empty()
@@ -297,7 +423,7 @@ impl FileOps {
                                 && normalized_path.ends_with(&format!("/{}", stored_path))
                         }
                     };
-                    if stored_path == normalized_path || anchor_hit || suffix_hit {
+                    if stored_path == normalized_path || anchor_hit || strip_hit || suffix_hit {
                         results.push((NodeId::from(id), file_node));
                     }
                 }
@@ -310,23 +436,42 @@ impl FileOps {
     ///
     /// If multiple file nodes exist with the same path (duplicates from earlier
     /// indexing bugs), all are deleted before creating the new one.
+    ///
+    /// # Storage form (path-identity contract phase 2)
+    ///
+    /// The persisted path is the `storage_form` of the absolute normalized
+    /// path: root-relative POSIX when an index root is recorded and the file
+    /// lives under it, absolute otherwise (out-of-root files, in-memory or
+    /// unstamped databases). Re-indexing a legacy absolute row lazily
+    /// migrates its stored path to the current storage form — no forced
+    /// reindex required.
     pub fn find_or_create_file_node(&mut self, path: &str, hash: &str) -> Result<NodeId> {
         let now = Self::now();
         let mtime = Self::get_file_mtime(path);
 
         // Normalize path to absolute canonical form for consistent indexing
         let normalized_path = normalize_path_for_index(path);
+        let stored_path = self.storage_form(&normalized_path);
 
-        // Find ALL file nodes with this path (not just the one in file_index)
+        // Find ALL file nodes with this path (not just the one in file_index).
+        // find_all dual-reads: it matches legacy absolute rows and
+        // root-relative rows alike, so re-indexing never duplicates.
         let all_existing = self.find_all_file_nodes(&normalized_path)?;
 
         if !all_existing.is_empty() {
             // If duplicates exist, delete all of them and their edges before creating fresh
             if all_existing.len() > 1 {
-                for (old_id, _) in &all_existing {
+                for (old_id, old_node) in &all_existing {
                     let _ = self.backend.delete_entity(old_id.as_i64());
+                    self.file_index
+                        .remove(&normalize_stored_path(&old_node.path));
                 }
-                self.file_index.remove(&normalized_path);
+                self.remove_index_keys_for(&normalized_path);
+            } else {
+                // Single existing row: drop its current index key (the row is
+                // deleted below and re-inserted under the storage-form key).
+                self.file_index
+                    .remove(&normalize_stored_path(&all_existing[0].1.path));
             }
 
             // Use the first (or only) existing node's metadata as baseline
@@ -334,14 +479,16 @@ impl FileOps {
             let snapshot = SnapshotId::current();
             let node = self.backend.get_node(snapshot, id.as_i64())?;
 
-            // Parse existing FileNode, update hash and timestamps, serialize back
+            // Parse existing FileNode, update path (lazy migration to the
+            // current storage form), hash and timestamps, serialize back
             let mut file_node: FileNode =
                 serde_json::from_value(node.data.clone()).unwrap_or_else(|_| FileNode {
-                    path: path.to_string(),
+                    path: stored_path.clone(),
                     hash: hash.to_string(),
                     last_indexed_at: now,
                     last_modified: mtime,
                 });
+            file_node.path = stored_path.clone();
             file_node.hash = hash.to_string();
             file_node.last_indexed_at = now;
             file_node.last_modified = mtime;
@@ -351,8 +498,8 @@ impl FileOps {
             // Create new NodeSpec with updated data
             let node_spec = NodeSpec {
                 kind: "File".to_string(),
-                name: normalized_path.to_string(),
-                file_path: Some(normalized_path.to_string()),
+                name: stored_path.clone(),
+                file_path: Some(stored_path.clone()),
                 data: updated_data,
             };
 
@@ -361,15 +508,14 @@ impl FileOps {
             let new_id = self.backend.insert_node(node_spec)?;
             let new_node_id = NodeId::from(new_id);
 
-            // Update index with normalized path
-            self.file_index
-                .insert(normalized_path.to_string(), new_node_id);
+            // Update index with the storage-form key
+            self.file_index.insert(stored_path, new_node_id);
 
             Ok(new_node_id)
         } else {
             // Create new file node with timestamps
             let file_node = FileNode {
-                path: normalized_path.to_string(),
+                path: stored_path.clone(),
                 hash: hash.to_string(),
                 last_indexed_at: now,
                 last_modified: mtime,
@@ -377,16 +523,16 @@ impl FileOps {
 
             let node_spec = NodeSpec {
                 kind: "File".to_string(),
-                name: normalized_path.to_string(),
-                file_path: Some(normalized_path.to_string()),
+                name: stored_path.clone(),
+                file_path: Some(stored_path.clone()),
                 data: serde_json::to_value(file_node)?,
             };
 
             let id = self.backend.insert_node(node_spec)?;
             let node_id = NodeId::from(id);
 
-            // Update index with normalized path
-            self.file_index.insert(normalized_path.to_string(), node_id);
+            // Update index with the storage-form key
+            self.file_index.insert(stored_path, node_id);
 
             Ok(node_id)
         }
@@ -573,7 +719,7 @@ mod tests {
     // proves the stored-path suffix fallback, not cwd flattery.
     // ------------------------------------------------------------------
 
-    use sqlitegraph::NodeSpec;
+    use sqlitegraph::{NodeSpec, SnapshotId};
 
     /// Insert a File node with a repo-relative stored path directly into the
     /// backend (simulates DBs/fixtures that store relative paths), then
@@ -822,6 +968,311 @@ mod tests {
             all.len(),
             1,
             "index_root-anchored find_all must hit the TempDir-stored absolute path from any cwd"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Path-identity contract phase 2: root-relative POSIX storage +
+    // dual-read of legacy absolute rows.
+    // ------------------------------------------------------------------
+
+    /// Canonical path of a TempDir, so set_index_root (which canonicalizes)
+    /// and test-constructed absolute paths agree byte-for-byte.
+    fn canonical_root(temp: &tempfile::TempDir) -> std::path::PathBuf {
+        temp.path().canonicalize().unwrap()
+    }
+
+    /// Count graph entities of `kind` whose JSON `file` field equals
+    /// `file_path` — ground truth for location-record assertions.
+    fn count_location_entities(graph: &crate::CodeGraph, kind: &str, file_path: &str) -> usize {
+        let snapshot = SnapshotId::current();
+        graph
+            .files
+            .backend
+            .entity_ids()
+            .unwrap()
+            .iter()
+            .filter_map(|id| graph.files.backend.get_node(snapshot, *id).ok())
+            .filter(|node| {
+                node.kind == kind
+                    && node
+                        .data
+                        .get("file")
+                        .and_then(|v| v.as_str())
+                        .map(|f| f == file_path)
+                        .unwrap_or(false)
+            })
+            .count()
+    }
+
+    /// The phase-2 gate: index from the repo root, then query with a
+    /// root-relative path from a foreign cwd (the test binary's cwd is never
+    /// the TempDir root, so a pass proves cwd-independence).
+    #[test]
+    fn test_phase2_root_relative_storage_roundtrip_from_foreign_cwd() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let db = temp.path().join("graph.db");
+        let root = canonical_root(&temp).join("project");
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        let abs = root.join("src").join("roundtrip_widget.rs");
+        std::fs::write(&abs, b"fn roundtrip_widget_fn() {}\n").unwrap();
+
+        {
+            let mut graph = crate::CodeGraph::open(&db).unwrap();
+            graph.set_index_root(&root).unwrap();
+            graph
+                .index_file(abs.to_str().unwrap(), b"fn roundtrip_widget_fn() {}\n")
+                .unwrap();
+
+            // Write side: the stored path is root-relative POSIX.
+            let node = graph
+                .files
+                .get_file_node("src/roundtrip_widget.rs")
+                .unwrap()
+                .expect("root-relative query must resolve immediately after indexing");
+            assert_eq!(
+                node.path, "src/roundtrip_widget.rs",
+                "phase-2 databases must store file paths root-relative POSIX"
+            );
+            assert!(graph
+                .files
+                .file_index
+                .contains_key("src/roundtrip_widget.rs"));
+        }
+
+        // Reopen (index_root reloads from magellan_meta) and query both ways.
+        let mut graph = crate::CodeGraph::open(&db).unwrap();
+        assert!(
+            graph
+                .files
+                .find_file_node("src/roundtrip_widget.rs")
+                .unwrap()
+                .is_some(),
+            "root-relative query must resolve from any cwd"
+        );
+        assert!(
+            graph
+                .files
+                .find_file_node(abs.to_str().unwrap())
+                .unwrap()
+                .is_some(),
+            "absolute query must resolve via the index_root-strip stage"
+        );
+        let sym = crate::graph::query::symbol_id_by_name(
+            &mut graph,
+            "src/roundtrip_widget.rs",
+            "roundtrip_widget_fn",
+        )
+        .unwrap();
+        assert!(
+            sym.is_some(),
+            "symbol lookup by root-relative path must hit from any cwd"
+        );
+        let all = graph
+            .files
+            .find_all_file_nodes(abs.to_str().unwrap())
+            .unwrap();
+        assert_eq!(
+            all.len(),
+            1,
+            "absolute find_all must match the root-relative stored row exactly once"
+        );
+    }
+
+    #[test]
+    fn test_phase2_out_of_root_file_stored_absolute() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let outside = tempfile::TempDir::new().unwrap();
+        let db = temp.path().join("graph.db");
+        let root = canonical_root(&temp);
+        let abs = outside.path().canonicalize().unwrap().join("outsider.rs");
+        std::fs::write(&abs, b"fn outsider_fn() {}\n").unwrap();
+
+        let mut graph = crate::CodeGraph::open(&db).unwrap();
+        graph.set_index_root(&root).unwrap();
+        graph
+            .index_file(abs.to_str().unwrap(), b"fn outsider_fn() {}\n")
+            .unwrap();
+
+        // Out-of-root files keep the absolute storage form (graphify's rule).
+        let node = graph
+            .files
+            .get_file_node(abs.to_str().unwrap())
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            node.path,
+            super::normalize_path_for_index(abs.to_str().unwrap()),
+            "out-of-root file must be stored absolute"
+        );
+    }
+
+    #[test]
+    fn test_phase2_dual_read_legacy_absolute_rows() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let db = temp.path().join("graph.db");
+        let root = canonical_root(&temp);
+        let src_dir = root.join("src");
+        std::fs::create_dir_all(&src_dir).unwrap();
+        let abs = src_dir.join("legacy_widget.rs");
+        std::fs::write(&abs, b"fn legacy_widget_fn() {}\n").unwrap();
+
+        let mut graph = crate::CodeGraph::open(&db).unwrap();
+        // Legacy ingest: no stamped root -> absolute stored path.
+        graph
+            .index_file(abs.to_str().unwrap(), b"fn legacy_widget_fn() {}\n")
+            .unwrap();
+        let stored = graph
+            .files
+            .get_file_node(abs.to_str().unwrap())
+            .unwrap()
+            .unwrap();
+        assert!(
+            std::path::Path::new(&stored.path).is_absolute(),
+            "without an index root the legacy absolute storage form must be kept"
+        );
+
+        // The phase-1 stamp arrives later (watch pipeline / next ingest).
+        graph.set_index_root(&root).unwrap();
+
+        // Dual-read: a root-relative query resolves the legacy ABSOLUTE row
+        // via the index_root-anchored stage.
+        assert!(
+            graph
+                .files
+                .find_file_node("src/legacy_widget.rs")
+                .unwrap()
+                .is_some(),
+            "relative query must dual-read legacy absolute rows"
+        );
+        // Absolute query still hits exact.
+        assert!(graph
+            .files
+            .find_file_node(abs.to_str().unwrap())
+            .unwrap()
+            .is_some());
+        let all = graph
+            .files
+            .find_all_file_nodes("src/legacy_widget.rs")
+            .unwrap();
+        assert_eq!(
+            all.len(),
+            1,
+            "find_all must not double-count the dual-read row"
+        );
+    }
+
+    #[test]
+    fn test_phase2_reindex_migrates_legacy_row_without_duplicate() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let db = temp.path().join("graph.db");
+        let root = canonical_root(&temp);
+        let src_dir = root.join("src");
+        std::fs::create_dir_all(&src_dir).unwrap();
+        let abs = src_dir.join("migrate_widget.rs");
+        std::fs::write(&abs, b"fn migrate_widget_fn() {}\n").unwrap();
+
+        let mut graph = crate::CodeGraph::open(&db).unwrap();
+        // Legacy ingest (no root), then the stamp, then a re-index of the
+        // same file — the graphify migration pattern without a forced
+        // reindex of the whole DB.
+        graph
+            .index_file(abs.to_str().unwrap(), b"fn migrate_widget_fn() {}\n")
+            .unwrap();
+        graph.set_index_root(&root).unwrap();
+        std::fs::write(
+            &abs,
+            b"fn migrate_widget_fn() {}\nfn migrate_widget_v2() {}\n",
+        )
+        .unwrap();
+        graph
+            .index_file(
+                abs.to_str().unwrap(),
+                b"fn migrate_widget_fn() {}\nfn migrate_widget_v2() {}\n",
+            )
+            .unwrap();
+
+        // Exactly one File node, lazily migrated to the root-relative form.
+        let all = graph
+            .files
+            .find_all_file_nodes(abs.to_str().unwrap())
+            .unwrap();
+        assert_eq!(
+            all.len(),
+            1,
+            "re-indexing a dual-read legacy row must not create a duplicate"
+        );
+        assert_eq!(
+            all[0].1.path, "src/migrate_widget.rs",
+            "re-indexing must lazily migrate the stored path to root-relative POSIX"
+        );
+        let syms = graph.symbols_in_file("src/migrate_widget.rs").unwrap();
+        assert_eq!(
+            syms.len(),
+            2,
+            "re-indexed file must expose both symbols via the relative path"
+        );
+    }
+
+    #[test]
+    fn test_phase2_delete_via_relative_path_removes_all_records() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let db = temp.path().join("graph.db");
+        let root = canonical_root(&temp);
+        let src_dir = root.join("src");
+        std::fs::create_dir_all(&src_dir).unwrap();
+        let abs = src_dir.join("del_widget.rs");
+        let source = b"fn del_callee() {}\nfn del_caller() { del_callee(); }\n";
+        std::fs::write(&abs, source).unwrap();
+        let abs_str = abs.to_string_lossy().to_string();
+
+        let mut graph = crate::CodeGraph::open(&db).unwrap();
+        graph.set_index_root(&root).unwrap();
+        graph.index_file(&abs_str, source).unwrap();
+
+        // Ground truth before deletion.
+        let calls_before = count_location_entities(&graph, "Call", &abs_str);
+        assert!(
+            graph
+                .files
+                .find_file_node("src/del_widget.rs")
+                .unwrap()
+                .is_some(),
+            "relative stored key must resolve before deletion"
+        );
+
+        // Delete via the root-relative stored path.
+        let result = graph.delete_file("src/del_widget.rs").unwrap();
+        assert_eq!(result.symbols_deleted, 2, "both functions must be deleted");
+        assert_eq!(
+            result.calls_deleted, calls_before,
+            "every Call location record must be deleted (matched via re-anchored absolute form)"
+        );
+        assert!(
+            result.chunks_deleted >= 1,
+            "code chunks keyed by the ingest-time absolute path must be deleted"
+        );
+
+        // No resurrection through any query form.
+        assert!(graph
+            .files
+            .find_file_node("src/del_widget.rs")
+            .unwrap()
+            .is_none());
+        assert!(graph.files.find_file_node(&abs_str).unwrap().is_none());
+        assert!(
+            graph.all_file_nodes().unwrap().is_empty(),
+            "file_index must not retain a stale entry for the deleted file"
+        );
+        assert_eq!(
+            count_location_entities(&graph, "Call", &abs_str),
+            0,
+            "no orphaned Call rows may survive deletion"
+        );
+        assert_eq!(
+            count_location_entities(&graph, "Reference", &abs_str),
+            0,
+            "no orphaned Reference rows may survive deletion"
         );
     }
 }
