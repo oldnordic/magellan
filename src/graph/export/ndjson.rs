@@ -9,6 +9,7 @@ use super::{
 };
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type")]
 enum JsonlRecord {
     Version { version: String },
     File(FileExport),
