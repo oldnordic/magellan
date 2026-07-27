@@ -226,6 +226,9 @@ pub fn run_indexer_n(root_path: PathBuf, db_path: PathBuf, max_events: usize) ->
     // Open graph
     let mut graph = CodeGraph::open(&db_path)?;
 
+    // Record the ingest-time anchor for the path-identity contract (phase 1).
+    graph.set_index_root(&root_path)?;
+
     // Reconcile: Check for files that exist in DB but not on filesystem
     // This handles the case where files were deleted while indexer wasn't running
     reconcile_deleted_files(&mut graph, &root_path)?;

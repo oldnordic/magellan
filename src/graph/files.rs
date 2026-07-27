@@ -26,6 +26,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use unicode_normalization::UnicodeNormalization;
 use xxhash_rust::xxh3::Xxh3;
 
 use crate::graph::schema::FileNode;
@@ -35,6 +36,20 @@ use crate::ingest::{SymbolFact, SymbolKind};
 pub struct FileOps {
     pub backend: Arc<dyn GraphBackend>,
     pub file_index: HashMap<String, NodeId>,
+    /// Canonical, absolute, NFC-normalized index root recorded at ingest time
+    /// (path-identity contract phase 1). `None` for pre-v21 databases until
+    /// the next ingest stamps it.
+    pub index_root: Option<String>,
+}
+
+/// NFC-normalize a path key.
+///
+/// Path keys are compared as raw strings; on some platforms (notably macOS,
+/// which returns NFD from filesystem APIs) the same logical path can have
+/// different byte representations. Normalizing to NFC at write and at
+/// compare keeps keys stable across machines (graphify #2221).
+pub(crate) fn nfc(s: &str) -> String {
+    s.nfc().collect()
 }
 
 /// Normalize a path to absolute form for consistent indexing
@@ -57,21 +72,21 @@ pub struct FileOps {
 /// * `path` - The path to normalize (may be relative or absolute)
 ///
 /// # Returns
-/// Absolute path string
+/// Absolute path string (NFC-normalized)
 pub(crate) fn normalize_path_for_index(path: &str) -> String {
     let path_buf = PathBuf::from(path);
     if path_buf.is_absolute() {
-        return normalize_segments(&path_buf).to_string_lossy().to_string();
+        return nfc(&normalize_segments(&path_buf).to_string_lossy());
     }
 
     // Relative path: make absolute from current directory (don't canonicalize - file may not exist)
     if let Ok(cwd) = std::env::current_dir() {
         let joined = cwd.join(&path_buf);
-        return normalize_segments(&joined).to_string_lossy().to_string();
+        return nfc(&normalize_segments(&joined).to_string_lossy());
     }
 
     // Fallback: return as-is
-    path.to_string()
+    nfc(path)
 }
 
 /// Normalize a STORED path for use as a file_index key.
@@ -81,10 +96,11 @@ pub(crate) fn normalize_path_for_index(path: &str) -> String {
 /// relative (only `.` / `..` segments are folded). Resolving stored paths
 /// against the opener's cwd would silently corrupt index keys whenever the
 /// database is opened from a directory other than the ingest-time cwd.
+///
+/// The result is NFC-normalized so keys compare equal regardless of the
+/// Unicode normalization form the path was stored in.
 pub(crate) fn normalize_stored_path(path: &str) -> String {
-    normalize_segments(&PathBuf::from(path))
-        .to_string_lossy()
-        .to_string()
+    nfc(&normalize_segments(&PathBuf::from(path)).to_string_lossy())
 }
 
 /// Strip `./` segments and fold `..` segments without touching the filesystem.
@@ -129,34 +145,72 @@ impl FileOps {
     ///
     /// # Path-normalization contract (lookup side)
     ///
-    /// Two stages, deterministic:
-    /// 1. EXACT: the query is normalized with `normalize_path_for_index`
-    ///    (relative paths are joined onto the process cwd) and looked up
-    ///    directly. This preserves the historical behavior for callers whose
-    ///    cwd is the index root.
-    /// 2. SUFFIX FALLBACK (only on exact miss): path-segment suffix matching
-    ///    between the query and the stored index keys, in both directions:
+    /// Deterministic resolution order:
+    /// 1. EXACT: the query, segment-normalized and NFC-normalized as-given
+    ///    (no anchor join), is looked up directly. Hits absolute queries
+    ///    against absolute stored keys and relative queries against relative
+    ///    stored keys.
+    /// 2. INDEX_ROOT-ANCHORED: a relative query is joined onto the recorded
+    ///    `index_root` (ingest-time anchor) and looked up. This resolves
+    ///    repo-relative queries from ANY caller cwd whenever the database
+    ///    was ingested by a v21+ indexer.
+    /// 3. CWD: a relative query is joined onto the process cwd and looked
+    ///    up (historical behavior for callers whose cwd is the index root).
+    /// 4. SUFFIX FALLBACK (last resort, deprecation-logged): path-segment
+    ///    suffix matching between the query and the stored index keys, in
+    ///    both directions:
     ///    - relative query `q`: a stored key matches if it equals `q`
     ///      (segment-normalized, no cwd join) or ends with `/q`. Every match
     ///      therefore shares the query's trailing segments, including its
     ///      basename (same-basename preference is structural).
     ///    - absolute query: a *relative* stored key `k` matches if the
     ///      normalized query ends with `/k`.
-    /// 3. OUTCOME: exactly one matching node -> returned. Zero -> None. More
-    ///    than one -> None (ambiguous; never guess). This makes lookups
-    ///    resolve against the paths recorded in the index instead of the
-    ///    caller's cwd.
+    ///
+    ///    This stage is transitional: it exists for pre-v21 databases that
+    ///    lack a recorded `index_root`. Every firing is logged so remaining
+    ///    callers can be fixed; do not rely on it in new code.
+    /// 5. OUTCOME: exactly one matching node -> returned. Zero -> None. More
+    ///    than one -> None (ambiguous; never guess).
     pub fn find_file_node(&mut self, path: &str) -> Result<Option<NodeId>> {
-        // Stage 1: exact lookup after query-side normalization.
+        // Stage 1: exact lookup of the query as-given (normalized, no anchor).
+        let as_given = normalize_stored_path(path);
+        if let Some(id) = self.file_index.get(&as_given) {
+            return Ok(Some(*id));
+        }
+        // Stage 2: index_root-anchored lookup for relative queries.
+        if !PathBuf::from(path).is_absolute() {
+            if let Some(anchored) = self.anchor_to_index_root(path) {
+                if let Some(id) = self.file_index.get(&anchored) {
+                    return Ok(Some(*id));
+                }
+            }
+        }
+        // Stage 3: cwd-joined lookup (historical query-side normalization).
         let normalized_path = normalize_path_for_index(path);
         if let Some(id) = self.file_index.get(&normalized_path) {
             return Ok(Some(*id));
         }
-        // Stage 2: deterministic suffix fallback against stored index keys.
+        // Stage 4: deterministic suffix fallback against stored index keys
+        // (transitional; deprecation-logged when it fires).
         Ok(self.suffix_match_file_node(path, &normalized_path))
     }
 
-    /// Deterministic suffix fallback for `find_file_node` (stage 2).
+    /// Join a relative query path onto the recorded index root.
+    ///
+    /// Returns `None` when no index root is recorded (pre-v21 databases)
+    /// or the query is absolute.
+    fn anchor_to_index_root(&self, raw_query: &str) -> Option<String> {
+        let root = self.index_root.as_ref()?;
+        if PathBuf::from(raw_query).is_absolute() {
+            return None;
+        }
+        let joined = PathBuf::from(root).join(raw_query);
+        Some(normalize_stored_path(&joined.to_string_lossy()))
+    }
+
+    /// Deterministic suffix fallback for `find_file_node` (stage 4, last
+    /// resort). Transitional: exists for pre-v21 databases without a
+    /// recorded `index_root`; every successful firing is deprecation-logged.
     fn suffix_match_file_node(&self, raw_query: &str, normalized_query: &str) -> Option<NodeId> {
         let raw_is_absolute = PathBuf::from(raw_query).is_absolute();
         let mut matches: Vec<i64> = Vec::new();
@@ -177,6 +231,12 @@ impl FileOps {
         matches.sort_unstable();
         matches.dedup();
         if matches.len() == 1 {
+            tracing::warn!(
+                query = %raw_query,
+                "DEPRECATED path resolution: suffix fallback fired. \
+                 Re-ingest to record index_root, or pass anchored paths; \
+                 suffix matching is transitional and will be retired."
+            );
             Some(NodeId::from(matches[0]))
         } else {
             // Zero matches (genuine miss) or ambiguous (more than one stored
@@ -193,6 +253,13 @@ impl FileOps {
     pub fn find_all_file_nodes(&self, path: &str) -> Result<Vec<(NodeId, FileNode)>> {
         let normalized_path = normalize_path_for_index(path);
         let raw_is_absolute = PathBuf::from(path).is_absolute();
+        // Index_root-anchored form of a relative query: an exact match
+        // candidate that does not depend on the opener's cwd.
+        let anchored_path = if raw_is_absolute {
+            None
+        } else {
+            self.anchor_to_index_root(path)
+        };
         let query_rel = if raw_is_absolute {
             None
         } else {
@@ -215,6 +282,9 @@ impl FileOps {
                     // working when stored paths and query paths are anchored
                     // differently (relative vs absolute).
                     let stored_path = normalize_stored_path(&file_node.path);
+                    let anchor_hit = anchored_path
+                        .as_ref()
+                        .is_some_and(|anchored| stored_path == *anchored);
                     let suffix_hit = match &query_rel {
                         Some(q) => {
                             !q.is_empty()
@@ -227,7 +297,7 @@ impl FileOps {
                                 && normalized_path.ends_with(&format!("/{}", stored_path))
                         }
                     };
-                    if stored_path == normalized_path || suffix_hit {
+                    if stored_path == normalized_path || anchor_hit || suffix_hit {
                         results.push((NodeId::from(id), file_node));
                     }
                 }
@@ -638,6 +708,120 @@ mod tests {
         assert!(
             !graph.files.file_index.contains_key(&cwd_joined),
             "index keys must not be baked against the opener's cwd"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Path-identity contract phase 1: index_root anchor + NFC keys.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_nfc_normalization_of_path_keys() {
+        // "é" as a single codepoint (NFC) vs "e" + combining acute (NFD).
+        let nfc_path = "src/caf\u{00e9}.rs";
+        let nfd_path = "src/cafe\u{0301}.rs";
+        assert_ne!(nfc_path, nfd_path, "fixtures must differ byte-wise");
+        assert_eq!(
+            super::normalize_stored_path(nfd_path),
+            super::normalize_stored_path(nfc_path),
+            "NFD and NFC forms of the same path must produce the same key"
+        );
+        assert_eq!(
+            super::normalize_path_for_index(nfd_path),
+            super::normalize_path_for_index(nfc_path),
+            "query-side normalization must also be NFC-stable"
+        );
+    }
+
+    #[test]
+    fn test_index_root_recorded_and_reloaded() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let db = temp.path().join("graph.db");
+        let root = temp.path().join("project");
+        std::fs::create_dir_all(&root).unwrap();
+        let expected =
+            super::normalize_stored_path(&root.canonicalize().unwrap().to_string_lossy());
+
+        {
+            let mut graph = crate::CodeGraph::open(&db).unwrap();
+            assert_eq!(graph.index_root(), None, "fresh DB has no index_root");
+            graph.set_index_root(&root).unwrap();
+            assert_eq!(graph.index_root(), Some(expected.as_str()));
+        }
+
+        // Reopen: the recorded root must survive in magellan_meta.
+        let graph = crate::CodeGraph::open(&db).unwrap();
+        assert_eq!(
+            graph.index_root(),
+            Some(expected.as_str()),
+            "index_root must persist across CodeGraph::open"
+        );
+    }
+
+    #[test]
+    fn test_index_root_anchor_disambiguates_relative_query() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let db = temp.path().join("graph.db");
+        let mut graph = crate::CodeGraph::open(&db).unwrap();
+
+        // Two roots with the same relative layout: the suffix fallback alone
+        // can only return None (ambiguous). Anchoring to the recorded
+        // index_root must deterministically pick the indexed root's node.
+        let mut alpha_id = None;
+        for root_name in ["alpha_root", "beta_root"] {
+            let dir = temp.path().join(root_name).join("src");
+            std::fs::create_dir_all(&dir).unwrap();
+            let abs = dir.join("dup_widget.rs");
+            std::fs::write(&abs, b"fn dup_widget_fn() {}\n").unwrap();
+            let id = graph
+                .files
+                .find_or_create_file_node(abs.to_str().unwrap(), "hash")
+                .unwrap();
+            if root_name == "alpha_root" {
+                alpha_id = Some(id);
+            }
+        }
+
+        // Sanity: without an anchor the ambiguous suffix yields None.
+        assert!(graph
+            .files
+            .find_file_node("src/dup_widget.rs")
+            .unwrap()
+            .is_none());
+
+        graph
+            .set_index_root(&temp.path().join("alpha_root"))
+            .unwrap();
+        let found = graph.files.find_file_node("src/dup_widget.rs").unwrap();
+        assert_eq!(
+            found, alpha_id,
+            "index_root-anchored resolution must pick the anchored root's node"
+        );
+    }
+
+    #[test]
+    fn test_index_root_anchored_find_all_file_nodes() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let db = temp.path().join("graph.db");
+        let mut graph = crate::CodeGraph::open(&db).unwrap();
+
+        let src_dir = temp.path().join("src");
+        std::fs::create_dir_all(&src_dir).unwrap();
+        let abs = src_dir.join("all_widget.rs");
+        std::fs::write(&abs, b"fn all_widget_fn() {}\n").unwrap();
+        graph
+            .index_file(abs.to_str().unwrap(), b"fn all_widget_fn() {}\n")
+            .unwrap();
+
+        graph.set_index_root(temp.path()).unwrap();
+        let all = graph
+            .files
+            .find_all_file_nodes("src/all_widget.rs")
+            .unwrap();
+        assert_eq!(
+            all.len(),
+            1,
+            "index_root-anchored find_all must hit the TempDir-stored absolute path from any cwd"
         );
     }
 }

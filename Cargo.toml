@@ -110,6 +110,7 @@ parking_lot = "0.12"
 tempfile = "3.10"
 ureq = { version = "3", features = ["json"] }
 regex = "1.10"
+unicode-normalization = "0.1"
 
 # External tools CFG extraction (C/C++ via clang/LLVM IR text, Java via javac/bytecode)
 # Uses external tools (clang, javac) and parses their output files directly

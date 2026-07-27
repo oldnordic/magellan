@@ -64,7 +64,8 @@ pub fn ensure_magellan_meta(
             sqlitegraph_schema_version INTEGER NOT NULL,
             created_at INTEGER NOT NULL,
             project_name TEXT,
-            project_metadata TEXT
+            project_metadata TEXT,
+            index_root TEXT
         )",
         [],
     )
@@ -159,6 +160,10 @@ pub fn ensure_magellan_meta(
                         19 => {
                             ensure_code_chunks_fts_schema(conn, db_path)?;
                             current_version = 20;
+                        }
+                        20 => {
+                            ensure_index_root_column(conn, db_path)?;
+                            current_version = 21;
                         }
                         _ => {
                             return Err(DbCompatError::MagellanSchemaMismatch {
@@ -410,6 +415,30 @@ pub fn ensure_project_metadata_schema(
             [],
         )
         .map_err(|e| map_sqlite_query_err(db_path, e))?;
+    }
+    Ok(())
+}
+
+/// Add index_root column to magellan_meta table (v21).
+///
+/// Records the canonical, absolute, NFC-normalized index root: the anchor
+/// against which relative query paths are resolved (path-identity contract
+/// phase 1). NULL for databases indexed before v21 until the next ingest
+/// stamps it.
+pub fn ensure_index_root_column(
+    conn: &rusqlite::Connection,
+    db_path: &Path,
+) -> Result<(), DbCompatError> {
+    let has_col: bool = conn
+        .query_row(
+            "SELECT 1 FROM pragma_table_info('magellan_meta') WHERE name='index_root'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+    if !has_col {
+        conn.execute("ALTER TABLE magellan_meta ADD COLUMN index_root TEXT", [])
+            .map_err(|e| map_sqlite_query_err(db_path, e))?;
     }
     Ok(())
 }

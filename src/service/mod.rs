@@ -323,7 +323,18 @@ fn worker_loop(
                         g
                     }
                     None => match magellan::CodeGraph::open(&db) {
-                        Ok(g) => {
+                        Ok(mut g) => {
+                            // Record the ingest-time anchor (path-identity
+                            // contract phase 1) when the project root is known.
+                            if !root.as_os_str().is_empty() {
+                                if let Err(e) = g.set_index_root(&root) {
+                                    tracing::warn!(
+                                        project = %batch.project_name,
+                                        error = %e,
+                                        "Failed to record index_root"
+                                    );
+                                }
+                            }
                             open_graphs.insert(batch.project_name.clone(), g);
                             open_graphs
                                 .get_mut(&batch.project_name)
