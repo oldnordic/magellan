@@ -59,3 +59,20 @@ These invariants describe the supported SQLite `.db` workflow.
 ```
 
 - This is distinct from coverage data that exists but covers zero blocks.
+
+## Path-normalization contract (4.14.0)
+
+Query-time path lookups (`find_file_node`, `symbol_id_by_name` and everything
+built on them) resolve in this order, deterministically:
+
+1. **Exact match** — the query path normalized against the process cwd
+   (identical to pre-4.14 behavior when cwd == ingest-time index root).
+2. **Suffix fallback** — on miss, a path-segment suffix match between the
+   query and stored index keys, in both directions (relative query vs
+   absolute stored, absolute query vs relative stored). A unique match wins;
+   an ambiguous match returns `None` (never guesses).
+
+Paths read back from the database are NOT re-resolved against the opener's
+cwd (`normalize_stored_path`): the cwd at open time is not necessarily the
+cwd that was in effect at ingest time. Consumers may therefore run from any
+working directory; results are cwd-independent.

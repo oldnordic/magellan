@@ -5,6 +5,47 @@ Project adheres to [Semantic Versioning](https://semverver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [4.14.0] - 2026-07-27
+
+### Added
+
+- **`magellan repair-edges` subcommand** (`src/repair_edges.rs`,
+  `src/command_dispatch.rs`): rewires persisted mis-wired CALLER/CALLS edges
+  from Call nodes' stored stable symbol IDs — no re-parse, transactional,
+  idempotent, dry-run by default (`--apply` to write). On a production
+  llama-rs DB it healed 1,379 mis-wired CALLER + 3,772 mis-wired CALLS edges
+  and added 521 missing ones (0 unresolved stable IDs); post-repair,
+  `magellan navigate` callers/callees/impact attribute correctly.
+
+- **Path-normalization contract for lookups** (`src/graph/files.rs`,
+  `src/graph/query.rs`): `find_file_node`/`symbol_id_by_name` previously
+  resolved relative query paths against the process CWD, silently missing
+  whenever the consumer's cwd differed from the ingest-time index root (e.g.
+  mirage ICFG precise-stitching fell back to coarse edges: 0 vs 242 stitched
+  edges measured on a production DB). Lookups now try an exact match first
+  (unchanged when cwd == index root), then a deterministic path-segment
+  suffix fallback in both directions (relative query vs absolute stored and
+  vice versa); unique match wins, ambiguous returns `None`. Stored paths are
+  no longer re-resolved against the opener's cwd at index-rebuild time.
+  Contract documented in `docs/INVARIANTS.md`.
+
+### Fixed
+
+- **CALLER/CALLS edge endpoints mis-wired at ingest for same-named symbols**
+  (`src/graph/call_ops.rs`, `src/graph/facts_api.rs`): edge endpoints now
+  resolve from persisted stable symbol IDs first, then FQN, then a
+  same-file-preferring name fallback. Previously an FQN-keyed lookup missed
+  simple method names and the DB-wide fallback picked an arbitrary
+  same-named symbol (HashMap order), so `navigate` callers/callees/impact
+  and all CALLS-edge graph algorithms could attribute the wrong definition.
+  **Existing databases keep the bad edges until repaired** — run
+  `magellan repair-edges --db <db> --apply` (snapshot the DB first) or
+  reindex.
+
+- **`repair-edges --help`/`-h`** now prints usage and exits 0 like sibling
+  subcommands (`src/cli/parsers/config_project.rs`,
+  `tests/cli_repair_edges_help_test.rs`).
+
 ### Changed
 
 - **Ingestion parser internals were modularized without changing CLI or stored
