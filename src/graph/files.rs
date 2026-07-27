@@ -41,11 +41,17 @@ pub struct FileOps {
 ///
 /// This ensures paths stored in file_index match between:
 /// - find_or_create_file_node() (during indexing)
-/// - rebuild_file_index() (during database open)
 /// - resolve_query_path() (during queries)
 ///
 /// Note: Does NOT canonicalize (file doesn't need to exist). Just makes relative
 /// paths absolute from current directory.
+///
+/// # Path-normalization contract
+///
+/// This is the QUERY/INGEST-side normalization: relative paths are resolved
+/// against the process current working directory. It must NOT be applied to
+/// paths read back from the database (see `normalize_stored_path`), because the
+/// opener's cwd is not necessarily the cwd that was in effect at ingest time.
 ///
 /// # Arguments
 /// * `path` - The path to normalize (may be relative or absolute)
@@ -55,39 +61,45 @@ pub struct FileOps {
 pub(crate) fn normalize_path_for_index(path: &str) -> String {
     let path_buf = PathBuf::from(path);
     if path_buf.is_absolute() {
-        // Strip ./ and other non-semantic components from absolute paths
-        let mut normalized = PathBuf::new();
-        for component in path_buf.components() {
-            match component {
-                std::path::Component::CurDir => {} // skip .
-                std::path::Component::ParentDir => {
-                    normalized.pop();
-                }
-                other => normalized.push(other),
-            }
-        }
-        return normalized.to_string_lossy().to_string();
+        return normalize_segments(&path_buf).to_string_lossy().to_string();
     }
 
     // Relative path: make absolute from current directory (don't canonicalize - file may not exist)
     if let Ok(cwd) = std::env::current_dir() {
         let joined = cwd.join(&path_buf);
-        // Normalize the joined path to remove ./ segments
-        let mut normalized = PathBuf::new();
-        for component in joined.components() {
-            match component {
-                std::path::Component::CurDir => {}
-                std::path::Component::ParentDir => {
-                    normalized.pop();
-                }
-                other => normalized.push(other),
-            }
-        }
-        return normalized.to_string_lossy().to_string();
+        return normalize_segments(&joined).to_string_lossy().to_string();
     }
 
     // Fallback: return as-is
     path.to_string()
+}
+
+/// Normalize a STORED path for use as a file_index key.
+///
+/// Unlike `normalize_path_for_index`, this NEVER resolves relative paths
+/// against the process cwd: a relative path stored in the database stays
+/// relative (only `.` / `..` segments are folded). Resolving stored paths
+/// against the opener's cwd would silently corrupt index keys whenever the
+/// database is opened from a directory other than the ingest-time cwd.
+pub(crate) fn normalize_stored_path(path: &str) -> String {
+    normalize_segments(&PathBuf::from(path))
+        .to_string_lossy()
+        .to_string()
+}
+
+/// Strip `./` segments and fold `..` segments without touching the filesystem.
+fn normalize_segments(path_buf: &std::path::Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path_buf.components() {
+        match component {
+            std::path::Component::CurDir => {} // skip .
+            std::path::Component::ParentDir => {
+                normalized.pop();
+            }
+            other => normalized.push(other),
+        }
+    }
+    normalized
 }
 
 impl FileOps {
@@ -114,10 +126,62 @@ impl FileOps {
     ///
     /// Note: file_index is populated when CodeGraph opens, so this
     /// should find all existing File nodes. Returns None if not found.
+    ///
+    /// # Path-normalization contract (lookup side)
+    ///
+    /// Two stages, deterministic:
+    /// 1. EXACT: the query is normalized with `normalize_path_for_index`
+    ///    (relative paths are joined onto the process cwd) and looked up
+    ///    directly. This preserves the historical behavior for callers whose
+    ///    cwd is the index root.
+    /// 2. SUFFIX FALLBACK (only on exact miss): path-segment suffix matching
+    ///    between the query and the stored index keys, in both directions:
+    ///    - relative query `q`: a stored key matches if it equals `q`
+    ///      (segment-normalized, no cwd join) or ends with `/q`. Every match
+    ///      therefore shares the query's trailing segments, including its
+    ///      basename (same-basename preference is structural).
+    ///    - absolute query: a *relative* stored key `k` matches if the
+    ///      normalized query ends with `/k`.
+    ///    Exactly one matching node -> returned. Zero -> None. More than one
+    ///    -> None (ambiguous; never guess). This makes lookups resolve against
+    ///    the paths recorded in the index instead of the caller's cwd.
     pub fn find_file_node(&mut self, path: &str) -> Result<Option<NodeId>> {
-        // Normalize path to match how files are stored after index_file
+        // Stage 1: exact lookup after query-side normalization.
         let normalized_path = normalize_path_for_index(path);
-        Ok(self.file_index.get(&normalized_path).copied())
+        if let Some(id) = self.file_index.get(&normalized_path) {
+            return Ok(Some(*id));
+        }
+        // Stage 2: deterministic suffix fallback against stored index keys.
+        Ok(self.suffix_match_file_node(path, &normalized_path))
+    }
+
+    /// Deterministic suffix fallback for `find_file_node` (stage 2).
+    fn suffix_match_file_node(&self, raw_query: &str, normalized_query: &str) -> Option<NodeId> {
+        let raw_is_absolute = PathBuf::from(raw_query).is_absolute();
+        let mut matches: Vec<i64> = Vec::new();
+        for (key, id) in &self.file_index {
+            let hit = if raw_is_absolute {
+                // Absolute query vs relative stored key.
+                !PathBuf::from(key).is_absolute()
+                    && normalized_query.ends_with(&format!("/{}", key))
+            } else {
+                // Relative query vs stored keys (absolute or relative).
+                let q = normalize_stored_path(raw_query);
+                !q.is_empty() && (key == &q || key.ends_with(&format!("/{}", q)))
+            };
+            if hit {
+                matches.push(id.as_i64());
+            }
+        }
+        matches.sort_unstable();
+        matches.dedup();
+        if matches.len() == 1 {
+            Some(NodeId::from(matches[0]))
+        } else {
+            // Zero matches (genuine miss) or ambiguous (more than one stored
+            // root contains the same relative suffix) — both are None.
+            None
+        }
     }
 
     /// Find ALL file nodes matching a path by scanning the database.
@@ -127,6 +191,12 @@ impl FileOps {
     /// matches. Use this when cleaning up duplicates.
     pub fn find_all_file_nodes(&self, path: &str) -> Result<Vec<(NodeId, FileNode)>> {
         let normalized_path = normalize_path_for_index(path);
+        let raw_is_absolute = PathBuf::from(path).is_absolute();
+        let query_rel = if raw_is_absolute {
+            None
+        } else {
+            Some(normalize_stored_path(path))
+        };
         let mut results = Vec::new();
         let ids = self.backend.entity_ids()?;
         let snapshot = SnapshotId::current();
@@ -137,8 +207,26 @@ impl FileOps {
             };
             if node.kind == "File" {
                 if let Ok(file_node) = serde_json::from_value::<FileNode>(node.data) {
-                    let stored_path = normalize_path_for_index(&file_node.path);
-                    if stored_path == normalized_path {
+                    // Stored paths are normalized WITHOUT resolving against the
+                    // opener's cwd (see normalize_stored_path). A stored path
+                    // matches the query on exact equality or on a path-segment
+                    // suffix in either direction, so ingest-time dedup keeps
+                    // working when stored paths and query paths are anchored
+                    // differently (relative vs absolute).
+                    let stored_path = normalize_stored_path(&file_node.path);
+                    let suffix_hit = match &query_rel {
+                        Some(q) => {
+                            !q.is_empty()
+                                && (stored_path.ends_with(&format!("/{}", q))
+                                    || normalized_path.ends_with(&format!("/{}", stored_path)))
+                        }
+                        None => {
+                            !stored_path.is_empty()
+                                && !PathBuf::from(&stored_path).is_absolute()
+                                && normalized_path.ends_with(&format!("/{}", stored_path))
+                        }
+                    };
+                    if stored_path == normalized_path || suffix_hit {
                         results.push((NodeId::from(id), file_node));
                     }
                 }
@@ -249,8 +337,12 @@ impl FileOps {
 
             if node.kind == "File" {
                 if let Ok(file_node) = serde_json::from_value::<FileNode>(node.data) {
-                    // Normalize path to match normalize_path_for_index() format
-                    let normalized_path = normalize_path_for_index(&file_node.path);
+                    // Stored paths are indexed as-stored (segment-normalized
+                    // only). Relative stored paths must NOT be resolved against
+                    // the opener's cwd — that would bake the wrong anchor into
+                    // every index key when the DB is opened from a directory
+                    // other than the ingest-time cwd.
+                    let normalized_path = normalize_stored_path(&file_node.path);
                     self.file_index.insert(normalized_path, NodeId::from(id));
                 }
             }
@@ -396,6 +488,155 @@ mod tests {
         assert_ne!(
             hash1, hash2,
             "Different inputs should produce different hashes"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Path-normalization contract tests.
+    //
+    // These tests exercise the lookup contract from a cwd that is NOT the
+    // index root: the indexed files live under a fresh TempDir, so the
+    // stage-1 cwd-joined form of a relative query can never accidentally
+    // equal the stored absolute path, regardless of the directory the test
+    // binary runs from (crate root, /var/tmp, $HOME, ...). A pass therefore
+    // proves the stored-path suffix fallback, not cwd flattery.
+    // ------------------------------------------------------------------
+
+    use sqlitegraph::NodeSpec;
+
+    /// Insert a File node with a repo-relative stored path directly into the
+    /// backend (simulates DBs/fixtures that store relative paths), then
+    /// rebuild the in-memory index.
+    fn insert_relative_file_node(graph: &mut crate::CodeGraph, rel_path: &str) {
+        let file_node = crate::graph::schema::FileNode {
+            path: rel_path.to_string(),
+            hash: "deadbeef".to_string(),
+            last_indexed_at: 0,
+            last_modified: 0,
+        };
+        let spec = NodeSpec {
+            kind: "File".to_string(),
+            name: rel_path.to_string(),
+            file_path: Some(rel_path.to_string()),
+            data: serde_json::to_value(&file_node).unwrap(),
+        };
+        graph.files.backend.insert_node(spec).unwrap();
+        graph.files.rebuild_file_index().unwrap();
+    }
+
+    #[test]
+    fn test_relative_query_resolves_against_absolute_stored_path() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let db = temp.path().join("graph.db");
+        let mut graph = crate::CodeGraph::open(&db).unwrap();
+
+        // Index via absolute path (this is how the live llama-rs DB was built:
+        // 100% absolute stored paths).
+        let src_dir = temp.path().join("src");
+        std::fs::create_dir_all(&src_dir).unwrap();
+        let abs = src_dir.join("alpha_widget.rs");
+        std::fs::write(&abs, b"fn alpha_widget_fn() {}\n").unwrap();
+        graph
+            .index_file(abs.to_str().unwrap(), b"fn alpha_widget_fn() {}\n")
+            .unwrap();
+
+        // Relative query from a foreign cwd: stage-1 (cwd-join) cannot hit the
+        // TempDir-anchored stored path; the suffix fallback must resolve it.
+        let found = graph.files.find_file_node("src/alpha_widget.rs").unwrap();
+        assert!(
+            found.is_some(),
+            "relative query must resolve against the absolute stored path via suffix fallback"
+        );
+
+        // Full public stack: symbol lookup by relative path.
+        let sym = crate::graph::query::symbol_id_by_name(
+            &mut graph,
+            "src/alpha_widget.rs",
+            "alpha_widget_fn",
+        )
+        .unwrap();
+        assert!(
+            sym.is_some(),
+            "symbol_id_by_name with a repo-relative path must hit from any cwd"
+        );
+    }
+
+    #[test]
+    fn test_relative_query_ambiguous_suffix_returns_none() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let db = temp.path().join("graph.db");
+        let mut graph = crate::CodeGraph::open(&db).unwrap();
+
+        // Two stored roots containing the same relative suffix.
+        for root in ["alpha_root", "beta_root"] {
+            let dir = temp.path().join(root).join("src");
+            std::fs::create_dir_all(&dir).unwrap();
+            let abs = dir.join("dup_widget.rs");
+            std::fs::write(&abs, b"fn dup_widget_fn() {}\n").unwrap();
+            graph
+                .index_file(abs.to_str().unwrap(), b"fn dup_widget_fn() {}\n")
+                .unwrap();
+        }
+
+        // Ambiguous suffix: deterministic None, never a guess.
+        let found = graph.files.find_file_node("src/dup_widget.rs").unwrap();
+        assert!(
+            found.is_none(),
+            "ambiguous suffix (two stored roots) must return None, not an arbitrary root"
+        );
+
+        // A longer, unique suffix still resolves.
+        let found = graph
+            .files
+            .find_file_node("alpha_root/src/dup_widget.rs")
+            .unwrap();
+        assert!(found.is_some(), "unique longer suffix must resolve");
+    }
+
+    #[test]
+    fn test_absolute_query_resolves_against_relative_stored_path() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let db = temp.path().join("graph.db");
+        let mut graph = crate::CodeGraph::open(&db).unwrap();
+
+        insert_relative_file_node(&mut graph, "src/rel_widget.rs");
+
+        // Absolute query whose tail is the stored relative path.
+        let abs_query = temp.path().join("src").join("rel_widget.rs");
+        let found = graph
+            .files
+            .find_file_node(abs_query.to_str().unwrap())
+            .unwrap();
+        assert!(
+            found.is_some(),
+            "absolute query must resolve against a relative stored path via reverse suffix match"
+        );
+
+        // Relative query equal to the stored relative path also resolves.
+        let found = graph.files.find_file_node("src/rel_widget.rs").unwrap();
+        assert!(found.is_some(), "exact relative stored path must resolve");
+    }
+
+    #[test]
+    fn test_rebuild_file_index_keeps_relative_stored_paths_relative() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let db = temp.path().join("graph.db");
+        let mut graph = crate::CodeGraph::open(&db).unwrap();
+
+        insert_relative_file_node(&mut graph, "src/rel_indexed.rs");
+
+        assert!(
+            graph.files.file_index.contains_key("src/rel_indexed.rs"),
+            "relative stored path must be indexed as-stored, not resolved against opener cwd"
+        );
+        let cwd_joined = std::env::current_dir()
+            .unwrap()
+            .join("src/rel_indexed.rs")
+            .to_string_lossy()
+            .to_string();
+        assert!(
+            !graph.files.file_index.contains_key(&cwd_joined),
+            "index keys must not be baked against the opener's cwd"
         );
     }
 }
