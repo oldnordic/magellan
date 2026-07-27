@@ -219,6 +219,11 @@ pub enum Command {
         fix: bool,
         output_format: OutputFormat,
     },
+    RepairEdges {
+        db_path: PathBuf,
+        apply: bool,
+        output_format: OutputFormat,
+    },
     Status {
         output_format: OutputFormat,
         db_path: PathBuf,

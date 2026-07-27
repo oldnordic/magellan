@@ -67,6 +67,7 @@ pub mod navigator;
 mod ops;
 pub mod query;
 mod references;
+pub mod repair;
 mod runtime;
 pub mod scan;
 pub mod schema;

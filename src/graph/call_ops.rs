@@ -23,6 +23,23 @@ use crate::ingest::typescript::TypeScriptParser;
 use crate::ingest::{detect::Language, detect_language, Parser, SymbolFact, SymbolKind};
 use crate::references::CallFact;
 
+/// Prefer a same-file candidate from a list of same-named symbol entity IDs.
+///
+/// The legacy name fallback picks `.first()` of all DB-wide same-named symbols
+/// in HashMap order, which mis-attributes edges to arbitrary instances. When a
+/// candidate lives in the same file as the call site, prefer it; otherwise fall
+/// back to the first candidate (legacy behavior).
+fn prefer_same_file_candidate<'a>(
+    ids: Option<&'a [i64]>,
+    entity_file: &HashMap<i64, String>,
+    path: &str,
+) -> Option<&'a i64> {
+    let ids = ids?;
+    ids.iter()
+        .find(|id| entity_file.get(*id).is_some_and(|f| f == path))
+        .or_else(|| ids.first())
+}
+
 /// Call operations for CodeGraph
 pub struct CallOps {
     pub backend: Arc<dyn GraphBackend>,
@@ -98,6 +115,10 @@ impl CallOps {
         let mut symbol_facts = Vec::new();
         let mut current_file_facts = Vec::new();
         let mut stable_symbol_ids: HashMap<(String, String), Option<String>> = HashMap::new();
+        // Reverse maps for correct edge endpoint resolution:
+        // stable symbol_id -> entity node id, and entity node id -> file path.
+        let mut stable_id_to_entity: HashMap<String, i64> = HashMap::new();
+        let mut entity_file: HashMap<i64, String> = HashMap::new();
 
         // Iterate over ALL symbols from all files to enable cross-file call resolution
         for symbol_id in symbol_ids.values() {
@@ -122,12 +143,15 @@ impl CallOps {
                 None => continue,
             };
 
+            let fact_file = symbol_fact.file_path.to_string_lossy().to_string();
+            entity_file.insert(*symbol_id, fact_file.clone());
+            if let Some(ref sid) = stable_id {
+                stable_id_to_entity.insert(sid.clone(), *symbol_id);
+            }
+
             // Build stable symbol_id lookup key: (file_path, symbol_name)
             if let Some(ref name) = symbol_fact.name {
-                let key = (
-                    symbol_fact.file_path.to_string_lossy().to_string(),
-                    name.clone(),
-                );
+                let key = (fact_file, name.clone());
                 stable_symbol_ids.insert(key, stable_id);
             }
 
@@ -285,12 +309,33 @@ impl CallOps {
         for (i, call) in calls.iter().enumerate() {
             let call_id = call_node_ids[i];
 
-            let callee_symbol_id = symbol_ids
-                .get(&call.callee)
-                .or_else(|| name_to_ids.get(&call.callee).and_then(|ids| ids.first()));
-            let caller_symbol_id = symbol_ids
-                .get(&call.caller)
-                .or_else(|| name_to_ids.get(&call.caller).and_then(|ids| ids.first()));
+            // Resolve edge endpoints from the persisted, file-scoped stable symbol
+            // IDs first (BUG-2): the FQN-keyed map misses simple method names, and
+            // the bare name fallback picks an arbitrary same-named symbol DB-wide.
+            let callee_symbol_id = call
+                .callee_symbol_id
+                .as_deref()
+                .and_then(|sid| stable_id_to_entity.get(sid))
+                .or_else(|| symbol_ids.get(&call.callee))
+                .or_else(|| {
+                    prefer_same_file_candidate(
+                        name_to_ids.get(&call.callee).map(Vec::as_slice),
+                        &entity_file,
+                        path,
+                    )
+                });
+            let caller_symbol_id = call
+                .caller_symbol_id
+                .as_deref()
+                .and_then(|sid| stable_id_to_entity.get(sid))
+                .or_else(|| symbol_ids.get(&call.caller))
+                .or_else(|| {
+                    prefer_same_file_candidate(
+                        name_to_ids.get(&call.caller).map(Vec::as_slice),
+                        &entity_file,
+                        path,
+                    )
+                });
 
             if let Some(&caller_id) = caller_symbol_id {
                 caller_edges.push((NodeId::from(caller_id), call_id));
@@ -320,6 +365,10 @@ impl CallOps {
         let mut symbol_facts = Vec::new();
         let mut current_file_facts = Vec::new();
         let mut stable_symbol_ids: HashMap<(String, String), Option<String>> = HashMap::new();
+        // Reverse maps for correct edge endpoint resolution:
+        // stable symbol_id -> entity node id, and entity node id -> file path.
+        let mut stable_id_to_entity: HashMap<String, i64> = HashMap::new();
+        let mut entity_file: HashMap<i64, String> = HashMap::new();
 
         for symbol_id in symbol_ids.values() {
             let snapshot = SnapshotId::current();
@@ -341,11 +390,14 @@ impl CallOps {
                 None => continue,
             };
 
+            let fact_file = symbol_fact.file_path.to_string_lossy().to_string();
+            entity_file.insert(*symbol_id, fact_file.clone());
+            if let Some(ref sid) = stable_id {
+                stable_id_to_entity.insert(sid.clone(), *symbol_id);
+            }
+
             if let Some(ref name) = symbol_fact.name {
-                let key = (
-                    symbol_fact.file_path.to_string_lossy().to_string(),
-                    name.clone(),
-                );
+                let key = (fact_file, name.clone());
                 stable_symbol_ids.insert(key, stable_id);
             }
 
@@ -423,12 +475,32 @@ impl CallOps {
         for (i, call) in calls.iter().enumerate() {
             let call_id = call_node_ids[i];
 
-            let callee_symbol_id = symbol_ids
-                .get(&call.callee)
-                .or_else(|| name_to_ids.get(&call.callee).and_then(|ids| ids.first()));
-            let caller_symbol_id = symbol_ids
-                .get(&call.caller)
-                .or_else(|| name_to_ids.get(&call.caller).and_then(|ids| ids.first()));
+            // Resolve edge endpoints from the persisted, file-scoped stable symbol
+            // IDs first (BUG-2): see index_calls for the full rationale.
+            let callee_symbol_id = call
+                .callee_symbol_id
+                .as_deref()
+                .and_then(|sid| stable_id_to_entity.get(sid))
+                .or_else(|| symbol_ids.get(&call.callee))
+                .or_else(|| {
+                    prefer_same_file_candidate(
+                        name_to_ids.get(&call.callee).map(Vec::as_slice),
+                        &entity_file,
+                        path,
+                    )
+                });
+            let caller_symbol_id = call
+                .caller_symbol_id
+                .as_deref()
+                .and_then(|sid| stable_id_to_entity.get(sid))
+                .or_else(|| symbol_ids.get(&call.caller))
+                .or_else(|| {
+                    prefer_same_file_candidate(
+                        name_to_ids.get(&call.caller).map(Vec::as_slice),
+                        &entity_file,
+                        path,
+                    )
+                });
 
             if let Some(&caller_id) = caller_symbol_id {
                 caller_edges.push((NodeId::from(caller_id), call_id));

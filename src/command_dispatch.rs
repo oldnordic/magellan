@@ -6,9 +6,9 @@ use crate::{
     cypher_cmd, dead_code_cmd, delete_cmd, doctor_cmd, embed_cmd, enrich_cmd, explore_cmd,
     export_cmd, features_cmd, files_cmd, find_cmd, get_cmd, hnsw_cmd, hook_cmd, hopgraph_cmd,
     import_lsif_cmd, index_cmd, ingest_coverage_cmd, init_cmd, label_cmd, navigate_cmd, orient_cmd,
-    path_enumeration_cmd, project_metadata_cmd, query_cmd, reachable_cmd, refs_cmd, score_cmd,
-    search_cmd, slice_cmd, source_inventory_cmd, telemetry_cmd, temporal_query_cmd,
-    temporal_sweep_cmd, verify_cmd, watch_cmd,
+    path_enumeration_cmd, project_metadata_cmd, query_cmd, reachable_cmd, refs_cmd,
+    repair_edges_cmd, score_cmd, search_cmd, slice_cmd, source_inventory_cmd, telemetry_cmd,
+    temporal_query_cmd, temporal_sweep_cmd, verify_cmd, watch_cmd,
 };
 use anyhow::Result;
 use std::process::ExitCode;
@@ -240,6 +240,15 @@ pub fn run(command: Command) -> ExitCode {
             fix,
             output_format,
         } => exit_from_result(doctor_cmd::run_doctor(db_path, fix, output_format)),
+        Command::RepairEdges {
+            db_path,
+            apply,
+            output_format,
+        } => exit_from_result(repair_edges_cmd::run_repair_edges(
+            db_path,
+            apply,
+            output_format,
+        )),
         Command::Query {
             db_path,
             file_path,

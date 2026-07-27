@@ -95,6 +95,7 @@ pub use graph::candidate_fact::{
 };
 pub use graph::filter::FileFilter;
 pub use graph::query::{cross_file_references_to, SymbolQueryResult};
+pub use graph::repair::{repair_call_edges, EdgeRepairReport};
 pub use graph::scan::ScanResult;
 pub use graph::source_inventory::{
     compute_hash, ensure_schema, extract_frontmatter, extract_metadata, extract_tags,

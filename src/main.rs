@@ -49,6 +49,7 @@ mod query_cmd;
 mod reachable_cmd;
 mod refresh_cmd;
 mod refs_cmd;
+mod repair_edges_cmd;
 mod score_cmd;
 mod search_cmd;
 mod service;

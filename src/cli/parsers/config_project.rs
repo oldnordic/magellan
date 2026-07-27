@@ -217,3 +217,50 @@ pub fn parse_doctor_args(args: &[String]) -> Result<Command> {
         output_format,
     })
 }
+
+/// Parse the `repair-edges` command arguments
+///
+/// Recomputes CALLER/CALLS edges from stable symbol IDs persisted on Call
+/// nodes. Defaults to a read-only dry-run; `--apply` rewrites the edges.
+pub fn parse_repair_edges_args(args: &[String]) -> Result<Command> {
+    let mut db_path: Option<PathBuf> = None;
+    let mut dry_run = false;
+    let mut apply = false;
+    let mut output_format = OutputFormat::Human;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--db" => db_path = Some(parse_path_arg(args, &mut i, "--db")?),
+            "--dry-run" => {
+                dry_run = true;
+                i += 1;
+            }
+            "--apply" => {
+                apply = true;
+                i += 1;
+            }
+            "--json" => {
+                output_format = OutputFormat::Json;
+                i += 1;
+            }
+            "--output" => {
+                let value = parse_required_arg(args, &mut i, "--output")?;
+                output_format = parse_output_format(&value)?;
+            }
+            _ => {
+                return Err(anyhow::anyhow!("Unknown argument: {}", args[i]));
+            }
+        }
+    }
+    if dry_run && apply {
+        return Err(anyhow::anyhow!(
+            "--dry-run and --apply are mutually exclusive"
+        ));
+    }
+    let db_path = resolve_db_path(db_path)?;
+    Ok(Command::RepairEdges {
+        db_path,
+        apply,
+        output_format,
+    })
+}
