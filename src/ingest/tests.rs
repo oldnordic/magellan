@@ -325,9 +325,10 @@ impl MyStruct {
 
 #[test]
 fn test_crate_name_in_fqn() {
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let mut parser = Parser::new().unwrap();
     let source = b"pub fn test_fn() {}\n";
-    let facts = parser.extract_symbols(PathBuf::from("test.rs"), source);
+    let facts = parser.extract_symbols(root.join("test.rs"), source);
 
     assert!(!facts.is_empty());
     let fact = &facts[0];
