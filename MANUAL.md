@@ -177,6 +177,22 @@ for FTS5 performance details and limitations.
 full-text content search over function bodies. Exposed via `magellan search`.
 Uses `unicode61` tokenizer with auto-sync triggers.
 
+### Repair Edges
+
+```bash
+magellan repair-edges --db code.db            # dry-run (default)
+magellan repair-edges --db code.db --apply    # write the repair
+```
+
+Rewires persisted mis-wired `CALLER`/`CALLS` edges from Call nodes' stored
+stable symbol IDs — no re-parse. Databases indexed before 4.14.0 could
+attribute edges to the wrong same-named symbol (an FQN-keyed lookup missed
+simple method names and a database-wide fallback picked an arbitrary match),
+which made `navigate` callers/callees/impact and all CALLS-edge graph
+algorithms mis-attribute callers. Run this once per existing database
+(snapshot the file first) or reindex. The repair is transactional and
+idempotent; dry-run reports the delete/insert counts without writing.
+
 ## Orient — Codebase Snapshot
 
 `orient` prints a single-screen orientation snapshot useful when starting work on an unfamiliar codebase or after a long break.
