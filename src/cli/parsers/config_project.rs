@@ -218,6 +218,23 @@ pub fn parse_doctor_args(args: &[String]) -> Result<Command> {
     })
 }
 
+/// Print the `repair-edges` command-specific usage.
+fn print_repair_edges_usage() {
+    println!(
+        "magellan repair-edges - Rewire CALLER/CALLS edges from persisted stable symbol IDs\n\
+         \n\
+         Usage: magellan repair-edges --db <path> [--dry-run|--apply] [--output <fmt>]\n\
+         \n\
+         Options:\n\
+         \x20 --db <path>     Path to the Magellan database (required)\n\
+         \x20 --dry-run       Report mis-wired edges without rewriting (default)\n\
+         \x20 --apply         Rewrite mis-wired CALLER/CALLS edges\n\
+         \x20 --json          Emit the report as JSON\n\
+         \x20 --output <fmt>  Output format: human | json | pretty\n\
+         \x20 -h, --help      Print this help"
+    );
+}
+
 /// Parse the `repair-edges` command arguments
 ///
 /// Recomputes CALLER/CALLS edges from stable symbol IDs persisted on Call
@@ -230,6 +247,10 @@ pub fn parse_repair_edges_args(args: &[String]) -> Result<Command> {
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
+            "--help" | "-h" => {
+                print_repair_edges_usage();
+                std::process::exit(0);
+            }
             "--db" => db_path = Some(parse_path_arg(args, &mut i, "--db")?),
             "--dry-run" => {
                 dry_run = true;
