@@ -18,10 +18,12 @@ use crate::references::ReferenceFact;
 
 use super::CodeGraph;
 
-/// Resolve a path to absolute form, handling relative paths consistently.
+/// Resolve a query path to absolute form for SymbolFact metadata.
 ///
-/// This function ensures that paths used in database queries are in the same
-/// Resolve a query path to the same format used when indexing
+/// NOTE: this is NOT the file-lookup normalization. File lookups go through
+/// `FileOps::find_file_node`, which owns the two-stage path-normalization
+/// contract (exact cwd-joined match, then stored-path suffix fallback). This
+/// helper only produces the absolute path recorded on returned `SymbolFact`s.
 ///
 /// # Arguments
 /// * `path` - The path to resolve (may be relative or absolute)
@@ -86,12 +88,16 @@ pub fn symbols_in_file_with_kind(
 
 /// Query symbols in a file along with their node IDs for deterministic CLI output.
 pub fn symbol_nodes_in_file(graph: &mut CodeGraph, path: &str) -> Result<Vec<(i64, SymbolFact)>> {
-    let resolved_path = resolve_query_path(path);
-    let file_id = match graph.files.find_file_node(&resolved_path)? {
+    // Pass the RAW path: find_file_node applies the two-stage
+    // path-normalization contract (exact cwd-joined, then stored-path suffix
+    // fallback). Pre-resolving against the process cwd here would destroy the
+    // original relative form and defeat the fallback.
+    let file_id = match graph.files.find_file_node(path)? {
         Some(id) => id,
         None => return Ok(Vec::new()),
     };
 
+    let resolved_path = resolve_query_path(path);
     let path_buf = PathBuf::from(&resolved_path);
     let snapshot = SnapshotId::current();
 
@@ -137,12 +143,14 @@ pub fn symbol_nodes_in_file_with_ids(
     graph: &mut CodeGraph,
     path: &str,
 ) -> Result<Vec<(i64, SymbolFact, Option<String>)>> {
-    let resolved_path = resolve_query_path(path);
-    let file_id = match graph.files.find_file_node(&resolved_path)? {
+    // Pass the RAW path (see symbol_nodes_in_file): find_file_node owns the
+    // path-normalization contract.
+    let file_id = match graph.files.find_file_node(path)? {
         Some(id) => id,
         None => return Ok(Vec::new()),
     };
 
+    let resolved_path = resolve_query_path(path);
     let path_buf = PathBuf::from(&resolved_path);
     let snapshot = SnapshotId::current();
 
@@ -240,9 +248,11 @@ pub fn symbol_extents(
 /// This is a minimal query helper for testing. It reuses existing graph queries
 /// and maintains determinism. No new indexes or caching.
 pub fn symbol_id_by_name(graph: &mut CodeGraph, path: &str, name: &str) -> Result<Option<i64>> {
-    // Normalize path to match index format
-    let normalized_path = crate::graph::files::normalize_path_for_index(path);
-    let file_id = match graph.files.find_file_node(&normalized_path)? {
+    // Pass the RAW path: find_file_node applies the two-stage
+    // path-normalization contract (exact cwd-joined, then stored-path suffix
+    // fallback). Pre-normalizing here would resolve a relative query against
+    // the process cwd and silently miss whenever cwd != the index root.
+    let file_id = match graph.files.find_file_node(path)? {
         Some(id) => id,
         None => return Ok(None),
     };
