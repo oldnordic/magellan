@@ -6,9 +6,9 @@ use std::path::PathBuf;
 use std::process::Command;
 
 const STOP_WORDS: &[&str] = &[
-    "a", "an", "and", "are", "be", "been", "bug", "by", "fix", "for", "from", "how", "in", "into",
-    "is", "of", "on", "that", "the", "these", "this", "those", "to", "was", "were", "what", "when",
-    "where", "why", "with",
+    "a", "an", "and", "are", "be", "been", "bug", "by", "calls", "fix", "for", "from", "how", "in",
+    "into", "is", "of", "on", "show", "that", "the", "these", "this", "those", "to", "was", "were",
+    "what", "whats", "when", "where", "who", "why", "with",
 ];
 
 pub fn extract_terms(task: &str, max: usize) -> Vec<String> {
@@ -97,7 +97,7 @@ pub fn run_navigate(cfg: NavigateConfig) -> Result<()> {
                         hit.name,
                         hit.kind_normalized.as_deref().unwrap_or(&hit.kind),
                         hit.file_path.as_deref().unwrap_or("?"),
-                        hit.byte_start,
+                        hit.start_line,
                     ));
                     if !resolved_names.contains(&hit.name) {
                         resolved_names.push(hit.name.clone());
@@ -438,6 +438,14 @@ fn read_source_lines(file_path: &str, start_line: usize, end_line: usize) -> Opt
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_extract_terms_who_calls_query() {
+        // Regression (BUG-3): 'who' and 'calls' are stop words, so the query
+        // must yield exactly one content term.
+        let terms = extract_terms("who calls compute_mul_mat", 8);
+        assert_eq!(terms, vec!["compute_mul_mat".to_string()]);
+    }
 
     #[test]
     fn test_extract_terms_basic() {
