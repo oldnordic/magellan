@@ -706,10 +706,7 @@ pub fn find_repo_root(start: &Path) -> Option<PathBuf> {
         }
 
         // Move up one directory
-        match current.parent() {
-            Some(parent) => current = parent.to_path_buf(),
-            None => return None,
-        }
+        current = current.parent()?.to_path_buf();
     }
 }
 
