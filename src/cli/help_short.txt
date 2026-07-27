@@ -8,6 +8,7 @@ Common commands:
   status      Show database stats: magellan status --db code.db
   features    Show active Cargo features: magellan features --db code.db
   doctor      Diagnose issues: magellan doctor --db code.db [--fix]
+  repair-edges  Rewire CALLER/CALLS edges: magellan repair-edges --db code.db [--dry-run|--apply]
   refresh     Refresh from git: magellan refresh --db code.db
   find        Find symbols: magellan find --db code.db --name main
   refs        Show references: magellan refs --db code.db --name foo

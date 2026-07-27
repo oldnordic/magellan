@@ -24,6 +24,7 @@ Usage:
   magellan files --db <FILE> [--symbols] [--output <FORMAT>]
   magellan label --db <FILE> [--label <LABEL>]... [--list] [--count] [--show-code]
   magellan collisions --db <FILE> [--field <fqn|display_fqn|canonical_fqn>] [--limit <N>] [--output <FORMAT>]
+  magellan repair-edges --db <FILE> [--dry-run|--apply] [--output <FORMAT>]
   magellan migrate --db <FILE> [--dry-run] [--no-backup] [--output <FORMAT>]
   magellan migrate-backend --input <DB> --output <DB> [--export-dir <DIR>] [--dry-run] [--output <FORMAT>]
   magellan verify --root <DIR> --db <FILE>
@@ -78,6 +79,7 @@ Commands:
   files           List all indexed files
   label           Query symbols by label (language, kind, etc.)
   collisions      List ambiguous symbol groups for a chosen field
+  repair-edges    Rewire CALLER/CALLS edges from persisted stable symbol IDs
   migrate         Upgrade database to current schema version
   migrate-backend Migrate database between SQLite backends
   verify          Verify database vs filesystem
