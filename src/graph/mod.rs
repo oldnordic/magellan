@@ -268,6 +268,63 @@ impl CodeGraph {
         &self.side_conn
     }
 
+    /// Recorded index root (canonical, absolute, NFC-normalized), if any.
+    ///
+    /// This is the ingest-time anchor for the path-identity contract:
+    /// relative query paths are resolved against it before falling back to
+    /// the process cwd. `None` for pre-v21 databases until the next ingest
+    /// stamps it.
+    pub fn index_root(&self) -> Option<&str> {
+        self.files.index_root.as_deref()
+    }
+
+    /// Record the index root for this database (path-identity contract
+    /// phase 1). The root is canonicalized (falling back to cwd-joined
+    /// absolute form when canonicalization fails), segment-normalized, and
+    /// NFC-normalized before being persisted to `magellan_meta` and cached
+    /// in memory.
+    ///
+    /// Call once at ingest start with the scan root. If a different root was
+    /// previously recorded, the new value wins (moved checkout) and the
+    /// change is logged.
+    pub fn set_index_root(&mut self, root: &Path) -> anyhow::Result<()> {
+        let canonical = root.canonicalize().unwrap_or_else(|_| {
+            if root.is_absolute() {
+                root.to_path_buf()
+            } else {
+                std::env::current_dir()
+                    .map(|cwd| cwd.join(root))
+                    .unwrap_or_else(|_| root.to_path_buf())
+            }
+        });
+        let normalized = files::normalize_stored_path(&canonical.to_string_lossy());
+
+        if let Some(existing) = &self.files.index_root {
+            if *existing != normalized {
+                tracing::warn!(
+                    previous = %existing,
+                    new = %normalized,
+                    "index_root changed (moved checkout or multi-root ingest); \
+                     new root wins for subsequent path resolution"
+                );
+            }
+        }
+
+        // Persist for file-backed databases. In-memory databases skip
+        // magellan_meta entirely; the in-memory cache below still applies.
+        if !crate::graph::runtime::is_memory_db(&self.db_path) {
+            let conn = self.side_conn.lock();
+            conn.execute(
+                "UPDATE magellan_meta SET index_root = ?1 WHERE id = 1",
+                rusqlite::params![normalized],
+            )
+            .map_err(|e| anyhow::anyhow!("Failed to record index_root: {}", e))?;
+        }
+
+        self.files.index_root = Some(normalized);
+        Ok(())
+    }
+
     /// Execute a closure against the shared side-table SQLite connection.
     ///
     /// This keeps command-layer metadata and side-table access on the same
@@ -521,6 +578,7 @@ impl CodeGraph {
         let mut files = files::FileOps {
             backend: Arc::clone(&backend),
             file_index,
+            index_root: None,
         };
 
         // Populate file_index with existing File nodes from database
@@ -599,6 +657,24 @@ impl CodeGraph {
             compile_commands: None,
             db_path: db_path_buf,
         };
+
+        // Load the recorded index root (path-identity contract phase 1).
+        // Absent for pre-v21 databases and in-memory databases.
+        if !is_memory_db(&graph.db_path) {
+            let recorded: Option<String> = graph
+                .with_side_tables_conn(|conn| {
+                    Ok(conn
+                        .query_row(
+                            "SELECT index_root FROM magellan_meta WHERE id = 1",
+                            [],
+                            |row| row.get(0),
+                        )
+                        .ok()
+                        .flatten())
+                })
+                .unwrap_or(None);
+            graph.files.index_root = recorded;
+        }
 
         // Build module index for path resolution
         // This enables import resolution during indexing

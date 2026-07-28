@@ -601,23 +601,41 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
             // We clean those up below via the normal deletion path.
             let _ = graph.files.backend.delete_entity(dup_id.as_i64());
         }
-        // Rebuild file_index so find_file_node returns the remaining single node
-        let normalized_path = crate::graph::files::normalize_path_for_index(path);
-        graph.files.file_index.remove(&normalized_path);
-        if let Some((remaining_id, _)) = all_file_nodes.first() {
-            graph
-                .files
-                .file_index
-                .insert(normalized_path, *remaining_id);
+        // Rebuild file_index entry so find_file_node returns the remaining
+        // single node, keyed by that node's STORED path (the only key form
+        // rebuild_file_index would produce).
+        graph.files.remove_index_keys_for(path);
+        if let Some((remaining_id, remaining_node)) = all_file_nodes.first() {
+            graph.files.file_index.insert(
+                crate::graph::files::normalize_stored_path(&remaining_node.path),
+                *remaining_id,
+            );
         }
     }
+
+    // Location records (Reference/Call nodes, code chunks, metrics) persist
+    // the ingest-time caller path — absolute for every real ingest path.
+    // Derive that form from the stored File node (re-anchoring root-relative
+    // phase-2 rows against the recorded index root; legacy absolute rows
+    // pass through). Matching location records with the wrong path form
+    // silently leaves orphaned rows behind.
+    let location_path = match all_file_nodes.first() {
+        Some((_, file_node)) => graph.files.absolute_fs_path(&file_node.path),
+        None => graph.files.absolute_fs_path(path),
+    };
 
     // === PHASE 1: Count items to be deleted (before any deletion) ===
     // These are the expected counts we will verify against.
 
+    // Resolve the primary file node once; the id drives symbol, CFG, and
+    // AST deletion below. Path-string lookups in file_index cannot be used
+    // for this: the stored key form (root-relative in phase-2 databases,
+    // absolute in legacy ones) is not knowable from the query path alone.
+    let primary_file_id = graph.files.find_file_node(path)?;
+
     // Count symbols defined by this file (DEFINES edges)
     let snapshot = SnapshotId::current();
-    let expected_symbols: usize = if let Some(file_id) = graph.files.find_file_node(path)? {
+    let expected_symbols: usize = if let Some(file_id) = primary_file_id {
         graph
             .files
             .backend
@@ -636,19 +654,25 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
     };
 
     // Count references with matching file_path
-    let expected_references = count_references_in_file(graph, path);
+    let expected_references = count_references_in_file(graph, &location_path);
 
     // Count calls with matching file_path
-    let expected_calls = count_calls_in_file(graph, path);
+    let expected_calls = count_calls_in_file(graph, &location_path);
 
     // Count code chunks (query directly from code_chunks table)
-    let expected_chunks = count_chunks_for_file(graph, path);
+    let expected_chunks = count_chunks_for_file(graph, &location_path);
 
-    // Count AST nodes (v6: uses file_id for efficient per-file counting)
-    let expected_ast_nodes = count_ast_nodes_for_file(graph, path);
+    // Count AST nodes (v6: keyed by file entity id)
+    let expected_ast_nodes = match primary_file_id {
+        Some(file_id) => graph
+            .side_tables
+            .count_ast_nodes_for_file(file_id.as_i64())
+            .unwrap_or(0),
+        None => 0,
+    };
 
     // Count CFG blocks for this file
-    let _expected_cfg_blocks = count_cfg_blocks_for_file(graph, path);
+    let _expected_cfg_blocks = count_cfg_blocks_for_file(graph, &location_path);
 
     // === PHASE 2: Perform graph entity deletions ===
     //
@@ -668,11 +692,7 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
     let cfg_blocks_deleted: usize;
     let edges_deleted: usize;
 
-    if let Some(file_id) = graph
-        .files
-        .find_file_node(path)
-        .with_context(|| format!("find primary file node for {path}"))?
-    {
+    if let Some(file_id) = primary_file_id {
         // Capture symbol IDs before deletion.
         let snapshot = SnapshotId::current();
         let symbol_ids = match graph.files.backend.neighbors(
@@ -686,9 +706,8 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
             Ok(ids) => ids,
             Err(sqlitegraph::SqliteGraphError::NotFound(_)) => {
                 // Stale entry in file_index - entity was deleted but index not updated
-                // Remove stale entry and return empty result
-                let normalized_path = crate::graph::files::normalize_path_for_index(path);
-                graph.files.file_index.remove(&normalized_path);
+                // Remove all candidate keys and return empty result
+                graph.files.remove_index_keys_for(path);
                 return Ok(DeleteResult {
                     symbols_deleted: 0,
                     references_deleted: 0,
@@ -759,27 +778,27 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         // Delete references in this file.
         references_deleted = graph
             .references
-            .delete_references_in_file(path)
-            .with_context(|| format!("delete references for {path}"))?;
+            .delete_references_in_file(&location_path)
+            .with_context(|| format!("delete references for {location_path}"))?;
 
         // Assert reference count matches expected
         assert_eq!(
             references_deleted, expected_references,
             "Reference deletion count mismatch for '{}': expected {}, got {}",
-            path, expected_references, references_deleted
+            location_path, expected_references, references_deleted
         );
 
         // Delete calls in this file.
         calls_deleted = graph
             .calls
-            .delete_calls_in_file(path)
-            .with_context(|| format!("delete calls for {path}"))?;
+            .delete_calls_in_file(&location_path)
+            .with_context(|| format!("delete calls for {location_path}"))?;
 
         // Assert call count matches expected
         assert_eq!(
             calls_deleted, expected_calls,
             "Call deletion count mismatch for '{}': expected {}, got {}",
-            path, expected_calls, calls_deleted
+            location_path, expected_calls, calls_deleted
         );
 
         // Explicit edge cleanup for deleted IDs (symbols + file) to ensure no rows remain.
@@ -790,25 +809,17 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         // This works with both SQLite and V3 backends.
         chunks_deleted = graph
             .chunks
-            .delete_chunks_for_file(path)
-            .with_context(|| format!("delete code chunks for {path}"))?;
+            .delete_chunks_for_file(&location_path)
+            .with_context(|| format!("delete code chunks for {location_path}"))?;
 
-        // Delete AST nodes using SideTables (works with both SQLite and V3)
-        let normalized_path = crate::graph::files::normalize_path_for_index(path);
-        let file_id_for_ast = graph
-            .files
-            .file_index
-            .get(&normalized_path)
-            .map(|id| id.as_i64())
-            .unwrap_or(0);
-        ast_nodes_deleted = if file_id_for_ast > 0 {
-            graph
-                .side_tables
-                .delete_ast_nodes_for_file(file_id_for_ast)
-                .with_context(|| format!("delete ast nodes for {path}"))?
-        } else {
-            0
-        };
+        // Delete AST nodes using SideTables (works with both SQLite and V3).
+        // Keyed by the resolved file entity id directly: path-string lookups
+        // in file_index cannot express the stored key form (root-relative in
+        // phase-2 databases, absolute in legacy ones).
+        ast_nodes_deleted = graph
+            .side_tables
+            .delete_ast_nodes_for_file(file_id.as_i64())
+            .with_context(|| format!("delete ast nodes for {path}"))?;
 
         // Assert AST node count matches expected
         assert_eq!(
@@ -818,12 +829,12 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         );
 
         // Delete metrics for this file
-        let _ = graph.metrics.delete_file_metrics(path);
+        let _ = graph.metrics.delete_file_metrics(&location_path);
 
         // Remove from in-memory index AFTER successful deletions.
-        // Normalize path to match how it was stored in the index
-        let normalized_path = crate::graph::files::normalize_path_for_index(path);
-        graph.files.file_index.remove(&normalized_path);
+        // Purge every candidate key form — the stored key is root-relative
+        // in phase-2 databases and absolute in legacy ones.
+        graph.files.remove_index_keys_for(path);
 
         // Invalidate cache for this file
         graph.invalidate_cache(path);
@@ -841,59 +852,49 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
     } else {
         // No File node exists, but we still clean up orphaned data.
         // Use auto-commit for orphan cleanup (no transaction needed).
+        // Location records are matched by their ingest-time absolute form
+        // (location_path re-anchors relative query paths against the
+        // recorded index root when one is known).
 
         // Delete chunks using SideTables (works with both SQLite and V3)
         chunks_deleted = graph
             .side_tables
-            .delete_chunks_for_file(path)
-            .with_context(|| format!("delete orphaned code chunks for {path}"))?;
+            .delete_chunks_for_file(&location_path)
+            .with_context(|| format!("delete orphaned code chunks for {location_path}"))?;
         assert_eq!(
             chunks_deleted, expected_chunks,
             "Code chunk deletion count mismatch (no file) for '{}': expected {}, got {}",
-            path, expected_chunks, chunks_deleted
+            location_path, expected_chunks, chunks_deleted
         );
 
         // Delete references
         references_deleted = graph
             .references
-            .delete_references_in_file(path)
-            .with_context(|| format!("delete orphaned references for {path}"))?;
+            .delete_references_in_file(&location_path)
+            .with_context(|| format!("delete orphaned references for {location_path}"))?;
         assert_eq!(
             references_deleted, expected_references,
             "Reference deletion count mismatch (no file) for '{}': expected {}, got {}",
-            path, expected_references, references_deleted
+            location_path, expected_references, references_deleted
         );
 
         // Delete calls
         calls_deleted = graph
             .calls
-            .delete_calls_in_file(path)
-            .with_context(|| format!("delete orphaned calls for {path}"))?;
+            .delete_calls_in_file(&location_path)
+            .with_context(|| format!("delete orphaned calls for {location_path}"))?;
         assert_eq!(
             calls_deleted, expected_calls,
             "Call deletion count mismatch (no file) for '{}': expected {}, got {}",
-            path, expected_calls, calls_deleted
+            location_path, expected_calls, calls_deleted
         );
 
-        // Delete AST nodes using SideTables (even if no file node, clean up orphaned data)
-        let normalized_path = crate::graph::files::normalize_path_for_index(path);
-        let file_id_for_ast = graph
-            .files
-            .file_index
-            .get(&normalized_path)
-            .map(|id| id.as_i64())
-            .unwrap_or(0);
-        ast_nodes_deleted = if file_id_for_ast > 0 {
-            graph
-                .side_tables
-                .delete_ast_nodes_for_file(file_id_for_ast)
-                .with_context(|| format!("delete orphaned ast nodes for {path}"))?
-        } else {
-            0
-        };
+        // No file node means no file entity id to key AST deletion on;
+        // expected_ast_nodes is 0 in this branch by construction.
+        ast_nodes_deleted = 0;
 
         // Delete metrics for this file (orphan cleanup)
-        let _ = graph.metrics.delete_file_metrics(path);
+        let _ = graph.metrics.delete_file_metrics(&location_path);
 
         // Delete CFG blocks and edges for this file (orphan cleanup)
         // Note: No file node means no symbols to query for function IDs
@@ -1021,6 +1022,13 @@ pub mod test_helpers {
         let _ast_nodes_deleted: usize = 0; // Test helper doesn't implement AST node deletion
         let _cfg_blocks_deleted: usize = 0; // Test helper doesn't implement CFG block deletion
 
+        // Location records persist the ingest-time absolute path form;
+        // re-anchor relative stored/query paths against the index root.
+        let location_path = match graph.files.find_all_file_nodes(path)?.first() {
+            Some((_, file_node)) => graph.files.absolute_fs_path(&file_node.path),
+            None => graph.files.absolute_fs_path(path),
+        };
+
         if let Some(file_id) = graph.files.find_file_node(path)? {
             // Capture symbol IDs before deletion.
             let snapshot = SnapshotId::current();
@@ -1064,11 +1072,10 @@ pub mod test_helpers {
             graph.files.backend.delete_entity(file_id.as_i64())?;
             deleted_entity_ids.push(file_id.as_i64());
             // Remove from file_index immediately to keep in-memory state consistent
-            let normalized_path = crate::graph::files::normalize_path_for_index(path);
-            graph.files.file_index.remove(&normalized_path);
+            graph.files.remove_index_keys_for(path);
 
             // Delete references in this file.
-            references_deleted = graph.references.delete_references_in_file(path)?;
+            references_deleted = graph.references.delete_references_in_file(&location_path)?;
 
             // Verification point after references deleted
             if verify_at == Some(FailPoint::AfterReferencesDeleted) {
@@ -1084,7 +1091,7 @@ pub mod test_helpers {
             }
 
             // Delete calls in this file.
-            calls_deleted = graph.calls.delete_calls_in_file(path)?;
+            calls_deleted = graph.calls.delete_calls_in_file(&location_path)?;
 
             // Verification point after calls deleted
             if verify_at == Some(FailPoint::AfterCallsDeleted) {
@@ -1121,11 +1128,10 @@ pub mod test_helpers {
             let edges_deleted = 0;
 
             // Delete code chunks using SideTables
-            chunks_deleted = graph.side_tables.delete_chunks_for_file(path)?;
+            chunks_deleted = graph.side_tables.delete_chunks_for_file(&location_path)?;
 
             // Remove from in-memory index after all deletions complete
-            let normalized_path = crate::graph::files::normalize_path_for_index(path);
-            graph.files.file_index.remove(&normalized_path);
+            graph.files.remove_index_keys_for(path);
 
             // Invalidate cache for this file
             graph.invalidate_cache(path);
@@ -1154,10 +1160,10 @@ pub mod test_helpers {
             })
         } else {
             // No File node exists - handle orphan cleanup path.
-            chunks_deleted = graph.side_tables.delete_chunks_for_file(path)?;
+            chunks_deleted = graph.side_tables.delete_chunks_for_file(&location_path)?;
 
-            references_deleted = graph.references.delete_references_in_file(path)?;
-            calls_deleted = graph.calls.delete_calls_in_file(path)?;
+            references_deleted = graph.references.delete_references_in_file(&location_path)?;
+            calls_deleted = graph.calls.delete_calls_in_file(&location_path)?;
 
             // Invalidate cache for this file (even if no file node existed)
             graph.invalidate_cache(path);
@@ -1264,25 +1270,6 @@ pub fn insert_ast_nodes(
     }
 
     Ok(nodes_with_ids.len())
-}
-
-/// Count AST nodes for a file path.
-///
-/// Used to verify deletion completeness.
-/// v6: Uses file_id to efficiently count AST nodes per file.
-fn count_ast_nodes_for_file(graph: &CodeGraph, path: &str) -> usize {
-    // First, get the file_id by looking up in the file_index
-    let normalized_path = crate::graph::files::normalize_path_for_index(path);
-    let file_id = match graph.files.file_index.get(&normalized_path) {
-        Some(id) => id.as_i64(),
-        None => return 0, // No file node, no AST nodes to count
-    };
-
-    // Count AST nodes using SideTables trait
-    graph
-        .side_tables
-        .count_ast_nodes_for_file(file_id)
-        .unwrap_or(0)
 }
 
 /// Count CFG blocks for a file path.

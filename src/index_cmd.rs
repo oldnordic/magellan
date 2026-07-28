@@ -14,6 +14,15 @@ use crate::status_cmd::ExecutionTracker;
 pub fn run_index(db_path: PathBuf, file_path: PathBuf, root: Option<PathBuf>) -> Result<()> {
     let mut graph = CodeGraph::open(&db_path)?;
 
+    // Record the ingest-time anchor for the path-identity contract (phase 1):
+    // the explicit --root when given, else the process cwd (the anchor the
+    // file path itself is resolved against below).
+    let anchor = match &root {
+        Some(r) => r.clone(),
+        None => std::env::current_dir().context("Failed to determine current directory")?,
+    };
+    graph.set_index_root(&anchor)?;
+
     let path_str = if let Some(ref root_path) = root {
         root_path.join(&file_path).to_string_lossy().to_string()
     } else {

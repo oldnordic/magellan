@@ -402,8 +402,10 @@ fn compute_delta(
     for path in db_files {
         if deleted_files.contains(path) {
             to_delete.push(path.clone());
-        } else if !Path::new(path).exists() {
-            // File doesn't exist on filesystem (stale in DB)
+        } else if !project_root.join(path).exists() {
+            // File doesn't exist on filesystem (stale in DB).
+            // `project_root.join` re-anchors root-relative phase-2 stored
+            // paths and passes legacy absolute paths through unchanged.
             to_delete.push(path.clone());
         }
     }

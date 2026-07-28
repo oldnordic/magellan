@@ -30,7 +30,8 @@ use std::path::{Path, PathBuf};
 /// v18: repository snapshot tables for temporal tracking
 /// v19: symbol scoring tables for candidate ranking
 /// v20: code_chunks_fts FTS5 virtual table for full-text content search
-pub const MAGELLAN_SCHEMA_VERSION: i64 = 20;
+/// v21: magellan_meta.index_root column (path-identity contract phase 1)
+pub const MAGELLAN_SCHEMA_VERSION: i64 = 21;
 
 /// Migration result summary
 #[derive(Debug, Clone)]
@@ -600,6 +601,21 @@ fn migrate_from_version(tx: &Transaction, old_version: i64) -> Result<()> {
                 INSERT INTO code_chunks_fts(rowid, content)
                 SELECT id, content FROM code_chunks;",
             )?;
+        }
+    }
+
+    if old_version < 21 {
+        // v20 -> v21: Add index_root column to magellan_meta (path-identity
+        // contract phase 1). Guarded: fresh v21 databases already have it.
+        let has_index_root: bool = tx
+            .query_row(
+                "SELECT 1 FROM pragma_table_info('magellan_meta') WHERE name='index_root' LIMIT 1",
+                [],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+        if !has_index_root {
+            tx.execute("ALTER TABLE magellan_meta ADD COLUMN index_root TEXT", [])?;
         }
     }
 

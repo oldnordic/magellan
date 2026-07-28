@@ -259,6 +259,9 @@ pub fn run_watch_pipeline(config: WatchPipelineConfig, shutdown: Arc<AtomicBool>
     // Open graph
     let mut graph = CodeGraph::open(&config.db_path)?;
 
+    // Record the ingest-time anchor for the path-identity contract (phase 1).
+    graph.set_index_root(&scan_root)?;
+
     // Load per-file compiler flags if compile_commands.json was provided
     if let Some(ref cc_path) = config.compile_commands_path {
         graph.set_compile_commands(cc_path)?;
