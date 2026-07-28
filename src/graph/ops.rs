@@ -623,6 +623,20 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         Some((_, file_node)) => graph.files.absolute_fs_path(&file_node.path),
         None => graph.files.absolute_fs_path(path),
     };
+    // Dual-form location matching: a legacy relative-path ingest (public
+    // `index_file` with a relative caller path) persists location records
+    // under the raw caller form, which the re-anchored absolute form never
+    // matches — deleting only the anchored form silently leaves orphaned
+    // rows behind (test_chunk_deletion_on_file_delete). Count and delete
+    // under BOTH forms when they differ; phase-2 re-anchoring stays the
+    // primary form. Dedup'd so single-form cases behave exactly as before.
+    let location_forms: Vec<String> = {
+        let mut forms = vec![location_path.clone()];
+        if path != location_path {
+            forms.push(path.to_string());
+        }
+        forms
+    };
 
     // === PHASE 1: Count items to be deleted (before any deletion) ===
     // These are the expected counts we will verify against.
@@ -653,14 +667,23 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         0
     };
 
-    // Count references with matching file_path
-    let expected_references = count_references_in_file(graph, &location_path);
+    // Count references with matching file_path (all candidate location forms)
+    let expected_references: usize = location_forms
+        .iter()
+        .map(|form| count_references_in_file(graph, form))
+        .sum();
 
-    // Count calls with matching file_path
-    let expected_calls = count_calls_in_file(graph, &location_path);
+    // Count calls with matching file_path (all candidate location forms)
+    let expected_calls: usize = location_forms
+        .iter()
+        .map(|form| count_calls_in_file(graph, form))
+        .sum();
 
     // Count code chunks (query directly from code_chunks table)
-    let expected_chunks = count_chunks_for_file(graph, &location_path);
+    let expected_chunks: usize = location_forms
+        .iter()
+        .map(|form| count_chunks_for_file(graph, form))
+        .sum();
 
     // Count AST nodes (v6: keyed by file entity id)
     let expected_ast_nodes = match primary_file_id {
@@ -672,7 +695,10 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
     };
 
     // Count CFG blocks for this file
-    let _expected_cfg_blocks = count_cfg_blocks_for_file(graph, &location_path);
+    let _expected_cfg_blocks: usize = location_forms
+        .iter()
+        .map(|form| count_cfg_blocks_for_file(graph, form))
+        .sum();
 
     // === PHASE 2: Perform graph entity deletions ===
     //
@@ -685,9 +711,9 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
 
     let mut deleted_entity_ids: Vec<i64> = Vec::new();
     let symbols_deleted: usize;
-    let chunks_deleted: usize;
-    let references_deleted: usize;
-    let calls_deleted: usize;
+    let mut chunks_deleted: usize;
+    let mut references_deleted: usize;
+    let mut calls_deleted: usize;
     let ast_nodes_deleted: usize;
     let cfg_blocks_deleted: usize;
     let edges_deleted: usize;
@@ -775,11 +801,14 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
             .with_context(|| format!("delete file entity {} for {path}", file_id.as_i64()))?;
         deleted_entity_ids.push(file_id.as_i64());
 
-        // Delete references in this file.
-        references_deleted = graph
-            .references
-            .delete_references_in_file(&location_path)
-            .with_context(|| format!("delete references for {location_path}"))?;
+        // Delete references in this file (all candidate location forms).
+        references_deleted = 0;
+        for form in &location_forms {
+            references_deleted += graph
+                .references
+                .delete_references_in_file(form)
+                .with_context(|| format!("delete references for {form}"))?;
+        }
 
         // Assert reference count matches expected
         assert_eq!(
@@ -788,11 +817,14 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
             location_path, expected_references, references_deleted
         );
 
-        // Delete calls in this file.
-        calls_deleted = graph
-            .calls
-            .delete_calls_in_file(&location_path)
-            .with_context(|| format!("delete calls for {location_path}"))?;
+        // Delete calls in this file (all candidate location forms).
+        calls_deleted = 0;
+        for form in &location_forms {
+            calls_deleted += graph
+                .calls
+                .delete_calls_in_file(form)
+                .with_context(|| format!("delete calls for {form}"))?;
+        }
 
         // Assert call count matches expected
         assert_eq!(
@@ -805,12 +837,15 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         deleted_entity_ids.sort_unstable();
         deleted_entity_ids.dedup();
 
-        // Delete code chunks for this file using the ChunkStore abstraction.
-        // This works with both SQLite and V3 backends.
-        chunks_deleted = graph
-            .chunks
-            .delete_chunks_for_file(&location_path)
-            .with_context(|| format!("delete code chunks for {location_path}"))?;
+        // Delete code chunks for this file using the ChunkStore abstraction
+        // (all candidate location forms). Works with SQLite and V3 backends.
+        chunks_deleted = 0;
+        for form in &location_forms {
+            chunks_deleted += graph
+                .chunks
+                .delete_chunks_for_file(form)
+                .with_context(|| format!("delete code chunks for {form}"))?;
+        }
 
         // Delete AST nodes using SideTables (works with both SQLite and V3).
         // Keyed by the resolved file entity id directly: path-string lookups
@@ -828,8 +863,10 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
             path, expected_ast_nodes, ast_nodes_deleted
         );
 
-        // Delete metrics for this file
-        let _ = graph.metrics.delete_file_metrics(&location_path);
+        // Delete metrics for this file (all candidate location forms)
+        for form in &location_forms {
+            let _ = graph.metrics.delete_file_metrics(form);
+        }
 
         // Remove from in-memory index AFTER successful deletions.
         // Purge every candidate key form — the stored key is root-relative
@@ -856,33 +893,43 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         // (location_path re-anchors relative query paths against the
         // recorded index root when one is known).
 
-        // Delete chunks using SideTables (works with both SQLite and V3)
-        chunks_deleted = graph
-            .side_tables
-            .delete_chunks_for_file(&location_path)
-            .with_context(|| format!("delete orphaned code chunks for {location_path}"))?;
+        // Delete chunks using SideTables, all candidate location forms
+        // (works with both SQLite and V3).
+        chunks_deleted = 0;
+        for form in &location_forms {
+            chunks_deleted += graph
+                .side_tables
+                .delete_chunks_for_file(form)
+                .with_context(|| format!("delete orphaned code chunks for {form}"))?;
+        }
         assert_eq!(
             chunks_deleted, expected_chunks,
             "Code chunk deletion count mismatch (no file) for '{}': expected {}, got {}",
             location_path, expected_chunks, chunks_deleted
         );
 
-        // Delete references
-        references_deleted = graph
-            .references
-            .delete_references_in_file(&location_path)
-            .with_context(|| format!("delete orphaned references for {location_path}"))?;
+        // Delete references (all candidate location forms)
+        references_deleted = 0;
+        for form in &location_forms {
+            references_deleted += graph
+                .references
+                .delete_references_in_file(form)
+                .with_context(|| format!("delete orphaned references for {form}"))?;
+        }
         assert_eq!(
             references_deleted, expected_references,
             "Reference deletion count mismatch (no file) for '{}': expected {}, got {}",
             location_path, expected_references, references_deleted
         );
 
-        // Delete calls
-        calls_deleted = graph
-            .calls
-            .delete_calls_in_file(&location_path)
-            .with_context(|| format!("delete orphaned calls for {location_path}"))?;
+        // Delete calls (all candidate location forms)
+        calls_deleted = 0;
+        for form in &location_forms {
+            calls_deleted += graph
+                .calls
+                .delete_calls_in_file(form)
+                .with_context(|| format!("delete orphaned calls for {form}"))?;
+        }
         assert_eq!(
             calls_deleted, expected_calls,
             "Call deletion count mismatch (no file) for '{}': expected {}, got {}",
@@ -893,8 +940,11 @@ pub fn delete_file_facts(graph: &mut CodeGraph, path: &str) -> Result<DeleteResu
         // expected_ast_nodes is 0 in this branch by construction.
         ast_nodes_deleted = 0;
 
-        // Delete metrics for this file (orphan cleanup)
-        let _ = graph.metrics.delete_file_metrics(&location_path);
+        // Delete metrics for this file (orphan cleanup, all candidate
+        // location forms)
+        for form in &location_forms {
+            let _ = graph.metrics.delete_file_metrics(form);
+        }
 
         // Delete CFG blocks and edges for this file (orphan cleanup)
         // Note: No file node means no symbols to query for function IDs
@@ -1016,9 +1066,9 @@ pub mod test_helpers {
     ) -> Result<DeleteResult> {
         let mut deleted_entity_ids: Vec<i64> = Vec::new();
         let symbols_deleted: usize;
-        let chunks_deleted: usize;
-        let references_deleted: usize;
-        let calls_deleted: usize;
+        let mut chunks_deleted: usize;
+        let mut references_deleted: usize;
+        let mut calls_deleted: usize;
         let _ast_nodes_deleted: usize = 0; // Test helper doesn't implement AST node deletion
         let _cfg_blocks_deleted: usize = 0; // Test helper doesn't implement CFG block deletion
 
@@ -1027,6 +1077,16 @@ pub mod test_helpers {
         let location_path = match graph.files.find_all_file_nodes(path)?.first() {
             Some((_, file_node)) => graph.files.absolute_fs_path(&file_node.path),
             None => graph.files.absolute_fs_path(path),
+        };
+        // Dual-form matching, same contract as `delete_file_facts`: legacy
+        // relative-path ingests store location records under the raw caller
+        // form; count and delete under both forms when they differ.
+        let location_forms: Vec<String> = {
+            let mut forms = vec![location_path.clone()];
+            if path != location_path {
+                forms.push(path.to_string());
+            }
+            forms
         };
 
         if let Some(file_id) = graph.files.find_file_node(path)? {
@@ -1074,8 +1134,11 @@ pub mod test_helpers {
             // Remove from file_index immediately to keep in-memory state consistent
             graph.files.remove_index_keys_for(path);
 
-            // Delete references in this file.
-            references_deleted = graph.references.delete_references_in_file(&location_path)?;
+            // Delete references in this file (all candidate location forms).
+            references_deleted = 0;
+            for form in &location_forms {
+                references_deleted += graph.references.delete_references_in_file(form)?;
+            }
 
             // Verification point after references deleted
             if verify_at == Some(FailPoint::AfterReferencesDeleted) {
@@ -1090,8 +1153,11 @@ pub mod test_helpers {
                 });
             }
 
-            // Delete calls in this file.
-            calls_deleted = graph.calls.delete_calls_in_file(&location_path)?;
+            // Delete calls in this file (all candidate location forms).
+            calls_deleted = 0;
+            for form in &location_forms {
+                calls_deleted += graph.calls.delete_calls_in_file(form)?;
+            }
 
             // Verification point after calls deleted
             if verify_at == Some(FailPoint::AfterCallsDeleted) {
@@ -1127,8 +1193,11 @@ pub mod test_helpers {
             let _ = deleted_entity_ids;
             let edges_deleted = 0;
 
-            // Delete code chunks using SideTables
-            chunks_deleted = graph.side_tables.delete_chunks_for_file(&location_path)?;
+            // Delete code chunks using SideTables (all candidate location forms)
+            chunks_deleted = 0;
+            for form in &location_forms {
+                chunks_deleted += graph.side_tables.delete_chunks_for_file(form)?;
+            }
 
             // Remove from in-memory index after all deletions complete
             graph.files.remove_index_keys_for(path);
@@ -1159,11 +1228,16 @@ pub mod test_helpers {
                 edges_deleted,
             })
         } else {
-            // No File node exists - handle orphan cleanup path.
-            chunks_deleted = graph.side_tables.delete_chunks_for_file(&location_path)?;
-
-            references_deleted = graph.references.delete_references_in_file(&location_path)?;
-            calls_deleted = graph.calls.delete_calls_in_file(&location_path)?;
+            // No File node exists - handle orphan cleanup path (all
+            // candidate location forms).
+            chunks_deleted = 0;
+            references_deleted = 0;
+            calls_deleted = 0;
+            for form in &location_forms {
+                chunks_deleted += graph.side_tables.delete_chunks_for_file(form)?;
+                references_deleted += graph.references.delete_references_in_file(form)?;
+                calls_deleted += graph.calls.delete_calls_in_file(form)?;
+            }
 
             // Invalidate cache for this file (even if no file node existed)
             graph.invalidate_cache(path);
