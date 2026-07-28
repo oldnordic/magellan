@@ -5,6 +5,32 @@ Project adheres to [Semantic Versioning](https://semverver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [4.15.0] - 2026-07-28
+
+### Added
+
+- **Path-identity contract phases 1+2** (`src/graph/ops.rs`, indexing and
+  location paths): file/symbol identity is now anchored to the index root
+  (`index_root`) with NFC-normalized keys; location records are stored
+  root-relative and re-anchored at query time, so lookups and graph
+  traversal behave identically regardless of the caller's working
+  directory. Fixtures rewritten to be CWD-independent
+  (`CARGO_MANIFEST_DIR`).
+
+### Fixed
+
+- **Deletion silently orphaned legacy relative-path location rows**
+  (`src/graph/ops.rs`): phase-2 re-anchoring made `delete_file_facts`
+  match location records (references/calls/chunks/metrics) by the
+  re-anchored absolute form only; location records persist the
+  ingest-time caller path verbatim, so rows ingested via relative paths
+  were never matched and silently survived deletion. Deletion now matches
+  and removes both candidate forms (re-anchored + raw caller form,
+  dedup'd) in both `delete_file_facts` and the test-helper
+  `delete_file_facts_with_injection`. Caught by
+  `test_chunk_deletion_on_file_delete` + 4 `delete_transaction_tests`
+  (CI 30356353774).
+
 ## [4.14.0] - 2026-07-27
 
 ### Added
