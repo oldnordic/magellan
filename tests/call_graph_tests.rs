@@ -138,13 +138,6 @@ fn test_cross_file_method_calls_are_indexed() {
 
     let mut graph = CodeGraph::open(&db_path).unwrap();
 
-    let path_lib = temp_dir.path().join("lib.rs").to_string_lossy().to_string();
-    let path_main = temp_dir
-        .path()
-        .join("main.rs")
-        .to_string_lossy()
-        .to_string();
-
     let library_source = r#"
 struct Widget;
 impl Widget {
@@ -159,13 +152,13 @@ fn invoke(widget: &Widget) {
 "#;
 
     graph
-        .index_file(&path_lib, library_source.as_bytes())
+        .index_file("lib.rs", library_source.as_bytes())
         .unwrap();
     graph
-        .index_file(&path_main, caller_source.as_bytes())
+        .index_file("main.rs", caller_source.as_bytes())
         .unwrap();
 
-    let calls_to_render = graph.callers_of_symbol(&path_lib, "render").unwrap();
+    let calls_to_render = graph.callers_of_symbol("lib.rs", "render").unwrap();
     assert_eq!(
         calls_to_render.len(),
         1,
@@ -173,7 +166,7 @@ fn invoke(widget: &Widget) {
     );
     assert_eq!(calls_to_render[0].caller, "invoke");
     assert_eq!(calls_to_render[0].callee, "render");
-    assert_eq!(calls_to_render[0].file_path, PathBuf::from(&path_main));
+    assert_eq!(calls_to_render[0].file_path, PathBuf::from("main.rs"));
 }
 
 #[test]
@@ -224,8 +217,7 @@ fn test_cross_file_call_resolution() {
     let mut graph = CodeGraph::open(&db_path).unwrap();
 
     // File 1: Define a callee function
-    let caller_path_buf = temp_dir.path().join("caller.rs");
-    let caller_path = caller_path_buf.to_str().unwrap();
+    let caller_path = "caller.rs";
     let caller_source = r#"
 pub fn caller() {
     callee();
@@ -236,8 +228,8 @@ pub fn another_caller() {
 }
 "#;
 
-    let callee_path_buf = temp_dir.path().join("callee.rs");
-    let callee_path = callee_path_buf.to_str().unwrap();
+    // File 2: Define the callee function
+    let callee_path = "callee.rs";
     let callee_source = r#"
 pub fn callee() {
     println!("Called from another file");

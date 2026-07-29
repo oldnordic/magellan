@@ -77,8 +77,7 @@ fn test_chunk_storage_during_indexing() {
     let db_path = temp_dir.path().join("test.db");
     let mut graph = CodeGraph::open(&db_path).unwrap();
 
-    let path_buf = temp_dir.path().join("test_storage.rs");
-    let path = path_buf.to_str().unwrap();
+    let path = "test_storage.rs";
     let source = create_test_source().as_bytes();
 
     // Index the file
@@ -152,8 +151,7 @@ fn test_chunk_deletion_on_file_delete() {
     let db_path = temp_dir.path().join("test.db");
     let mut graph = CodeGraph::open(&db_path).unwrap();
 
-    let path_buf = temp_dir.path().join("test_deletion.rs");
-    let path = path_buf.to_str().unwrap();
+    let path = "test_deletion.rs";
     let source = create_test_source().as_bytes();
 
     // Index the file
@@ -196,10 +194,8 @@ pub fn helper_function(x: i32) -> i32 {
 }
 "#;
 
-    let path1_buf = temp_dir.path().join("file1.rs");
-    let path1 = path1_buf.to_str().unwrap();
-    let path2_buf = temp_dir.path().join("file2.rs");
-    let path2 = path2_buf.to_str().unwrap();
+    let path1 = "file1.rs";
+    let path2 = "file2.rs";
 
     // Index both files
     graph
@@ -280,8 +276,7 @@ impl Processor {
 }
 "#;
 
-    let path_buf = temp_dir.path().join("test_symbol_query.rs");
-    let path = path_buf.to_str().unwrap();
+    let path = "test_symbol_query.rs";
     graph.index_file(path, source.as_bytes()).unwrap();
 
     // Query chunks by symbol name "process"
@@ -325,8 +320,7 @@ fn test_chunk_by_span_query() {
     let mut graph = CodeGraph::open(&db_path).unwrap();
 
     let source = create_test_source();
-    let path_buf = temp_dir.path().join("test_span_query.rs");
-    let path = path_buf.to_str().unwrap();
+    let path = "test_span_query.rs";
     graph.index_file(path, source.as_bytes()).unwrap();
 
     // Get all chunks to find a valid span
@@ -381,8 +375,7 @@ fn test_chunk_count_matches_symbol_count() {
     let mut graph = CodeGraph::open(&db_path).unwrap();
 
     let source = create_test_source();
-    let path_buf = temp_dir.path().join("test_count.rs");
-    let path = path_buf.to_str().unwrap();
+    let path = "test_count.rs";
 
     // Index the file
     let _symbol_count = graph.index_file(path, source.as_bytes()).unwrap();
@@ -421,8 +414,7 @@ pub fn deterministic_function(x: i32) -> i32 {
 }
 "#;
 
-    let path_buf = temp_dir.path().join("test_deterministic.rs");
-    let path = path_buf.to_str().unwrap();
+    let path = "test_deterministic.rs";
 
     // Index the same content twice
     graph.index_file(path, source.as_bytes()).unwrap();
@@ -462,8 +454,7 @@ fn test_chunk_byte_spans_within_bounds() {
 
     let source = create_test_source();
     let source_len = source.len();
-    let path_buf = temp_dir.path().join("test_bounds.rs");
-    let path = path_buf.to_str().unwrap();
+    let path = "test_bounds.rs";
 
     graph.index_file(path, source.as_bytes()).unwrap();
     let chunks = graph.get_code_chunks(path).unwrap();
@@ -502,8 +493,7 @@ fn test_chunk_content_matches_source() {
     let mut graph = CodeGraph::open(&db_path).unwrap();
 
     let source = create_test_source();
-    let path_buf = temp_dir.path().join("test_content_match.rs");
-    let path = path_buf.to_str().unwrap();
+    let path = "test_content_match.rs";
 
     graph.index_file(path, source.as_bytes()).unwrap();
     let chunks = graph.get_code_chunks(path).unwrap();

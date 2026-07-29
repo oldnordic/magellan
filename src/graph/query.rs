@@ -349,9 +349,8 @@ pub fn find_by_symbol_id(graph: &mut CodeGraph, symbol_id: &str) -> Result<Optio
 /// # Returns
 /// Number of references indexed
 pub fn index_references(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<usize> {
-    let normalized_path = crate::graph::files::normalize_path_for_index(path);
     // Get file node ID
-    let _file_id = match graph.files.find_file_node(&normalized_path)? {
+    let _file_id = match graph.files.find_file_node(path)? {
         Some(id) => id,
         None => return Ok(0), // No file, no references
     };
@@ -374,7 +373,7 @@ pub fn index_references(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Res
 
     // Index references using ReferenceOps with ALL symbols
     let count = graph.references.index_references_with_symbol_id(
-        &normalized_path,
+        path,
         source,
         &symbol_id_to_id,
         &symbol_fqn_to_id,
@@ -385,7 +384,7 @@ pub fn index_references(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Res
     // This enables queries like "find all references to this symbol across all files"
     populate_cross_file_refs(
         graph,
-        &normalized_path,
+        path,
         source,
         &symbol_id_to_id,
         &symbol_fqn_to_id,

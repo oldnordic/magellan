@@ -325,10 +325,7 @@ impl MyStruct {
 
 #[test]
 fn test_crate_name_in_fqn() {
-    let temp = tempfile::TempDir::new().unwrap();
-    let root = temp.path().to_path_buf();
-    std::fs::write(root.join("Cargo.toml"), "[package]\nname = \"magellan\"\n").unwrap();
-
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let mut parser = Parser::new().unwrap();
     let source = b"pub fn test_fn() {}\n";
     let facts = parser.extract_symbols(root.join("test.rs"), source);

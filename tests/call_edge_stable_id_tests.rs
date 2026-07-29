@@ -76,26 +76,22 @@ fn test_caller_edge_points_to_same_file_impl() {
     let db_path = temp_dir.path().join("test.db");
     let mut graph = CodeGraph::open(&db_path).unwrap();
 
-    let path_a = temp_dir.path().join("a.rs").to_string_lossy().to_string();
-    let path_b = temp_dir.path().join("b.rs").to_string_lossy().to_string();
-
     graph
-        .index_file(&path_a, SAME_NAME_FIXTURE_A.as_bytes())
+        .index_file("a.rs", SAME_NAME_FIXTURE_A.as_bytes())
         .unwrap();
     graph
-        .index_file(&path_b, SAME_NAME_FIXTURE_A.as_bytes())
+        .index_file("b.rs", SAME_NAME_FIXTURE_A.as_bytes())
         .unwrap();
     drop(graph);
 
     let conn = Connection::open(&db_path).unwrap();
 
-    for file in [&path_a, &path_b] {
+    for file in ["a.rs", "b.rs"] {
         let call_ids = call_node_ids_in_file(&conn, file);
         assert_eq!(
             call_ids.len(),
             1,
-            "{} should have exactly one call node (boot -> same_name)",
-            file
+            "{file} should have exactly one call node (boot -> same_name)"
         );
         let call_id = call_ids[0];
 
@@ -132,23 +128,20 @@ fn test_repair_call_edges_rewires_miswired_db() {
     let db_path = temp_dir.path().join("test.db");
     let mut graph = CodeGraph::open(&db_path).unwrap();
 
-    let path_a = temp_dir.path().join("a.rs").to_string_lossy().to_string();
-    let path_b = temp_dir.path().join("b.rs").to_string_lossy().to_string();
-
     graph
-        .index_file(&path_a, SAME_NAME_FIXTURE_A.as_bytes())
+        .index_file("a.rs", SAME_NAME_FIXTURE_A.as_bytes())
         .unwrap();
     graph
-        .index_file(&path_b, SAME_NAME_FIXTURE_A.as_bytes())
+        .index_file("b.rs", SAME_NAME_FIXTURE_A.as_bytes())
         .unwrap();
     drop(graph);
 
     // Corrupt: point b.rs's CALLER/CALLS edges at a.rs's symbols.
     {
         let conn = Connection::open(&db_path).unwrap();
-        let b_call = call_node_ids_in_file(&conn, &path_b)[0];
-        let a_boot = symbol_entity_id(&conn, &path_a, "boot");
-        let a_same_name = symbol_entity_id(&conn, &path_a, "same_name");
+        let b_call = call_node_ids_in_file(&conn, "b.rs")[0];
+        let a_boot = symbol_entity_id(&conn, "a.rs", "boot");
+        let a_same_name = symbol_entity_id(&conn, "a.rs", "same_name");
         conn.execute(
             "UPDATE graph_edges SET from_id = ?1 WHERE to_id = ?2 AND edge_type = 'CALLER'",
             rusqlite::params![a_boot, b_call],
@@ -177,8 +170,8 @@ fn test_repair_call_edges_rewires_miswired_db() {
     // Dry-run left the corruption in place.
     {
         let conn = Connection::open(&db_path).unwrap();
-        let b_call = call_node_ids_in_file(&conn, &path_b)[0];
-        let a_boot = symbol_entity_id(&conn, &path_a, "boot");
+        let b_call = call_node_ids_in_file(&conn, "b.rs")[0];
+        let a_boot = symbol_entity_id(&conn, "a.rs", "boot");
         assert_eq!(
             edge_pairs(&conn, "CALLER", b_call),
             vec![(a_boot, b_call)],
@@ -195,9 +188,9 @@ fn test_repair_call_edges_rewires_miswired_db() {
     assert_eq!(applied.edges_inserted, 2);
 
     let conn = Connection::open(&db_path).unwrap();
-    let b_call = call_node_ids_in_file(&conn, &path_b)[0];
-    let b_boot = symbol_entity_id(&conn, &path_b, "boot");
-    let b_same_name = symbol_entity_id(&conn, &path_b, "same_name");
+    let b_call = call_node_ids_in_file(&conn, "b.rs")[0];
+    let b_boot = symbol_entity_id(&conn, "b.rs", "boot");
+    let b_same_name = symbol_entity_id(&conn, "b.rs", "same_name");
     assert_eq!(edge_pairs(&conn, "CALLER", b_call), vec![(b_boot, b_call)]);
     assert_eq!(
         edge_pairs(&conn, "CALLS", b_call),
@@ -224,16 +217,14 @@ fn test_repair_call_edges_recreates_missing_edges() {
     let db_path = temp_dir.path().join("test.db");
     let mut graph = CodeGraph::open(&db_path).unwrap();
 
-    let path_a = temp_dir.path().join("a.rs").to_string_lossy().to_string();
-
     graph
-        .index_file(&path_a, SAME_NAME_FIXTURE_A.as_bytes())
+        .index_file("a.rs", SAME_NAME_FIXTURE_A.as_bytes())
         .unwrap();
     drop(graph);
 
     {
         let conn = Connection::open(&db_path).unwrap();
-        let a_call = call_node_ids_in_file(&conn, &path_a)[0];
+        let a_call = call_node_ids_in_file(&conn, "a.rs")[0];
         conn.execute(
             "DELETE FROM graph_edges WHERE to_id = ?1 AND edge_type = 'CALLER'",
             rusqlite::params![a_call],
@@ -250,8 +241,8 @@ fn test_repair_call_edges_recreates_missing_edges() {
     assert_eq!(applied.edges_inserted, 1);
 
     let conn = Connection::open(&db_path).unwrap();
-    let a_call = call_node_ids_in_file(&conn, &path_a)[0];
-    let a_boot = symbol_entity_id(&conn, &path_a, "boot");
+    let a_call = call_node_ids_in_file(&conn, "a.rs")[0];
+    let a_boot = symbol_entity_id(&conn, "a.rs", "boot");
     assert_eq!(edge_pairs(&conn, "CALLER", a_call), vec![(a_boot, a_call)]);
 }
 
@@ -268,31 +259,25 @@ fn test_same_file_caller_wins_over_db_wide_name_fallback() {
     let db_path = temp_dir.path().join("test.db");
     let mut graph = CodeGraph::open(&db_path).unwrap();
 
-    let path_a = temp_dir.path().join("a.rs").to_string_lossy().to_string();
-    let path_b = temp_dir.path().join("b.rs").to_string_lossy().to_string();
-
     graph
-        .index_file(&path_a, SAME_NAME_FIXTURE_A.as_bytes())
+        .index_file("a.rs", SAME_NAME_FIXTURE_A.as_bytes())
         .unwrap();
     graph
-        .index_file(&path_b, SAME_NAME_FIXTURE_A.as_bytes())
+        .index_file("b.rs", SAME_NAME_FIXTURE_A.as_bytes())
         .unwrap();
 
-    for file in [&path_a, &path_b] {
+    for file in ["a.rs", "b.rs"] {
         let callers = graph.callers_of_symbol(file, "same_name").unwrap();
         assert_eq!(
             callers.len(),
             1,
-            "{}'s same_name should have exactly one caller, got {callers:?}",
-            file
+            "{file}'s same_name should have exactly one caller, got {callers:?}"
         );
         assert_eq!(callers[0].caller, "boot");
         assert_eq!(
             callers[0].file_path,
             std::path::PathBuf::from(file),
-            "caller of {}'s same_name must be recorded in {}",
-            file,
-            file
+            "caller of {file}'s same_name must be recorded in {file}"
         );
     }
 }
