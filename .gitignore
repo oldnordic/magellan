@@ -117,3 +117,9 @@ CLAUDE.md
 .hermes/
 .claude/
 Modelfile.qodo-16k
+
+# Local agent/tooling artifacts (not for release)
+/.agents/
+/graphify-out/
+/AUDIT_*.md
+/SPEC_*.md

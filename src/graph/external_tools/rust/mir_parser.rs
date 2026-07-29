@@ -278,18 +278,22 @@ fn parse_block_label(line: &str) -> Option<String> {
 
 /// Check if a statement is a MIR terminator.
 ///
-/// MIR terminators are: `goto`, `switchInt`, `return`, `assert`, `Drop`,
-/// `call`, `Unreachable`, `resume`, `tailCall`.
+/// MIR terminators are: `goto`, `switchInt`, `return`, `assert`, `Drop`/`drop`,
+/// `call`, `Unreachable`/`unreachable`, `resume`, `tailCall`, plus calls in
+/// assignment form (`_5 = path::func(args) -> [return: bb1, unwind continue]`).
 fn is_terminator(stmt: &str) -> bool {
     stmt.starts_with("goto")
         || stmt.starts_with("switchInt")
         || stmt.starts_with("return")
         || stmt.starts_with("assert")
         || stmt.starts_with("Drop")
+        || stmt.starts_with("drop")
         || stmt.starts_with("call")
         || stmt.starts_with("Unreachable")
+        || stmt.starts_with("unreachable")
         || stmt.starts_with("resume")
         || stmt.starts_with("tailCall")
+        || is_call_assignment(stmt)
 }
 
 /// Extract target block names from a terminator statement.
@@ -337,17 +341,33 @@ fn parse_bb_ref(s: &str) -> Option<String> {
     Some(s[..end].to_string())
 }
 
+/// Extract the `otherwise` target of a switchInt terminator, e.g.
+/// `switchInt(move _5) -> [0: bb5, 1: bb6, otherwise: bb4]` → `bb4`.
+/// Newer rustc also emits `-> otherwise` (no explicit arms); that form has
+/// no bb reference after `otherwise:` and yields None here.
+fn parse_otherwise_target(terminator: &str) -> Option<String> {
+    let pos = terminator.find("otherwise:")?;
+    parse_bb_ref(terminator[pos + "otherwise:".len()..].trim_start())
+}
+
 /// Classify the edge type based on the terminator and target.
-fn classify_edge(terminator: &str, _target: &str) -> CfgEdgeType {
+fn classify_edge(terminator: &str, target: &str) -> CfgEdgeType {
     if terminator.starts_with("goto") {
         CfgEdgeType::Jump
     } else if terminator.starts_with("switchInt") {
         // switchInt edges are conditional — the "otherwise" target is the
         // fallthrough/default case, others are conditional branches.
-        CfgEdgeType::ConditionalTrue
-    } else if terminator.starts_with("assert") || terminator.starts_with("Drop") {
+        if parse_otherwise_target(terminator).as_deref() == Some(target) {
+            CfgEdgeType::ConditionalFalse
+        } else {
+            CfgEdgeType::ConditionalTrue
+        }
+    } else if terminator.starts_with("assert")
+        || terminator.starts_with("Drop")
+        || terminator.starts_with("drop")
+    {
         CfgEdgeType::Jump
-    } else if terminator.starts_with("call") {
+    } else if terminator.starts_with("call") || is_call_assignment(terminator) {
         CfgEdgeType::Call
     } else if terminator.starts_with("return") {
         CfgEdgeType::Return
@@ -366,17 +386,26 @@ fn classify_terminator(terminator: &str) -> &'static str {
         "Return"
     } else if terminator.starts_with("assert") {
         "Assert"
-    } else if terminator.starts_with("Drop") {
+    } else if terminator.starts_with("Drop") || terminator.starts_with("drop") {
         "Drop"
-    } else if terminator.starts_with("call") {
+    } else if terminator.starts_with("call") || is_call_assignment(terminator) {
         "Call"
-    } else if terminator.starts_with("Unreachable") {
+    } else if terminator.starts_with("unreachable") || terminator.starts_with("Unreachable") {
         "Unreachable"
     } else if terminator.starts_with("resume") {
         "Resume"
     } else {
         "Unknown"
     }
+}
+
+/// MIR call terminators appear in assignment form:
+/// `_5 = core::str::<impl str>::trim(copy _1) -> [return: bb1, unwind continue]`.
+/// Every other MIR terminator kind starts with its keyword, so `= ` plus a
+/// basic-block target (`-> [` or `-> bb`) identifies the call form. The target
+/// requirement keeps closures (`|x| -> i32`) from false-matching.
+fn is_call_assignment(terminator: &str) -> bool {
+    terminator.contains(" = ") && (terminator.contains("-> [") || terminator.contains("-> bb"))
 }
 
 #[cfg(test)]
@@ -467,6 +496,45 @@ fn demo(_1: i32) -> i32 {
         assert!(targets.contains(&"bb3".to_string()));
         assert!(targets.contains(&"bb1".to_string()));
         assert_eq!(targets.len(), 2);
+    }
+
+    #[test]
+    fn test_switchint_otherwise_edge_is_conditional_false() {
+        let term = "switchInt(move _5) -> [0: bb5, 1: bb6, otherwise: bb4]";
+        assert_eq!(
+            parse_otherwise_target(term).as_deref(),
+            Some("bb4"),
+            "otherwise target must be parsed"
+        );
+        assert_eq!(
+            classify_edge(term, "bb4"),
+            CfgEdgeType::ConditionalFalse,
+            "otherwise arm is the default/fallthrough edge"
+        );
+        assert_eq!(classify_edge(term, "bb5"), CfgEdgeType::ConditionalTrue);
+        assert_eq!(classify_edge(term, "bb6"), CfgEdgeType::ConditionalTrue);
+    }
+
+    #[test]
+    fn test_classify_call_assignment_and_lowercase_forms() {
+        // Modern nightly MIR emits calls in assignment form and lowercase
+        // drop/unreachable — all must classify, not fall through to Unknown.
+        let call = "_5 = core::str::<impl str>::trim(copy _1) -> [return: bb1, unwind continue]";
+        assert!(is_call_assignment(call));
+        assert!(is_terminator(call));
+        assert!(!is_terminator("_3 = |x: i32| -> i32 { x };"));
+        assert_eq!(classify_terminator(call), "Call");
+        assert_eq!(classify_edge(call, "bb1"), CfgEdgeType::Call);
+        assert!(is_terminator("unreachable;"));
+        assert_eq!(classify_terminator("unreachable;"), "Unreachable");
+        assert_eq!(
+            classify_terminator("drop(_2) -> [return: bb3, unwind: bb4]"),
+            "Drop"
+        );
+        assert_eq!(
+            classify_edge("drop(_2) -> [return: bb3, unwind: bb4]", "bb3"),
+            CfgEdgeType::Jump
+        );
     }
 
     #[test]

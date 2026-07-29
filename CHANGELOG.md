@@ -5,6 +5,62 @@ Project adheres to [Semantic Versioning](https://semverver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [4.16.0] - 2026-07-29
+
+### Added
+
+- **MIR-based Rust CFG extraction wired into indexing** (`src/graph/ops.rs`,
+  `src/graph/external_tools/rust/mod.rs`): the `external_tools::rust` module
+  (shipped unwired in 4.13.0) is now called during `index_file`. When a
+  nightly toolchain is detected (cached process-wide via
+  `is_rustc_nightly_available()`, so detection does not shell out per file),
+  each `.rs` file is attempted with `rustc -Zunpretty=mir` (15s timeout) and
+  the parsed MIR CFG blocks/edges are attributed to their function symbols.
+  Any failure — the file is not self-contained (`use crate::...`, external
+  deps, `mod` declarations), dump error, parse error, or zero function-symbol
+  matches — falls back to the existing tree-sitter CFG for that file only;
+  indexing never aborts. Tree-sitter remains the default when nightly is
+  absent. New `extract_cfgs_from_rust()` returns per-function CFGs (same
+  shape as the clang/javac paths); `extract_cfg_from_rust()` now delegates
+  to it. Integration coverage: `tests/mir_cfg_wiring_tests.rs` indexes a
+  self-contained `?`/`match` file and asserts MIR-derived terminators land
+  in `cfg_blocks`.
+
+### Fixed
+
+- **`merge_function_cfgs` edge offset bug**
+  (`src/graph/external_tools/rust/mod.rs`): the block offset was accumulated
+  from the post-extend length, so for 3+ functions every function after the
+  second had its edges shifted past its own blocks (out of bounds or into a
+  neighboring function's range). The offset is now captured before extending.
+  Regression test `test_merge_three_functions_edge_indices` fails with the
+  old arithmetic and passes with the fix.
+
+- **MIR dump failed for files without `main`**
+  (`src/graph/external_tools/rust/mir_invoker.rs`): the invoker ran rustc
+  with default crate type (bin), so any file lacking a `main` function
+  failed with E0601 and silently fell back to tree-sitter — i.e. almost
+  every real library file. The invoker now passes `--crate-type lib
+  --edition 2021`.
+
+- **MIR terminator classification gaps**
+  (`src/graph/external_tools/rust/mir_parser.rs`): `is_terminator` and
+  `classify_terminator` missed modern nightly MIR forms — calls in
+  assignment form (`_5 = path::func(..) -> [return: bb1, ..]`) and lowercase
+  `drop` / `unreachable` — producing `Unknown` block terminators. All three
+  forms are now recognized (`Call`, `Drop`, `Unreachable`). `switchInt`
+  edges also mislabeled the `otherwise` arm as `ConditionalTrue`; it is now
+  `ConditionalFalse` via `parse_otherwise_target`. Unit tests cover each
+  form, including a closure (`|x| -> i32`) non-terminator guard.
+
+- **Changelog corrections**: the 4.9.3 entry claimed a "real rustc_driver
+  Callbacks implementation" using `rustc_middle::mir` types that never
+  existed in git history — `src/graph/mir_frontend/mod.rs` has always been a
+  documented placeholder whose entry point returns an error. The 4.13.0 entry
+  described the MIR extraction as live "opt-in enrichment", but the module
+  had zero call sites until the wiring in this release. Both entries now
+  describe what the code actually does.
+
 ## [4.15.0] - 2026-07-28
 
 ### Added

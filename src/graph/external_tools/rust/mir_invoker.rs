@@ -47,7 +47,16 @@ pub fn dump_mir(source_path: &Path) -> Result<String, MirDumpError> {
     // Step 2: Run rustc with -Zunpretty=mir
     // We use the nightly rustc binary directly (found by find_rustc_nightly)
     // rather than `rustup run nightly` to avoid the extra indirection.
+    // --crate-type lib: indexed files are usually library fragments without a
+    // `main` — without this rustc fails with E0601 and the caller falls back
+    // to tree-sitter for almost every real-world file.
+    // --edition 2021: rustc defaults to edition 2015, which rejects modern
+    // idioms; files with 2015-only keyword usage still fall back gracefully.
     let output = std::process::Command::new(&nightly_rustc)
+        .arg("--crate-type")
+        .arg("lib")
+        .arg("--edition")
+        .arg("2021")
         .arg("-Zunpretty=mir")
         .arg(source_path)
         .output()
@@ -87,7 +96,14 @@ pub fn dump_mir_with_timeout(
 
     let result = invoke_tool_with_timeout(
         &nightly_rustc,
-        &["-Zunpretty=mir", source_path.to_str().unwrap_or("")],
+        &[
+            "--crate-type",
+            "lib",
+            "--edition",
+            "2021",
+            "-Zunpretty=mir",
+            source_path.to_str().unwrap_or(""),
+        ],
         Duration::from_secs(timeout_secs),
     )
     .map_err(|e| MirDumpError::CompilationFailed(format!("Tool invocation failed: {}", e)))?;

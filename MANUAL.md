@@ -1168,8 +1168,19 @@ when present. Missing tools degrade gracefully.
 
 ## External CFG Tools
 
-C/C++ and Java CFG extraction uses installed external tools detected at runtime.
-No special build flags or recompilation is required.
+Rust, C/C++, and Java CFG extraction uses installed external tools detected at
+runtime. No special build flags or recompilation is required.
+
+**Rust (nightly rustc, MIR):** When a nightly toolchain is installed (via
+rustup), magellan dumps MIR with `rustc -Zunpretty=mir --crate-type lib
+--edition 2021` during indexing and extracts per-function CFG basic blocks and
+edges from the compiler's post-desugaring IR. MIR sees control flow that
+tree-sitter cannot: `?` desugaring (`Try::branch`), match guards, overflow
+asserts, and loop lowering. Single-file MIR dump only works for self-contained
+files; anything that fails to compile standalone (e.g. `use crate::...`)
+falls back to tree-sitter for that file only, and tree-sitter remains the
+default when nightly is absent. Crate-level MIR (via `RUSTC_WRAPPER`) is not
+yet implemented.
 
 **C/C++ (clang):** When `clang` is on `PATH`, magellan emits LLVM IR during
 indexing and extracts per-function CFG basic blocks and edges directly from the

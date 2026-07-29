@@ -347,7 +347,11 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
         }
     }
 
-    // Step 5.6: Tree-sitter CFG (Rust always; C/C++ only when clang not available)
+    // Step 5.6: CFG extraction.
+    // - Rust: MIR via nightly rustc when available (compiler-grade: sees `?`
+    //   desugaring, match exhaustiveness, overflow asserts), tree-sitter
+    //   otherwise or as per-file fallback.
+    // - C/C++: tree-sitter only when clang is not available (clang path below).
     let is_rust = path.ends_with(".rs");
     let is_cpp = path.ends_with(".cpp")
         || path.ends_with(".hpp")
@@ -356,7 +360,59 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
     let is_c = path.ends_with(".c") || path.ends_with(".h");
     let llvm_available = (is_c || is_cpp) && super::external_tools::c_cpp::is_clang_available();
 
-    if (is_rust || ((is_c || is_cpp) && !llvm_available)) && !function_symbol_ids.is_empty() {
+    // Nightly detection is cached process-wide inside is_rustc_nightly_available(),
+    // so this does not shell out per file.
+    let mir_available = is_rust && super::external_tools::rust::is_rustc_nightly_available();
+
+    // Step 5.6a: MIR CFG for Rust (when nightly available).
+    // Single-file `rustc -Zunpretty=mir` only works for self-contained files;
+    // any failure (won't compile standalone, dump error, parse error) falls
+    // back to tree-sitter below. A MIR attempt that matches zero indexed
+    // function symbols also falls back.
+    let mir_handled_cfg = if mir_available && !function_symbol_ids.is_empty() {
+        let source_path = std::path::Path::new(path);
+        match super::external_tools::rust::extract_cfgs_from_rust(source_path) {
+            Ok(cfgs) => {
+                let mut inserted = 0usize;
+                for (func_name, mut cfg_with_edges) in cfgs {
+                    // MIR prints crate-root functions as `name` and methods as
+                    // `Type::method`; match either form against symbol names.
+                    let simple_name = func_name.rsplit("::").next().unwrap_or(&func_name);
+                    if let Some(&(_, entity_id, _, _)) =
+                        function_symbol_ids.iter().find(|(name, ..)| {
+                            name.as_str() == func_name.as_str() || name.as_str() == simple_name
+                        })
+                    {
+                        for block in &mut cfg_with_edges.blocks {
+                            block.function_id = entity_id;
+                        }
+                        cfg_with_edges.function_id = entity_id;
+                        let _ = graph.cfg_ops.insert_cfg_blocks(&cfg_with_edges.blocks);
+                        let _ = graph
+                            .cfg_ops
+                            .insert_cfg_edges(entity_id, &cfg_with_edges.edges);
+                        inserted += 1;
+                    }
+                }
+                if inserted == 0 {
+                    tracing::debug!(path = %path, "MIR extraction matched no function symbols, using tree-sitter");
+                }
+                inserted > 0
+            }
+            Err(e) => {
+                tracing::debug!(path = %path, error = %e, "MIR extraction skipped, using tree-sitter");
+                false
+            }
+        }
+    } else {
+        false
+    };
+
+    // Step 5.6b: Tree-sitter CFG (Rust when MIR did not handle this file;
+    // C/C++ only when clang not available)
+    if ((is_rust && !mir_handled_cfg) || ((is_c || is_cpp) && !llvm_available))
+        && !function_symbol_ids.is_empty()
+    {
         if let Some(ref tree) = parsed_tree {
             let root = tree.root_node();
 
