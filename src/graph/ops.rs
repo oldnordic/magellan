@@ -95,6 +95,7 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
     use crate::ingest::{detect::Language, detect_language, Parser};
 
     let hash = graph.files.compute_hash(source);
+    let normalized_path = crate::graph::files::normalize_path_for_index(path);
 
     // Step 1: Find or create file node
     let file_id = graph.files.find_or_create_file_node(path, &hash)?;
@@ -105,7 +106,7 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
     // Verify deletion completed (_symbols_deleted may be 0 for new files)
 
     // Step 3: Detect language and parse symbols from source
-    let path_buf = PathBuf::from(path);
+    let path_buf = PathBuf::from(&normalized_path);
     let language = detect_language(&path_buf);
 
     // Parse source once and share the tree across all extractors
@@ -251,7 +252,7 @@ pub fn index_file(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<us
         // This handles multi-byte UTF-8 characters that could be split by tree-sitter offsets
         if let Some(content) = extract_symbol_content_safe(source, fact.byte_start, fact.byte_end) {
             let chunk = CodeChunk::new(
-                path.to_string(),
+                normalized_path.clone(),
                 fact.byte_start,
                 fact.byte_end,
                 content,

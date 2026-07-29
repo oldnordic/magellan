@@ -124,7 +124,8 @@ fn test_verify_after_symbols_deleted() {
     let db_path = temp_dir.path().join("test.db");
     let mut graph = CodeGraph::open(&db_path).unwrap();
 
-    let path = "test_verify_symbols.rs";
+    let path_buf = temp_dir.path().join("test_verify_symbols.rs");
+    let path = path_buf.to_str().unwrap();
     let setup = create_file_with_data(&mut graph, path);
 
     // Delete with verification after symbols - stops early but doesn't rollback
@@ -180,7 +181,8 @@ fn test_verify_after_references_deleted() {
     let db_path = temp_dir.path().join("test.db");
     let mut graph = CodeGraph::open(&db_path).unwrap();
 
-    let path = "test_verify_references.rs";
+    let path_buf = temp_dir.path().join("test_verify_references.rs");
+    let path = path_buf.to_str().unwrap();
     let setup = create_file_with_data(&mut graph, path);
 
     // Delete with verification after references - stops early but doesn't rollback
@@ -233,7 +235,8 @@ fn test_verify_after_calls_deleted() {
     let db_path = temp_dir.path().join("test.db");
     let mut graph = CodeGraph::open(&db_path).unwrap();
 
-    let path = "test_verify_calls.rs";
+    let path_buf = temp_dir.path().join("test_verify_calls.rs");
+    let path = path_buf.to_str().unwrap();
     let setup = create_file_with_data(&mut graph, path);
 
     // Delete with verification after calls - stops early but doesn't rollback
@@ -287,7 +290,8 @@ fn test_verify_after_chunks_deleted() {
     let db_path = temp_dir.path().join("test.db");
     let mut graph = CodeGraph::open(&db_path).unwrap();
 
-    let path = "test_verify_chunks.rs";
+    let path_buf = temp_dir.path().join("test_verify_chunks.rs");
+    let path = path_buf.to_str().unwrap();
     let setup = create_file_with_data(&mut graph, path);
 
     // Delete with verification after chunks - transaction is committed, chunks deleted
@@ -335,7 +339,8 @@ fn test_verify_before_file_deleted() {
     let db_path = temp_dir.path().join("test.db");
     let mut graph = CodeGraph::open(&db_path).unwrap();
 
-    let path = "test_verify_before_file.rs";
+    let path_buf = temp_dir.path().join("test_verify_before_file.rs");
+    let path = path_buf.to_str().unwrap();
     let setup = create_file_with_data(&mut graph, path);
 
     // Delete with verification after file node deleted (but before chunks) - stops early
@@ -393,7 +398,8 @@ fn test_successful_delete_with_injection() {
     let db_path = temp_dir.path().join("test.db");
     let mut graph = CodeGraph::open(&db_path).unwrap();
 
-    let path = "test_successful_delete.rs";
+    let path_buf = temp_dir.path().join("test_successful_delete.rs");
+    let path = path_buf.to_str().unwrap();
     let setup = create_file_with_data(&mut graph, path);
 
     // Delete without verification point (complete delete)
@@ -431,7 +437,8 @@ fn test_delete_same_file_twice() {
     let db_path = temp_dir.path().join("test.db");
     let mut graph = CodeGraph::open(&db_path).unwrap();
 
-    let path = "test_double_delete.rs";
+    let path_buf = temp_dir.path().join("test_double_delete.rs");
+    let path = path_buf.to_str().unwrap();
     let _setup = create_file_with_data(&mut graph, path);
 
     // First delete should succeed
@@ -464,7 +471,8 @@ fn test_delete_with_in_memory_index() {
     let db_path = temp_dir.path().join("test.db");
     let mut graph = CodeGraph::open(&db_path).unwrap();
 
-    let path = "test_in_memory_index.rs";
+    let path_buf = temp_dir.path().join("test_in_memory_index.rs");
+    let path = path_buf.to_str().unwrap();
     let _setup = create_file_with_data(&mut graph, path);
 
     // Verify file is in in-memory index before delete
@@ -497,8 +505,10 @@ fn test_delete_one_file_doesnt_affect_another() {
     let mut graph = CodeGraph::open(&db_path).unwrap();
 
     // Create two files
-    let path1 = "test_file1.rs";
-    let path2 = "test_file2.rs";
+    let path1_buf = temp_dir.path().join("test_file1.rs");
+    let path1 = path1_buf.to_str().unwrap();
+    let path2_buf = temp_dir.path().join("test_file2.rs");
+    let path2 = path2_buf.to_str().unwrap();
 
     let _setup1 = create_file_with_data(&mut graph, path1);
     let setup2 = create_file_with_data(&mut graph, path2);
@@ -537,7 +547,8 @@ fn test_delete_removes_code_chunks() {
     let db_path = temp_dir.path().join("test.db");
     let mut graph = CodeGraph::open(&db_path).unwrap();
 
-    let path = "test_chunks.rs";
+    let path_buf = temp_dir.path().join("test_chunks.rs");
+    let path = path_buf.to_str().unwrap();
     let setup = create_file_with_data(&mut graph, path);
 
     // Count code chunks via API before delete
@@ -567,7 +578,8 @@ fn test_delete_removes_all_symbols() {
     let db_path = temp_dir.path().join("test.db");
     let mut graph = CodeGraph::open(&db_path).unwrap();
 
-    let path = "test_symbols.rs";
+    let path_buf = temp_dir.path().join("test_symbols.rs");
+    let path = path_buf.to_str().unwrap();
     let setup = create_file_with_data(&mut graph, path);
 
     // Get initial symbol count for this file

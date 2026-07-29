@@ -22,9 +22,13 @@ use super::CodeGraph;
 /// # Performance
 /// Uses in-memory SymbolLookup for O(1) symbol resolution instead of O(n) database scan.
 pub fn index_calls(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<usize> {
+    let normalized_path = crate::graph::files::normalize_path_for_index(path);
     // Use in-memory lookup for O(1) symbol resolution
     // This replaces the previous O(n) database scan
-    let symbol_fqn_to_id_with_file = graph.symbols.lookup.fqn_to_id_with_current_file(path);
+    let symbol_fqn_to_id_with_file = graph
+        .symbols
+        .lookup
+        .fqn_to_id_with_current_file(&normalized_path);
 
     let symbol_fqn_to_id: HashMap<String, i64> = symbol_fqn_to_id_with_file
         .into_iter()
@@ -32,7 +36,9 @@ pub fn index_calls(graph: &mut CodeGraph, path: &str, source: &[u8]) -> Result<u
         .collect();
 
     // Index calls using CallOps
-    graph.calls.index_calls(path, source, &symbol_fqn_to_id)
+    graph
+        .calls
+        .index_calls(&normalized_path, source, &symbol_fqn_to_id)
 }
 
 /// Index calls using a pre-parsed tree (eliminates redundant parsing).
@@ -43,7 +49,11 @@ pub fn index_calls_with_tree(
     tree: &tree_sitter::Tree,
     language: crate::ingest::detect::Language,
 ) -> Result<usize> {
-    let symbol_fqn_to_id_with_file = graph.symbols.lookup.fqn_to_id_with_current_file(path);
+    let normalized_path = crate::graph::files::normalize_path_for_index(path);
+    let symbol_fqn_to_id_with_file = graph
+        .symbols
+        .lookup
+        .fqn_to_id_with_current_file(&normalized_path);
 
     let symbol_fqn_to_id: HashMap<String, i64> = symbol_fqn_to_id_with_file
         .into_iter()
@@ -52,7 +62,7 @@ pub fn index_calls_with_tree(
 
     graph
         .calls
-        .index_calls_with_tree(path, source, &symbol_fqn_to_id, tree, language)
+        .index_calls_with_tree(&normalized_path, source, &symbol_fqn_to_id, tree, language)
 }
 
 /// Index calls derived from LLVM IR for a C/C++ file.
@@ -64,14 +74,18 @@ pub fn index_calls_from_llvm(
     path: &str,
     llvm_calls: HashMap<String, Vec<String>>,
 ) -> Result<usize> {
-    let symbol_fqn_to_id_with_file = graph.symbols.lookup.fqn_to_id_with_current_file(path);
+    let normalized_path = crate::graph::files::normalize_path_for_index(path);
+    let symbol_fqn_to_id_with_file = graph
+        .symbols
+        .lookup
+        .fqn_to_id_with_current_file(&normalized_path);
     let symbol_fqn_to_id: HashMap<String, i64> = symbol_fqn_to_id_with_file
         .into_iter()
         .map(|(fqn, (id, _))| (fqn, id))
         .collect();
     graph
         .calls
-        .index_calls_from_llvm(path, &llvm_calls, &symbol_fqn_to_id)
+        .index_calls_from_llvm(&normalized_path, &llvm_calls, &symbol_fqn_to_id)
 }
 
 /// Query all calls FROM a specific symbol (forward call graph)

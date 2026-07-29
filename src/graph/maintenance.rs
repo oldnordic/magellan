@@ -163,7 +163,16 @@ impl CodeGraph {
 
     /// Get code chunks for a specific file.
     pub fn get_code_chunks(&self, file_path: &str) -> Result<Vec<CodeChunk>> {
-        self.chunks.get_chunks_for_file(file_path)
+        let location_path = match self
+            .files
+            .find_all_file_nodes(file_path)
+            .ok()
+            .and_then(|nodes| nodes.first().map(|(_, n)| n.path.clone()))
+        {
+            Some(stored_path) => self.files.absolute_fs_path(&stored_path),
+            None => self.files.absolute_fs_path(file_path),
+        };
+        self.chunks.get_chunks_for_file(&location_path)
     }
 
     /// Search code chunk content via FTS5 full-text search.
@@ -181,7 +190,17 @@ impl CodeGraph {
         file_path: &str,
         symbol_name: &str,
     ) -> Result<Vec<CodeChunk>> {
-        self.chunks.get_chunks_for_symbol(file_path, symbol_name)
+        let location_path = match self
+            .files
+            .find_all_file_nodes(file_path)
+            .ok()
+            .and_then(|nodes| nodes.first().map(|(_, n)| n.path.clone()))
+        {
+            Some(stored_path) => self.files.absolute_fs_path(&stored_path),
+            None => self.files.absolute_fs_path(file_path),
+        };
+        self.chunks
+            .get_chunks_for_symbol(&location_path, symbol_name)
     }
 
     /// Get a code chunk by exact byte span.
@@ -191,8 +210,17 @@ impl CodeGraph {
         byte_start: usize,
         byte_end: usize,
     ) -> Result<Option<CodeChunk>> {
+        let location_path = match self
+            .files
+            .find_all_file_nodes(file_path)
+            .ok()
+            .and_then(|nodes| nodes.first().map(|(_, n)| n.path.clone()))
+        {
+            Some(stored_path) => self.files.absolute_fs_path(&stored_path),
+            None => self.files.absolute_fs_path(file_path),
+        };
         self.chunks
-            .get_chunk_by_span(file_path, byte_start, byte_end)
+            .get_chunk_by_span(&location_path, byte_start, byte_end)
     }
 
     /// Store code chunks for a file.

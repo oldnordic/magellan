@@ -564,8 +564,7 @@ mod spatial_tests {
 
     #[test]
     fn test_cfg_extract_ops_functions_no_stack_overflow() {
-        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let source = std::fs::read_to_string(root.join("src/graph/ops.rs")).unwrap();
+        let source = include_str!("ops.rs");
         let mut parser = tree_sitter::Parser::new();
         parser
             .set_language(&tree_sitter_rust::LANGUAGE.into())

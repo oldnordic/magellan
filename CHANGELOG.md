@@ -5,6 +5,19 @@ Project adheres to [Semantic Versioning](https://semverver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Changed
+
+- **Path-identity normalization extended to all ingest/query paths**
+  (`src/graph/ops.rs`, `calls.rs`, `query.rs`, `maintenance.rs`):
+  `normalize_path_for_index` is now applied when indexing calls and
+  references and when building code chunks, and the chunk getters
+  (`get_code_chunks`, `get_chunks_for_symbol`, `get_chunk_by_span`)
+  re-anchor to the stored path via `find_all_file_nodes` +
+  `absolute_fs_path`. Callers passing relative or differently-normalized
+  paths now resolve to the same file node instead of silently missing.
+  Tests made CWD-independent with tempdir fixtures (`filter.rs`,
+  `ingest/tests.rs`, `cfg_ops.rs` include_str).
+
 ## [4.16.0] - 2026-07-29
 
 ### Added

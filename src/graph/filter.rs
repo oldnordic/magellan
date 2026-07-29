@@ -546,9 +546,14 @@ mod tests {
 
 #[test]
 fn test_tests_dir_not_skipped_by_default() {
-    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let temp = tempfile::TempDir::new().unwrap();
+    let root = temp.path().to_path_buf();
+    let tests_dir = root.join("tests");
+    std::fs::create_dir(&tests_dir).unwrap();
+    let tests_file = tests_dir.join("algorithm_tests.rs");
+    std::fs::write(&tests_file, b"").unwrap();
+
     let filter = FileFilter::new(&root, &[], &[]).unwrap();
-    let tests_file = root.join("tests/algorithm_tests.rs");
     let result = filter.should_skip(&tests_file);
     println!("tests/algorithm_tests.rs: {:?}", result);
     assert!(
