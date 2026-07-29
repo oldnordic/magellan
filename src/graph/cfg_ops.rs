@@ -604,7 +604,7 @@ mod spatial_tests {
             let cfg = crate::graph::cfg_edges_extract::extract_cfg_from_function_node(
                 func,
                 i as i64 + 1,
-                source,
+                &source,
             );
             println!(
                 "  Extracted {} blocks, {} edges",
